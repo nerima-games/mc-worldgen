@@ -125,6 +125,13 @@ export const valueNoise2D = (seed: number, x: number, z: number, frequency: numb
  * measured performance exception that must NOT be "fixed" into an array fold —
  * the state thread is deliberate. It is written that way here so the convention
  * is established before mc-noise inherits it.
+ *
+ * A convention held up by a comment is one refactor from being lost, so it is
+ * also measured: `scripts/bench-terrain.ts` (run with `pnpm bench`) pins this
+ * function against a frozen copy of its own current shape, and prices the fold
+ * at 4.1x. Rewriting it as `Array.from().reduce` makes `generateChunk` 1.93x
+ * slower overall — this one loop is roughly 44% of chunk generation. See
+ * docs/testing.md §7.
  */
 export const fbm2D = (
   seed: number,

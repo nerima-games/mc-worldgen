@@ -1,0 +1,21 @@
+{
+  // The dev preview under apps/preview-terrain.
+  //
+  // A SEPARATE project on purpose. tsconfig.build.json proves that the shipped
+  // domain is platform-free — it inherits `types: []` and a `lib` without "DOM",
+  // so a Node global or a browser type leaking into `domain/` fails the build.
+  // That proof is the reason world generation can run in a worker, in Node and
+  // in a test with no canvas, and it would be destroyed by adding `apps/**` to
+  // that project's `include`.
+  //
+  // NOTE what this file does NOT do: it does not add "DOM" to `lib`. The preview
+  // renders to a terminal, so it needs Node's stdio and nothing from a browser.
+  // If a future preview ever needs "DOM" here, that is the moment to ask whether
+  // it still belongs in this repository at all — see apps/preview-terrain/main.ts.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["apps/**/*.ts", "index.ts", "domain/**/*.ts"],
+  "exclude": ["node_modules", "coverage", "dist"]
+}

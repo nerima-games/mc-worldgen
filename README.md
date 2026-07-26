@@ -97,7 +97,7 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 
 | コマンド | 内容 |
 | --- | --- |
-| `pnpm typecheck` | `tsconfig.build.json` と `tsconfig.test.json` の両方を型検査 |
+| `pnpm typecheck` | `tsconfig.build.json`（出荷）、`tsconfig.test.json`（テスト+ツール）、`tsconfig.preview.json`（`apps/`）の 3 プロジェクト |
 | `pnpm lint` | oxlint（唯一の lint/format 設定）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`oxlint.json` は 5 カテゴリすべてと個別 66 ルールが `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
 | `pnpm lint:fix` | oxlint の自動修正 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect`） |
@@ -105,6 +105,26 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | `pnpm test:coverage` | カバレッジ計測（閾値は未設定。[docs/testing.md](./docs/testing.md) 参照） |
 | `pnpm check:deps` | 依存ホワイトリスト + 循環検査 + `Date.now()` 禁止 |
 | `pnpm verify` | `typecheck && lint && check:deps && test`。CI と同じ |
+| `pnpm preview` | **内蔵地形プレビュー**（下記）。`verify` には入らない |
+
+### 地形プレビュー
+
+```console
+$ pnpm preview                  # 対話モード。wasd で飛び回る
+$ pnpm preview --help           # キー割り当てとオプション
+$ pnpm preview --stats          # 絵ではなく数値レポート
+$ pnpm preview --once --ascii   # 1 フレームを文字で標準出力へ
+```
+
+3 つのビュー: `map`（真上・バイオーム色）、`height`（表面高度・海面で色が切り替わる）、
+`slice`（垂直断面・**実際の `generateChunk` のブロック**）。
+
+**3D ではなくターミナルに描いてある。** `three` をプレビューにだけ足す案は却下した
+（`lib` に `"DOM"` が無いことが THREE 非依存の機構的保証であり、それを崩すため）。
+理由と、失われたもの（山脈のシルエット、洞窟内部の眺め）は
+[`apps/preview-terrain/README.md`](./apps/preview-terrain/README.md) に書いてある。
+
+**依存は 1 つも増えていない。** org パッケージ 0、npm 依存 0、時計の読み取り 0。
 
 ### 構成
 
@@ -118,6 +138,8 @@ domain/
   carver.ts           洞窟カーバー ★水域床ガード
   tree-placement.ts   格子ジッター配置
   terrain.ts          generateChunk(seed, coords)
+apps/
+  preview-terrain/    内蔵地形プレビュー（dev アプリ。公開 API ではない）
 scripts/
   check-dependency-whitelist.ts   16 リポジトリ共通のゲート
 test/                             54 tests
@@ -135,8 +157,10 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
 
 **このリポジトリはまだ叩き台（pre-audit first cut）である。**
 
-- **地形プレビューは未実装。** plan.md §6 Step 2 の「最初の遊べる成果物」
-  （mc-playground-kit は使えない。kit が worldgen に依存しているので循環する）
+- ✅ **地形プレビューは実装済み** — `apps/preview-terrain/`。
+  plan.md §6 Step 2 の「最初の遊べる成果物」であり、
+  **完成条件 2（プレビューが操作可能）はこれで満たした**。
+  mc-playground-kit は使っていない（kit が worldgen に依存しているので循環する）
 - **シード固定ゴールデンハッシュは未実装。** 参照実装にも 1 本も無い。
   決定論が証明済みなので安価に導入できる
 - **未実装**: 渓谷カーバー、草・花、鉱石、構造物、ライトグリッド、`ChunkManager`、
@@ -147,6 +171,19 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   `domain/chunk.ts` と `BLOCK` は mc-kernel の仮置き
 - **ビルド／publish はまだない。** `exports` は TypeScript ソースを直接指している
 - **カバレッジ閾値は未設定。** 99% ゲートは完成条件到達時に有効化する
+
+### プレビューが暴いたもの
+
+プレビューを入れた目的は絵ではない。**絵を見て初めて分かることを見ること**である。
+実際に 5 件出た。全文は [docs/testing.md §4-b](./docs/testing.md)。
+
+| | 内容 |
+| --- | --- |
+| F-1 | **世界の 20% が平らにクランプされている。** `CONTINENTALNESS_CONTRAST = 2.6` を正当化しているコメントの実測値（生の連続性が `[0.40, 0.72]`）が間違っている。実測は `[0.053, 0.946]`。窓が小さすぎた |
+| F-2 | **樹冠が融合している。** 1 チャンク・1 Y の LEAVES 連結成分が最大 78 ブロック（樹冠 1 個は 21）。`domain/tree-placement.ts` の「格子ジッターは最小間隔を構成的に抑える」は**偽**。抑えるのは密度である |
+| F-3 | カーバーの水域床ガードは**常時働いている**（稀な境界事例ではない）。ただし `WATER_FLOOR_MARGIN=3` は水底ブロック込みで 3 枚なので、砂 3 枚の下がすぐ洞窟という海底が延々と続く |
+| F-4 | デフォルトシードの原点付近ではガードの出番が無い。`g` を押して何も起きないことをもって「無意味」と結論しないこと |
+| F-5 | **走査窓が狭いと統計は嘘をつく。** このプレビュー自身が最初にそれをやり、「DESERT と SNOW は到達不能」という誤結論を出した（広げたら 8 バイオーム全部出た）。完成条件 7 の統計テストを書く人への警告 |
 
 ## License
 
