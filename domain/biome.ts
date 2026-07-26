@@ -23,8 +23,9 @@
  * continentalness, erosion, pv, riverNoise). This skeleton implements the
  * two-input stage only; docs/porting.md records the rest.
  */
+import { BlockId } from './kernel-vocabulary'
 
-export const BIOMES = ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW'] as const
+export const BIOMES =['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW'] as const
 
 export type BiomeType = (typeof BIOMES)[number]
 
@@ -66,27 +67,41 @@ export const classifyBiome = (climate: ClimateSample): BiomeType =>
  * growing on the lake bed" artefact.
  */
 export type BiomeSurface = {
-  readonly top: number
-  readonly filler: number
-  readonly underwaterTop: number
+  readonly top: BlockId
+  readonly filler: BlockId
+  readonly underwaterTop: BlockId
 }
 
-/** Block ids. Small and local for now; kernel will own the real table (plan.md §3.1). */
+/**
+ * The block ids this generator writes.
+ *
+ * These eleven numbers are no longer local: `mc-kernel/domain/block-registry.ts`
+ * ADOPTED them as the canonical id assignment for `air`, `bedrock`, `stone`,
+ * `dirt`, `grass_block`, `sand`, `water`, `snow`, `gravel`, `oak_log` and
+ * `oak_leaves`. Kernel took this repository's numbering rather than imposing a
+ * new one, precisely so that adopting the registry costs an import change here
+ * and not a regeneration of every golden terrain fixture.
+ *
+ * `test/kernel-mirror.test.ts` pins the agreement in both directions. Changing
+ * a number here is changing a save format; see the registry's header.
+ *
+ * The names are this repository's generation vocabulary (`GRASS`, `LOG`,
+ * `LEAVES`) rather than kernel's `BlockType` literals (`grass_block`,
+ * `oak_log`, `oak_leaves`); the mapping is in that same mirror test.
+ */
 export const BLOCK = {
-  AIR: 0,
-  BEDROCK: 1,
-  STONE: 2,
-  DIRT: 3,
-  GRASS: 4,
-  SAND: 5,
-  WATER: 6,
-  SNOW: 7,
-  GRAVEL: 8,
-  LOG: 9,
-  LEAVES: 10,
+  AIR: BlockId(0),
+  BEDROCK: BlockId(1),
+  STONE: BlockId(2),
+  DIRT: BlockId(3),
+  GRASS: BlockId(4),
+  SAND: BlockId(5),
+  WATER: BlockId(6),
+  SNOW: BlockId(7),
+  GRAVEL: BlockId(8),
+  LOG: BlockId(9),
+  LEAVES: BlockId(10),
 } as const
-
-export type BlockId = (typeof BLOCK)[keyof typeof BLOCK]
 
 export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {
   OCEAN: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },

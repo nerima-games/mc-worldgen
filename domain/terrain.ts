@@ -46,14 +46,12 @@ import {
 import { carveCaves, type CarveOptions } from './carver'
 import {
   biomeAt,
-  chunkCoord,
   columnIndex,
   emptyBlocks,
   readBlock,
   worldX,
   worldZ,
   type Chunk,
-  type ChunkCoord,
 } from './chunk'
 import {
   BEDROCK_Y,
@@ -63,6 +61,7 @@ import {
   DEFAULT_TERRAIN_LEVELS,
   type TerrainLevels,
 } from './constants'
+import { chunkCoord, type ChunkCoord } from './kernel-vocabulary'
 import { channelSeed, fbm2D } from './seeded-random'
 import { shouldPlaceTree } from './tree-placement'
 

@@ -22,7 +22,7 @@
 | 鉱石 | | ⬜ |
 | 構造物（村 / ポータル / End / 要塞） | | ⬜ |
 | ライトグリッド | BFS 光伝播、4bit パック。**データはここが所有** | ⬜ |
-| `ChunkManager` | ロード / アンロード / ダーティフラグ | ⬜ |
+| `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
 | ワーカープール Port | 実装は利用側が注入 | ⬜ |
 | チャンクフォーマット定義 | mc-save の `defineFormat` で | ⬜ |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
@@ -39,7 +39,8 @@
 | 「木を斧で切ると原木が落ちる」 | **mx-gameplay** | 動詞は体験モジュール（plan.md §2.3-1） |
 | 「落下ブロック（砂/砂利）」の挙動 | **mx-gameplay** | 同上。plan.md §3.11 |
 | 流体の伝播 | **mx-gameplay** | 同上。生成時の水位設定とは別物 |
-| ブロックの破壊・設置 | **mx-gameplay** | 同上 |
+| 「ブロックを壊したら / 置いたら何が起きるか」 | **mx-gameplay** | 同上。**ただし書き込みを受け付ける器（`ChunkStore.setBlock`）はここ** — 下記 |
+| ブロックが何をするか（能力フラグ・ブロックテーブル） | **mc-kernel** | `domain/block-registry.ts`。meshing / physics / gameplay は依存グラフ上で互いに届かず、kernel だけが 3 者から見える |
 | 次元ごとの Mob 名簿 | **mx-gameplay** | plan.md §7:「次元 → worldgen + sim + gameplay + save（横断）」 |
 | THREE.js | **mc-render** | §5 の THREE ゼロ原則 |
 
@@ -48,6 +49,8 @@
 | これは mc-worldgen（名詞） | これは mx-gameplay（動詞） |
 | --- | --- |
 | チャンクを生成する / ロード・アンロードする | プレイヤーがブロックを壊したとき何が起きるか |
+| ブロックの値を保持し、書き込みを受け付ける（`ChunkStore`） | 何をどういう条件で書き込むか（採掘・設置・落下・流体） |
+| 「このチャンクが変わった」を報告する | その報告を受けて砂を落とす |
 | ライトグリッドのデータを所有する | 松明を置いたら明るくなる、というルール |
 | バイオームを分類する | バイオームで Mob スポーン表が変わる、というルール |
 | 生成時に木を配置する | 木を切ると原木がドロップする |
@@ -134,6 +137,14 @@ light-engine-bfs / worker parity に存在する。
 mc-sim ほどではないが、mc-worldgen も依存ハブである。
 公開 API は慎重に決めること。
 
+### `ChunkStore` の所有権について（plan.md 未決事項の決着）
+
+plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManager` = ここ）と
+§3.8（mc-sim = ゲーム状態の中枢）の間で決めていない。
+本リポジトリに置くと決めた根拠、そのために plan.md §3.8 の 1 文を
+どう解釈したか、逆の選択のコストは
+[public-api.md §6-0 〜 §6-2](./public-api.md) にある。**覆すならそこを読むこと。**
+
 ### 循環に注意
 
 `mc-playground-kit` は mc-worldgen に依存している。
@@ -149,4 +160,4 @@ mc-sim ほどではないが、mc-worldgen も依存ハブである。
 | 渓谷カーバー | パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後 | 植生の後 |
 | 構造物 | 単体で大きい。地形が安定してから | 地形プレビューの後 |
 | ライトグリッド | 4bit パックの実装は `packages/block/domain/light.ts` から | チャンクフォーマット確定後 |
-| `ChunkManager` | 永続化（mc-save）が要る | mc-save 消費開始後 |
+| `ChunkStore` の永続化（`unload` が保存しない） | 永続化（mc-save）が要る | mc-save 消費開始後。ストレージ読み出しは `ChunkSource` の前段に合成され、`ChunkStoreApi` は変わらない |

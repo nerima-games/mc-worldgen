@@ -68,8 +68,11 @@ publish 開始時に、ボトムアップ（kernel → 各 tier1 → worldgen �
 
 mc-worldgen の場合、具体的には:
 
-1. `mc-sim` がチャンクを読み、ダーティ通知を受けている
-2. `mc-render` がダーティ購読からメッシュを更新している
+1. `mc-sim` が `ChunkStore` からチャンクを読んでいる
+2. `mc-render` が `ChunkStore.subscribeDirty` の購読からメッシュを更新している
+   （ダーティ通知はこのリポジトリが所有する。plan.md §3.8 は mc-sim の API と
+   しているが、フラグを持つのは §3.7 によりここであり、sim 経由にすると毎フレーム
+   全チャンクのポーリングになる。根拠は [public-api.md](./public-api.md) §6-2）
 3. その状態で API を 4 週間変更していない（plan.md §6 Step 3 の API ロック条件）
 4. 地形プレビューが操作可能である（plan.md §6 Step 2 の完了条件）
 5. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている

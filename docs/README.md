@@ -98,5 +98,5 @@ mc-worldgen では `tsconfig.base.json` の `lib` に `"DOM"` を入れないこ
 ## 現在の状態
 
 叩き台 (pre-audit first cut)。`pnpm verify` は green（54 tests）。
-地形プレビュー・構造物・ライトグリッド・ChunkManager は未実装
+構造物・ライトグリッド・チャンク永続化は未実装（`ChunkStore` は実装済み）
 （[testing.md](./testing.md)）。

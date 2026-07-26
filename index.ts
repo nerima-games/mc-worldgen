@@ -16,12 +16,23 @@
  *     plan.md §3.7 states both incorrectly. See `domain/constants.ts`.
  *  2. The carver's water-floor guard is not an improvement over the reference
  *     — it is a port OF the reference's fix. See `domain/carver.ts`.
+ *  3. **`ChunkStore` lives here, not in mc-sim.** plan.md leaves the owner of
+ *     the block WRITE path genuinely unassigned between §3.7 and §3.8; the
+ *     argument for settling it here — and the one clause of §3.8 that
+ *     settlement contradicts — is in `application/chunk-store.ts`'s header and
+ *     in docs/public-api.md §6.
  */
 
+// --- Domain: pure values and transitions -----------------------------------
 export * from './domain/biome'
 export * from './domain/carver'
 export * from './domain/chunk'
+export * from './domain/chunk-store-state'
 export * from './domain/constants'
+export * from './domain/kernel-vocabulary'
 export * from './domain/seeded-random'
 export * from './domain/terrain'
 export * from './domain/tree-placement'
+
+// --- Application: Effect services -------------------------------------------
+export * from './application/chunk-store'

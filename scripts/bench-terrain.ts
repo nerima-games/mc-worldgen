@@ -58,6 +58,8 @@ import {
   generateChunk,
   surfaceHeightAt,
   valueNoise2D,
+  worldX,
+  worldZ,
   type ChunkCoord,
 } from '../index'
 import {
@@ -244,7 +246,7 @@ const surfaceOnly = (): void => {
   let total = 0
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      total += surfaceHeightAt(SEED, coord.x * CHUNK_SIZE_XZ + lx, coord.z * CHUNK_SIZE_XZ + lz)
+      total += surfaceHeightAt(SEED, worldX(coord, lx), worldZ(coord, lz))
     }
   }
   sink += total
@@ -255,7 +257,7 @@ const climateOnly = (): void => {
   let total = 0
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      total += climateAt(SEED, coord.x * CHUNK_SIZE_XZ + lx, coord.z * CHUNK_SIZE_XZ + lz).temperature
+      total += climateAt(SEED, worldX(coord, lx), worldZ(coord, lz)).temperature
     }
   }
   sink += total
