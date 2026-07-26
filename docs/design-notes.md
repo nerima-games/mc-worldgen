@@ -1,0 +1,447 @@
+# 設計注意
+
+plan.md §3.7 の 設計注意(参照実装の実測知見) を、
+参照実装の実コード (file:line) で裏取りして展開したもの。
+plan.md §6 Step 2 の方針に従い、**各項目を「書くべき回帰テストの名前」として提示する**。
+
+`✅` = このスケルトンに実装済み / `⬜` = 未実装（実装時に必ず入れる）
+
+> plan.md §3.7 は「設計注意(参照実装の実測知見)」の項目を回帰テスト化せよと指示している。
+> **その指示に従う前に、以下の DN-1 と DN-2 を読むこと。**
+> plan.md の記述のうち 1 つは値が誤っており、もう 1 つは前提が古い。
+> そのままテスト化すると、誤りが「検証済みの仕様」として固定される。
+
+---
+
+<a id="dn-1"></a>
+## DN-1 ✅ ⚠ 地形定数 — **plan.md の値は両方とも誤り**
+
+> plan.md §3.7:
+> - 地形定数: `SEA_LEVEL=48`、`LAKE_LEVEL=62`
+
+### 実物
+
+`packages/core/domain/constants.ts`:
+
+```
+:16  // Phase 2.1 MC 1.18-aligned. Ocean biome water fills up to this height.
+:17  export const SEA_LEVEL = 63
+:19  // Phase 2.1 MC 1.18-aligned. Inland lake water surface matches sea level.
+:20  export const LAKE_LEVEL = SEA_LEVEL
+```
+
+| 定数 | plan.md §3.7 | 実物 | 差 |
+| --- | ---: | ---: | --- |
+| `SEA_LEVEL` | 48 | **63** | 15 ブロック低い |
+| `LAKE_LEVEL` | 62 | **63** | 1 ブロック低い。**かつ独立した定数ではない** |
+
+63 はバニラ Minecraft の海面高度でもある。コメントの "MC 1.18-aligned" と整合する。
+
+### なぜこの誤りが特に危険か
+
+3 つ理由がある。
+
+**1. 誤りが「検証済み仕様」に昇格する。**
+この項目は plan.md §3.7 の「回帰テスト化せよ」と指示されたセクションにある。
+素直な実装者は `expect(SEA_LEVEL).toBe(48)` を書く。
+それが green になった時点で、誤りは検証済みの事実になる。
+
+**2. 存在しない概念（湖面と海面の段差）が生まれる。**
+`SEA_LEVEL=48` / `LAKE_LEVEL=62` を採ると、湖面が海面より **14 ブロック高い**。
+参照実装に一度も存在しなかった世界になる。
+そして「湖と海で水位が違う」を扱う分岐コードが書かれる。
+誰も要求していない分岐が、誤った定数を根拠に永続化する。
+
+正しい理解は「**湖面と海面は同一である。両者を区別する定数は存在しない**」。
+`LAKE_LEVEL` は `SEA_LEVEL` の別名にすぎない。
+
+**3. 地形の見た目が全く変わる。**
+海面が 15 ブロック低いと、同じ高さ場に対して陸地の割合が激増し、
+海がほぼ消える。バイオーム分布も変わる。
+シードから地形を再現するプロジェクトで、これは根本的な差である。
+
+### mc-worldgen での対応
+
+`domain/constants.ts` に**正しい値と、なぜ plan.md が間違っているかの説明**を書いた。
+`LAKE_LEVEL` はリテラル `63` ではなく `SEA_LEVEL` と書いてある。
+片方だけ書き換えて乖離することを防ぐためである。
+
+### 書くべき回帰テスト
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `SEA_LEVEL is 63 — NOT the 48 that plan.md §3.7 states` | `toBe(63)` と `not.toBe(48)` の両方 |
+| ✅ `LAKE_LEVEL equals SEA_LEVEL — it is NOT a distinct constant, and NOT 62` | `toBe(SEA_LEVEL)` と `not.toBe(62)` |
+| ✅ `DEFAULT_TERRAIN_LEVELS carries both, so generation can be reconfigured without editing code` | 注入可能であること |
+| ✅ `never places water above LAKE_LEVEL, anywhere, in any chunk` | 参照実装の `terrain-water-level-invariant.test.ts:28` の移植 |
+| ✅ `honours a caller-supplied sea level rather than the baked constant` | 定数が焼き込まれていない |
+| ✅ `does put water somewhere, so the sweep above is not vacuously true` | 上の掃引が空虚でない |
+
+実装は `test/terrain-levels.test.ts`。
+`not.toBe(48)` / `not.toBe(62)` を明示的に書いてあるのは、
+**plan.md を読んだ誰かが「修正」しに来たときに落ちるため**である。
+
+---
+
+<a id="dn-2"></a>
+## DN-2 ✅ ⚠ カーバーの水域床ガード — **参照実装では既に修正済み**
+
+> plan.md §3.7:
+> - カーバーが川/湖の底をくり抜くと「浮いた水面 + 真っ暗な空洞」になる
+>   **(参照実装の重大バグ)**。水域の床マージン検査を最初から入れる
+
+### バグの説明は正確。ただし「重大バグ」という現在形は古い
+
+参照実装は**これを修正済みであり、回帰テストまで付いている**。
+つまりこれは「発明を避けるべきバグ」ではなく、**移植すべき修正**である。
+しかも修正には非自明な後半があり、それが最も価値の高い部分である。
+
+### 洞窟カーバーの修正
+
+`packages/world/domain/terrain/cave-carver.ts:70-74`:
+
+```typescript
+// Keep a solid shell under water bodies: carving the bed away leaves a
+// floating water sheet over an unlit cavity (the black-void bug).
+if (waterFloorY >= 0 && y >= waterFloorY - CAVE_WATER_FLOOR_MARGIN && y < waterFloorY) {
+  continue
+}
+```
+
+支えているのは柱ごとの最低水位マップ `computeWaterFloorYs`（`cave-carver.ts:18-32`）。
+これは意図的に走査範囲を広げている（`:20`）:
+
+```typescript
+const scanTop = CAVE_CEILING + CAVE_WATER_FLOOR_MARGIN
+```
+
+洞窟の天井のすぐ上にある水床も保護されるようにするためである。
+
+定数は `packages/world/domain/terrain/constants.ts:50`:
+
+```typescript
+export const CAVE_WATER_FLOOR_MARGIN = 3
+```
+
+`:47-49` のコメントに「洞窟が川/湖の**底**を下から食っていた」と記録されている。
+
+`:67` には「既存の WATER / BEDROCK / AIR は彫らない」という素朴なチェックもあるが、
+**それだけが元のバグ版だった**。問題は水そのものではなく、その**床**である。
+
+### 渓谷カーバーの修正 — こちらが本質的に重要
+
+`packages/world/domain/terrain/ravine-carver.ts:41-46`:
+
+```typescript
+// Water bodies keep their beds — vanilla surface ravines don't slice rivers open.
+if (state.biome === 'OCEAN' || state.biome === 'RIVER') continue
+// Same rule for ANY submerged column (lakes, flooded basins): the biome check
+// alone let ravines carve lake beds from under their water, leaving a floating
+// water sheet over a dark shaft ("hollow lake" black-void bug).
+if (blocks[chunkBlockIndexUnchecked(lx, state.surfaceY + 1, lz)] === waterBlockIndex) continue
+```
+
+**コメントが修正の歴史をそのまま記録している。**
+
+- 42 行目（biome だけで判定）が**最初の試みで、不十分だった**
+- 46 行目（ブロックを直接見る）が**本当の修正**
+
+`PLAINS` の窪地にできた湖は、水没しているが `OCEAN` でも `RIVER` でもない。
+biome テストは見逃す。
+
+**両方を移植すること。** biome テストだけを実装すると、
+`PLAINS` の湖でバグが再現する。
+
+### 回帰テスト（参照実装側）
+
+- `packages/world/test/cave-carver.test.ts:201` —
+  `it('keeps a solid floor shell under water bodies (hollow-lake regression)')`、
+  バグの説明が `:202-204` にある
+- `packages/world/test/ravine-carver.test.ts:75` —
+  `it('keeps lake beds intact: a submerged column on the band is never carved')`、
+  経緯が `:76-77`
+- `packages/world/test/terrain-water-level-invariant.test.ts:28` —
+  `it.effect('never generates water above LAKE_LEVEL')`
+
+### mc-worldgen での対応
+
+`domain/carver.ts` のガードは**ブロックバッファを直接見る**
+（`computeWaterFloorYs` は biome マップを一切参照しない）。
+つまり `ravine-carver.ts:46` の側から作ってある。
+
+`CarveOptions.waterFloorMargin` を公開してあり、`0` にするとガードが無効になる。
+**これはテスト専用の仕掛けである。** バグを再現できない回帰テストは、
+今日のコードが今日のコードと等しいことしか主張しない。
+
+### 書くべき回帰テスト
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `leaves a solid shell of WATER_FLOOR_MARGIN blocks beneath every water body` | ガードが効いている |
+| ✅ `the guard is load-bearing: with the margin at 0 the bed really does get eaten` | **バグを実際に再現してみせる** |
+| ✅ `protects a submerged column whatever its biome, because it probes blocks not biomes` | biome だけでは不十分だったことを固定 |
+| ✅ `finds submerged columns to test against, so the rest is not vacuous` | fixture が空虚でない |
+| ✅ `computeWaterFloorYs reports the LOWEST water block, not the surface` | 床であって水面ではない |
+| ✅ `computeWaterFloorYs reports -1 for a column with no water` | 水が無い柱 |
+| ⬜ `the ravine carver leaves lake beds intact` | 渓谷カーバー実装時 |
+
+実装は `test/carver.test.ts`。fixture は**探索して見つける**方式にしてある
+（「洞窟が水域の下を通っているチャンク」を探す）。
+地形シェイパーを調整したときにテストが壊れるのではなく、fixture が移動する。
+
+### パスの順序も一緒に移植すること
+
+水を入れてから彫る。ガードは水ブロックを探して働くので、
+先に彫るとガードが黙って無効になる。
+
+参照実装の順序:
+洞窟は装飾の**前**（`generator.ts:102`）、
+渓谷は木・草の**後**（`generator.ts:155`、理由は `:141-142`:
+渓谷の壁が鉱石と表層を「きれいに切る」ようにするため）。
+
+---
+
+<a id="dn-3"></a>
+## DN-3 ✅ THREE.js を import しない（実測確認済み）
+
+> plan.md §3.7 移植元:
+> 参照実装は THREE.js import ゼロを実測確認済み — この分離を維持する
+
+**この記述は正しい。** 裏取り済み:
+
+```console
+$ grep -rnE "from ['\"](three|three/)" packages/world --include='*.ts' \
+    --exclude-dir=node_modules --exclude-dir=dist
+$ echo $?
+1     # マッチ無し
+```
+
+大文字小文字を無視した `grep -i three` は 17 件ヒットするが、
+全て英文の "three"（コメント・テスト名）である。例:
+`packages/world/domain/end/end-portal-frame.ts:6`「12 filled frames (three per side)」。
+
+1 件は分離が意図的であることの直接の証拠になっている:
+
+```
+packages/world/domain/voxel-raycast.ts:3
+// Voxel ray traversal (Amanatides & Woo). Replaces three.js Raycaster for block
+```
+
+`packages/world/package.json` の依存も
+`@ts-minecraft/{core,block,entity,inventory,worker}` + `effect@^3.20.0` のみで、`three` は無い。
+
+### なぜ重要か
+
+この分離があるから世界生成は Worker でも Node でも canvas 無しのテストでも走る。
+参照実装のワーカープールパリティテストが成立しているのもこれのおかげである。
+
+### mc-worldgen での対応
+
+**規律ではなく機構にした。**
+`tsconfig.base.json` の `lib` に `"DOM"` を入れていないので、
+`new THREE.Vector3()` はこのリポジトリのどこにも書けない（型検査で落ちる）。
+
+依存ホワイトリストも `mc-render` / `mc-meshing` を `not-whitelisted` として落とす。
+
+### 書くべき回帰テスト
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `rejects mc-meshing: chunk data is produced here, geometry is not our business` | ジオメトリ側への依存を拒否 |
+| ✅ `rejects mc-sim, whose reverse edge would be the cycle this gate exists to prevent` | 逆向きエッジ |
+| ✅ `finds no path from mc-worldgen to mc-sim, because the edge runs the other way` | グラフ上でも到達しない |
+| ⬜ `no source file imports 'three'` | `lib` で防いでいるが、明示的に書いておくと意図が残る |
+
+実装は `test/dependency-policy.test.ts`。
+
+---
+
+<a id="dn-4"></a>
+## DN-4 ✅ 木は格子ジッター配置
+
+> plan.md §3.7:
+> - 木は格子ジッター配置（トリビアルな乱数散布は視覚的に偏る）
+
+**正しい。ただし参照実装は結果をもっと具体的に書いている。**
+
+`packages/world/domain/terrain/tree-placer.ts:184-188`
+（同じ注記が `tree-placer.config.ts:30-34` にもある）:
+
+> `treeDensity` は**柱ごとの実効確率**（バニラの森で約 0.04）だが、
+> 配置は柱ごとのベルヌーイ試行ではなく格子ジッターである —
+> 「Independent per-column rolls at forest-like rates fused the radius-2 crowns
+> into a walkable leaf slab」
+
+つまり「視覚的に偏る」どころではなく、
+**森の密度では半径 2 の樹冠が融合して、プレイヤーが歩ける葉の板になる**。
+森と床の違いである。
+
+### 配置の数式（`tree-placer.ts:169-179` の直訳）
+
+```typescript
+const cellRng = Math.sin(cellX * TREE_RNG_X_SCALE + cellZ * TREE_RNG_Z_SCALE) * TREE_RNG_AMPLITUDE
+wx = cellX * TREE_GRID_SIZE + Math.floor(fract(cellRng * TREE_CELL_JITTER_X_SCALE) * TREE_GRID_SIZE)
+wz = cellZ * TREE_GRID_SIZE + Math.floor(fract(cellRng * TREE_CELL_JITTER_Z_SCALE) * TREE_GRID_SIZE)
+```
+
+密度ロール（`tree-placer.ts:215`）— **セルごとに 1 回**:
+
+```typescript
+if (fract(candidate.cellRng * TREE_DENSITY_ROLL_RNG_SCALE) >= treeDensity * TREE_GRID_AREA) { ... }
+```
+
+定数（`tree-placer.config.ts:26-41`）:
+`TREE_GRID_SIZE = 4`、`TREE_GRID_AREA = 16`、
+ジッター `3.97` / `5.23`、密度ロール `2.61`、sin-hash `127.1 / 311.7 / 43758.5453`。
+
+`density × TREE_GRID_AREA` の変換により、単位面積あたりの期待本数が保たれ、
+密度の数値が設計者の期待どおりの意味を保つ。
+
+### 書くべき回帰テスト
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `places at most one candidate per grid cell` | セルあたり 1 本が上限 |
+| ✅ `keeps candidates at least one cell apart, which is what stops crowns merging` | 最小間隔が構造的に保証される |
+| ✅ `the candidate always lands inside its own cell` | ジッターがセルを越えない |
+| ✅ `is deterministic: the same cell always yields the same candidate` | 決定論 |
+| ✅ `scales density by the cell area, so the per-column figure keeps its meaning` | 変換式 |
+| ✅ `grows denser in forest than in plains, at the same coordinates` | 密度が効いている |
+
+実装は `test/biome-and-trees.test.ts`。
+
+### 木の配置はシードに依存しない（参照実装の性質）
+
+`tree-placer.ts:173` の sin-hash はセル座標のみの関数であり、
+**シードを含まない**。要塞・寺院の位置決めも同様である。
+
+つまり全シードで木の位置が同じである。
+シードで木を変えたいなら、それは**移植ではなく挙動の変更**である。
+やるなら意図的にやること。
+
+---
+
+<a id="dn-5"></a>
+## DN-5 ✅ 水没した柱には木を植えない
+
+plan.md には無いが、参照実装が 7 行のコメントで記録しているバグである
+（`tree-placer.ts:200-206`、ガードは `:207`）。
+
+海面より低い表面は湖底・海底であり、そこに植えた幹は水中を突き抜けて生える。
+
+### 書くべき回帰テスト
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `never plants on a submerged column, whatever the biome says` | biome が FOREST でも水没なら植えない |
+
+---
+
+<a id="dn-6"></a>
+## DN-6 ✅ 決定論 — シード未指定のフォールバックを作らない
+
+`(seed, coords) → Chunk` は全域関数でなければならない。
+セーブファイルは地形ではなくシードを保存するので、
+生成がぶれると**既存の全ワールドが遡って壊れる**。しかも症状はエラーではなく継ぎ目や穴である。
+
+### 参照実装の罠
+
+`packages/world/domain/perlin.ts:42`:
+
+```typescript
+const perm = buildPerm(rand ?? Math.random)
+```
+
+**シード未指定時にグローバル乱数へフォールバックする。**
+呼び出し側 1 箇所が引数を忘れれば、ロードのたびに違う地形が出る。
+型エラーもクラッシュも起きない。
+
+生成経路は偶然これを踏んでおらず、
+それを保つための専用テストが存在していた
+（`packages/world/test/terrain-determinism.test.ts:10-12`）。
+だが「引数 1 個の書き忘れ」で発火する地雷が残り続けていた。
+
+### mc-worldgen での対応
+
+**シードを必須にした。** 消すべきフォールバックが存在しない
+（`domain/seeded-random.ts`）。
+
+### チャンネルの非相関化
+
+参照実装はチャンネルごとに Weyl 定数を XOR してシードを分離していた
+（`noise-primitives.ts:235-245`）:
+
+```typescript
+const raw2D = createPerlinNoise2D(mulberry32(seed))
+const raw3D = createPerlinNoise3D(mulberry32((seed ^ WEYL_3D) >>> 0))
+const continentalness = signedFbm2D(createPerlinNoise2D(mulberry32((seed ^ WEYL_C) >>> 0)), 4, 0.5, 2.0, 1.4)
+...
+```
+
+チャンネルを非相関化しないと地形の特徴が揃ってしまう。
+温度と湿度が同じ生成器を共有すると、暑い地域は必ず湿っていて、
+バイオーム表の半分が到達不能になる。
+
+mc-worldgen は文字列キーで導出する（`channelSeed`）。
+チャンネル追加のたびにマジックナンバーを発明して文書化する必要がない。
+
+### 書くべき回帰テスト
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `produces byte-identical blocks for the same seed and coordinate` | 決定論 |
+| ✅ `does not depend on the order chunks are generated in` | 順序非依存 |
+| ✅ `gives different seeds different worlds` | シードが効いている |
+| ✅ `gives different coordinates different terrain under one seed` | 座標が効いている |
+| ✅ `handles negative coordinates, where floor-vs-truncate bugs live` | 負座標。`-1/16` は truncate だと 0 |
+| ✅ `agrees about the surface height of a column shared by two chunks` | 継ぎ目が出ない |
+| ✅ `surfaceHeightAt agrees with what generateChunk actually built` | 安いクエリと本体が乖離しない |
+| ⬜ `worker output is byte-identical to main-thread output` | **参照実装の最重要テストの移植**（`terrain-worker-pool.parity.property.test.ts`, 124 LOC） |
+| ⬜ `a fixed seed × coord matrix hashes to the committed golden value` | ゴールデンハッシュ。参照実装には**存在しない** |
+
+実装は `test/determinism.test.ts`。
+
+---
+
+## DN-7 ⬜ ライトグリッドはここが所有し、適用は mc-render
+
+> plan.md §3.7:
+> - ライトグリッド（BFS 光伝播、4bit パック）はチャンクデータの一部としてここが所有。
+>   適用（描画）は mc-render
+
+構造とファイルは [public-api.md](./public-api.md) §8 に整理してある。
+
+実装時に忘れやすい点:
+
+- **パック処理は `packages/block/domain/light.ts` にある**（`packages/world` ではない）。
+  パッケージ境界をまたぐ
+- BFS は **remove-then-add の 2 キュー**方式。1 キューでは正しくならない
+- `FULL_RECOMPUTE_THRESHOLD = 256` を超えたら全再計算に切り替える
+- 参照実装は光を**永続化していない**。ロード時に再計算する
+  （`chunk-manager-ops-storage.ts:61`）
+
+| テスト名 | 主張 |
+| --- | --- |
+| ⬜ `a light level survives a nibble pack/unpack round trip for every level 0..15` | 4bit パック |
+| ⬜ `packPosLevel round-trips every coordinate in a chunk` | int32 パック |
+| ⬜ `removing a light source restores the levels that existed before it` | 2 キュー方式の要点 |
+| ⬜ `cross-chunk propagation reports the correct boundary flags` | `MutableBoundaryDirty` |
+
+---
+
+## DN-8 ⬜ 地形パイプラインの順序
+
+参照実装の順序は非自明であり、理由がソースに書いてある。
+
+| 段階 | 位置 | 理由 |
+| --- | --- | --- |
+| 水の充填 | 地形生成時 | カーバーのガードが水を探すため（DN-2） |
+| 洞窟 | 装飾の**前**（`generator.ts:102`） | |
+| 木・草 | | |
+| 渓谷 | 木・草の**後**（`generator.ts:155`） | `:141-142`「壁が鉱石と表層をきれいに切るように」 |
+| ライト | 最後（`terrain-generation-utils.ts:49-52`） | 全ブロックが確定してから |
+
+| テスト名 | 主張 |
+| --- | --- |
+| ⬜ `carving runs after water has been filled, so the water-floor guard has something to find` | 順序を逆にすると DN-2 が黙って無効化される |
+| ⬜ `ravines cut through tree trunks, not around them` | 渓谷が木の後である |
