@@ -56,7 +56,7 @@ import {
   surfaceHeightAt,
 } from '../../domain/terrain'
 import { channelSeed, fbm2D } from '../../domain/seeded-random'
-import { TREE_GRID_SIZE } from '../../domain/tree-placement'
+import { TREE_CROWN_RADIUS, TREE_GRID_SIZE, TREE_MIN_SPACING } from '../../domain/tree-placement'
 import { chunkFor, sampleColumn, type ChunkCache, type WorldParams } from './sampler'
 
 export type StatsOptions = {
@@ -179,22 +179,24 @@ const surveyReport = (params: WorldParams, options: StatsOptions): ReadonlyArray
 
   const lowClamp = 0.5 - 0.5 / CONTINENTALNESS_CONTRAST
   const highClamp = 0.5 + 0.5 / CONTINENTALNESS_CONTRAST
-  lines.push(`raw continentalness, before the CONTINENTALNESS_CONTRAST=${fixed(CONTINENTALNESS_CONTRAST, 1)} stretch`)
+  lines.push(`raw continentalness, before the CONTINENTALNESS_CONTRAST=${fixed(CONTINENTALNESS_CONTRAST, 2)} stretch`)
   lines.push(`  ${describeSpread(continentalness)}`)
   lines.push(
     `  the stretch clamps below ${fixed(lowClamp, 4)} to MIN_SURFACE_Y and above ${fixed(highClamp, 4)} to MAX_SURFACE_Y`,
   )
-  lines.push('  domain/terrain.ts records a measured raw span of about [0.40, 0.72] clustering "hard around 0.5"')
+  lines.push('  domain/terrain.ts records a measured raw span of about [0.053, 0.946] over this same survey')
 
-  // The counterfactual the CONTINENTALNESS_CONTRAST comment rests on. It states
-  // that mapping the raw field straight onto the height range gives "essentially
-  // no ocean: 3% of columns fell below sea level". That is checkable from the
-  // very samples above, so it is checked rather than believed.
+  // The counterfactual the CONTINENTALNESS_CONTRAST comment rests on: what the
+  // world would look like with the stretch removed entirely. It is checkable
+  // from the very samples above, so it is checked rather than believed — which
+  // is how the previous comment's "3%" was caught being 41.7%. Left in place
+  // now that the numbers agree, because the next person to reach for this
+  // constant needs the same check.
   const unstretchedThreshold = (params.levels.seaLevel - MIN_SURFACE_Y) / (MAX_SURFACE_Y - MIN_SURFACE_Y)
   const unstretchedOcean = continentalness.filter((value) => value < unstretchedThreshold).length
   lines.push(
     `  counterfactual — with NO stretch, columns below sea level would be ${percent(unstretchedOcean, total)}` +
-      `; domain/terrain.ts records 3%`,
+      `; domain/terrain.ts records 41.7%`,
   )
   lines.push('')
 
@@ -358,7 +360,9 @@ const localReport = (params: WorldParams, options: StatsOptions): ReadonlyArray<
   const total = options.columnSpan * options.columnSpan
   const spacing = nearestTreeSpacing(treePositions)
   const sortedSpacing = [...spacing].sort((left, right) => left - right)
-  const overlapping = spacing.filter((distance) => distance <= 4).length
+  // Two radius-r crowns touch or overlap unless their trunks are more than 2r
+  // apart, so this is the crown radius and not a magic 4.
+  const overlapping = spacing.filter((distance) => distance <= 2 * TREE_CROWN_RADIUS).length
 
   const lines: Array<string> = []
   lines.push(
@@ -388,14 +392,16 @@ const localReport = (params: WorldParams, options: StatsOptions): ReadonlyArray<
   }
   lines.push(
     `  nearest-neighbour spacing (Chebyshev): min ${String(quantile(sortedSpacing, 0))}` +
-      `  p50 ${String(quantile(sortedSpacing, 0.5))}  max ${String(quantile(sortedSpacing, 1))}`,
+      `  p50 ${String(quantile(sortedSpacing, 0.5))}  max ${String(quantile(sortedSpacing, 1))}` +
+      `   expected min >= ${String(TREE_MIN_SPACING)} (TREE_MIN_SPACING)`,
   )
   lines.push(
-    `  trees whose radius-2 crown overlaps a neighbour's: ${percent(overlapping, spacing.length)}` +
+    `  trees whose radius-${String(TREE_CROWN_RADIUS)} crown overlaps a neighbour's: ${percent(overlapping, spacing.length)}` +
       `   largest connected canopy: ${String(largestCanopyCluster(treePositions))} trees`,
   )
-  lines.push('  a jittered grid bounds tree DENSITY; it does not bound minimum spacing —')
-  lines.push('  two candidates in adjacent cells can land 1 block apart. See domain/tree-placement.ts.')
+  lines.push('  a jittered grid bounds tree DENSITY. Minimum spacing is bounded separately, by')
+  lines.push('  confining the jitter to a window inside the cell — see domain/tree-placement.ts.')
+  lines.push('  Measured min was 1 before that window existed (docs/testing.md §4-b F-2).')
 
   return lines
 }
@@ -412,8 +418,10 @@ const localReport = (params: WorldParams, options: StatsOptions): ReadonlyArray<
  * a hillside have crowns at different heights and do not fuse into a surface.
  * Only the block buffer knows.
  *
- * One crown is a 5x5 square minus its four corners = 21 blocks, so 21 is one
- * tree and anything materially above it is two crowns that have merged.
+ * One crown is a 5x5 square minus its four corners = 21 columns, of which the
+ * centre one is the trunk reaching its own crown's Y — `plantTree` only writes
+ * leaves into AIR — so a whole unclipped crown is 20 LEAVES. 20 is one tree and
+ * anything above it is two crowns that have merged.
  *
  * Measured per chunk, so a slab straddling a chunk border is undercounted —
  * which biases this number DOWN. `plantTree` clips its canopy at the chunk edge
@@ -620,7 +628,7 @@ const blockReport = (
   )
   lines.push(
     `  largest 4-connected LEAVES patch at one Y in one chunk: ${String(biggestLeafSheet)} blocks` +
-      `   (one crown is 21; more means fused canopies)`,
+      `   (one whole crown is 20; more means fused canopies)`,
   )
   lines.push('')
   lines.push('hollow-lake check (docs/design-notes.md DN-2)')

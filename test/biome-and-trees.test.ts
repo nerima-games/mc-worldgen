@@ -6,8 +6,11 @@ import {
   cellOf,
   shouldPlaceTree,
   treeCellCandidate,
+  TREE_CELL_JITTER_ORIGIN,
+  TREE_CELL_JITTER_SPAN,
   TREE_GRID_AREA,
   TREE_GRID_SIZE,
+  TREE_MIN_SPACING,
 } from '../domain/tree-placement'
 
 describe('classifyBiome', () => {
@@ -72,43 +75,85 @@ describe('classifyBiome', () => {
  * between a forest and a floor.
  */
 describe('tree placement', () => {
-  const forest = { biome: 'FOREST' as const, terrainLevels: DEFAULT_TERRAIN_LEVELS, surfaceY: 70 }
+  /**
+   * These sweeps are two-dimensional on purpose.
+   *
+   * The first version of this file swept a single line `worldZ = 0` and counted
+   * hits. That worked only by accident: with the jitter free to cover the whole
+   * cell, some cell on any given line had its candidate on that line. Confining
+   * the jitter to a window (`TREE_CELL_JITTER_ORIGIN`) makes 5 of every 8 world
+   * lines contain no candidate at all, and the line sweep silently measured
+   * zero trees and asserted nothing. A placement test that scans fewer
+   * dimensions than the placement has is a test that can go vacuous under a
+   * change to the very thing it is testing.
+   */
+  const placedIn = (
+    biome: 'FOREST' | 'PLAINS',
+    span: number,
+  ): ReadonlyArray<readonly [number, number]> => {
+    const placed: Array<readonly [number, number]> = []
+    for (let wx = 0; wx < span; wx += 1) {
+      for (let wz = 0; wz < span; wz += 1) {
+        if (shouldPlaceTree({ worldX: wx, worldZ: wz, surfaceY: 70, biome, terrainLevels: DEFAULT_TERRAIN_LEVELS })) {
+          placed.push([wx, wz])
+        }
+      }
+    }
+    return placed
+  }
 
   it.effect('places at most one candidate per grid cell', () =>
     Effect.sync(() => {
-      let placed = 0
-      const cells = 40
+      const cells = 12
+      const placed = placedIn('FOREST', cells * TREE_GRID_SIZE)
 
-      for (let wx = 0; wx < cells * TREE_GRID_SIZE; wx += 1) {
-        if (shouldPlaceTree({ ...forest, worldX: wx, worldZ: 0 })) {
-          placed += 1
-        }
-      }
-
+      expect(placed.length).toBeGreaterThan(0)
       // One cell can yield at most one tree, so the count is bounded by the
       // number of cells regardless of how high the density goes.
-      expect(placed).toBeLessThanOrEqual(cells)
+      expect(placed.length).toBeLessThanOrEqual(cells * cells)
+
+      const cellsUsed = new Set(placed.map(([wx, wz]) => `${String(cellOf(wx))},${String(cellOf(wz))}`))
+      expect(cellsUsed.size).toBe(placed.length)
     }),
   )
 
-  it.effect('keeps candidates at least one cell apart, which is what stops crowns merging', () =>
+  /**
+   * REGRESSION, docs/testing.md §4-b F-2.
+   *
+   * This test used to be called "keeps candidates at least one cell apart,
+   * which is what stops crowns merging" and asserted `gap >= 1` — a gap of at
+   * least one block between two distinct columns, which is true of any two
+   * distinct columns and therefore asserted nothing. It agreed with a header
+   * comment claiming the grid "bounds the minimum spacing by construction", and
+   * between them they made a false claim look tested. Measured spacing was 1.
+   *
+   * The bound is now real and it is named: `TREE_MIN_SPACING`. The full
+   * consequence — that no two crowns fuse in generated blocks — is in
+   * `test/tree-canopy.test.ts`.
+   */
+  it.effect('keeps candidates TREE_MIN_SPACING apart, which is what stops crowns merging', () =>
     Effect.sync(() => {
-      const placedX: Array<number> = []
-      for (let wx = 0; wx < 200; wx += 1) {
-        if (shouldPlaceTree({ ...forest, worldX: wx, worldZ: 0 })) {
-          placedX.push(wx)
+      const placed = placedIn('FOREST', 24 * TREE_GRID_SIZE)
+      expect(placed.length).toBeGreaterThan(50)
+
+      let closest = Number.POSITIVE_INFINITY
+      for (let i = 0; i < placed.length; i += 1) {
+        for (let j = i + 1; j < placed.length; j += 1) {
+          const left = placed[i] ?? [0, 0]
+          const right = placed[j] ?? [0, 0]
+          closest = Math.min(closest, Math.max(Math.abs(left[0] - right[0]), Math.abs(left[1] - right[1])))
         }
       }
 
-      expect(placedX.length).toBeGreaterThan(0)
-      for (let index = 1; index < placedX.length; index += 1) {
-        const gap = (placedX[index] ?? 0) - (placedX[index - 1] ?? 0)
-        expect(gap).toBeGreaterThanOrEqual(1)
-      }
+      expect(closest).toBeGreaterThanOrEqual(TREE_MIN_SPACING)
+      // Not vacuous: the bound is TIGHT, so a grid that merely happened to be
+      // sparse here would not pass. Some pair really does sit at exactly the
+      // minimum.
+      expect(closest).toBe(TREE_MIN_SPACING)
     }),
   )
 
-  it.effect('the candidate always lands inside its own cell', () =>
+  it.effect('the candidate always lands inside its own cell, in the jitter window', () =>
     Effect.sync(() => {
       for (let cellX = -20; cellX <= 20; cellX += 1) {
         for (let cellZ = -20; cellZ <= 20; cellZ += 3) {
@@ -116,6 +161,15 @@ describe('tree placement', () => {
 
           expect(cellOf(candidate.worldX)).toBe(cellX)
           expect(cellOf(candidate.worldZ)).toBe(cellZ)
+
+          // Tighter than "inside its cell": inside the WINDOW. The gutter
+          // between the window and the cell edge is the minimum-spacing
+          // guarantee, and it exists only if this holds for negative cells too
+          // — which is why the sweep starts at -20.
+          for (const offset of [candidate.worldX - cellX * TREE_GRID_SIZE, candidate.worldZ - cellZ * TREE_GRID_SIZE]) {
+            expect(offset).toBeGreaterThanOrEqual(TREE_CELL_JITTER_ORIGIN)
+            expect(offset).toBeLessThan(TREE_CELL_JITTER_ORIGIN + TREE_CELL_JITTER_SPAN)
+          }
         }
       }
     }),
@@ -131,9 +185,35 @@ describe('tree placement', () => {
     Effect.sync(() => {
       expect(TREE_GRID_AREA).toBe(TREE_GRID_SIZE * TREE_GRID_SIZE)
 
-      // A forest at 0.04 per column becomes 0.64 per 16-block cell — high, but
-      // still below 1, so not every cell gets a tree.
-      expect(BIOME_TREE_DENSITY.FOREST * TREE_GRID_AREA).toBeLessThan(1)
+      // Every density must stay below 1 after the conversion. At or above 1 the
+      // roll can never fail, every cell in the biome gets a tree, and the grid
+      // degenerates into a lattice — at which point the density constant has
+      // stopped being a probability and started being a lie. The densest biome
+      // is the one that can break this.
+      for (const biome of BIOMES) {
+        expect((BIOME_TREE_DENSITY[biome] ?? 0) * TREE_GRID_AREA).toBeLessThan(1)
+      }
+    }),
+  )
+
+  /**
+   * REGRESSION, docs/testing.md §4-b F-2 — the reason FOREST moved from 0.04.
+   *
+   * A minimum spacing of `s` packs at most one tree per `s x s` block, so no
+   * arrangement of non-fusing radius-2 crowns can exceed 1/36 trees per column.
+   * FOREST asked for 0.04 and TAIGA for 0.03; both were over that ceiling, so
+   * the fused canopy was not a placement bug but the only way to honour the
+   * number. This pins the ceiling rather than the two values, so a future
+   * densification has to argue with the geometry.
+   */
+  it.effect('asks for no more trees than a non-fusing canopy can hold', () =>
+    Effect.sync(() => {
+      const ceiling = 1 / (TREE_MIN_SPACING * TREE_MIN_SPACING)
+
+      for (const biome of BIOMES) {
+        expect(BIOME_TREE_DENSITY[biome] ?? 0).toBeLessThanOrEqual(ceiling)
+      }
+      expect(BIOME_TREE_DENSITY.FOREST).toBeGreaterThan(0)
     }),
   )
 
@@ -160,17 +240,11 @@ describe('tree placement', () => {
 
   it.effect('grows denser in forest than in plains, at the same coordinates', () =>
     Effect.sync(() => {
-      const count = (biome: 'FOREST' | 'PLAINS'): number => {
-        let placed = 0
-        for (let wx = 0; wx < 400; wx += 1) {
-          if (shouldPlaceTree({ worldX: wx, worldZ: 0, surfaceY: 70, biome, terrainLevels: DEFAULT_TERRAIN_LEVELS })) {
-            placed += 1
-          }
-        }
-        return placed
-      }
+      const forestCount = placedIn('FOREST', 200).length
+      const plainsCount = placedIn('PLAINS', 200).length
 
-      expect(count('FOREST')).toBeGreaterThan(count('PLAINS'))
+      expect(plainsCount).toBeGreaterThan(0)
+      expect(forestCount).toBeGreaterThan(plainsCount)
     }),
   )
 })

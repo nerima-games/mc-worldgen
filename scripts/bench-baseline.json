@@ -1,7 +1,7 @@
 {
   "version": 1,
   "recordedOn": "Apple M4 Max, macOS 26.5.2, Node 22.23.1 (the flake devShell's node — the version CI runs). Each figure is the median of FIVE whole-benchmark runs, not one.",
-  "note": "guards are slow/fast A/B ratios measured in one process against one data set: the machine cancels, so these are the real gate. fbm-octave-loop/shipped-vs-frozen-imperative is THE gate (tolerance 1.15) — it pins the shipped fbm2D against a frozen copy of its own current shape; array-from-reduce is the price list (tolerance 1.3). It sits at 1.23 rather than 1.00 because the shipped import optimises slightly better than the local copy on this engine; what matters is that it is stable to 6% and collapses when fbm2D gets slower. workloads are workload/yardstick ratios and are only approximately machine-independent — indicative, not authoritative (tolerance 2.0). Spread across the five recording runs: 6% for the gate, 26% for the price-list guard, 8-20% for workloads. Regenerate with `pnpm bench --update-baseline` and say in the commit message what moved and why.",
+  "note": "guards are slow/fast A/B ratios measured in one process against one data set: the machine cancels, so these are the real gate. fbm-octave-loop/shipped-vs-frozen-imperative is THE gate (tolerance 1.15) — it pins the shipped fbm2D against a frozen copy of its own current shape; array-from-reduce is the price list (tolerance 1.3). It sits at 1.23 rather than 1.00 because the shipped import optimises slightly better than the local copy on this engine; what matters is that it is stable to 6% and collapses when fbm2D gets slower. workloads are workload/yardstick ratios and are only approximately machine-independent — indicative, not authoritative (tolerance 2.0). Spread across the five recording runs: 6% for the gate, 26% for the price-list guard, 8-20% for workloads. Regenerate with `pnpm bench --update-baseline` and say in the commit message what moved and why. TWO WORKLOADS RE-RECORDED, nothing else, when CONTINENTALNESS_CONTRAST went 2.6 -> 1.15 (docs/testing.md §4-b F-1). That change stopped clamping 10.7% of columns flat at MIN_SURFACE_Y, so a great deal more of the cave band y=6..58 is solid stone now instead of open water above a clamped ocean floor — and the carver writes into stone where it used to find air and skip. carveCaves/re-carve-warm-buffer 3.436 -> 4.611 (+34%; the FASTEST of five fresh runs was 4.138, itself 1.20x the old figure, so this is a shift and not noise). generateChunk/no-decorate 13.690 -> 14.233 (+4%). Deliberately NOT re-recorded: generateChunk/full measured 16.302 against 16.370 (-0.4%, i.e. unchanged — the extra fill and carve is paid for by 3x fewer trees after FOREST density went 0.04 -> 0.012), and both fbm guards and both sampling workloads landed within 5% of their committed values because fbm2D was not touched. Re-recording a figure that did not move only lowers a gate. One caution learned while measuring this: on Node 24 the same untouched fbm2D scores 0.99 on shipped-vs-frozen and trips the gate, so a figure from a node other than the one in `recordedOn` says nothing.",
   "guards": {
     "fbm-octave-loop/shipped-vs-frozen-imperative": 1.228,
     "fbm-octave-loop/array-from-reduce-vs-imperative": 4.129
@@ -9,8 +9,8 @@
   "workloads": {
     "sample/surfaceHeightAt-per-chunk-columns": 3.251,
     "sample/climateAt-per-chunk-columns": 4.479,
-    "generateChunk/no-decorate": 13.69,
-    "carveCaves/re-carve-warm-buffer": 3.436,
+    "generateChunk/no-decorate": 14.233,
+    "carveCaves/re-carve-warm-buffer": 4.611,
     "generateChunk/full": 16.37
   }
 }

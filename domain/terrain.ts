@@ -63,7 +63,7 @@ import {
 } from './constants'
 import { chunkCoord, type ChunkCoord } from './kernel-vocabulary'
 import { channelSeed, fbm2D } from './seeded-random'
-import { shouldPlaceTree } from './tree-placement'
+import { shouldPlaceTree, TREE_CROWN_RADIUS } from './tree-placement'
 
 /** Lowest and highest surface the base terrain shaper will produce. */
 export const MIN_SURFACE_Y = 38
@@ -72,19 +72,80 @@ export const MAX_SURFACE_Y = 92
 /**
  * Contrast applied to raw continentalness before it becomes a height.
  *
- * Averaged octaves of noise cluster hard around 0.5 — measured over a
- * 800 × 800 block sample, the raw field spanned only about [0.40, 0.72]. Mapped
- * straight onto a height range that produces a world of gentle hills with
- * essentially no ocean: 3% of columns fell below sea level, and none deep enough
- * for a cave to reach. A generator that cannot produce an ocean also cannot
- * produce the hollow-lake bug the carver guard exists to prevent, so the guard
- * would have been untestable — which is how a guard quietly stops working.
+ * ---------------------------------------------------------------------------
+ * MEASUREMENT — how the numbers below were taken
+ * ---------------------------------------------------------------------------
  *
- * Stretching about the midpoint is the standard fix and is what the reference
- * does too, in its climate path (`stretchClimate`,
+ * Method: the SURVEY scan of `pnpm preview --stats` — a strided sample, every
+ * 16th block over 8192 × 8192 blocks centred on the origin, so 262,144 columns
+ * spanning ~45 continentalness features at this field's 1/180 frequency.
+ * Repeated for seeds 20260726, 1, 4242, 999983 and 77777; the figures below are
+ * seed 20260726 and every other seed agrees to within half a point.
+ *
+ * The sample size is the whole point of this comment. A window has to be many
+ * multiples of 1/frequency across before the tails of the distribution appear
+ * in it at all — see the previous value's obituary at the bottom.
+ *
+ *     raw continentalness      [0.053, 0.946]   p5 0.266  p50 0.496  p95 0.733
+ *
+ * ---------------------------------------------------------------------------
+ * THE CHOICE — 1.15
+ * ---------------------------------------------------------------------------
+ *
+ * The field already spans almost the whole unit interval, so it needs almost no
+ * stretching. What it does need is the last sliver: at contrast 1.0 the extremes
+ * map to heights 40 and 89, and `MIN_SURFACE_Y` / `MAX_SURFACE_Y` are then
+ * bounds no column ever reaches — declared limits that are fiction. 1.15 is the
+ * smallest value at which both bounds are attained on this sample, and it costs
+ * one column in ten thousand:
+ *
+ *     contrast   flat-clamped   below sea level   observed height range
+ *     1.00           0.00%           41.7%              [40, 89]
+ *     1.15           0.01%           42.9%              [38, 92]   <- chosen
+ *     1.50           1.05%           44.8%              [38, 92]
+ *     2.00           8.06%           46.4%              [38, 92]
+ *     2.60          19.96%           47.5%              [38, 92]
+ *
+ * Contrast barely moves the ocean fraction (42% to 47% across that whole range)
+ * because sea level sits near the middle of the height range; what it moves is
+ * how much of the world is a flat clamped plane. So the design call is cheap:
+ * take the ocean fraction the field gives you — 42.9% here, which is ample sea
+ * for the carver's water-floor guard to be exercised by (docs/design-notes.md
+ * DN-2) — and do not pay 20% of the world's surface for the other five points.
+ *
+ * The height histogram at 1.15 is a single-peaked hump centred on 64 with thin
+ * tails. At 2.6 it was flat between the bounds with a spike at each end: 11.8%
+ * of columns in the lowest 4-block bucket and 9.2% in the highest. That spike
+ * IS the table-top mesa; a histogram is what it looks like from above.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT WAS 2.6 — the mistake, kept because it is instructive
+ * ---------------------------------------------------------------------------
+ *
+ * The previous comment justified 2.6 with two measured numbers, both wrong:
+ * that the raw field spans "about [0.40, 0.72]" and that without the stretch
+ * "3% of columns fall below sea level". It named its sample: 800 × 800 blocks.
+ * At 1/180 that is four terrain features across. Four features are enough to
+ * see where the middle of the distribution is (0.496 — that part was right) and
+ * nowhere near enough to see its tails. The true unstretched ocean fraction is
+ * 41.7%, not 3%.
+ *
+ * Multiplying a distribution that really does reach 0.05 and 0.95 by 2.6
+ * saturates both ends, which is how a fifth of the world became flat. Note the
+ * shape of the error: the narrow sample did not produce a wrong-looking answer,
+ * it produced a plausible one, and the constant chosen to fix the imaginary
+ * problem then created a real one. `pnpm preview --stats` defaults to an 8192
+ * block survey for this reason, and docs/testing.md §4-b F-5 records the same
+ * trap being walked into a second time, with biomes.
+ *
+ * Stretching about the midpoint is still the right shape of knob, and is what
+ * the reference does in its climate path (`stretchClimate`,
  * `packages/world/domain/biome-classifier.ts:91`, applied at `:104-105`).
+ * `test/terrain-distribution.test.ts` pins the clamped fraction so that the
+ * next person to reach for this constant has to move a number that was measured
+ * rather than a number that was recalled.
  */
-export const CONTINENTALNESS_CONTRAST = 2.6
+export const CONTINENTALNESS_CONTRAST = 1.15
 
 const stretch = (value: number): number =>
   Math.min(1, Math.max(0, (value - 0.5) * CONTINENTALNESS_CONTRAST + 0.5))
@@ -199,15 +260,21 @@ const plantTree = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number)
 
   // Canopy, clipped to the chunk. Crossing a chunk border correctly needs the
   // neighbour's buffer, which is the chunk manager's job — see docs/porting.md.
+  //
+  // The radius is `TREE_CROWN_RADIUS` and not a literal because it is one half
+  // of the no-fusion inequality `TREE_MIN_SPACING >= 2 * TREE_CROWN_RADIUS + 2`
+  // that the placement grid is sized to satisfy. Widening the crown here without
+  // widening the grid is exactly how the leaf slab comes back.
+  const radius = TREE_CROWN_RADIUS
   const crownY = surfaceY + trunkHeight
-  for (let dx = -2; dx <= 2; dx += 1) {
-    for (let dz = -2; dz <= 2; dz += 1) {
+  for (let dx = -radius; dx <= radius; dx += 1) {
+    for (let dz = -radius; dz <= radius; dz += 1) {
       const x = lx + dx
       const z = lz + dz
       if (x < 0 || x >= CHUNK_SIZE_XZ || z < 0 || z >= CHUNK_SIZE_XZ) {
         continue
       }
-      if (Math.abs(dx) === 2 && Math.abs(dz) === 2) {
+      if (Math.abs(dx) === radius && Math.abs(dz) === radius) {
         continue
       }
       const index = blockIndex(x, crownY, z)

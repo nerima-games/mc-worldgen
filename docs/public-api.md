@@ -252,14 +252,18 @@ export const carveCaves: (blocks: Uint8Array, seed: number, coord: ChunkCoord, o
 ## 5. 植生（木）
 
 ```typescript
-export const TREE_GRID_SIZE = 4
-export const TREE_GRID_AREA = 16
+export const TREE_GRID_SIZE = 8
+export const TREE_GRID_AREA = 64
 export const TREE_RNG_X_SCALE = 127.1
 export const TREE_RNG_Z_SCALE = 311.7
 export const TREE_RNG_AMPLITUDE = 43758.5453
 export const TREE_CELL_JITTER_X_SCALE = 3.97
 export const TREE_CELL_JITTER_Z_SCALE = 5.23
 export const TREE_DENSITY_ROLL_RNG_SCALE = 2.61
+export const TREE_CELL_JITTER_SPAN = 3
+export const TREE_CELL_JITTER_ORIGIN: number   // 2 — derived, centres the window
+export const TREE_CROWN_RADIUS = 2
+export const TREE_MIN_SPACING: number          // 6 — derived
 
 export type TreeCandidate = { readonly worldX: number; readonly worldZ: number; readonly cellRng: number }
 export const treeCellCandidate: (cellX: number, cellZ: number) => TreeCandidate
@@ -273,10 +277,33 @@ export const shouldPlaceTree: (input: {
 }) => boolean
 ```
 
-`domain/tree-placement.ts`。定数は全て
-`packages/world/domain/terrain/tree-placer.config.ts:26-41` からの直接移植。
+`domain/tree-placement.ts`。ハッシュとロールの定数は
+`packages/world/domain/terrain/tree-placer.config.ts:26-41` からの直接移植である。
 
-`treeCellCandidate` は `tree-placer.ts:169-179` の直訳である。
+**格子の寸法だけは参照実装と違う。** 参照実装は `TREE_GRID_SIZE = 4` でセル全体に
+ジッターを振るが、その配置は**最小間隔を保証しない** — 隣接セルの候補は 1 ブロックまで
+近づける。半径 2 の樹冠は 4-連結で融合し、実測で 1 チャンク・1 Y の LEAVES 連結成分が
+78 ブロックに達した（樹冠 1 個は 21）。docs/testing.md §4-b F-2。
+
+そこで `TREE_CELL_JITTER_SPAN = 3` を入れ、ジッターをセル内の**窓**に閉じ込めた。
+セルの縁に候補が入れない溝が残るので
+
+```
+TREE_MIN_SPACING = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + 1 = 6
+                >= 2 * TREE_CROWN_RADIUS + 2 = 6
+```
+
+が**候補格子の上で構成的に**成り立つ。密度・バイオーム・水没の各ゲートは候補を減らすだけ
+なので、この下界は全ゲートを通過しても生き残る。`test/tree-canopy.test.ts` が
+この不等式と、実際の `generateChunk` 出力（チャンクを縫い合わせた盤面）の
+LEAVES 連結成分の両方を検査する。
+
+最小間隔 6 は密度の上限でもある（1/36 ≒ 0.0278 本/柱）。`BIOME_TREE_DENSITY` の
+FOREST 0.04 / TAIGA 0.03 はこの上限を超えており、**融合しない樹冠では実現不可能な密度**
+だった。0.012 / 0.009 に下げてある。上限内だった SAVANNA / PLAINS / SNOW は据え置きで、
+変換が単位**面積**あたりなのでセルが 4×4 → 8×8 になっても本数は変わらない。
+
+`treeCellCandidate` は `tree-placer.ts:169-179` の移植である。
 ジッターと密度ロールが**同じ `cellRng`** から別の乗数で導かれている点に注意
 （セルあたりハッシュ評価 1 回）。
 

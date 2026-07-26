@@ -276,13 +276,45 @@ packages/world/domain/voxel-raycast.ts:3
 **森の密度では半径 2 の樹冠が融合して、プレイヤーが歩ける葉の板になる**。
 森と床の違いである。
 
-### 配置の数式（`tree-placer.ts:169-179` の直訳）
+### ⚠ 格子ジッターは最小間隔を保証しない — 参照実装の配置は不十分である
+
+**ここが DN-4 で最も重要な訂正である。** 参照実装の配置をそのまま移植すると、
+参照実装自身が警告している「歩ける葉の板」に**再び到達する**。
+
+参照実装の配置（`tree-placer.ts:169-179`）はセル全体にジッターを振る:
+
+```typescript
+wx = cellX * TREE_GRID_SIZE + Math.floor(fract(cellRng * TREE_CELL_JITTER_X_SCALE) * TREE_GRID_SIZE)
+```
+
+これが抑えるのは**密度**であって最小間隔ではない。
+隣接セルの候補は、片方がセルの上端・もう片方が次のセルの下端に落ちれば **1 ブロック**まで
+近づく。実測（`TREE_GRID_SIZE = 4`、384×384 の密走査 815 本）:
+最近傍間隔 min 1 / p50 3、樹冠が隣と重なる木 75.6%。
+ブロックバッファでは 1 チャンク・1 Y の LEAVES 連結成分が **78 ブロック**
+（樹冠 1 個は 21）。docs/testing.md §4-b F-2。
+
+### mc-worldgen の配置 — ジッターを窓に閉じ込める
 
 ```typescript
 const cellRng = Math.sin(cellX * TREE_RNG_X_SCALE + cellZ * TREE_RNG_Z_SCALE) * TREE_RNG_AMPLITUDE
-wx = cellX * TREE_GRID_SIZE + Math.floor(fract(cellRng * TREE_CELL_JITTER_X_SCALE) * TREE_GRID_SIZE)
-wz = cellZ * TREE_GRID_SIZE + Math.floor(fract(cellRng * TREE_CELL_JITTER_Z_SCALE) * TREE_GRID_SIZE)
+const jitter = (scale) => TREE_CELL_JITTER_ORIGIN + Math.floor(fract(cellRng * scale) * TREE_CELL_JITTER_SPAN)
+wx = cellX * TREE_GRID_SIZE + jitter(TREE_CELL_JITTER_X_SCALE)
+wz = cellZ * TREE_GRID_SIZE + jitter(TREE_CELL_JITTER_Z_SCALE)
 ```
+
+セルの縁に候補が入れない溝が残るので、
+
+```
+TREE_MIN_SPACING = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + 1 = 8 - 3 + 1 = 6
+                >= 2 * TREE_CROWN_RADIUS + 2 = 6
+```
+
+が**候補格子の上で構成的に**成立する。`>= 2r + 2` であって `2r + 1` ではないのは、
+ちょうど `2r + 1` だと両樹冠の端の柱が隣り合って 4-連結してしまうからである。
+
+この下界は**密度ロールより前**に成り立つ。以降のゲートは候補を減らすだけなので、
+バイオームにも水没にも依存せずに検査できる。
 
 密度ロール（`tree-placer.ts:215`）— **セルごとに 1 回**:
 
@@ -290,25 +322,43 @@ wz = cellZ * TREE_GRID_SIZE + Math.floor(fract(cellRng * TREE_CELL_JITTER_Z_SCAL
 if (fract(candidate.cellRng * TREE_DENSITY_ROLL_RNG_SCALE) >= treeDensity * TREE_GRID_AREA) { ... }
 ```
 
-定数（`tree-placer.config.ts:26-41`）:
-`TREE_GRID_SIZE = 4`、`TREE_GRID_AREA = 16`、
-ジッター `3.97` / `5.23`、密度ロール `2.61`、sin-hash `127.1 / 311.7 / 43758.5453`。
+定数: `TREE_GRID_SIZE = 8`、`TREE_GRID_AREA = 64`、`TREE_CELL_JITTER_SPAN = 3`、
+`TREE_CROWN_RADIUS = 2`（以上は本リポジトリの決定）、
+ジッター `3.97` / `5.23`、密度ロール `2.61`、sin-hash `127.1 / 311.7 / 43758.5453`
+（以上は `tree-placer.config.ts:26-41` からの移植）。
 
-`density × TREE_GRID_AREA` の変換により、単位面積あたりの期待本数が保たれ、
-密度の数値が設計者の期待どおりの意味を保つ。
+`density × TREE_GRID_AREA` の変換により、単位**面積**あたりの期待本数が保たれる。
+だから格子が 4×4 から 8×8 になっても本数は変わらない。
+
+### 最小間隔 6 は密度の上限でもある
+
+間隔 6 を守る配置は最大でも 1/36 ≒ **0.0278 本/柱**しか置けない。
+`BIOME_TREE_DENSITY` の FOREST 0.04 / TAIGA 0.03 は**この上限を超えていた** —
+融合しない樹冠では原理的に実現できない密度を要求していたのであり、
+葉の板はそれを正直に実現した結果である。0.012 / 0.009 に下げた。
+上限内だった SAVANNA 0.008 / PLAINS 0.006 / SNOW 0.004 は据え置きである。
 
 ### 書くべき回帰テスト
 
 | テスト名 | 主張 |
 | --- | --- |
 | ✅ `places at most one candidate per grid cell` | セルあたり 1 本が上限 |
-| ✅ `keeps candidates at least one cell apart, which is what stops crowns merging` | 最小間隔が構造的に保証される |
-| ✅ `the candidate always lands inside its own cell` | ジッターがセルを越えない |
+| ✅ `keeps candidates TREE_MIN_SPACING apart, which is what stops crowns merging` | 最小間隔。**下界が tight であること**も主張する |
+| ✅ `the candidate always lands inside its own cell, in the jitter window` | ジッターが**窓**を越えない（負のセルでも） |
 | ✅ `is deterministic: the same cell always yields the same candidate` | 決定論 |
-| ✅ `scales density by the cell area, so the per-column figure keeps its meaning` | 変換式 |
+| ✅ `scales density by the cell area, so the per-column figure keeps its meaning` | 変換式。全バイオームで `< 1` |
+| ✅ `asks for no more trees than a non-fusing canopy can hold` | 密度の幾何学的上限 1/36 |
 | ✅ `grows denser in forest than in plains, at the same coordinates` | 密度が効いている |
+| ✅ `never joins two crowns: the largest leaf patch at one Y is exactly one crown` | **生成ブロックでの測定**（`test/tree-canopy.test.ts`） |
+| ✅ `is tight: one block closer and the two crowns become one patch` | 閾値 6 が load-bearing であること |
 
-実装は `test/biome-and-trees.test.ts`。
+実装は `test/biome-and-trees.test.ts`（配置）と `test/tree-canopy.test.ts`（ブロック）。
+
+**旧版の教訓**: この表にはかつて
+`keeps candidates at least one cell apart, which is what stops crowns merging` という
+✅ が並んでいた。その実装は `gap >= 1` を主張していた —
+相異なる 2 柱なら常に真であり、**何も主張していない**。
+偽のヘッダコメントと空虚なテストが揃うと、偽の主張が検証済みに見える。
 
 ### 木の配置はシードに依存しない（参照実装の性質）
 

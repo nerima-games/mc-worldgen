@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 116
+exported declarations: 120
 supporting declarations: 2
 
 ## Exported
@@ -197,7 +197,7 @@ const CHUNK_VOLUME: number;
 ### CONTINENTALNESS_CONTRAST  `const`
 
 ```ts
-const CONTINENTALNESS_CONTRAST = 2.6;
+const CONTINENTALNESS_CONTRAST = 1.15;
 ```
 
 ### CarveOptions  `type`
@@ -437,6 +437,18 @@ type SubscriberId = number & {
 };
 ```
 
+### TREE_CELL_JITTER_ORIGIN  `const`
+
+```ts
+const TREE_CELL_JITTER_ORIGIN: number;
+```
+
+### TREE_CELL_JITTER_SPAN  `const`
+
+```ts
+const TREE_CELL_JITTER_SPAN = 3;
+```
+
 ### TREE_CELL_JITTER_X_SCALE  `const`
 
 ```ts
@@ -447,6 +459,12 @@ const TREE_CELL_JITTER_X_SCALE = 3.97;
 
 ```ts
 const TREE_CELL_JITTER_Z_SCALE = 5.23;
+```
+
+### TREE_CROWN_RADIUS  `const`
+
+```ts
+const TREE_CROWN_RADIUS = 2;
 ```
 
 ### TREE_DENSITY_ROLL_RNG_SCALE  `const`
@@ -464,7 +482,13 @@ const TREE_GRID_AREA: number;
 ### TREE_GRID_SIZE  `const`
 
 ```ts
-const TREE_GRID_SIZE = 4;
+const TREE_GRID_SIZE = 8;
+```
+
+### TREE_MIN_SPACING  `const`
+
+```ts
+const TREE_MIN_SPACING: number;
 ```
 
 ### TREE_RNG_AMPLITUDE  `const`

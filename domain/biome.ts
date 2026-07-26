@@ -114,14 +114,35 @@ export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {
   SNOW: { top: BLOCK.SNOW, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
 }
 
-/** How densely trees grow, as an effective per-column probability. See `domain/tree-placement.ts`. */
+/**
+ * How densely trees grow, as an effective per-column probability.
+ *
+ * There is a ceiling on these numbers and it is geometric, not aesthetic. A
+ * radius-2 crown fuses with its neighbour into one connected sheet of leaves
+ * unless the trunks are at least `2 * TREE_CROWN_RADIUS + 2 = 6` columns apart,
+ * and columns 6 apart pack at 1/36 = 0.0278 per column. Any density above that
+ * is a request for a canopy that cannot exist without fusing.
+ *
+ * FOREST was 0.04 and TAIGA was 0.03 — both over the ceiling, which is why the
+ * reference's "walkable leaf slab" warning kept coming true after the jittered
+ * grid was introduced (docs/testing.md §4-b F-2: a 78-block leaf patch against
+ * 21 for one crown). They are now 0.012 and 0.009, comfortably under both the
+ * geometric ceiling and the placement grid's own `1 / TREE_GRID_AREA` = 0.0156.
+ *
+ * SAVANNA, PLAINS and SNOW were already under the ceiling and did NOT move. The
+ * grid grew from 4×4 to 8×8 in the same change, and that is deliberately a
+ * no-op for them: `shouldPlaceTree` converts by `density × TREE_GRID_AREA`, so
+ * the expected number of trees per unit area depends on the density alone.
+ *
+ * See `domain/tree-placement.ts`.
+ */
 export const BIOME_TREE_DENSITY: Record<BiomeType, number> = {
   OCEAN: 0,
   BEACH: 0,
   DESERT: 0,
   SAVANNA: 0.008,
   PLAINS: 0.006,
-  FOREST: 0.04,
-  TAIGA: 0.03,
+  FOREST: 0.012,
+  TAIGA: 0.009,
   SNOW: 0.004,
 }
