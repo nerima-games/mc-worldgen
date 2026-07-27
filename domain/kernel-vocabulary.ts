@@ -61,14 +61,29 @@
  * two to disagree would produce two different lightings of one chunk — which is
  * the 「two owners of one noun」 failure the store's header is already about.
  *
- * ONE GAP, NAMED RATHER THAN LEFT TO BE FOUND. mc-dev-meta's `pnpm check:mirrors`
- * probes transcribed capability FLAGS by importing kernel's `capabilityOfBlockId`
- * and diffing all 256 ids. `lightEmission` and `opacity` are PROPERTIES, and
- * that probe has no property half — so these two columns are guarded only by
- * `test/kernel-mirror.test.ts` below, which restates kernel's rows. That is a
- * weaker guarantee than the flags get, and it is the same weaker guarantee that
- * let `replaceable` lose lava in mx-gameplay until the cross-repository check
- * was built.
+ * ONE GAP, NAMED RATHER THAN LEFT TO BE FOUND — AND IT HAS NOW COST SOMETHING.
+ * mc-dev-meta's `pnpm check:mirrors` probes transcribed capability FLAGS by
+ * importing kernel's `capabilityOfBlockId` and diffing all 256 ids.
+ * `lightEmission` and `opacity` are PROPERTIES, and that probe has no property
+ * half — so these two columns are guarded only by `test/kernel-mirror.test.ts`
+ * below, which restates kernel's rows. That is a weaker guarantee than the flags
+ * get, and it is the same weaker guarantee that let `replaceable` lose lava in
+ * mx-gameplay until the cross-repository check was built.
+ *
+ * It has now done the same thing here. Kernel's roster grew to 36 blocks and the
+ * opacity table below kept six rows out of twenty-four for a full week, unnoticed
+ * by every gate in either repository, because the only check that could have seen
+ * it was a test in this file that sampled the six rows it already had. The
+ * transcription is now exhaustive over kernel's assigned id range, which turns
+ * the next omission into a failure rather than a dark chunk — but the structural
+ * fix is still a PROPERTY probe in `MIRROR_SPECS`, and until that exists this
+ * file's correctness is checked by a test that this repository could edit in the
+ * same commit that breaks it.
+ *
+ * The FLAG half of that lesson is already recorded in kernel's audit §4.9.1(d),
+ * in the general form: 「ミラーが転記している能力の数より probe が少なければ、
+ * そのチェックは検査していない成功を報告する」. A probe array with no property
+ * entries at all is that sentence's limiting case.
  *
  * ---------------------------------------------------------------------------
  * `ChunkCoord` is `{cx, cz}`, and this file is where that was settled
@@ -260,14 +275,40 @@ export type BlockOpacity = (typeof BLOCK_OPACITIES)[number]
 /**
  * The rows of kernel's `BLOCK_REGISTRY` whose `opacity` is not the default.
  *
- * A NEGATIVE transcription, and for kernel's own reason rather than for
- * brevity: `BLOCK_PROPERTY_DEFAULTS.opacity` is `'opaque'`, because audit §7
- * settles every default at 「普通の不透明立方体」. Transcribing the exceptions
- * buys the two properties the positive table would have to remember —
+ * A NEGATIVE transcription, and — read the next paragraph before "simplifying"
+ * it — NOT for brevity. `BLOCK_PROPERTY_DEFAULTS.opacity` is `'opaque'`, because
+ * audit §7 settles every default at 「普通の不透明立方体」, and kernel's
+ * `propertyOfBlockId` returns that default for any id it cannot name. A mirror
+ * that transcribed the OPAQUE rows positively would have to default unknown ids
+ * to non-opaque, and would then disagree with kernel on exactly the input the
+ * test below pins (`opacityOfBlockId(200) === 'opaque'`). The direction is
+ * decided by kernel's default, not by which list is shorter.
  *
- *   - an id this build cannot name reads as an ordinary opaque cube, exactly as
- *     kernel's `resolveBlockProperties` resolves it;
- *   - adding an ordinary block to kernel's registry needs no edit here.
+ * WHICH MATTERS NOW, BECAUSE THE SHORTER LIST HAS SWAPPED. Kernel's roster grew
+ * from 18 block literals to 36, and 24 of the 36 rows are non-opaque against 12
+ * opaque. The half of the original argument that appealed to brevity 「adding an
+ * ordinary block to kernel's registry needs no edit here」 has expired: most new
+ * blocks are plants, rails and slabs, and every one of them needs a row here.
+ * The half that was load-bearing — agreeing with kernel's default — is
+ * unaffected.
+ *
+ * THIS TABLE WAS STALE, and the staleness had already reached the light grid.
+ * It carried six rows (air, water, oak_leaves, lava, glass, torch) while kernel
+ * carried twenty-four, so `./light.ts` treated a ladder, a rail, a flower, a
+ * cactus and a stone slab as fully light-blocking. Every missing row defaulted
+ * to `'opaque'`, which is the DARK direction — the one `../docs/design-notes.md`
+ * DN-7 identifies as non-conservative, because a cell read darker than it is
+ * lets a hostile spawn where the rule would have refused
+ * (`mx-gameplay/domain/mob/hostile-spawn.ts` refuses above light 7).
+ *
+ * That is exactly the failure kernel's own `block-registry.ts` header predicts
+ * of a hand-maintained membership set — 「手書きの membership set は名簿が伸びる
+ * たびにこうなる」 — and this file is one, by necessity: mc-worldgen cannot import
+ * kernel until plan.md §6 Step 3 publishes it. What a mirror can do instead is
+ * make the staleness loud, which is why `test/kernel-mirror.test.ts` now pins
+ * this table EXHAUSTIVELY over kernel's whole assigned id range rather than
+ * sampling six rows of it. See that file on why the guarantee is still weaker
+ * than the one the capability FLAGS get from `pnpm check:mirrors`.
  *
  * AIR IS IN THIS TABLE and it is the row most likely to look like a mistake.
  * Kernel really does give air `opacity: 'transparentSolid'` rather than a fourth
@@ -282,11 +323,40 @@ const NON_OPAQUE_BLOCK_OPACITIES: ReadonlyMap<number, BlockOpacity> = new Map([
   [11, 'fluid'], // lava
   [13, 'transparentSolid'], // glass
   [14, 'transparentSolid'], // torch
+  // ids 18-35, kernel's 「the rest of `PASSABLE_BLOCK_IDS`」 pass plus the three
+  // non-`full` collision shapes. All `transparentSolid`: kernel gives `'fluid'`
+  // to water and lava and to nothing else.
+  [18, 'transparentSolid'], // ladder
+  [19, 'transparentSolid'], // cobweb
+  // The seven surface plants plus sugar_cane and lily_pad. Kernel's
+  // `PLANT_PROPERTIES` sets `opacity: 'transparentSolid'` for all of them,
+  // deliberately NOT from `meshing-worker-config.ts` (whose transparent-solid
+  // set holds only glass and leaves) but from `light.ts:14-17`, which builds
+  // attenuation from `properties.transparency` — true for every plant. Kernel's
+  // row comment puts it plainly: opaque would make a flower cast a shadow.
+  [20, 'transparentSolid'], // sapling
+  [21, 'transparentSolid'], // dandelion
+  [22, 'transparentSolid'], // poppy
+  [23, 'transparentSolid'], // brown_mushroom
+  [24, 'transparentSolid'], // red_mushroom
+  [25, 'transparentSolid'], // tall_grass
+  [26, 'transparentSolid'], // fern
+  [27, 'transparentSolid'], // sugar_cane
+  [28, 'transparentSolid'], // lily_pad
+  [29, 'transparentSolid'], // kelp
+  [30, 'transparentSolid'], // seagrass
+  [31, 'transparentSolid'], // rail
+  [32, 'transparentSolid'], // powered_rail
+  // cactus is `cactusBlockProperties` (`blocks.config.flora.ts:9-15`): solid AND
+  // transparent. It is the row kernel uses to argue that no single `solid`
+  // boolean can exist, and it transmits light while still colliding.
+  [33, 'transparentSolid'], // cactus
+  [34, 'transparentSolid'], // pressure_plate
+  [35, 'transparentSolid'], // stone_slab
 ])
 
 /** Total, like kernel's: an id outside the transcription is an ordinary cube. */
-export const opacityOfBlockId = (block: number): BlockOpacity =>
-  NON_OPAQUE_BLOCK_OPACITIES.get(block) ?? 'opaque'
+export const opacityOfBlockId = (id: number): BlockOpacity => NON_OPAQUE_BLOCK_OPACITIES.get(id) ?? 'opaque'
 
 /**
  * May light cross this cell at all?
@@ -307,7 +377,7 @@ export const opacityOfBlockId = (block: number): BlockOpacity =>
  * refuses above light 7), which is why it is acceptable to ship and why it is
  * written down.
  */
-export const transmitsLight = (block: number): boolean => opacityOfBlockId(block) !== 'opaque'
+export const transmitsLight = (id: number): boolean => opacityOfBlockId(id) !== 'opaque'
 
 /**
  * The rows of kernel's `BLOCK_REGISTRY` with a non-zero `lightEmission`.
@@ -317,6 +387,14 @@ export const transmitsLight = (block: number): boolean => opacityOfBlockId(block
  * `emissive: boolean` and the reference implementation ALREADY contradicted it
  * with `EMISSIVE_LEVEL_OVERRIDES` (`light.ts:24-46`). A torch is 14 and
  * glowstone is 15, and the one-level gap is visible in a lit room.
+ *
+ * UNLIKE the opacity table above, this one survived the roster growing from 18
+ * literals to 36 — re-derived from kernel and still exactly three rows, because
+ * none of the eighteen blocks added (plants, rails, a ladder, a cobweb, a
+ * cactus, a slab) emits anything. That is luck rather than design, and it is the
+ * reason the test below asserts the emitting set is CLOSED instead of only
+ * checking that these three are present: a fourth emitter added to kernel is
+ * invisible to a transcription that only spot-checks the rows it already knows.
  */
 const BLOCK_LIGHT_EMISSION: ReadonlyMap<number, number> = new Map([
   [11, 15], // lava
@@ -325,8 +403,7 @@ const BLOCK_LIGHT_EMISSION: ReadonlyMap<number, number> = new Map([
 ])
 
 /** Total: kernel's default is `LIGHT_LEVEL_MIN`, so an unknown id emits nothing. */
-export const lightEmissionOfBlockId = (block: number): number =>
-  BLOCK_LIGHT_EMISSION.get(block) ?? LIGHT_LEVEL_MIN
+export const lightEmissionOfBlockId = (id: number): number => BLOCK_LIGHT_EMISSION.get(id) ?? LIGHT_LEVEL_MIN
 
 /** Kernel's `clampLightLevel`. Used where emission and attenuation combine. */
 export const clampLightLevel = (value: number): number =>

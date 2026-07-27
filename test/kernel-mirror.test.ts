@@ -229,6 +229,18 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
       // The one-level gap between torch and glowstone is the whole reason the
       // column is not a boolean. If a future edit flattens it, this fails.
       expect(lightEmissionOfBlockId(14)).not.toBe(lightEmissionOfBlockId(15))
+
+      // CLOSED, not just present. The opacity table above went stale precisely
+      // because it asserted the rows it already had; asserting that NOTHING
+      // ELSE in kernel's assigned range emits is what would catch a fourth
+      // emitter being added to kernel and not transcribed here.
+      const emitting: Array<number> = []
+      for (let id = 0; id <= BLOCK_ID_MAX; id += 1) {
+        if (lightEmissionOfBlockId(id) > LIGHT_LEVEL_MIN) {
+          emitting.push(id)
+        }
+      }
+      expect(emitting).toStrictEqual([11, 14, 15])
     }),
   )
 
@@ -266,20 +278,118 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
     }),
   )
 
-  it.effect('keeps the fluid and transparentSolid rows apart from the opaque default', () =>
-    Effect.sync(() => {
-      // `:289` water fluid, `:348` oak_leaves transparentSolid, `:368` lava
-      // fluid, `:398` glass transparentSolid, `:416` torch transparentSolid.
-      expect(opacityOfBlockId(BLOCK.WATER)).toBe('fluid')
-      expect(opacityOfBlockId(BLOCK.LEAVES)).toBe('transparentSolid')
-      expect(opacityOfBlockId(11)).toBe('fluid') // lava
-      expect(opacityOfBlockId(13)).toBe('transparentSolid') // glass
-      expect(opacityOfBlockId(14)).toBe('transparentSolid') // torch
+  /**
+   * EVERY id kernel has assigned, not a sample of them.
+   *
+   * This test used to check five rows, and that is precisely how the mirror
+   * came to hold six of kernel's twenty-four non-opaque rows without any gate
+   * noticing: kernel's roster grew from 18 block literals to 36, eighteen of
+   * the new rows were non-opaque, and a test that asserts only what it already
+   * knows cannot fail on a row nobody transcribed. `./light.ts` was meanwhile
+   * treating a ladder, a rail, a flower, a cactus and a stone slab as fully
+   * light-blocking.
+   *
+   * The table below is therefore CLOSED at both ends. Every id in kernel's
+   * assigned range has a literal answer here, so a kernel row this mirror has
+   * not transcribed shows up as a failing assertion rather than as a dark
+   * chunk. It is transcribed from `mc-kernel/domain/block-registry.ts`'s
+   * `BLOCK_REGISTRY` — ids 0-17 from the original roster and 18-35 from the
+   * 「the rest of `PASSABLE_BLOCK_IDS`」 and 「the three non-`full` collision
+   * shapes」 sections.
+   *
+   * What it still does not do is notice a THIRTY-SIXTH kernel row. That needs a
+   * property probe in mc-dev-meta's `MIRROR_SPECS`, which does not exist yet;
+   * `domain/kernel-vocabulary.ts`'s header records the gap and why this file is
+   * a weaker substitute for it.
+   */
+  const KERNEL_OPACITY_ROWS: ReadonlyArray<readonly [number, string]> = [
+    [0, 'transparentSolid'], // air
+    [1, 'opaque'], // bedrock
+    [2, 'opaque'], // stone
+    [3, 'opaque'], // dirt
+    [4, 'opaque'], // grass_block
+    [5, 'opaque'], // sand
+    [6, 'fluid'], // water
+    [7, 'opaque'], // snow
+    [8, 'opaque'], // gravel
+    [9, 'opaque'], // oak_log
+    [10, 'transparentSolid'], // oak_leaves
+    [11, 'fluid'], // lava
+    [12, 'opaque'], // oak_planks
+    [13, 'transparentSolid'], // glass
+    [14, 'transparentSolid'], // torch
+    [15, 'opaque'], // glowstone — opaque AND emitting; see the row below
+    [16, 'opaque'], // piston
+    [17, 'opaque'], // cobblestone
+    [18, 'transparentSolid'], // ladder
+    [19, 'transparentSolid'], // cobweb
+    [20, 'transparentSolid'], // sapling
+    [21, 'transparentSolid'], // dandelion
+    [22, 'transparentSolid'], // poppy
+    [23, 'transparentSolid'], // brown_mushroom
+    [24, 'transparentSolid'], // red_mushroom
+    [25, 'transparentSolid'], // tall_grass
+    [26, 'transparentSolid'], // fern
+    [27, 'transparentSolid'], // sugar_cane
+    [28, 'transparentSolid'], // lily_pad
+    [29, 'transparentSolid'], // kelp
+    [30, 'transparentSolid'], // seagrass
+    [31, 'transparentSolid'], // rail
+    [32, 'transparentSolid'], // powered_rail
+    [33, 'transparentSolid'], // cactus
+    [34, 'transparentSolid'], // pressure_plate
+    [35, 'transparentSolid'], // stone_slab
+  ]
 
-      // Everything else, including an id this build cannot name.
-      expect(opacityOfBlockId(BLOCK.STONE)).toBe('opaque')
-      expect(opacityOfBlockId(BLOCK.LOG)).toBe('opaque')
+  it.effect('transcribes kernel’s opacity for EVERY assigned id, not a sample of them', () =>
+    Effect.sync(() => {
+      for (const [id, opacity] of KERNEL_OPACITY_ROWS) {
+        expect({ id, opacity: opacityOfBlockId(id) }).toStrictEqual({ id, opacity })
+      }
+
+      // Kernel gives `'fluid'` to water and lava and to nothing else. Spelled as
+      // a closed set so that promoting some future block into the fluid bucket
+      // has to be transcribed rather than absorbed.
+      const fluids = KERNEL_OPACITY_ROWS.filter(([, opacity]) => opacity === 'fluid').map(([id]) => id)
+      expect(fluids).toStrictEqual([6, 11])
+
+      // 24 of kernel's 36 rows transmit light. The count is asserted because it
+      // is the number that was wrong: this table held 6.
+      expect(KERNEL_OPACITY_ROWS.filter(([id]) => transmitsLight(id))).toHaveLength(24)
+    }),
+  )
+
+  it.effect('keeps the opaque default for ids kernel has not assigned', () =>
+    Effect.sync(() => {
+      // Kernel's `propertyOfBlockId` is TOTAL and falls back to
+      // `BLOCK_PROPERTY_DEFAULTS.opacity`. This is the assertion that decides
+      // the DIRECTION of the transcription: a mirror that listed the opaque
+      // rows positively would have to answer non-opaque here, and would
+      // disagree with kernel on every byte a newer build or a corrupt chunk
+      // can produce.
+      expect(opacityOfBlockId(36)).toBe('opaque')
       expect(opacityOfBlockId(200)).toBe('opaque')
+      expect(opacityOfBlockId(BLOCK_ID_MAX)).toBe('opaque')
+      expect(transmitsLight(200)).toBe(false)
+    }),
+  )
+
+  it.effect('does not let light stand in for solidity — GLASS collides and still transmits', () =>
+    Effect.sync(() => {
+      // Kernel's audit §4.9 is a section about the five "non-solid" concepts
+      // that disagree row by row. This mirror carries only the light column, so
+      // the one thing it must not do is let a reader infer the others from it.
+      // Glass transmits light and is not passable; a stone slab transmits light
+      // and is a spawn surface; a cactus transmits light and damages you.
+      expect(transmitsLight(13)).toBe(true) // glass
+      expect(transmitsLight(33)).toBe(true) // cactus
+      expect(transmitsLight(35)).toBe(true) // stone_slab
+
+      // And the direction that actually bit: these are the rows the stale table
+      // read as opaque, which is the DARK misreading DN-7 calls non-conservative.
+      expect(transmitsLight(18)).toBe(true) // ladder
+      expect(transmitsLight(31)).toBe(true) // rail
+      expect(transmitsLight(21)).toBe(true) // dandelion
     }),
   )
 

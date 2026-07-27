@@ -827,7 +827,7 @@ const lightAt: (state: ChunkStoreState, position: BlockPosition) => readonly [Li
 ### lightEmissionOfBlockId  `const`
 
 ```ts
-const lightEmissionOfBlockId: (block: number) => number;
+const lightEmissionOfBlockId: (id: number) => number;
 ```
 
 ### lightReading  `const`
@@ -863,7 +863,7 @@ const neighboursOf: (state: ChunkStoreState, coord: ChunkCoord) => ChunkNeighbou
 ### opacityOfBlockId  `const`
 
 ```ts
-const opacityOfBlockId: (block: number) => BlockOpacity;
+const opacityOfBlockId: (id: number) => BlockOpacity;
 ```
 
 ### packPosLevel  `const`
@@ -929,7 +929,7 @@ const surfaceHeightAt: (seed: number, wx: number, wz: number) => number;
 ### transmitsLight  `const`
 
 ```ts
-const transmitsLight: (block: number) => boolean;
+const transmitsLight: (id: number) => boolean;
 ```
 
 ### treeCellCandidate  `const`
