@@ -22,6 +22,7 @@ import { CHUNK_SIZE_XZ as CONSTANTS_CHUNK_SIZE_XZ } from '../domain/constants'
 import {
   AIR_BLOCK_ID,
   BLOCK_ID_MAX,
+  BLOCK_OPACITIES,
   BlockAxis,
   BlockId,
   blockPosition,
@@ -29,8 +30,14 @@ import {
   ChunkAxis,
   chunkCoord,
   chunkCoordOfBlock,
+  clampLightLevel,
+  lightEmissionOfBlockId,
+  LIGHT_LEVEL_MAX,
+  LIGHT_LEVEL_MIN,
   LocalAxis,
   localCoordOfBlock,
+  opacityOfBlockId,
+  transmitsLight,
   type BlockPosition,
   type ChunkCoord,
   type LocalBlockCoord,
@@ -189,6 +196,115 @@ describe('block ids match mc-kernel/domain/block-registry.ts', () => {
       expect(() => BlockId(-1)).toThrow()
       expect(() => BlockId(256)).toThrow()
       expect(() => BlockId(2.5)).toThrow()
+    }),
+  )
+})
+
+/**
+ * The two PROPERTY columns, which are guarded here and nowhere else.
+ *
+ * `domain/kernel-vocabulary.ts`'s header names this gap rather than leaving it
+ * to be found: mc-dev-meta's `pnpm check:mirrors` probes transcribed capability
+ * FLAGS by importing kernel's `capabilityOfBlockId` and diffing all 256 ids, and
+ * it has no property half. `lightEmission` and `opacity` are properties, so this
+ * file is the whole of their defence.
+ *
+ * That is the weaker of the two guarantees available, and it is the same weaker
+ * guarantee that let `replaceable` silently lose lava in mx-gameplay until the
+ * cross-repository check was built. The rows below are therefore restated from
+ * `mc-kernel/domain/block-registry.ts` WITH THEIR LINE NUMBERS, so that a
+ * reviewer can check the transcription against the source without running
+ * anything.
+ */
+describe('light columns match mc-kernel/domain/block-properties.ts', () => {
+  it.effect('transcribes every emitting row, and no others', () =>
+    Effect.sync(() => {
+      // `block-registry.ts:372` lava 15, `:422` torch 14, `:438` glowstone 15.
+      // Kernel's audit §5: `EMISSIVE_LEVEL_OVERRIDES` in the reference already
+      // made `emissive: boolean` a lie, which is why this is a number.
+      expect(lightEmissionOfBlockId(11)).toBe(15) // lava
+      expect(lightEmissionOfBlockId(14)).toBe(14) // torch
+      expect(lightEmissionOfBlockId(15)).toBe(15) // glowstone
+
+      // The one-level gap between torch and glowstone is the whole reason the
+      // column is not a boolean. If a future edit flattens it, this fails.
+      expect(lightEmissionOfBlockId(14)).not.toBe(lightEmissionOfBlockId(15))
+    }),
+  )
+
+  it.effect('defaults emission to kernel’s LIGHT_LEVEL_MIN for everything else', () =>
+    Effect.sync(() => {
+      expect(LIGHT_LEVEL_MIN).toBe(0)
+      expect(LIGHT_LEVEL_MAX).toBe(15)
+
+      expect(lightEmissionOfBlockId(BLOCK.AIR)).toBe(LIGHT_LEVEL_MIN)
+      expect(lightEmissionOfBlockId(BLOCK.STONE)).toBe(LIGHT_LEVEL_MIN)
+      expect(lightEmissionOfBlockId(BLOCK.WATER)).toBe(LIGHT_LEVEL_MIN)
+      // Total, exactly as `resolveBlockProperties` is for an id kernel cannot
+      // name: an unknown byte is an ordinary opaque cube that emits nothing.
+      expect(lightEmissionOfBlockId(200)).toBe(LIGHT_LEVEL_MIN)
+    }),
+  )
+
+  it.effect('transcribes kernel’s three opacity classes, in kernel’s order', () =>
+    Effect.sync(() => {
+      // Order is plan.md §3.3's render priority, not an alphabetisation, and
+      // mc-render consumes all three. A local two-value enum would have to be
+      // widened on the day this is published.
+      expect(BLOCK_OPACITIES).toStrictEqual(['transparentSolid', 'fluid', 'opaque'])
+    }),
+  )
+
+  it.effect('gives AIR a transparentSolid opacity, which is kernel’s row and not an oversight', () =>
+    Effect.sync(() => {
+      // `block-registry.ts:218`. Air really is in kernel's non-opaque table
+      // rather than being a fourth class, and the whole light grid depends on
+      // it: an air row that fell through to the `'opaque'` default would make a
+      // world in which no light travels at all.
+      expect(opacityOfBlockId(BLOCK.AIR)).toBe('transparentSolid')
+      expect(transmitsLight(BLOCK.AIR)).toBe(true)
+    }),
+  )
+
+  it.effect('keeps the fluid and transparentSolid rows apart from the opaque default', () =>
+    Effect.sync(() => {
+      // `:289` water fluid, `:348` oak_leaves transparentSolid, `:368` lava
+      // fluid, `:398` glass transparentSolid, `:416` torch transparentSolid.
+      expect(opacityOfBlockId(BLOCK.WATER)).toBe('fluid')
+      expect(opacityOfBlockId(BLOCK.LEAVES)).toBe('transparentSolid')
+      expect(opacityOfBlockId(11)).toBe('fluid') // lava
+      expect(opacityOfBlockId(13)).toBe('transparentSolid') // glass
+      expect(opacityOfBlockId(14)).toBe('transparentSolid') // torch
+
+      // Everything else, including an id this build cannot name.
+      expect(opacityOfBlockId(BLOCK.STONE)).toBe('opaque')
+      expect(opacityOfBlockId(BLOCK.LOG)).toBe('opaque')
+      expect(opacityOfBlockId(200)).toBe('opaque')
+    }),
+  )
+
+  it.effect('GLOWSTONE IS OPAQUE AND STILL EMITS, which is the row that needs both columns', () =>
+    Effect.sync(() => {
+      // The case that proves the two columns are independent. Kernel gives
+      // glowstone no `opacity` override, so it resolves to `'opaque'`, and gives
+      // it `lightEmission: 15`. A transcription that inferred one from the other
+      // — "emitters are transparent", or "opaque blocks are dark" — would get
+      // this row wrong in whichever direction it guessed.
+      expect(opacityOfBlockId(15)).toBe('opaque')
+      expect(transmitsLight(15)).toBe(false)
+      expect(lightEmissionOfBlockId(15)).toBe(15)
+    }),
+  )
+
+  it.effect('clamps into the 4-bit range at both ends, like kernel’s clampLightLevel', () =>
+    Effect.sync(() => {
+      expect(clampLightLevel(-1)).toBe(0)
+      expect(clampLightLevel(0)).toBe(0)
+      expect(clampLightLevel(15)).toBe(15)
+      expect(clampLightLevel(16)).toBe(15)
+      // `Math.trunc`, so a fractional level from a save file becomes an integer
+      // rather than a nibble that reads back as something else.
+      expect(clampLightLevel(7.9)).toBe(7)
     }),
   )
 })

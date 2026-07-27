@@ -33,7 +33,8 @@
  * still holds for everything the `Ref` actually guards.
  */
 import { getBlockAt, setBlockAt, type Chunk } from './chunk'
-import { CHUNK_HEIGHT } from './constants'
+import { blockIndex, CHUNK_HEIGHT } from './constants'
+import { computeChunkLight, getLightAt, type ChunkLight } from './light'
 import {
   BlockId,
   chunkCoord,
@@ -131,6 +132,40 @@ export const wasWritten = (outcome: BlockWriteOutcome): boolean => outcome._tag 
 export const isWorldY = (y: number): boolean => Number.isInteger(y) && y >= 0 && y < CHUNK_HEIGHT
 
 // ---------------------------------------------------------------------------
+// Light
+// ---------------------------------------------------------------------------
+
+/**
+ * The answer to "how bright is this world position".
+ *
+ * THREE-VALUED, and the two non-`Light` cases are `blockAt`'s, character for
+ * character. That symmetry is deliberate: a caller that has already handled
+ * `ChunkNotLoaded` and `OutOfWorld` for a block read handles them the same way
+ * for a light read, and a caller that has not is stopped by the compiler in both
+ * places at once.
+ *
+ * IT MATTERS MORE HERE THAN IT DOES FOR BLOCKS. `mx-gameplay`'s spawn rule
+ * refuses a candidate whose light is not a number (`unmeasurable`), and its
+ * comment records why: `NaN > 7` is `false`, so an unmeasured light level that
+ * arrived as a bare number would read as PITCH DARK and spawn a hostile in
+ * daylight. A `LightReading` that could not express "I do not know" would force
+ * every caller to pick a number for that case, and 0 is the number they would
+ * pick.
+ *
+ * The two absent cases are module-level singletons, so a read that finds nothing
+ * allocates nothing.
+ */
+export type LightReading =
+  | { readonly _tag: 'Light'; readonly sky: number; readonly block: number }
+  | { readonly _tag: 'ChunkNotLoaded' }
+  | { readonly _tag: 'OutOfWorld' }
+
+export const LIGHT_CHUNK_NOT_LOADED: LightReading = { _tag: 'ChunkNotLoaded' }
+export const LIGHT_OUT_OF_WORLD: LightReading = { _tag: 'OutOfWorld' }
+
+export const lightReading = (sky: number, block: number): LightReading => ({ _tag: 'Light', sky, block })
+
+// ---------------------------------------------------------------------------
 // The dirty channel
 // ---------------------------------------------------------------------------
 
@@ -183,14 +218,89 @@ export const EMPTY_DIRTY_BATCH: ChunkDirtyBatch = { changed: [], removed: [] }
 
 export type ChunkStoreState = {
   readonly loaded: ReadonlyMap<ChunkKey, Chunk>
+  /**
+   * Computed light, per resident chunk. ABSENT MEANS STALE, not dark.
+   *
+   * -------------------------------------------------------------------------
+   * Why the grids are here and not on `Chunk`
+   * -------------------------------------------------------------------------
+   *
+   * plan.md §3.7 calls the light grid 「チャンクデータの一部」, which is a claim
+   * about who OWNS it — this repository, rather than mc-render — and both
+   * placements satisfy that. The store-side map wins on two counts:
+   *
+   *  1. **A stale grid is unreachable.** `load` and `peek` hand out LIVE chunks
+   *     (see the module header on aliasing). A `Chunk.skyLight` field would
+   *     therefore be readable by every consumer that holds a chunk, including
+   *     immediately after somebody else's `setBlock` invalidated it — and a
+   *     stale light level is indistinguishable from a fresh one. Keeping the
+   *     grids behind the `Ref` means every read goes through `lightAt`, which is
+   *     the one place staleness can be noticed and resolved.
+   *  2. **`chunkSnapshotOf` stays cheap.** A snapshot copies the block buffer;
+   *     with light on the chunk it would copy 64 KB more, for a caller (a save
+   *     writer, a worker message, a test assertion) that does not want it. The
+   *     reference does not persist light at all — it recomputes on load,
+   *     `chunk-manager-ops-storage.ts:61` — so the save path is exactly the
+   *     caller that would pay for the copy and throw the result away.
+   *
+   * The cost of the choice is that light is not part of the value `snapshot`
+   * returns, so a consumer that wants both asks twice. That is the correct shape
+   * anyway: `getLight` answers about a POSITION, and the grid is an
+   * implementation of that answer rather than a thing to hand out.
+   */
+  readonly lights: ReadonlyMap<ChunkKey, ChunkLight>
   readonly subscribers: ReadonlyMap<SubscriberId, DirtySubscriberState>
   readonly nextSubscriberId: number
 }
 
 export const emptyChunkStoreState: ChunkStoreState = {
   loaded: new Map(),
+  lights: new Map(),
   subscribers: new Map(),
   nextSubscriberId: 0,
+}
+
+/**
+ * Forget one chunk's light. THE WHOLE OF INVALIDATION, and it is O(1).
+ *
+ * -------------------------------------------------------------------------
+ * Lazy, not eager, and here is the number
+ * -------------------------------------------------------------------------
+ *
+ * The alternative is to relight on the spot inside `withBlockAt`. It was
+ * rejected on a measurement rather than a preference: `computeChunkLight` reads
+ * `CHUNK_VOLUME` = 65,536 cells twice and then walks the lit volume, and
+ * mx-gameplay's `FALLING_BLOCK_MOVES_PER_TICK` is 32. Eager recompute would
+ * therefore cost upwards of four million cell visits per tick to service a
+ * column of falling sand — which is DN-GP-1's mistake exactly, the reference's
+ * ~7M block reads per maintenance tick that plan.md §3.11 records as ~40% of the
+ * main thread.
+ *
+ * Dropping the entry costs one `Map` delete. N writes to one chunk followed by
+ * one light read cost ONE relight rather than N, and a chunk nobody asks about
+ * is never lit at all — so a world being mined by a player who is not looking at
+ * the sky pays nothing.
+ *
+ * What the caller pays instead is a LATENCY SPIKE on the first `getLight` after
+ * a write: one whole-chunk relight, on the frame that asked. That is acceptable
+ * because the only consumer today is a spawn search that runs on a cadence
+ * (the reference's is every 0.3s) rather than per frame per cell, and it is the
+ * exact cost the incremental two-queue engine in `./light`'s header removes.
+ *
+ * Returns the SAME map when there was nothing to forget, so a write to a chunk
+ * whose light was never computed allocates nothing.
+ */
+const withoutLight = (
+  lights: ReadonlyMap<ChunkKey, ChunkLight>,
+  key: ChunkKey,
+): ReadonlyMap<ChunkKey, ChunkLight> => {
+  if (!lights.has(key)) {
+    return lights
+  }
+
+  const next = new Map(lights)
+  next.delete(key)
+  return next
 }
 
 /**
@@ -251,6 +361,12 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
 
   return {
     loaded,
+    // A REPLACED chunk is a different world in the same place, so its cached
+    // light describes blocks that are gone. Dropping it here is what makes the
+    // reload path (storage, or a regenerated chunk) safe without the caller
+    // having to remember; leaving it would light a chunk from storage with the
+    // grid of whatever used to be resident at that coordinate.
+    lights: withoutLight(state.lights, key),
     subscribers: noteChange(state.subscribers, key, 'changed'),
     nextSubscriberId: state.nextSubscriberId,
   }
@@ -280,6 +396,9 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
     true,
     {
       loaded,
+      // Not merely invalidated — the chunk is gone, so a grid kept here would be
+      // a leak keyed by a coordinate nothing can reach.
+      lights: withoutLight(state.lights, key),
       subscribers: noteChange(state.subscribers, key, 'removed'),
       nextSubscriberId: state.nextSubscriberId,
     },
@@ -338,7 +457,76 @@ export const withBlockAt = (
     { _tag: 'Written', previous, chunk: coord },
     {
       loaded: state.loaded,
+      // THE INVALIDATION `application/chunk-store.ts`'s HEADER IS AN ARGUMENT
+      // ABOUT. That header settles the whole block-write path in this repository
+      // partly on the grounds that 「a block write invalidates light」; a write
+      // that left the grid standing would make the sentence false and would hand
+      // the next `getLight` the brightness of a wall that has just been mined
+      // through.
+      //
+      // It hangs off the `Written` branch and not off the function, which is the
+      // same rule the dirty channel follows two lines down: `Unchanged` re-places
+      // the block that was already there, so the light it would recompute is the
+      // light that is already cached. Invalidating there would relight a chunk
+      // every tick for a fluid re-asserting its own level.
+      lights: withoutLight(state.lights, key),
       subscribers: noteChange(state.subscribers, key, 'changed'),
+      nextSubscriberId: state.nextSubscriberId,
+    },
+  ]
+}
+
+/**
+ * Read the light at one world position, computing this chunk's grids if they
+ * are not cached.
+ *
+ * Returns `[reading, nextState]` — the `Ref.modify` shape — rather than a bare
+ * reading, and that is the only reason this function is not a plain query. The
+ * relight has to be published back into the state or every read after a write
+ * would recompute the same chunk again; doing it as read-then-write in the
+ * application layer would be the TOCTOU split plan.md §3.8 lists among the
+ * reference's recurring Effect-level mistakes, with two fibers each lighting the
+ * chunk and one of the two grids discarded.
+ *
+ * NOTHING IS RECOMPUTED WHEN THE ENTRY IS PRESENT, so the state comes back by
+ * reference on the common path and `Ref.modify` writes the value it read.
+ */
+export const lightAt = (
+  state: ChunkStoreState,
+  position: BlockPosition,
+): readonly [LightReading, ChunkStoreState] => {
+  if (!isWorldY(position.y)) {
+    return [LIGHT_OUT_OF_WORLD, state]
+  }
+
+  const coord = chunkCoordOfBlock(position)
+  const key = chunkKeyOf(coord)
+  const chunk = state.loaded.get(key)
+
+  if (chunk === undefined) {
+    // NOT "dark". See `LightReading`: a caller that cannot tell an unlit cell
+    // from an unloaded one spawns hostiles at the edge of the loaded area.
+    return [LIGHT_CHUNK_NOT_LOADED, state]
+  }
+
+  const local = localCoordOfBlock(position)
+  const voxel = blockIndex(local.lx, local.ly, local.lz)
+  const cached = state.lights.get(key)
+
+  if (cached !== undefined) {
+    return [lightReading(getLightAt(cached.sky, voxel), getLightAt(cached.block, voxel)), state]
+  }
+
+  const computed = computeChunkLight(chunk)
+  const lights = new Map(state.lights)
+  lights.set(key, computed)
+
+  return [
+    lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),
+    {
+      loaded: state.loaded,
+      lights,
+      subscribers: state.subscribers,
       nextSubscriberId: state.nextSubscriberId,
     },
   ]
@@ -362,6 +550,7 @@ export const subscribed = (state: ChunkStoreState): readonly [SubscriberId, Chun
     id,
     {
       loaded: state.loaded,
+      lights: state.lights,
       subscribers,
       nextSubscriberId: state.nextSubscriberId + 1,
     },
@@ -377,7 +566,7 @@ export const unsubscribed = (state: ChunkStoreState, id: SubscriberId): ChunkSto
   const subscribers = new Map(state.subscribers)
   subscribers.delete(id)
 
-  return { loaded: state.loaded, subscribers, nextSubscriberId: state.nextSubscriberId }
+  return { loaded: state.loaded, lights: state.lights, subscribers, nextSubscriberId: state.nextSubscriberId }
 }
 
 /**
@@ -412,7 +601,10 @@ export const drained = (
   const subscribers = new Map(state.subscribers)
   subscribers.set(id, EMPTY_SUBSCRIBER)
 
-  return [batch, { loaded: state.loaded, subscribers, nextSubscriberId: state.nextSubscriberId }]
+  return [
+    batch,
+    { loaded: state.loaded, lights: state.lights, subscribers, nextSubscriberId: state.nextSubscriberId },
+  ]
 }
 
 /** Look without loading. The returned chunk is a LIVE view — see the header. */

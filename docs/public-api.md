@@ -540,10 +540,35 @@ TerrainGenerationError = ... { reason, chunk }
 
 ---
 
-## 8. 未実装: ライトグリッド
+## 8. ライトグリッド
 
 plan.md §3.7:「ライトグリッド（BFS 光伝播、4bit パック）はチャンクデータの一部としてここが所有。
 適用（描画）は mc-render」
+
+**実装済み**（この節はもともと「未実装:」で始まっていた）。公開面は一つだけ:
+
+```typescript
+readonly getLight: (position: BlockPosition) => Effect.Effect<LightReading>
+```
+
+`LightReading` は `getBlock` の `BlockReading` と同じ三値
+（`Light { sky, block }` / `ChunkNotLoaded` / `OutOfWorld`）。
+`ChunkNotLoaded` を 0 に潰さないことが要点で、理由は消費側にある —
+mx-gameplay の hostile spawn は `NaN > 7` が `false` である以上、
+「測れなかった」を数値にすると真っ昼間に湧く。
+
+グリッドは `Chunk` の**フィールドではなく**ストア側のキャッシュに置いてある。
+`load` / `peek` が返すのは live view なので、`Chunk.skyLight` があれば
+他人の `setBlock` 直後の陳腐化したグリッドを誰でも読めてしまう。
+`Ref` の内側に置けば、全ての読みが `getLight` を通り、陳腐化を解決できる唯一の場所を通る。
+
+再計算は **遅延**。`setBlock` は O(1) でキャッシュを捨てるだけで、
+次の `getLight` が一度だけチャンク全体を照らし直す。
+eager にすると `FALLING_BLOCK_MOVES_PER_TICK = 32` に対して毎ティック 400 万セル走査になり、
+plan.md §3.11 が記録している DN-GP-1 の失敗そのものになる。
+未実装の残りとその失敗モードは [design-notes.md](./design-notes.md) DN-7 の表にある。
+
+以下は移植元の構造の記録である。
 
 **パック処理は `packages/world` ではなく `packages/block/domain/light.ts`（211 LOC）にある。**
 移植時にパッケージ境界をまたぐ点に注意。

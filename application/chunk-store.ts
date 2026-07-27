@@ -142,9 +142,33 @@ export type ChunkStoreApi = {
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
   /**
    * Write one block. Total — no error channel, because `StageRegistration.run`
-   * has none either. Dirties the chunk only if the block actually changed.
+   * has none either. Dirties the chunk only if the block actually changed, and
+   * invalidates that chunk's light when it did.
    */
   readonly setBlock: (position: BlockPosition, block: BlockId) => Effect.Effect<Store.BlockWriteOutcome>
+
+  /**
+   * Read the sky and block light at one world position.
+   *
+   * TOTAL and three-valued, exactly as `getBlock` is, and for a sharper version
+   * of the same reason: `ChunkNotLoaded` is not darkness. mx-gameplay's spawn
+   * rule refuses a candidate whose light is unmeasurable precisely because
+   * `NaN > 7` is `false`, so any collapsing of "I do not know" into a number
+   * would spawn hostiles in a lit room at the edge of the loaded area.
+   *
+   * THE FIRST CALL AFTER A WRITE RELIGHTS THE CHUNK. Light is computed lazily
+   * and cached, and a block write drops the cache entry — see
+   * `domain/chunk-store-state.ts`, which states the cost and the measurement
+   * that ruled out doing it eagerly. A caller on a per-frame path should know
+   * that this read is occasionally O(chunk) rather than O(1); the only consumer
+   * today runs on a spawn cadence, which is why that is acceptable.
+   *
+   * This is the query `application/chunk-store.ts`'s own header (argument 2)
+   * has assumed since it was written, and `docs/design-notes.md` DN-7 tracks the
+   * two pieces still missing behind it: cross-chunk propagation and the
+   * incremental two-queue engine.
+   */
+  readonly getLight: (position: BlockPosition) => Effect.Effect<Store.LightReading>
 
   /** Register an independent reader of "which chunks changed since I last looked". */
   readonly subscribeDirty: Effect.Effect<ChunkDirtySubscription>
@@ -242,6 +266,14 @@ export const makeChunkStore = (source: ChunkSource): Effect.Effect<ChunkStoreApi
 
       setBlock: (position, block) =>
         Ref.modify(state, (current) => Store.withBlockAt(current, position, block)),
+
+      // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss
+      // computes the chunk's grids and has to publish them, or the next reader
+      // recomputes them; splitting that into a get and a set is the TOCTOU shape
+      // this whole module avoids. `Store.lightAt` returns the state it was given
+      // when the entry was already there, so the hot path writes back what it
+      // read.
+      getLight: (position) => Ref.modify(state, (current) => Store.lightAt(current, position)),
 
       subscribeDirty: subscribe,
 

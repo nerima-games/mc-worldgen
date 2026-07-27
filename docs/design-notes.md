@@ -453,15 +453,22 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 
 ---
 
-## DN-7 ⬜ ライトグリッドはここが所有し、適用は mc-render
+## DN-7 ✅ ライトグリッドはここが所有し、適用は mc-render
 
 > plan.md §3.7:
 > - ライトグリッド（BFS 光伝播、4bit パック）はチャンクデータの一部としてここが所有。
 >   適用（描画）は mc-render
 
-構造とファイルは [public-api.md](./public-api.md) §8 に整理してある。
+実装は `domain/light.ts`、キャッシュと無効化は `domain/chunk-store-state.ts`、
+公開クエリは `ChunkStoreApi.getLight`。構造とファイルの由来は
+[public-api.md](./public-api.md) §8 に整理してある。
 
-実装時に忘れやすい点:
+`application/chunk-store.ts` のヘッダはブロック書き込みパスをこのリポジトリに置く
+根拠の 2 番目として「a block write invalidates light」を挙げていた。それが
+主張のままだった期間は終わり、`test/light.test.ts` の
+`A BLOCK WRITE INVALIDATES LIGHT` が実際に固定している。
+
+実装時に忘れやすい点（すべて実装に反映済み）:
 
 - **パック処理は `packages/block/domain/light.ts` にある**（`packages/world` ではない）。
   パッケージ境界をまたぐ
@@ -470,12 +477,22 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 - 参照実装は光を**永続化していない**。ロード時に再計算する
   （`chunk-manager-ops-storage.ts:61`）
 
+### この初回カットが**やっていない**こと
+
+| 項目 | 状態 | 理由 |
+| --- | --- | --- |
+| インクリメンタル伝播（remove-then-add 2 キュー） | ⬜ | 全チャンク再計算を **遅延**で行う。参照実装自身も `FULL_RECOMPUTE_THRESHOLD = 256` を超えると同じことをするので、欠けているのは小さな編集の高速路であって能力ではない。先に遅い方を出せば、速い方は「一致すべきオラクル」を持って着地する |
+| チャンク境界をまたぐ伝播（`MutableBoundaryDirty`） | ⬜ | **保守的な方向ではない**。継ぎ目の向こう側のブロック光が暗く読まれ、松明で照らした部屋の縁に hostile が湧きうる。`domain/light.ts` のヘッダが失敗モードごと記録している |
+| 葉・水の減衰 | ⬜ | kernel の `opacity` は 3 クラスを持つが減衰量を持たない。ここで数値を発明すると kernel のテーブルの列を二重所有することになる。kernel が `lightAttenuation` を生やしたら `transmitsLight` がその参照になる |
+| 永続化 | ⬜ | 参照実装もしていない（上記）。`defineFormat` を書くときに引き継ぐ判断 |
+
 | テスト名 | 主張 |
 | --- | --- |
-| ⬜ `a light level survives a nibble pack/unpack round trip for every level 0..15` | 4bit パック |
-| ⬜ `packPosLevel round-trips every coordinate in a chunk` | int32 パック |
-| ⬜ `removing a light source restores the levels that existed before it` | 2 キュー方式の要点 |
-| ⬜ `cross-chunk propagation reports the correct boundary flags` | `MutableBoundaryDirty` |
+| ✅ `a light level survives a nibble pack/unpack round trip for every level 0..15` | 4bit パック |
+| ✅ `packPosLevel round-trips every coordinate in a chunk` | int32 パック |
+| ✅ `removing a light source restores the levels that existed before it` | 2 キュー方式の要点。全再計算がオラクル側を固定する |
+| ✅ `does not cross a chunk boundary, which is a KNOWN gap and not an accident` | 上の欠落を、黙って変わらないように固定してある |
+| ⬜ `cross-chunk propagation reports the correct boundary flags` | `MutableBoundaryDirty`。境界プロトコルは置き換え予定の実装に対して作らない |
 
 ---
 
