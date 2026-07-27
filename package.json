@@ -54,6 +54,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check:deps": "tsx scripts/check-dependency-whitelist.ts",
+    "goldens:update": "tsx scripts/update-goldens.ts",
     "api:check": "tsx scripts/api-lock.ts",
     "api:update": "tsx scripts/api-lock.ts --write",
     "bench": "tsx scripts/bench-terrain.ts",

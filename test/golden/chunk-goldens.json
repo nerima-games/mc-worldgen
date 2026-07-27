@@ -1,0 +1,405 @@
+{
+  "generatedBy": "pnpm goldens:update — do NOT edit by hand (scripts/update-goldens.ts)",
+  "seed": 20260726,
+  "entries": [
+    {
+      "biome": "OCEAN",
+      "cx": 5,
+      "cz": 7,
+      "decorate": true,
+      "blocksSha256": "605eb75ecaaab4447a92b5b8aadbb1bbcd3a273cf44f8c6cf6384529e3a5bdea",
+      "biomesSha256": "6463644c56438d84de1fb1453fbde3aa1cd96bf8d0d23eb259c3d991d2db71d2",
+      "summary": {
+        "blockCounts": {
+          "AIR": 49214,
+          "BEDROCK": 256,
+          "STONE": 13620,
+          "DIRT": 0,
+          "GRASS": 0,
+          "SAND": 1280,
+          "WATER": 1166,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 0,
+          "LEAVES": 0
+        },
+        "biomeCounts": {
+          "OCEAN": 256,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": {
+          "min": 63,
+          "max": 63
+        },
+        "topBlockY": {
+          "min": 63,
+          "max": 63
+        },
+        "caveBandAir": 62
+      }
+    },
+    {
+      "biome": "BEACH",
+      "cx": 3,
+      "cz": 5,
+      "decorate": true,
+      "blocksSha256": "87a370143442c1d869320ca706645621eb67d228177004bdbd5c5c9c1c4da3df",
+      "biomesSha256": "4b6507e3485a95ed3683d63533d87d215483ea5adbb15c3ee6b2982fe24a8382",
+      "summary": {
+        "blockCounts": {
+          "AIR": 49072,
+          "BEDROCK": 256,
+          "STONE": 14871,
+          "DIRT": 0,
+          "GRASS": 0,
+          "SAND": 1280,
+          "WATER": 57,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 0,
+          "LEAVES": 0
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 256,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": {
+          "min": 63,
+          "max": 63
+        },
+        "topBlockY": {
+          "min": 63,
+          "max": 64
+        },
+        "caveBandAir": 0
+      }
+    },
+    {
+      "biome": "DESERT",
+      "cx": 33,
+      "cz": 48,
+      "decorate": true,
+      "blocksSha256": "0cb90b2fb702dd5c99b857481b5ac69fe4b5a4e1bb8cab30daac0827a0c95b07",
+      "biomesSha256": "8620fe282b2a74e3d5cb4ec8d385fc2c79a36eb01af877f3c51a59b2938d554c",
+      "summary": {
+        "blockCounts": {
+          "AIR": 46066,
+          "BEDROCK": 256,
+          "STONE": 17934,
+          "DIRT": 0,
+          "GRASS": 0,
+          "SAND": 1280,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 0,
+          "LEAVES": 0
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 256,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 74,
+          "max": 76
+        },
+        "caveBandAir": 0
+      }
+    },
+    {
+      "biome": "SAVANNA",
+      "cx": 13,
+      "cz": -1,
+      "decorate": true,
+      "blocksSha256": "510789307cf088ea467cb692bdcb26adf435fdb2a44ab9c5b9ab8b023aa3113a",
+      "biomesSha256": "c68a11eaa50fdadec1e7a8a58d530f20afd643516d32399f42b40af1f5d3038e",
+      "summary": {
+        "blockCounts": {
+          "AIR": 44444,
+          "BEDROCK": 256,
+          "STONE": 19506,
+          "DIRT": 1024,
+          "GRASS": 256,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 10,
+          "LEAVES": 40
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 256,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 78,
+          "max": 87
+        },
+        "caveBandAir": 0
+      }
+    },
+    {
+      "biome": "PLAINS",
+      "cx": -1,
+      "cz": -2,
+      "decorate": true,
+      "blocksSha256": "344ea09a20ca093238f7ad96a1d4aabf3d679cf69fc203a13cb9000cfc8a944e",
+      "biomesSha256": "6a0cbaef8a56d99c7e13bf1346d920a617cf20972943978407ca028165e96bbf",
+      "summary": {
+        "blockCounts": {
+          "AIR": 47731,
+          "BEDROCK": 256,
+          "STONE": 16219,
+          "DIRT": 1024,
+          "GRASS": 256,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 10,
+          "LEAVES": 40
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 256,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 67,
+          "max": 74
+        },
+        "caveBandAir": 20
+      }
+    },
+    {
+      "biome": "FOREST",
+      "cx": 8,
+      "cz": -8,
+      "decorate": true,
+      "blocksSha256": "85de69239c2f986f0ad453012fb6179348df2672b7e0b9372cea828115fe2357",
+      "biomesSha256": "0b1d97798880f5eb8fd683d3450e2a7abe65382ca85fe7d6765d8f25dbef6c7f",
+      "summary": {
+        "blockCounts": {
+          "AIR": 44840,
+          "BEDROCK": 256,
+          "STONE": 19085,
+          "DIRT": 1024,
+          "GRASS": 256,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 15,
+          "LEAVES": 60
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 256,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 78,
+          "max": 85
+        },
+        "caveBandAir": 0
+      }
+    },
+    {
+      "biome": "TAIGA",
+      "cx": 1,
+      "cz": 0,
+      "decorate": true,
+      "blocksSha256": "98264990e94a341e4458cfbcd2f7723859b5ba8a6216584d87246d84e469bced",
+      "biomesSha256": "9bf781f43b57d497eac3b24b09c17df495d7677cf386fb974b305d36f157feb6",
+      "summary": {
+        "blockCounts": {
+          "AIR": 51808,
+          "BEDROCK": 256,
+          "STONE": 12142,
+          "DIRT": 1024,
+          "GRASS": 256,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 10,
+          "LEAVES": 40
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 256,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 68,
+          "max": 74
+        },
+        "caveBandAir": 4193
+      }
+    },
+    {
+      "biome": "SNOW",
+      "cx": 22,
+      "cz": -60,
+      "decorate": true,
+      "blocksSha256": "c8f40089eeb0a4769eb8af3111f709e7940d117aeead4641a6d3e8d0b6e65185",
+      "biomesSha256": "9e869e63866bbf0db758ff6a598b3f907e31bca2253227d29f777c24ce860379",
+      "summary": {
+        "blockCounts": {
+          "AIR": 48091,
+          "BEDROCK": 256,
+          "STONE": 15884,
+          "DIRT": 1024,
+          "GRASS": 0,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 256,
+          "GRAVEL": 0,
+          "LOG": 5,
+          "LEAVES": 20
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 256
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 66,
+          "max": 72
+        },
+        "caveBandAir": 0
+      }
+    },
+    {
+      "biome": "FOREST",
+      "cx": 8,
+      "cz": -8,
+      "decorate": false,
+      "blocksSha256": "94fc592379d5b54976ac7e4ee261e5120a496f77d0f374c443482c4b6f37be8c",
+      "biomesSha256": "0b1d97798880f5eb8fd683d3450e2a7abe65382ca85fe7d6765d8f25dbef6c7f",
+      "summary": {
+        "blockCounts": {
+          "AIR": 44915,
+          "BEDROCK": 256,
+          "STONE": 19085,
+          "DIRT": 1024,
+          "GRASS": 256,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 0,
+          "LEAVES": 0
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 256,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 78,
+          "max": 81
+        },
+        "caveBandAir": 0
+      }
+    },
+    {
+      "biome": "OCEAN",
+      "cx": 4,
+      "cz": 9,
+      "decorate": true,
+      "blocksSha256": "d9eab5f6e40b5165f432e2bc3d952b8fc5ca1ce902097ad41a8fd372f8c05db8",
+      "biomesSha256": "6463644c56438d84de1fb1453fbde3aa1cd96bf8d0d23eb259c3d991d2db71d2",
+      "summary": {
+        "blockCounts": {
+          "AIR": 53009,
+          "BEDROCK": 256,
+          "STONE": 10348,
+          "DIRT": 0,
+          "GRASS": 0,
+          "SAND": 811,
+          "WATER": 1112,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 0,
+          "LEAVES": 0
+        },
+        "biomeCounts": {
+          "OCEAN": 256,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 0,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": {
+          "min": 63,
+          "max": 63
+        },
+        "topBlockY": {
+          "min": 63,
+          "max": 63
+        },
+        "caveBandAir": 3857
+      }
+    }
+  ]
+}

@@ -512,3 +512,222 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 | --- | --- |
 | ⬜ `carving runs after water has been filled, so the water-floor guard has something to find` | 順序を逆にすると DN-2 が黙って無効化される |
 | ⬜ `ravines cut through tree trunks, not around them` | 渓谷が木の後である |
+
+---
+
+<a id="dn-9"></a>
+## DN-9 ✅ シード固定ゴールデン — ハッシュは**ドリフト検出器であって正しさの証明ではない**
+
+plan.md §3.7 の検証要求と docs/testing.md §3 の完了条件 3。
+`test/golden/chunk-goldens.json` に固定シード × 座標行列の SHA-256 を置き、
+`test/chunk-golden.test.ts` が `toBe` で比較する。
+
+### なぜスナップショットではないのか
+
+mc-noise は凍結契約を `toMatchInlineSnapshot` で固定している
+（`test/public-api.test.ts:60`）。あちらは**人間が読める 9 個のスカラ**なので妥当である。
+こちらは 64 文字の 16 進数であり、目視で健全性を判断できない。
+そして docs/testing.md §3 は「`pnpm test -u` で黙って通るようにしない」と明示している。
+スナップショットは `-u` が無言で書き換える、まさにその成果物である。
+
+したがって更新経路は `pnpm goldens:update` 一本だけであり、
+このスクリプトは**何が動いたかを必ず印字する**。黙って上書きするゴールデンは、
+ゴールデンを削除するのと同じである（§7 の baseline と同じ理屈）。
+
+### ゴールデンは「今日のバグ」に同意する
+
+これはこの組織で実際に起きた。mc-noise の `buildPermutation` は
+API ロックで名前を、ゴールデンで出力を固定していたが、
+**どちらもテーブルが全単射でない可能性を見られなかった** —
+ゴールデンはテーブルが出すものそのものだからである
+（`mc-noise/test/permutation.test.ts:5-26`）。
+気づける最初の瞬間はゴールデンを再生成した日で、その時点で再生成が祝福を済ませている。
+
+そこで各ダイジェストには**独立した裏付け**を付ける。
+`test/chunk-golden.test.ts` が I-1〜I-8 として列挙し、
+**いずれもコミット済み JSON を読まない**。
+祝福された再生成はここで落ちる。
+
+| ダイジェスト | 裏付け |
+| --- | --- |
+| `blocksSha256` | I-1 全バイトが宣言済み `BLOCK` id / I-2 全柱の床が岩盤 / I-3 水面がちょうど `SEA_LEVEL`（DN-1）/ I-4・I-4b 水域下のシェルが中実、かつ**ガードを外すと実際に抜ける**（DN-2）/ I-5 `LEAVES == 木 × 20`（F-2） |
+| `biomesSha256` | I-6 `biomeFor` を柱ごとに再計算した配列と一致 / I-7 閉じたロスターの要素のみ |
+| 両方 | I-8 再生成がバイト一致 |
+
+I-6 が要である。`generateChunk` は自分の柱ループの中で `chunk.biomes` を埋めるので、
+**別経路で組み直した配列と一致すること**が証拠になる。
+256 個の `'PLAINS'` で埋めたプレースホルダでも、ハッシュは完璧に安定する。
+
+### 座標行列は規則で選ぶ
+
+`BIOMES` の各要素について、**256 柱すべてがその バイオームに分類される、原点に最も近いチャンク**
+（チェビシェフ環で探索、つまり答えはシードの関数でありスキャン順に依らない）。
+
+規則のほうが座標より重要である。原点付近の 3×3 を手で選ぶのは F-5 の裏返しであり、
+DESERT の最寄りは (33, 48)、SNOW は (22, -60) — **原点近傍の行列には物理的に入らない**。
+その 2 つを落とした行列は、両者が生成されなくなった日に何も言えない。
+
+9 行目は FOREST を `decorate: false` で再生成する。
+これが無いと全ダイジェストが装飾パスを通っており、
+木の配置器を丸ごと削っても「他のどんな変更とも同じように」不一致になるだけで、差分が局在しない。
+
+### 10 行目は**空虚な合格**の結果として足した
+
+最初の 9 行では I-4（水域下のシェルが中実）が**空虚に成立していた**。
+`carveCaves` からガードを削って（`waterFloorMargin ?? 0`）実行しても 15 件すべて green になる。
+理由は docs/testing.md §4-b **F-4 に既に書いてある**:
+このシードの原点付近では洞窟が湖底の 3 ブロック以内に来ないので、
+ガードには仕事が無く、その不在にも壊すものが無い。
+
+(4, 9) は原点から 40 チャンク以内で最も強い反例で、
+マージン 0 にすると 256 柱中 **229 柱**が水底シェルを失い、ガード有りでは **0** である。
+I-4b がこの両側を主張する。`test/carver.test.ts` の規則
+——**バグを再現せよ、不在を主張するな**——のゴールデン版である。
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `reproduce their digests exactly, chunk for chunk` | 生成地形のバージョン間ドリフト |
+| ✅ `covers every biome, including the two a narrow window says do not exist` | 行列が DESERT / SNOW を含む |
+| ✅ `isolates the decoration pass: the two FOREST rows differ only in vegetation` | 装飾が基礎パスに漏れていない |
+| ✅ `I-4b: and the guard is what does it` | ガードを外すと実際に 200 柱以上が抜ける |
+
+---
+
+<a id="dn-10"></a>
+## DN-10 ✅ バイオーム分布の統計テスト — 走査窓は**一番遅い場に対して**測る
+
+docs/testing.md §3 の完了条件 7、§4-b F-5。
+`test/biome-distribution.test.ts`。雛形は `test/terrain-distribution.test.ts`。
+
+### F-1 と F-5 は同じ形の欠陥である
+
+F-1: `CONTINENTALNESS_CONTRAST` を 800 ブロック窓で正当化 → 世界の 2 割が平ら。
+F-5: バイオーム分布を 384 ブロック窓で測定 → 「DESERT と SNOW は到達不能」という誤結論。
+**同じ誤りが 2 回起きており、2 回目は 1 回目と同じ形だと気づかれずに報告された。**
+
+### 180 を流用してはならない
+
+`test/terrain-distribution.test.ts` は「連続性の特徴 40 個以上」を主張する。1/180 だからである。
+バイオーム選択が読む場は 3 つあり、周波数が違う:
+
+| 場 | 波長 | どこ |
+| --- | ---: | --- |
+| temperature | 320 | `climateAt` |
+| humidity | 280 | `climateAt` |
+| continentalness | 180 | `surfaceHeightAt` → `biomeFor` の OCEAN/BEACH 上書き |
+
+**拘束するのは一番長い 320** である。320 の裾が入る窓は他の 2 つには自動的に十分だからである。
+180 基準の「40 特徴」は span 7200 を許すが、7200 は temperature では **22.5 特徴**しかない。
+定数を別の母集団の測定から流用する——それが F-1 の誤りそのものである。
+
+### 25 という数字の根拠（実測）
+
+同じ 5 シードで span を振ると、狭くなって劣化するのは希少バイオームの**存在**ではなく
+**割合の安定性**である。最も希少な DESERT のシード間ばらつき:
+
+| span | temperature 特徴数 | DESERT（5 シード） | ばらつき |
+| ---: | ---: | --- | ---: |
+| 4096 | 12.8 | 0.017% .. 0.336% | 20x |
+| 5760 | 18.0 | 0.045% .. 0.239% | 5x |
+| 7200 | 22.5 | 0.099% .. 0.351% | 3.5x |
+| **8192** | **25.6** | **0.086% .. 0.295%** | **3.4x** ← 採用 |
+| 16384 | 51.2 | 0.191% .. 0.252% | 1.3x |
+
+**どの span でも 8 バイオーム全部が全シードで出る。** F-5 が報告した「消失」は
+もっと狭い窓（384）でないと起きない。
+
+だから 25 は丸い数字ではなく、**下のバンドが実際に妥当である幅**として選んである:
+span 4096 では DESERT の最小値 0.017% が本ファイルの DESERT バンドを**下回って落ちる**。
+窓を狭めることは精度が落ちることではなく、
+**コミット済みの閾値がもう記述していない対象を測ること**である。
+
+### バンドであって割合ではない
+
+実測（5 シード、SURVEY 幾何）:
+
+| バイオーム | 実測 | バンド |
+| --- | --- | --- |
+| OCEAN | 33.4 .. 35.1% | 0.20 .. 0.50 |
+| BEACH | 15.0 .. 16.3% | 0.07 .. 0.28 |
+| DESERT | 0.1 .. 0.3% | 0.0002 .. 0.03 |
+| SAVANNA | 3.0 .. 4.6% | 0.01 .. 0.12 |
+| PLAINS | 20.3 .. 22.5% | 0.10 .. 0.35 |
+| FOREST | 15.2 .. 16.9% | 0.07 .. 0.30 |
+| TAIGA | 7.5 .. 8.7% | 0.03 .. 0.18 |
+| SNOW | 0.6 .. 0.9% | 0.001 .. 0.05 |
+
+理由は `test/terrain-distribution.test.ts` が自分の 1% 閾値について述べているのと同じである:
+**ゲートすべきは欠陥であって今日のノイズではない**。
+OCEAN を 0.351 で固定すればシード変更・ストライド変更・意図的な調整すべてで落ち、
+やがて緩められ、緩められるテストは読まれなくなる。
+
+捕まえるのは 2 つ: バイオームが 0 に落ちること（F-5）と、
+1 つが地図を占領すること（`PLAINS` が**フォールバック**なので、
+ルール表が一致しなくなっても例外は飛ばず、草の惑星が出来る）。
+
+### 構造的な半分——バンドと独立で、厳密
+
+`biomeFor` の高度上書きは `classifyBiome` の**上流**にあり、閾値が `seaLevel` を挟むので、
+**全柱・全シードで、測定抜きに**次の 2 つの包含が成り立つ:
+
+```
+OCEAN          ⊆  海面下
+海面下          ⊆  OCEAN ∪ BEACH
+```
+
+バンドは通るまで広げられるが、包含は広げられない。
+これが `test/terrain-distribution.test.ts` が固定する高度分布と本ファイルを結び付けている。
+
+BEACH が `[seaLevel-2, seaLevel+1]` の**固定幅 4 ブロックの高度帯**であることも主張する。
+F-1 で地形を平らでなくしたとき BEACH が 7.1% → 15.9% に増えた
+（バイオーム分類は触っていない）その機構であり、
+次に BEACH が動いたとき見るべきなのは `BIOME_RULES` ではなくシェイパーだと言うためである。
+
+| テスト名 | 主張 |
+| --- | --- |
+| ✅ `is wide enough for the SLOWEST climate field, not merely for continentalness` | 320 基準で 25 特徴以上 |
+| ✅ `and a narrow window is not: 384 blocks reports biomes that do not exist as missing` | F-5 の再現 |
+| ✅ `reaches all 8, including DESERT and SNOW` | ロスターに嘘が無い |
+| ✅ `puts every biome inside its measured band` | 消失・占領の両方 |
+| ✅ `no column below sea level classifies as a land biome` | 包含（厳密） |
+| ✅ `BEACH is a height band, so it tracks the shaper and not the climate` | F-1 の副作用の機構 |
+
+---
+
+<a id="dn-11"></a>
+## DN-11 ⬜ `BIOME_SURFACES.underwaterTop` の `GRAVEL` は**到達不能**である
+
+ゴールデンのブロックヒストグラムを読んで見つかった。
+10 チャンク全部で `GRAVEL` が **0** である。偶然ではなく、構造的に 0 である。
+
+`domain/biome.ts` は 5 つの バイオームに `underwaterTop: BLOCK.GRAVEL` を与えている
+（SAVANNA / PLAINS / FOREST / TAIGA / SNOW）。
+`fillColumn` がこれを読むのは `submerged`、つまり `surfaceY < levels.seaLevel` のときだけである。
+ところが `biomeFor` は同じ柱について:
+
+```
+surfaceY <  seaLevel - 2   -> OCEAN
+surfaceY <= seaLevel + 1   -> BEACH
+```
+
+を**先に**返す。`surfaceY < seaLevel` を満たす柱は必ずこのどちらかに落ちるので、
+`underwaterTop` が実際に読まれるのは OCEAN と BEACH の行だけであり、
+その 2 つは両方 `SAND` である。
+`seaLevel` は注入されるので、この論証は既定値だけでなく**あらゆる `TerrainLevels`** で成り立つ。
+
+つまり `GRAVEL` は現時点で**生成されないブロック id** である。
+`test/kernel-mirror.test.ts` は mc-kernel との id 一致を固定しているので綴りは正しいが、
+一致していることと生成されることは別である。
+
+**直していない。** どちらの修正も設計判断だからである:
+
+- 5 行の `GRAVEL` を消す → 「水没した草地は砂利になる」という意図の記録を失う
+- `biomeFor` の上書きを緩めて内陸湖を気候バイオームのままにする → DN-2 のガードが
+  依存している「水没柱 = OCEAN/BEACH」という前提と、F-1 で測った BEACH 15.9% が動く
+
+どちらも本タスクの範囲外である。ここに記録して、
+`ChunkManager` と河川・湖が入るとき（`underwaterTop` が初めて意味を持つとき）に決める。
+
+| テスト名 | 主張 |
+| --- | --- |
+| ⬜ `an inland lake keeps its climate biome, so underwaterTop is reachable` | 上を解消したときに入れる |

@@ -12,6 +12,7 @@
 | `pnpm verify` | 上記 4 つ（coverage 以外）。CI と同一内容 |
 | `pnpm preview` | 内蔵地形プレビュー。**`verify` には入らない**（後述） |
 | `pnpm bench` | ベンチマーク（`scripts/bench-terrain.ts`）。**`verify` には入らない**（§7） |
+| `pnpm goldens:update` | `test/golden/chunk-goldens.json` を書き直す。**`verify` には入らないし、入れてはならない**——検証がゴールデンを更新できたら、それはゴールデンではない |
 
 `pnpm` は PATH に無い場合がある。`corepack pnpm <cmd>` で 9.15.0 が起動する。
 
@@ -42,15 +43,22 @@ test/terrain-levels.test.ts       6 tests   SEA_LEVEL=63 の補正、水位不�
 test/carver.test.ts               6 tests   hollow-lake 回帰（バグの再現つき）
 test/biome-and-trees.test.ts     14 tests   バイオーム分類の全域性、格子ジッターの間隔
 test/terrain-distribution.test.ts  9 tests   F-1 回帰。広域 SURVEY での高度分布
+test/biome-distribution.test.ts  10 tests   F-5 回帰。広域 SURVEY でのバイオーム分布
+test/chunk-golden.test.ts        16 tests   シード固定ゴールデン + 独立した裏付け I-1..I-8
 test/tree-canopy.test.ts          6 tests   F-2 回帰。生成ブロックでの樹冠連結成分
+test/light.test.ts               28 tests   4bit ライトグリッド、setBlock による無効化
 test/chunk-store.test.ts         23 tests   ChunkStore
 test/api-lock.test.ts            26 tests   API ロックのハーネス
-test/kernel-mirror.test.ts        9 tests   BLOCK 番号の mc-kernel との一致
+test/kernel-mirror.test.ts       16 tests   BLOCK 番号の mc-kernel との一致
 test/vertical-slice.test.ts       4 tests   縦の結合
 test/dependency-policy.test.ts   22 tests   16 リポジトリのグラフ、import ゲート
                                  ─────
-                                132 tests   全て green
+                                193 tests   全て green
 ```
+
+> 旧版はここを 132 と書いていた。`test/light.test.ts`（28）が後から入り、
+> `test/kernel-mirror.test.ts` が 9 → 16 に増えていて、表が追随していなかった。
+> ゴールデン（16）と バイオーム分布（10）を足した時点の実測が 193 である。
 
 ### 重要なテスト 3 本
 
@@ -82,12 +90,30 @@ plan.md を読んだ誰かが「修正」しに来たときに落ちるためで
 
 | 要求 | 状態 |
 | --- | --- |
-| ユニットテスト | ✅ 132 tests |
-| シード固定ゴールデン | ⬜ **未実装** |
-| バイオーム分布の統計テスト | ⬜ バイオームは未実装。**高度分布は実装済み**（`test/terrain-distribution.test.ts`、§4-b F-1）。SURVEY 幅そのものを assert する形なので、バイオーム版を書くときの雛形になる |
+| ユニットテスト | ✅ 193 tests |
+| シード固定ゴールデン | ✅ `test/golden/chunk-goldens.json`（10 チャンク）+ `test/chunk-golden.test.ts`。生成は `pnpm goldens:update` → [design-notes.md DN-9](./design-notes.md#dn-9) |
+| バイオーム分布の統計テスト | ✅ `test/biome-distribution.test.ts`。雛形は宣言どおり `test/terrain-distribution.test.ts` で、SURVEY 幅そのものを assert する形も踏襲した。ただし**幅の基準は流用していない**（下記）→ [design-notes.md DN-10](./design-notes.md#dn-10) |
 | 内蔵地形プレビュー | ✅ **`apps/preview-terrain/`** |
 
-### ゴールデンテストについて
+> **この表の旧版は「バイオームは未実装」と書いていた。これは誤りだった。**
+> `domain/biome.ts` の分類器・`BIOME_SURFACES`・`BIOME_TREE_DENSITY` はいずれも実装済みで、
+> `generateChunk` は `biomeFor` の結果を柱ごとに `chunk.biomes` へ書き込み、
+> 地表ブロックと木の密度の両方をそこから引いている（`domain/terrain.ts:302-307`）。
+> `test/biome-and-trees.test.ts`（14 tests）が分類器の全域性を、
+> プレビューの `1`（map ビュー）が見た目を、既に押さえていた。
+> 欠けていたのは**バイオームそのもの**ではなく**分布の統計テスト**だけである。
+> 完了条件 7 も同じ理由で書き直した。
+
+#### 幅の基準を高度版から流用しなかった理由
+
+`test/terrain-distribution.test.ts` は「連続性の特徴 40 個以上」を assert する。連続性が 1/180 だからである。
+バイオーム選択が読むのは temperature 1/320・humidity 1/280・continentalness 1/180 の 3 つで、
+**拘束するのは一番長い 320** である。180 基準の「40 特徴」は span 7200 を通すが、
+7200 は temperature では 22.5 特徴しかない。
+別の母集団で測った数字を持ち込む——それは §4-b F-1 の誤りそのものである。
+採用値 25 特徴（span 8192）の実測根拠は DN-10 の表にある。
+
+### ゴールデンテストについて ✅
 
 **参照実装にはゴールデン / スナップショットテストが 1 本も無い**
 （`golden|fixture|toMatchSnapshot` の grep が worldgen 関連で 0 件）。
@@ -102,11 +128,24 @@ plan.md を読んだ誰かが「修正」しに来たときに落ちるためで
 
 を置くだけで、**プロパティテストが構造的に検出できないバージョン間ドリフト**を捕まえられる。
 
-実装時の注意:
+実装時の注意——3 つとも守ってある:
 
 - ハッシュは**生成コードで書き出す**こと。手で書かない
+  → `scripts/golden-fixture.ts` が計算し、`pnpm goldens:update` が書く
 - 更新は必ず意図的な操作にする（`pnpm test -u` で黙って通るようにしない）
+  → スナップショット API を一切使わず `toBe` で比較する。`-u` は効かない
 - ハッシュが変わったら「地形が変わった」であり、レビュー対象である
+  → JSON にダイジェストと**並んで読める要約**（ブロック / バイオームのヒストグラム、
+    水面 Y、洞窟帯の空気）を置いてあるので、差分が
+    「OCEAN 256 → 31、water 1166 → 0」と読める。`pnpm goldens:update` も何が動いたかを印字する
+
+**ハッシュだけでは足りない**という 4 つ目の注意を足しておく。
+ゴールデンは今日のバグに同意する。実際 mc-noise の `buildPermutation` は
+ゴールデンと API ロックの両方に守られていて、なお全単射の破れを見られなかった
+（`mc-noise/test/permutation.test.ts:5-26`）。
+だから各ダイジェストには**コミット済み JSON を読まない独立した不変条件**を付けてある。
+一覧と、10 行目が「空虚な合格」の発見で足されたいきさつは
+[design-notes.md DN-9](./design-notes.md#dn-9)。
 
 ### 地形プレビュー: `apps/preview-terrain/` ✅
 
@@ -179,14 +218,16 @@ plan.md §4.1 の配置規約どおり `apps/preview-terrain/` に置いた。
 2. **地形プレビューが操作可能**（上記 6 点を目視確認できる）✅
    — plan.md §6 Step 2:「worldgen の地形プレビューが最初の遊べる成果物」
    — `apps/preview-terrain/`。**plan.md §6 Step 2 の完成条件の片翼はこれで満たした**
-3. **シード固定ゴールデンハッシュがコミットされている**
+3. **シード固定ゴールデンハッシュがコミットされている** ✅
+   — `test/golden/chunk-goldens.json`（10 チャンク、seed 20260726）。DN-9
 4. **ワーカープールのパリティテストが green**
    — Worker の出力がメインスレッドとバイト一致すること。
    参照実装の `terrain-worker-pool.parity.property.test.ts`（124 LOC）の移植
 5. カーバー（洞窟 + 渓谷）・植生・鉱石・構造物・ライトグリッド・`ChunkManager` が実装済み
 6. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
    （現在の `domain/seeded-random.ts` `domain/chunk.ts` `domain/biome.ts` の `BLOCK` は仮置き）
-7. バイオーム分布の統計テストが green
+7. バイオーム分布の統計テストが green ✅
+   — `test/biome-distribution.test.ts`（10 tests）。DN-10
 8. カバレッジ 99% ゲートが有効化されている（後述）
 
 ## 4-b. プレビューが見つけたもの（テスト未整備の穴）
@@ -381,6 +422,17 @@ seed 20260726 の (0,0) 周辺 64 チャンクでは、`--no-guard` にしても
 **`g` を押して何も起きないことをもって「ガードが無意味」と結論しないこと。**
 出番のある座標は `apps/preview-terrain/README.md` に書いた。
 
+> **追記——この F-4 がテストを 1 本空虚にした。**
+> ゴールデン行列の最初の 9 チャンクは、規則（バイオームごとに原点最寄り）で選んだ結果
+> 全部この「ガードの出番が無い」領域に入っていた。
+> そのため「水域下のシェルが中実である」という不変条件は、
+> `carveCaves` からガードを削っても **16 件中 16 件 green のまま**だった。
+> 実際に削って確認した。
+> 10 番目の行 (4, 9) はガードが効く座標で、マージン 0 にすると 256 柱中 229 柱が抜ける。
+> F-4 は「ガードが無意味に見える」という**観察**として書かれていたが、
+> 実際には「その領域で書いたガードのテストは空虚になる」という**テスト設計上の警告**でもある。
+> → [design-notes.md DN-9](./design-notes.md#dn-9)
+
 ### F-5. 走査窓が狭いと統計は嘘をつく
 
 このレポート自身が最初にやった間違いである。
@@ -395,6 +447,24 @@ seed 20260726 の (0,0) 周辺 64 チャンクでは、`--no-guard` にしても
 「バイオーム分布の統計テスト」（完了条件 7）を書く人へ:
 **走査窓は最低でも周波数の逆数の数十倍取ること。** そうでないと
 テストは地形ではなくノイズ格子の数点を固定する。
+
+> **✅ 追記——書いた。`test/biome-distribution.test.ts`。**
+> 上の助言には落とし穴が 1 つあった。「周波数」が単数形である。
+> バイオーム選択は temperature 1/320・humidity 1/280・continentalness 1/180 の
+> **3 つの場**を読むので、拘束するのは一番長い 320 である。
+> 高度版の「連続性の特徴 40 個」を流用すると span 7200 が通り、
+> それは temperature では 22.5 特徴しかない——
+> **別の母集団で測った定数を持ち込む F-1 の誤りの、3 度目**になるところだった。
+>
+> また、span を振って実測したところ **4096 まで狭めても 8 バイオーム全部が全シードで出る**。
+> つまり F-5 の「消失」は 384 という極端な窓でないと起きず、
+> 広げることで買えるのは存在ではなく**希少バイオームの割合の安定性**である
+> （DESERT のシード間ばらつきが span 4096 で 20 倍、8192 で 3.4 倍）。
+> 採用した「25 特徴」はその実測から選んである。表は
+> [design-notes.md DN-10](./design-notes.md#dn-10)。
+>
+> ついでに、本節が 384 窓について記録している「8 個中 6 個」を再測定すると **5 個**になる
+> （SAVANNA も消える）。狭い窓の数字は再現しないという、この節自身の主張の実例である。
 
 ## 5. カバレッジ閾値: 今はまだ設定しない
 
