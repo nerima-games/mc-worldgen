@@ -38,6 +38,14 @@ export type PreviewOptions = {
   /** Render glyphs instead of colour, so a frame can be pasted into a bug report. */
   readonly ascii: boolean
   readonly stats: boolean
+  /**
+   * Place the portal overlay at startup and switch to the slice view, so that a
+   * portal frame can be rendered by `--once --ascii` and pasted somewhere. The
+   * interactive `p` does the same thing; without this flag the only way to see a
+   * portal is to be sitting at a terminal, which is the one place a reviewer
+   * reading a diff is not.
+   */
+  readonly portal: boolean
   readonly help: boolean
   readonly width: number | undefined
   readonly height: number | undefined
@@ -61,6 +69,7 @@ const DEFAULTS = {
   once: false,
   ascii: false,
   stats: false,
+  portal: false,
   help: false,
   width: undefined,
   height: undefined,
@@ -136,6 +145,9 @@ export const parseArguments = (argv: ReadonlyArray<string>): PreviewOptions => {
         break
       case '--ascii':
         accumulator.ascii = true
+        break
+      case '--portal':
+        accumulator.portal = true
         break
       case '--decorate':
         accumulator.decorate = true
@@ -232,6 +244,7 @@ export const USAGE: ReadonlyArray<string> = [
   '  --no-guard          waterFloorMargin=0 — reproduces the hollow-lake bug on purpose',
   '  --once              render one frame to stdout and exit (no raw mode, pipe-safe)',
   '  --ascii             glyphs instead of colour — pasteable into an issue or a diff',
+  '  --portal            stand a portal frame under the camera (implies --view slice)',
   '  --stats             print the numeric report instead of a picture',
   '  --survey-span <n>   --stats: side of the wide strided survey, blocks (default 8192)',
   '  --survey-stride <n> --stats: blocks between survey samples (default 16)',
@@ -250,6 +263,8 @@ export const USAGE: ReadonlyArray<string> = [
   '  t             toggle trees',
   '  b             toggle chunk-border grid',
   '  l             toggle the sea-level guide line',
+  '  p             place / remove a portal frame under the camera (slice view)',
+  '  k             break / repair its obsidian ring — the verdict must flip',
   '  0             recentre on (0, 0)',
   '  ? h           this help   |   x  Esc  Ctrl-C   quit',
 ]

@@ -1,0 +1,122 @@
+/**
+ * The portal overlay: the preview's way of showing a rule that has no generator.
+ *
+ * A dev application, not shipped API.
+ *
+ * ---------------------------------------------------------------------------
+ * Why an overlay and not a chunk write
+ * ---------------------------------------------------------------------------
+ *
+ * `domain/portal-frame.ts` is a rule about block data, and nothing in this
+ * repository writes the block it looks for — no structure generator exists yet
+ * (`docs/responsibility.md` §1, 構造物 is still ⬜). So there is no seed and no
+ * coordinate at which flying around would ever show a portal, and a preview that
+ * could only show what the generator already makes could not show this at all.
+ *
+ * The alternative was to write obsidian into a real chunk through
+ * `application/chunk-store.ts`, which is the honest thing to do the day a portal
+ * generator exists. It is the wrong thing today: it would make the preview the
+ * first and only writer of a block, and `docs/testing.md` §4-b is a list of
+ * things that turned out to be true of the preview's own drawing rather than of
+ * the generator. An overlay keeps the world underneath untouched and visibly so
+ * — press `p` again and the terrain is byte-identical, because it was never
+ * asked to change.
+ *
+ * ---------------------------------------------------------------------------
+ * What it is actually for: `k`
+ * ---------------------------------------------------------------------------
+ *
+ * A picture of a portal that detects is worth very little. `docs/testing.md`
+ * §4-b F-4 is the record of this repository shipping a guard whose test could
+ * not fail, and §6 asks every invariant to be accompanied by evidence it is not
+ * vacuous. `k` knocks one obsidian block out of the ring, and the HUD verdict
+ * has to flip from a frame to `no frame`. Seeing it flip is the visual form of
+ * the same demand — and seeing WHICH block you removed still leave a valid
+ * portal is how a corner rule that is too strict would look.
+ */
+import { Option } from 'effect'
+import { BLOCK } from '../../domain/biome'
+import { blockPosition, type BlockPosition } from '../../domain/kernel-vocabulary'
+import { detectNetherPortal, generatePortalLayout, type BlockAt } from '../../domain/portal-frame'
+
+export type PortalOverlay = {
+  /** Bottom-left INTERIOR cell. What `detectNetherPortal` is asked about. */
+  readonly origin: BlockPosition
+  readonly width: number
+  readonly height: number
+  /** Obsidian cells by key. One short of the full ring when `broken`. */
+  readonly obsidian: ReadonlySet<string>
+  readonly broken: boolean
+}
+
+const key = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
+
+/**
+ * The portal the preview builds. 4 wide × 5 tall rather than the 2 × 3 minimum:
+ * at 2 × 3 the ring is 10 blocks and a knocked-out block is hard to find by eye,
+ * and a non-minimum size is also the one that would catch a detector that had
+ * quietly hard-coded the minimum.
+ */
+export const OVERLAY_PORTAL_WIDTH = 4
+export const OVERLAY_PORTAL_HEIGHT = 5
+
+/**
+ * The block `k` removes: the middle of the BOTTOM edge.
+ *
+ * Deliberately not a corner. Corners are the cells detection does not require,
+ * so breaking one would prove nothing and look like a bug in the rule.
+ */
+const brokenCell = (origin: BlockPosition): string =>
+  key(origin.x + Math.floor(OVERLAY_PORTAL_WIDTH / 2), origin.y - 1, origin.z)
+
+export const createPortalOverlay = (origin: BlockPosition, broken: boolean): PortalOverlay => {
+  const layout = generatePortalLayout(origin, 'x', OVERLAY_PORTAL_WIDTH, OVERLAY_PORTAL_HEIGHT)
+  const obsidian = new Set(layout.frame.map((cell) => key(cell.x, cell.y, cell.z)))
+  if (broken) obsidian.delete(brokenCell(origin))
+  return { origin, width: OVERLAY_PORTAL_WIDTH, height: OVERLAY_PORTAL_HEIGHT, obsidian, broken }
+}
+
+/**
+ * The overlay composed over the real world.
+ *
+ * Obsidian wins where the overlay has it; the interior is forced to AIR so that
+ * a portal placed into a hillside is a portal and not a rectangle of stone. That
+ * second clause is the overlay standing in for the digging a player would do,
+ * and it is why the verdict is a statement about the RULE rather than about
+ * where the camera happened to be parked.
+ */
+export const overlayBlockAt = (overlay: PortalOverlay, world: BlockAt): BlockAt => {
+  const interior = new Set<string>()
+  for (let dx = 0; dx < overlay.width; dx++) {
+    for (let dy = 0; dy < overlay.height; dy++) {
+      interior.add(key(overlay.origin.x + dx, overlay.origin.y + dy, overlay.origin.z))
+    }
+  }
+
+  return (x, y, z) => {
+    const at = key(x, y, z)
+    if (overlay.obsidian.has(at)) return BLOCK.OBSIDIAN
+    if (interior.has(at)) return BLOCK.AIR
+    return world(x, y, z)
+  }
+}
+
+/** Where to stand a portal so it rests on the ground at `(x, z)`. */
+export const portalOriginOn = (x: number, surfaceY: number, z: number): BlockPosition =>
+  // The ring's bottom row is one below the interior, so an interior starting at
+  // surfaceY + 2 puts that row at surfaceY + 1: directly on the surface block.
+  blockPosition(x, surfaceY + 2, z)
+
+/** The HUD verdict. This is the line the whole overlay exists to print. */
+export const describePortalVerdict = (overlay: PortalOverlay, world: BlockAt): string => {
+  const found = detectNetherPortal(overlayBlockAt(overlay, world), overlay.origin)
+  const where = `at (${String(overlay.origin.x)}, ${String(overlay.origin.y)}, ${String(overlay.origin.z)})`
+
+  return Option.match(found, {
+    onNone: () => `NO FRAME ${where}`,
+    onSome: (frame) =>
+      `${String(frame.width)}x${String(frame.height)} ${frame.axis}-axis, ${String(
+        frame.interior.length,
+      )} portal cells ${where}`,
+  })
+}

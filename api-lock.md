@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 144
+exported declarations: 154
 supporting declarations: 2
 
 ## Exported
@@ -63,6 +63,7 @@ const BLOCK: {
     readonly GRAVEL: BlockId;
     readonly LOG: BlockId;
     readonly LEAVES: BlockId;
+    readonly OBSIDIAN: BlockId;
 };
 ```
 
@@ -92,6 +93,12 @@ type BiomeSurface = {
 
 ```ts
 type BiomeType = (typeof BIOMES)[number];
+```
+
+### BlockAt  `type`
+
+```ts
+type BlockAt = (x: number, y: number, z: number) => number;
 ```
 
 ### BlockAxis  `const`
@@ -472,10 +479,34 @@ type LocalBlockCoord = {
 };
 ```
 
+### MAX_PORTAL_HEIGHT  `const`
+
+```ts
+const MAX_PORTAL_HEIGHT = 21;
+```
+
+### MAX_PORTAL_WIDTH  `const`
+
+```ts
+const MAX_PORTAL_WIDTH = 21;
+```
+
 ### MAX_SURFACE_Y  `const`
 
 ```ts
 const MAX_SURFACE_Y = 92;
+```
+
+### MIN_PORTAL_HEIGHT  `const`
+
+```ts
+const MIN_PORTAL_HEIGHT = 3;
+```
+
+### MIN_PORTAL_WIDTH  `const`
+
+```ts
+const MIN_PORTAL_WIDTH = 2;
 ```
 
 ### MIN_SURFACE_Y  `const`
@@ -488,6 +519,32 @@ const MIN_SURFACE_Y = 38;
 
 ```ts
 const OUT_OF_WORLD: BlockReading;
+```
+
+### PortalAxis  `type`
+
+```ts
+type PortalAxis = 'x' | 'z';
+```
+
+### PortalFrame  `type`
+
+```ts
+type PortalFrame = {
+    readonly axis: PortalAxis;
+    readonly width: number;
+    readonly height: number;
+    readonly interior: ReadonlyArray<BlockPosition>;
+};
+```
+
+### PortalLayout  `type`
+
+```ts
+type PortalLayout = {
+    readonly frame: ReadonlyArray<BlockPosition>;
+    readonly interior: ReadonlyArray<BlockPosition>;
+};
 ```
 
 ### SEA_LEVEL  `const`
@@ -742,6 +799,12 @@ const computeChunkLight: (chunk: Chunk) => ChunkLight;
 const computeWaterFloorYs: (blocks: Uint8Array, margin: number) => Int16Array;
 ```
 
+### detectNetherPortal  `const`
+
+```ts
+const detectNetherPortal: (blockAt: BlockAt, ignition: BlockPosition) => Option.Option<PortalFrame>;
+```
+
 ### drained  `const`
 
 ```ts
@@ -786,6 +849,12 @@ const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions
 
 ```ts
 const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => Chunk;
+```
+
+### generatePortalLayout  `const`
+
+```ts
+const generatePortalLayout: (origin: BlockPosition, axis: PortalAxis, width: number, height: number) => PortalLayout;
 ```
 
 ### generatedChunkSource  `const`

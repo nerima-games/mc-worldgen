@@ -21,7 +21,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 0,
-          "LEAVES": 0
+          "LEAVES": 0,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 256,
@@ -63,7 +64,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 0,
-          "LEAVES": 0
+          "LEAVES": 0,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -105,7 +107,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 0,
-          "LEAVES": 0
+          "LEAVES": 0,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -144,7 +147,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 10,
-          "LEAVES": 40
+          "LEAVES": 40,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -183,7 +187,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 10,
-          "LEAVES": 40
+          "LEAVES": 40,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -222,7 +227,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 15,
-          "LEAVES": 60
+          "LEAVES": 60,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -261,7 +267,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 10,
-          "LEAVES": 40
+          "LEAVES": 40,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -300,7 +307,8 @@
           "SNOW": 256,
           "GRAVEL": 0,
           "LOG": 5,
-          "LEAVES": 20
+          "LEAVES": 20,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -339,7 +347,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 0,
-          "LEAVES": 0
+          "LEAVES": 0,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 0,
@@ -378,7 +387,8 @@
           "SNOW": 0,
           "GRAVEL": 0,
           "LOG": 0,
-          "LEAVES": 0
+          "LEAVES": 0,
+          "OBSIDIAN": 0
         },
         "biomeCounts": {
           "OCEAN": 256,

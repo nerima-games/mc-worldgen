@@ -55,6 +55,13 @@ export type HudState = {
   /** Frame height in WORLD BLOCKS, already adjusted for the ANSI/ASCII row packing. */
   readonly frameBlocksTall: number
   readonly chunksGenerated: number
+  /**
+   * `detectNetherPortal`'s verdict on the portal overlay, or null when there is
+   * no overlay. A STRING rather than the `Option<PortalFrame>` itself, so that
+   * the HUD cannot start making its own judgements about what counts as a
+   * portal: the rule decides, this file prints.
+   */
+  readonly portalVerdict: string | null
 }
 
 const onOff = (enabled: boolean): string => (enabled ? 'on' : 'off')
@@ -143,8 +150,25 @@ const describeToggles = (style: Style, state: HudState): string => {
   ].join('  ')
 }
 
+/**
+ * The portal verdict line.
+ *
+ * Painted WARN when there is no frame. That is the wrong way round for a status
+ * light — "no portal here" is the normal state of the world — and it is right
+ * for this one, because the line only exists while an overlay is placed. With an
+ * overlay up, `NO FRAME` means either that `k` broke the ring (expected, and the
+ * thing being demonstrated) or that detection is wrong (not expected). Both are
+ * worth a colour.
+ */
+const describePortal = (style: Style, verdict: string): string =>
+  [
+    style.paint('portal', LABEL),
+    style.paint(verdict, verdict.startsWith('NO FRAME') ? WARN : VALUE),
+    style.dim('p place/remove  k break/repair'),
+  ].join('  ')
+
 const KEY_HINT =
-  'wasd pan  q/e up-down  -/= zoom  1/2/3 view  [ ] seed  g guard  t trees  b grid  l sealine  0 recentre  ? help  x quit'
+  'wasd pan  q/e up-down  -/= zoom  1/2/3 view  [ ] seed  g guard  t trees  b grid  l sealine  p portal  0 recentre  ? help  x quit'
 
 export const buildHud = (
   state: HudState,
@@ -156,7 +180,11 @@ export const buildHud = (
   describeCentre(style, centre, state.seaLevel),
   describeStats(style, stats),
   describeBiomes(style, stats),
-  describeToggles(style, state),
+  // The portal line REPLACES the biome/toggle row rather than adding a seventh,
+  // because `HUD_ROWS` is subtracted from the frame height: a row that appears
+  // when you press `p` would resize the world under the camera, and the slice
+  // would scroll the moment you placed a portal in it.
+  state.portalVerdict === null ? describeToggles(style, state) : describePortal(style, state.portalVerdict),
   style.dim(KEY_HINT),
 ]
 

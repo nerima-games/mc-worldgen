@@ -52,7 +52,7 @@ import { ANSI_STYLE, buildHud, HUD_ROWS, PLAIN_STYLE } from './hud'
 import { parseArguments, USAGE, type PreviewOptions } from './options'
 import { dim } from './raster'
 import { buildStatsReport } from './stats'
-import { createChunkCache, type WorldParams } from './sampler'
+import { blockAt, createChunkCache, sampleColumn, type WorldParams } from './sampler'
 import {
   enterFullScreen,
   isInteractive,
@@ -65,6 +65,12 @@ import {
   screenSize,
   writeLine,
 } from './terminal'
+import {
+  createPortalOverlay,
+  describePortalVerdict,
+  portalOriginOn,
+  type PortalOverlay,
+} from './portal'
 import { renderView, VIEW_MODES, type Camera, type ViewMode, type ViewToggles } from './views'
 
 type State = {
@@ -76,6 +82,8 @@ type State = {
   toggles: ViewToggles
   levels: TerrainLevels
   showHelp: boolean
+  /** The portal overlay, or null when none is placed. Slice view only. */
+  portal: PortalOverlay | null
 }
 
 const MIN_ZOOM = 1
@@ -130,16 +138,26 @@ const render = (state: State, options: PreviewOptions): ReadonlyArray<string> =>
     return [...USAGE, '', dim('press any key to return')]
   }
 
+  const params = worldParams(state)
   const view = renderView(
     state.view,
     cache,
-    worldParams(state),
+    params,
     state.camera,
     state.toggles,
     columns,
     rows,
     options.ascii,
+    state.portal,
   )
+
+  // The verdict is computed from the SAME accessor the slice drew from, so the
+  // picture and the line cannot disagree about what is in the world. Reading the
+  // overlay twice — once to draw, once to judge — is how they would.
+  const portalVerdict =
+    state.portal === null
+      ? null
+      : describePortalVerdict(state.portal, (x, y, z) => blockAt(cache, params, x, y, z))
 
   return [
     ...view.lines,
@@ -156,6 +174,7 @@ const render = (state: State, options: PreviewOptions): ReadonlyArray<string> =>
         frameWidth: columns,
         frameBlocksTall: verticalBlocks(rows, options.ascii),
         chunksGenerated: cache.generated,
+        portalVerdict,
       },
       view.stats,
       view.centre,
@@ -289,6 +308,33 @@ const handleKey = (state: State, key: string, options: PreviewOptions): boolean 
       state.toggles = { ...state.toggles, seaLine: !state.toggles.seaLine }
       break
 
+    case 'p': {
+      // Stood on the ground under the camera, and switching to the slice view is
+      // part of placing it: the other two views are top-down, where a vertical
+      // frame is four pixels and the verdict line would be the only evidence it
+      // existed. A feature that is invisible in the mode it was placed from is
+      // the "dead on arrival and looked like it worked" failure the sea-level
+      // marker already cost this preview once (`views.ts`, `sliceGutter`).
+      if (state.portal !== null) {
+        state.portal = null
+        break
+      }
+      const ground = sampleColumn(worldParams(state), state.camera.x, state.camera.z)
+      state.portal = createPortalOverlay(
+        portalOriginOn(state.camera.x, ground.surfaceY, state.camera.z),
+        false,
+      )
+      state.view = 'slice'
+      break
+    }
+    case 'k':
+      // Break or repair the ring. The verdict line must flip; if it does not,
+      // detection is accepting a portal with a hole in it.
+      if (state.portal !== null) {
+        state.portal = createPortalOverlay(state.portal.origin, !state.portal.broken)
+      }
+      break
+
     case '0':
       state.camera = {
         x: options.x,
@@ -399,7 +445,20 @@ const main = (): number => {
     guard: options.guard,
     toggles: { chunkGrid: false, seaLine: true },
     levels,
+    portal: null,
     showHelp: false,
+  }
+
+  if (options.portal) {
+    // Same construction the `p` key uses, including the switch to the slice
+    // view. Two spellings of "place a portal" that could drift apart would give
+    // `--once --ascii` output that does not match what the terminal shows.
+    const ground = sampleColumn(worldParams(state), state.camera.x, state.camera.z)
+    state.portal = createPortalOverlay(
+      portalOriginOn(state.camera.x, ground.surfaceY, state.camera.z),
+      false,
+    )
+    state.view = 'slice'
   }
 
   if (options.stats) {

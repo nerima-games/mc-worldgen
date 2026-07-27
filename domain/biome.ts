@@ -73,9 +73,9 @@ export type BiomeSurface = {
 }
 
 /**
- * The block ids this generator writes.
+ * The block ids this repository names.
  *
- * These eleven numbers are no longer local: `mc-kernel/domain/block-registry.ts`
+ * The first eleven are no longer local: `mc-kernel/domain/block-registry.ts`
  * ADOPTED them as the canonical id assignment for `air`, `bedrock`, `stone`,
  * `dirt`, `grass_block`, `sand`, `water`, `snow`, `gravel`, `oak_log` and
  * `oak_leaves`. Kernel took this repository's numbering rather than imposing a
@@ -88,6 +88,29 @@ export type BiomeSurface = {
  * The names are this repository's generation vocabulary (`GRASS`, `LOG`,
  * `LEAVES`) rather than kernel's `BlockType` literals (`grass_block`,
  * `oak_log`, `oak_leaves`); the mapping is in that same mirror test.
+ *
+ * ---------------------------------------------------------------------------
+ * OBSIDIAN, and why this comment no longer says "the ids this generator WRITES"
+ * ---------------------------------------------------------------------------
+ *
+ * The first eleven ids share a property that `OBSIDIAN` does not: every one of
+ * them is placed by `../domain/terrain.ts` while filling a column. Obsidian is
+ * placed by nothing yet. It is here because `../domain/portal-frame.ts` READS
+ * it — a portal frame is defined by it — and because plan.md §3.7 gives this
+ * repository 「構造物（村/ポータル/End）」, so the generator that writes it is a
+ * structure this repository owes rather than one it will never have.
+ *
+ * The heading was rewritten instead of the row being quietly appended under it,
+ * because "the ids this generator writes" would have become false on the line
+ * it was documenting. Its number, 40, is transcribed from kernel's
+ * `BLOCK_REGISTRY` (`block-registry.ts:1269`) rather than chosen here: unlike
+ * the eleven above, this one is kernel's assignment and this repository is the
+ * one adopting it. `test/kernel-mirror.test.ts` pins it in both directions with
+ * the rest.
+ *
+ * `nether_portal` (kernel id 118) is deliberately NOT here. Detection refuses a
+ * frame whose interior is not AIR, so the rule never names the lit block, and an
+ * id in this table that nothing reads is an id nobody notices going stale.
  */
 export const BLOCK = {
   AIR: BlockId(0),
@@ -101,6 +124,7 @@ export const BLOCK = {
   GRAVEL: BlockId(8),
   LOG: BlockId(9),
   LEAVES: BlockId(10),
+  OBSIDIAN: BlockId(40),
 } as const
 
 export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {

@@ -47,6 +47,10 @@ const BLOCK_COLORS: ReadonlyArray<readonly [number, Rgb]> = [
   [BLOCK.GRAVEL, [138, 138, 138]],
   [BLOCK.LOG, [122, 74, 38]],
   [BLOCK.LEAVES, [63, 139, 63]],
+  // Nothing GENERATES obsidian; it appears only under the portal overlay (`p`).
+  // Dark violet rather than near-black so that a frame standing against stone at
+  // night-time brightness is still a frame and not a hole in the picture.
+  [BLOCK.OBSIDIAN, [82, 54, 128]],
 ]
 
 const BLOCK_COLOR_BY_ID: ReadonlyMap<number, Rgb> = new Map(BLOCK_COLORS)
@@ -74,6 +78,9 @@ const BLOCK_GLYPHS: ReadonlyArray<readonly [number, string]> = [
   [BLOCK.GRAVEL, ';'],
   [BLOCK.LOG, 'T'],
   [BLOCK.LEAVES, '^'],
+  // `O` for the ring. It has to survive `--ascii`, which is the mode a frame
+  // gets pasted into a bug report in, so it cannot rely on the colour above.
+  [BLOCK.OBSIDIAN, 'O'],
 ]
 
 const BLOCK_GLYPH_BY_ID: ReadonlyMap<number, string> = new Map(BLOCK_GLYPHS)

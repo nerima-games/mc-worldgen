@@ -42,6 +42,7 @@ import {
   shade,
   type Rgb,
 } from './palette'
+import { overlayBlockAt, type PortalOverlay } from './portal'
 import { createRaster, setPixel, toAnsiLines, toAsciiLines, type Raster } from './raster'
 import { blockAt, positiveMod, sampleColumn, type ChunkCache, type ColumnSample, type WorldParams } from './sampler'
 
@@ -309,8 +310,16 @@ const renderSlice = (
   camera: Camera,
   toggles: ViewToggles,
   raster: Raster,
+  portal: PortalOverlay | null,
 ): ReadonlyArray<ColumnSample> => {
   const samples: Array<ColumnSample> = []
+
+  // The slice plane is z = camera.z and the overlay's portal is x-aligned, so
+  // the two lie in the same plane by construction. That is the reason the portal
+  // is shown HERE and not in a fourth view: a cross-section of a vertical frame
+  // is the frame, and the map views would show it as four pixels.
+  const world = (x: number, y: number, z: number): number => blockAt(cache, params, x, y, z)
+  const sample = portal === null ? world : overlayBlockAt(portal, world)
 
   for (let px = 0; px < raster.width; px += 1) {
     samples.push(sampleColumn(params, sliceWorldX(camera, raster, px), camera.z))
@@ -321,7 +330,7 @@ const renderSlice = (
 
     for (let px = 0; px < raster.width; px += 1) {
       const wx = sliceWorldX(camera, raster, px)
-      const block = wy >= 0 && wy < CHUNK_HEIGHT ? blockAt(cache, params, wx, wy, camera.z) : BLOCK.AIR
+      const block = wy >= 0 && wy < CHUNK_HEIGHT ? sample(wx, wy, camera.z) : BLOCK.AIR
 
       let color = blockColor(block)
       let glyph = blockGlyph(block)
@@ -347,10 +356,16 @@ const renderSlice = (
     }
   }
 
+  // The crosshair marks the camera column, and only where that column is air —
+  // so it must ask the SAME accessor the frame was drawn from. Asking the raw
+  // world instead put a `|` on top of the portal's bottom ring block, because
+  // the world there is air and only the overlay is obsidian. That hid the one
+  // block `k` knocks out, which would have made the break/repair demonstration
+  // read as "nothing happened".
   const centreX = Math.floor(raster.width / 2)
   for (let py = 0; py < raster.height; py += 1) {
     const wy = camera.yBottom + (raster.height - 1 - py)
-    if (wy >= 0 && wy < CHUNK_HEIGHT && blockAt(cache, params, camera.x, wy, camera.z) === BLOCK.AIR) {
+    if (wy >= 0 && wy < CHUNK_HEIGHT && sample(camera.x, wy, camera.z) === BLOCK.AIR) {
       setPixel(raster, centreX, py, blend(blockColor(BLOCK.AIR), CROSSHAIR, 0.45), '|')
     }
   }
@@ -406,6 +421,7 @@ export const renderView = (
   width: number,
   height: number,
   ascii = false,
+  portal: PortalOverlay | null = null,
 ): RenderedView => {
   const rasterWidth = mode === 'slice' ? Math.max(1, width - SLICE_GUTTER) : width
   // ANSI packs two pixel rows into one terminal row with a half block; ASCII is
@@ -421,7 +437,7 @@ export const renderView = (
       samples = renderHeight(params, camera, toggles, raster)
       break
     case 'slice':
-      samples = renderSlice(cache, params, camera, toggles, raster)
+      samples = renderSlice(cache, params, camera, toggles, raster, portal)
       break
     default:
       samples = renderMap(params, camera, toggles, raster)

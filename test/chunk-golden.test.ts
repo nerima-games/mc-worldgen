@@ -256,7 +256,16 @@ describe('the golden matrix', () => {
 describe('what backs the block digest', () => {
   it.effect('I-1: every byte in every golden chunk is a declared BLOCK id', () =>
     Effect.sync(() => {
+      // `BLOCK` is the ids this repository NAMES, which since `OBSIDIAN` arrived
+      // is a strictly larger set than the ids terrain GENERATES. Taking the
+      // whole of it here would have quietly widened this invariant on the day
+      // that row was added: a stray obsidian byte in a golden chunk would have
+      // started passing, and this test would have gone on reporting success
+      // about a claim it had stopped making. So the generated set is spelled as
+      // a subtraction, and a future non-generated id has to be subtracted too.
       const declared = new Set<number>(Object.values(BLOCK))
+      declared.delete(BLOCK.OBSIDIAN)
+      expect(declared.size).toBe(Object.keys(BLOCK).length - 1)
 
       for (const { spec, chunk } of generated) {
         for (const value of chunk.blocks) {

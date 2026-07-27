@@ -159,6 +159,11 @@ describe('block ids match mc-kernel/domain/block-registry.ts', () => {
     gravel: 8,
     oak_log: 9,
     oak_leaves: 10,
+    // The one row where the arrow of authorship runs kernel -> here. The eleven
+    // above are this repository's numbering that kernel adopted; 40 is kernel's
+    // and `domain/biome.ts` adopted it, so a drift on THIS row is this
+    // repository's to fix. `mc-kernel/domain/block-registry.ts:1269`.
+    obsidian: 40,
   } as const
 
   it.effect('assigns the same number to every block this generator writes', () =>
@@ -177,6 +182,12 @@ describe('block ids match mc-kernel/domain/block-registry.ts', () => {
       expect(BLOCK.GRAVEL).toBe(KERNEL_IDS.gravel)
       expect(BLOCK.LOG).toBe(KERNEL_IDS.oak_log)
       expect(BLOCK.LEAVES).toBe(KERNEL_IDS.oak_leaves)
+      // Read by `domain/portal-frame.ts`, written by nothing yet. A wrong number
+      // here does not corrupt a save the way the eleven above would — it makes
+      // `detectNetherPortal` refuse every portal ever built, silently, because
+      // the rule's failure mode is `Option.none()` and a portal that is not
+      // there looks exactly like a portal that was not built.
+      expect(BLOCK.OBSIDIAN).toBe(KERNEL_IDS.obsidian)
     }),
   )
 
