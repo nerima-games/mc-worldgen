@@ -183,7 +183,8 @@ biome テストは見逃す。
 | ✅ `finds submerged columns to test against, so the rest is not vacuous` | fixture が空虚でない |
 | ✅ `computeWaterFloorYs reports the LOWEST water block, not the surface` | 床であって水面ではない |
 | ✅ `computeWaterFloorYs reports -1 for a column with no water` | 水が無い柱 |
-| ⬜ `the ravine carver leaves lake beds intact` | 渓谷カーバー実装時 |
+| ✅ `R-3: a submerged PLAINS column keeps its bed — and loses it under the biome-only guard` | 渓谷カーバーの 2 層ガード。`waterGuard: 'biome'` が**参照実装の最初の試みを再現して赤くなる** |
+| ✅ `R-4: an OCEAN column is refused by the biome layer alone` | biome 層を単独で固定。冗長として消されたら赤くなる |
 
 実装は `test/carver.test.ts`。fixture は**探索して見つける**方式にしてある
 （「洞窟が水域の下を通っているチャンク」を探す）。
@@ -505,13 +506,14 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 | 水の充填 | 地形生成時 | カーバーのガードが水を探すため（DN-2） |
 | 洞窟 | 装飾の**前**（`generator.ts:102`） | |
 | 木・草 | | |
-| 渓谷 | 木・草の**後**（`generator.ts:155`） | `:141-142`「壁が鉱石と表層をきれいに切るように」 |
+| 渓谷 | 木・草の**後**（`generator.ts:155`） | `:141-142`「壁が鉱石と表層をきれいに切るように」。**移植済み** — ただし `decorate` フラグの**外**。`decorate` は「植生の有無」であって「地形の有無」ではなく、`chunk-golden.test.ts` が「装飾は足すだけで掘らない」を固定しているため |
 | ライト | 最後（`terrain-generation-utils.ts:49-52`） | 全ブロックが確定してから |
 
 | テスト名 | 主張 |
 | --- | --- |
 | ⬜ `carving runs after water has been filled, so the water-floor guard has something to find` | 順序を逆にすると DN-2 が黙って無効化される |
-| ⬜ `ravines cut through tree trunks, not around them` | 渓谷が木の後である |
+| ✅ `R-6: decoration cannot change what the ravine carves` | 渓谷が装飾の後であること。水ガードが読む `surfaceY + 1` に装飾は届かない（3 ファイルにまたがる主張なので実測してある） |
+| 🟡 `R-8: floating trunks over ravines are rare, and stay rare` | 装飾の**後**に彫る代償。参照実装にも同じ欠陥がある。**直していない**（樹冠の所有者を記録する機構が要る）ので、増えないことだけを固定した — 最悪の窓で LOG 580 セル中 14 |
 
 ---
 

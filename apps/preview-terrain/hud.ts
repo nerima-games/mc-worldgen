@@ -121,6 +121,12 @@ const describeStats = (style: Style, stats: ViewStats): string => {
     )}`,
     field('pinned low', percent(stats.pinnedLow, stats.columns)),
     field('trees', String(stats.trees)),
+    // Shown as a PERCENTAGE and not a count, unlike trees, because that is the
+    // number `domain/ravine.ts` calibrates `RAVINE_HALF_WIDTH` against — the
+    // reference's stated intent is 「~2% of columns」 and this is where a human
+    // sees whether the port still meets it. A count would be a number nobody
+    // could check against anything.
+    field('ravine', percent(stats.ravines, stats.columns)),
   ].join('  ')
 }
 

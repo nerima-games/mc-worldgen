@@ -247,6 +247,18 @@ export const carveCaves: (blocks: Uint8Array, seed: number, coord: ChunkCoord, o
 理由は `:141-142` に書かれている
 （渓谷の壁が鉱石と表層を「きれいに切る」ようにするため）。
 
+**両方とも移植済み**である（`generateChunk`: 充填 → 洞窟 → 鉱石 → 装飾 → 渓谷）。
+渓谷だけは `decorate` フラグの**外**に置いてある。
+`decorate` は「植生の有無」であって「地形の有無」ではなく、
+`test/chunk-golden.test.ts` が「装飾は足すだけで掘らない」を固定しているからである。
+順序は変わらない（どちらにせよ渓谷が最後）。
+
+なお `carveRavines` は `index.ts` に出していない。
+呼び出し元は `generateChunk` ただ 1 つなので公開面が要らず、
+結果として `api-lock.md` は 156 entries のまま動いていない。
+`GenerateOptions` に渓谷用のフィールドを足さなかったのも同じ理由で、
+テスト用の口は `domain/ravine.ts` を直接 import して使う（`test/ore.test.ts` と同じ形）。
+
 ---
 
 ## 5. 植生（木）

@@ -53,7 +53,8 @@
           "min": 63,
           "max": 63
         },
-        "caveBandAir": 62
+        "caveBandAir": 62,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -107,7 +108,8 @@
           "min": 63,
           "max": 64
         },
-        "caveBandAir": 0
+        "caveBandAir": 0,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -158,7 +160,8 @@
           "min": 74,
           "max": 76
         },
-        "caveBandAir": 0
+        "caveBandAir": 0,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -209,7 +212,8 @@
           "min": 78,
           "max": 87
         },
-        "caveBandAir": 0
+        "caveBandAir": 0,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -260,7 +264,8 @@
           "min": 67,
           "max": 74
         },
-        "caveBandAir": 20
+        "caveBandAir": 20,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -311,7 +316,8 @@
           "min": 78,
           "max": 85
         },
-        "caveBandAir": 0
+        "caveBandAir": 0,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -362,7 +368,8 @@
           "min": 68,
           "max": 74
         },
-        "caveBandAir": 4193
+        "caveBandAir": 4193,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -413,7 +420,8 @@
           "min": 66,
           "max": 72
         },
-        "caveBandAir": 0
+        "caveBandAir": 0,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -464,7 +472,8 @@
           "min": 78,
           "max": 81
         },
-        "caveBandAir": 0
+        "caveBandAir": 0,
+        "ravineCutColumns": 0
       }
     },
     {
@@ -518,7 +527,60 @@
           "min": 63,
           "max": 63
         },
-        "caveBandAir": 3857
+        "caveBandAir": 3857,
+        "ravineCutColumns": 0
+      }
+    },
+    {
+      "biome": "FOREST",
+      "cx": 21,
+      "cz": 11,
+      "decorate": true,
+      "blocksSha256": "976cc0a198b17bc2055a79206f5e39faf3ceebe8ab8c06be082c6e17d4fe2453",
+      "biomesSha256": "0b1d97798880f5eb8fd683d3450e2a7abe65382ca85fe7d6765d8f25dbef6c7f",
+      "summary": {
+        "blockCounts": {
+          "AIR": 50945,
+          "BEDROCK": 256,
+          "STONE": 13774,
+          "DIRT": 213,
+          "GRASS": 51,
+          "SAND": 0,
+          "WATER": 0,
+          "SNOW": 0,
+          "GRAVEL": 0,
+          "LOG": 10,
+          "LEAVES": 40,
+          "OBSIDIAN": 0,
+          "COAL_ORE": 115,
+          "IRON_ORE": 58,
+          "GOLD_ORE": 22,
+          "DIAMOND_ORE": 9,
+          "REDSTONE_ORE": 18,
+          "LAPIS_ORE": 14,
+          "EMERALD_ORE": 5,
+          "DANDELION": 0,
+          "POPPY": 1,
+          "TALL_GRASS": 4,
+          "FERN": 1
+        },
+        "biomeCounts": {
+          "OCEAN": 0,
+          "BEACH": 0,
+          "DESERT": 0,
+          "SAVANNA": 0,
+          "PLAINS": 0,
+          "FOREST": 256,
+          "TAIGA": 0,
+          "SNOW": 0
+        },
+        "waterSurfaceY": null,
+        "topBlockY": {
+          "min": 39,
+          "max": 87
+        },
+        "caveBandAir": 2688,
+        "ravineCutColumns": 114
       }
     }
   ]

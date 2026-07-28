@@ -32,6 +32,7 @@ import { readBlock } from '../../domain/chunk'
 import { chunkCoord } from '../../domain/kernel-vocabulary'
 import type { TerrainLevels } from '../../domain/constants'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../domain/constants'
+import { ravineDepthAt, ravineDistanceAt } from '../../domain/ravine'
 import { biomeFor, generateChunk, surfaceHeightAt } from '../../domain/terrain'
 import { shouldPlaceTree } from '../../domain/tree-placement'
 
@@ -52,14 +53,39 @@ export type ColumnSample = {
   readonly waterDepth: number
   /** Whether the tree placer selects this column. Matches what `generateChunk` does. */
   readonly hasTree: boolean
+  /**
+   * Depth of the ravine cut at this column, 0 where none.
+   *
+   * The cheap column query for the ravine pass, and it belongs here for the
+   * reason the header gives about `surfaceHeightAt`: colouring a 400 x 200
+   * block map by "is there a ravine here" through `generateChunk` would cost
+   * 313 chunks and 20 MB to read 80,000 answers out of.
+   *
+   * It is the RULE's answer and not the buffer's, so it is a prediction rather
+   * than an observation — the water guard can still refuse a column this
+   * reports as carved. `ravineCarved` below applies the half of the guard a
+   * column query can see; the block-probing half needs the buffer, which is
+   * what the slice view is for.
+   */
+  readonly ravineDepth: number
+  /** `ravineDepth > 0` and the biome layer of the water guard does not refuse it. */
+  readonly ravineCarved: boolean
 }
 
 export const sampleColumn = (params: WorldParams, wx: number, wz: number): ColumnSample => {
   const surfaceY = surfaceHeightAt(params.seed, wx, wz)
   const biome = biomeFor(params.seed, wx, wz, surfaceY, params.levels)
   const submerged = surfaceY < params.levels.seaLevel
+  const ravineDepth = ravineDepthAt(ravineDistanceAt(params.seed, wx, wz))
 
   return {
+    ravineDepth,
+    // Only the biome layer of the guard is checkable from a column query. The
+    // block-probing layer — the one `docs/design-notes.md` DN-2 says is the
+    // load-bearing half — needs the buffer, so a column this reports as carved
+    // may still be refused. Stated rather than smoothed over: a preview that
+    // silently disagrees with the generator is worse than one that says where.
+    ravineCarved: ravineDepth > 0 && biome !== 'OCEAN' && !submerged,
     worldX: wx,
     worldZ: wz,
     surfaceY,

@@ -7,9 +7,16 @@
  * Each view answers a specific question from docs/testing.md §3
  * ---------------------------------------------------------------------------
  *
- *   map    — biome colours + hillshade + tree markers, seen from above.
- *            Answers 2 (biomes are distinguishable), 5 (canopies have not
- *            fused into a slab) and 6 (no seam at a chunk border).
+ *   map    — biome colours + hillshade + tree and ravine markers, seen from
+ *            above. Answers 2 (biomes are distinguishable), 5 (canopies have
+ *            not fused into a slab) and 6 (no seam at a chunk border).
+ *
+ *            The ravine marker is what makes the map the right view for that
+ *            pass rather than the slice: a ravine is a CURVE 250 blocks long
+ *            and a cross-section shows one point of it, so the question "is
+ *            this a canyon or a scattering of pits" is only answerable from
+ *            above. `test/ravine.test.ts` R-2 asserts the same thing as a
+ *            number; this is where a human sees it.
  *
  *   height — surface height, banded, with a hard colour break exactly at sea
  *            level and LOUD colours for columns pinned to MIN_SURFACE_Y or
@@ -75,6 +82,8 @@ export type ViewStats = {
   readonly pinnedHigh: number
   readonly pinnedLow: number
   readonly trees: number
+  /** Columns the ravine band selects and the biome guard does not refuse. */
+  readonly ravines: number
 }
 
 export type RenderedView = {
@@ -92,6 +101,17 @@ const PINNED_HIGH: Rgb = [255, 92, 200]
 const PINNED_LOW: Rgb = [255, 196, 84]
 const TREE_MARK: Rgb = [22, 66, 22]
 
+/**
+ * Ravines are drawn as a dark cut with a `V` glyph, and they are drawn UNDER
+ * the tree marker rather than over it.
+ *
+ * That ordering is the honest one and it is the artefact `domain/ravine.ts`
+ * records: this pass runs after decoration and carves from `surfaceY` down, so
+ * a trunk on a carved column really does end up hanging over the canyon. A
+ * preview that hid the tree would hide exactly the thing worth seeing.
+ */
+const RAVINE_MARK: Rgb = [58, 34, 44]
+
 const collectStats = (samples: ReadonlyArray<ColumnSample>): ViewStats => {
   const counts = new Map<BiomeType, number>()
   let surfaceMin = Number.POSITIVE_INFINITY
@@ -100,6 +120,7 @@ const collectStats = (samples: ReadonlyArray<ColumnSample>): ViewStats => {
   let pinnedHigh = 0
   let pinnedLow = 0
   let trees = 0
+  let ravines = 0
 
   for (const sample of samples) {
     counts.set(sample.biome, (counts.get(sample.biome) ?? 0) + 1)
@@ -117,6 +138,9 @@ const collectStats = (samples: ReadonlyArray<ColumnSample>): ViewStats => {
     if (sample.hasTree) {
       trees += 1
     }
+    if (sample.ravineCarved) {
+      ravines += 1
+    }
   }
 
   return {
@@ -128,6 +152,7 @@ const collectStats = (samples: ReadonlyArray<ColumnSample>): ViewStats => {
     pinnedHigh,
     pinnedLow,
     trees,
+    ravines,
   }
 }
 
@@ -209,6 +234,11 @@ const renderMap = (
         }
       } else {
         color = shade(color, hillshade(samples, raster, px, py))
+      }
+
+      if (sample.ravineCarved) {
+        color = blend(RAVINE_MARK, color, 0.18)
+        glyph = 'V'
       }
 
       if (sample.hasTree) {

@@ -34,8 +34,23 @@
  * The reference's ordering is more intricate still: caves are carved before
  * decoration (`generator.ts:102`) but ravines after trees and plants
  * (`generator.ts:155`), the stated reason being that ravine walls should "cut
- * cleanly through ores and surface cover". Recorded in docs/porting.md; ravines
- * are not implemented here yet.
+ * cleanly through ores and surface cover". Both orderings are reproduced below.
+ *
+ * RAVINES ARE NOT BEHIND `decorate`, and the flag is the reason the pass sits
+ * where it does rather than inside the block above it. `decorate: false` means
+ * "no vegetation", not "no terrain" — `placeOres` is already outside it on the
+ * same argument, and `test/chunk-golden.test.ts` pins what the flag means by
+ * asserting that the two FOREST rows differ ONLY in vegetation and that every
+ * difference replaced AIR. A carver inside that block would break both halves:
+ * it removes rather than adds, and it would make the flag mean two things.
+ *
+ * The ordering survives anyway, because the ravine pass runs last either way.
+ * It also produces the same cut with the flag on and off: the water guard reads
+ * `blocks[surfaceY + 1]`, and a column that holds water there can never carry a
+ * plant (`canPlaceGroundPlantAt` demands AIR) or a trunk (`shouldPlaceTree`
+ * refuses `surfaceY < seaLevel`), so decoration cannot change the guard's
+ * answer. `test/ravine.test.ts` R-6 pins that as a measurement rather than as
+ * this paragraph.
  */
 import {
   BIOME_SURFACES,
@@ -63,6 +78,7 @@ import {
 } from './constants'
 import { chunkCoord, type ChunkCoord } from './kernel-vocabulary'
 import { placeOres } from './ore'
+import { carveRavines } from './ravine'
 import { channelSeed, fbm2D } from './seeded-random'
 import { shouldPlaceTree, TREE_CROWN_RADIUS } from './tree-placement'
 import {
@@ -363,6 +379,12 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options: Generate
       }
     }
   }
+
+  // Ravines LAST, after ore and after decoration, so their walls cut cleanly
+  // through both — the reference's ordering and its stated reason
+  // (`generator.ts:141-142`). See the module header for why this is outside the
+  // `decorate` block rather than at the end of it.
+  carveRavines(blocks, seed, coord, surfaces, biomes)
 
   return { coord, blocks, biomes }
 }

@@ -41,23 +41,38 @@ CI が pass/fail を判定できるものではないからである。
 test/determinism.test.ts          7 tests   (seed, coords) → Chunk の決定論、継ぎ目
 test/terrain-levels.test.ts       6 tests   SEA_LEVEL=63 の補正、水位不変条件
 test/carver.test.ts               6 tests   hollow-lake 回帰（バグの再現つき）
+test/ravine.test.ts              16 tests   渓谷。帯の形 R-1..R-2c、2 層の水ガード R-3..R-5b、
+                                            パス順序 R-6..R-8、実チャンク R-9..R-12
 test/biome-and-trees.test.ts     14 tests   バイオーム分類の全域性、格子ジッターの間隔
+test/vegetation.test.ts          16 tests   草・花 V-1..V-6
+test/ore.test.ts                 16 tests   鉱石 O-1..O-5（O-5 は参照実装の帯を再現して赤くなる）
+test/structure-siting.test.ts    12 tests   要塞のサイト決定
 test/terrain-distribution.test.ts  9 tests   F-1 回帰。広域 SURVEY での高度分布
 test/biome-distribution.test.ts  10 tests   F-5 回帰。広域 SURVEY でのバイオーム分布
 test/chunk-golden.test.ts        16 tests   シード固定ゴールデン + 独立した裏付け I-1..I-8
 test/tree-canopy.test.ts          6 tests   F-2 回帰。生成ブロックでの樹冠連結成分
 test/light.test.ts               28 tests   4bit ライトグリッド、setBlock による無効化
 test/chunk-store.test.ts         23 tests   ChunkStore
+test/chunk-format.test.ts        16 tests   チャンクフォーマット CF-1..CF-16
+test/save-format-mirror.test.ts  17 tests   mc-save ミラー SF-1..SF-17
 test/api-lock.test.ts            26 tests   API ロックのハーネス
-test/kernel-mirror.test.ts       18 tests   BLOCK 番号の mc-kernel との一致
-test/portal-frame.test.ts        19 tests   ネザーポータル枠の検出（全サイズ往復 + 変異検証）
+test/kernel-mirror.test.ts       21 tests   BLOCK / ORE_BLOCK / PLANT 番号の mc-kernel との一致
+test/portal-frame.test.ts        19 tests   ネザーポータル枠の検出と生成（全サイズ往復 + 変異検証）
 test/vertical-slice.test.ts       4 tests   縦の結合
 test/dependency-policy.test.ts   22 tests   16 リポジトリのグラフ、import ゲート
                                  ─────
-                                214 tests   全て green
+                                310 tests   全て green
 ```
 
-> 旧版はここを 132 と書き、次の版は 193 と書いていた。**どちらも実測とずれていた。**
+> 旧版はここを 132 と書き、次の版は 193 と書き、その次は 214 と書いていた。
+> **三つとも実測とずれていた。** 214 の版は 6 ファイル
+> （`ore` / `vegetation` / `structure-siting` / `ravine` / `chunk-format` /
+> `save-format-mirror`）を数えておらず、`kernel-mirror` も 18 と書いていた（実際は 21）。
+>
+> **この表は手で保つ限り必ずずれる。** 数えなおしは
+> `npx vitest run 2>&1 | grep -E "^ ✓ test/"` の 1 行であり、
+> 上の数字はその出力から取ってある。次に触る人も同じことをすること —
+> 記憶から書くと 4 回目になる。
 > `test/light.test.ts`（28）が後から入り、`test/kernel-mirror.test.ts` は
 > 9 → 16 → **18** と伸びている。193 と書かれていた時点の実測は既に 195 だった。
 > この表は**手で維持されており、それを検査するゲートは無い**。
@@ -239,7 +254,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 正直に書いておく。
 
 - **山脈のシルエット・洞窟内部の眺め**（上記のとおり 3D ではないため）
-- **渓谷・草花・鉱石・構造物・ライトグリッド** — まだ生成側に無い（責務表参照）
+- **構造物のブロック生成** — まだ生成側に無い（責務表参照）。渓谷・草花・鉱石・ライトグリッドは実装済み
 - **ポータルは生成されたものではない** — 上記のとおりオーバーレイである。
   「この世界にポータルがある」ことは示していない。示しているのは**ルールの挙動**だけである
 - **チャンク境界をまたぐ樹冠** — `plantTree` は隣チャンクのバッファを持たない。
@@ -272,7 +287,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 4. **ワーカープールのパリティテストが green**
    — Worker の出力がメインスレッドとバイト一致すること。
    参照実装の `terrain-worker-pool.parity.property.test.ts`（124 LOC）の移植
-5. カーバー（洞窟 + 渓谷）・植生・鉱石・構造物・ライトグリッド・`ChunkManager` が実装済み
+5. ~~カーバー（洞窟 + 渓谷）・植生・鉱石~~・構造物・~~ライトグリッド・`ChunkManager`~~ が実装済み（残るは構造物のブロック生成のみ）
 6. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
    （現在の `domain/seeded-random.ts` `domain/chunk.ts` `domain/biome.ts` の `BLOCK` は仮置き）
 7. バイオーム分布の統計テストが green ✅

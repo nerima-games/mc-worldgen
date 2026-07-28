@@ -16,18 +16,18 @@
 | バイオーム分類 | 気候 → バイオーム（ルールテーブル、first-match-wins） | ✅ 2 入力版 |
 | 地形生成 | 高さ場 → ブロック充填 → 水位 | ✅ |
 | カーバー（洞窟） | **水域の床マージン検査つき**。`domain/carver.ts` の `carveCaves` | ✅ |
-| カーバー（渓谷） | `domain/carver.ts` は**洞窟だけ**。渓谷は未着手 | ⬜ |
+| カーバー（渓谷） | ノイズ帯 + テーパー壁 + **2 層の水ガード**。`domain/ravine.ts` の `carveRavines`。装飾の**後**に走る（下記 §1-6） | ✅ 溶岩床を除く |
 | 植生（木） | 格子ジッター配置 | ✅ 配置ロジック |
 | 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダ。`domain/vegetation.ts` | ✅ |
 | 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石変種のみ |
 | 構造物（要塞） | **サイト決定のみ** `domain/structure-siting.ts`。ブロック生成器は無い | 🟡 配置決定のみ |
-| 構造物（ポータル） | **枠の検出だけ** `domain/portal-frame.ts`。生成器はまだ無い | 🟡 検出のみ |
+| 構造物（ポータル） | 検出 `detectNetherPortal` と**生成 `generatePortalLayout`（`portal-frame.ts:296`）の両方**がある。無いのは `generateChunk` からの呼び出しで、世界に自然生成されるポータルはまだ 0 個（下記 §1-7） | 🟡 呼び出し元が無い |
 | 構造物（村） | **参照実装に存在しない**（下記 §1-3）。移植ではなく新規設計になる | ⬜ 出典なし |
 | 構造物（End） | End 次元も `end_*` ブロックも無い。§5 の規模判断のまま | ⬜ |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
 | ワーカープール Port | 注入の**継ぎ目**は `ChunkSource` にある。参照実装の**名前つき Port 型**は未定義（下記 §1-4） | 🟡 継ぎ目のみ |
-| チャンクフォーマット定義 | mc-save の `defineFormat` は**存在する**が import できない（下記 §1-5） | ⬜ publish 待ち |
+| チャンクフォーマット定義 | `domain/chunk-format.ts`。`domain/save-format-port.ts`（mc-save ミラー）の `defineFormat` で定義。**「publish 待ち」は誤りだった**（下記 §1-5） | ✅ 定義のみ（媒体は未接続） |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
 
 ### 1-1. この表は 6 回間違えた。今回の訂正の内訳
@@ -36,13 +36,13 @@
 
 | 元の行 | 判定 | 根拠 |
 | --- | --- | --- |
-| ライトグリッド | **STALE（実装済みだった）** | `domain/light.ts` は 361 行。BFS 伝播・4bit パック・2 グリッド・`test/light.ts` 28 件。⬜ のまま放置されていた |
+| ライトグリッド | **STALE（実装済みだった）** | `domain/light.ts` は 361 行。BFS 伝播・4bit パック・2 グリッド・`test/light.test.ts` 28 件。⬜ のまま放置されていた |
 | ワーカープール Port | **半分 STALE** | 継ぎ目 `ChunkSource` は実装済みで `test/chunk-store.test.ts` が使っている。名前つき Port 型だけが無い |
-| カーバー（渓谷） | **REAL** | `carver.ts` は存在するが `carveCaves` だけ。渓谷は 1 行も無い |
+| カーバー（渓谷） | **REAL** → 今回実装 | `carver.ts` は `carveCaves` だけだった。`domain/ravine.ts` として移植（§1-6） |
 | 植生（草・花） | **REAL** → 今回実装 | `tree-placement.ts` は木であって地被ではなかった |
 | 鉱石 | **REAL** → 今回実装 | 「ore」は 10 ファイルに出るが**全て語彙**（`porting.md` の未移植行と `terrain.ts` のコメント）。配置コードは 0 行だった |
 | 構造物（村 / End / 要塞） | **REAL**、ただし村は種類が違う | 要塞はサイト決定を実装。村は §1-3 |
-| チャンクフォーマット定義 | **REAL、かつブロック中** | §1-5 |
+| チャンクフォーマット定義 | ~~**REAL、かつブロック中**~~ → **判定そのものが誤り**。7 回目の訂正 | §1-5 |
 
 **⬜ が「まだ誰も手をつけていない」を意味しない行が 2 つあった。**
 状態表が信用されなくなるのはこの 2 行のせいであって、未実装の 5 行のせいではない。
@@ -99,15 +99,146 @@ COAL と EMERALD の `peakY = 96` はこの天井の**上**にある。
 今払う理由が無い。パリティテスト（`docs/public-api.md` §7）も
 Worker 実装が現れるまで書けない。
 
-### 1-5. チャンクフォーマット定義はブロックされている
+### 1-5. チャンクフォーマット定義は**ブロックされていなかった**
 
-mc-save の `defineFormat` は**実在する**（`mc-save/domain/format.ts:132`）。
-import できない理由は `domain/kernel-vocabulary.ts` と同じで、
-mc-save が未 publish（plan.md §6 Step 3）であり
-`package.json#dependencies` に無いものを `pnpm check:deps` が拒否するからである。
+この節は以前こう書いていた:
 
-つまりこの行は「やっていない」ではなく「**やれない**」。
-§5 の表と同じ扱いにすべき行だった。
+> mc-save の `defineFormat` は**実在する**（`mc-save/domain/format.ts:132`）。
+> import できない理由は `domain/kernel-vocabulary.ts` と同じで、
+> mc-save が未 publish（plan.md §6 Step 3）であり
+> `package.json#dependencies` に無いものを `pnpm check:deps` が拒否するからである。
+>
+> つまりこの行は「やっていない」ではなく「**やれない**」。
+
+**この段落は、事実は全て正しく、結論だけが逆である。**
+そして自分の結論を否定する材料を自分で挙げている。
+
+「理由は `domain/kernel-vocabulary.ts` と同じ」——`kernel-vocabulary.ts` は
+**publish を待った file ではない。待つ必要を無くした file である。**
+本リポジトリはそれを 410 行書いて、`test/kernel-mirror.test.ts` で固定し、
+その上に `light.ts` も `terrain.ts` も載せている。
+同じ手は組織全体で 13 回使われている:
+
+| ミラー | 何を代理しているか | 持っているリポジトリ |
+| --- | --- | --- |
+| `domain/kernel-vocabulary.ts` | mc-kernel | mc-sim / mc-render / mc-playground-kit / mc-compose / **mc-worldgen** |
+| `domain/frame-contract.ts` | mc-kernel | mx-gameplay / mx-redstone / mx-ui |
+| `domain/block-vocabulary.ts` | mc-kernel | mx-gameplay |
+| `domain/chunk-store-port.ts` | **mc-worldgen** | mx-gameplay |
+| `domain/entity-manager-port.ts` | mc-sim | mx-gameplay |
+| `domain/inventory-port.ts` | mc-sim | mx-gameplay |
+| `domain/portal-frame-port.ts` | **mc-worldgen** | mx-gameplay |
+
+**mc-worldgen は既に 2 回ミラーされる側になっている。**
+自分が publish されていないことを理由に他リポジトリが止まってはいない。
+止まっていたのはこちらだけで、その理由は publish ではなく
+**誰もミラーを書いていなかったこと**である。
+
+さらに `pnpm check:deps` は最初から mc-save を許可している:
+
+```console
+$ pnpm check:deps
+check-dependency-whitelist: OK — 56 file(s) scanned, allowed direct dependencies:
+@nerima-games/mc-noise, @nerima-games/mc-save (plus @nerima-games/mc-kernel,
+which every repository may import).
+```
+
+依存グラフ上の障害は無い。⬜ の noun は「publish 待ち」ではなく
+「**未着手**」だった。§5 の表と同じ扱いにすべき行ではなかった。
+
+### 1-5-b. 今あるもの
+
+| file | 何 |
+| --- | --- |
+| `domain/save-format-port.ts` | mc-save の format 語彙のミラー。9 value + 3 type。`defineFormat` / `encodeSave` / `decodeSave` / `SaveFormat` / `Migration` / エンベロープ / 2 つのエラー型 |
+| `domain/chunk-format.ts` | `CHUNK_FORMAT`。`Chunk` ⇄ 符号化形の v1 フォーマット |
+| `test/chunk-format.test.ts` | CF-1 〜 CF-16 |
+| `test/save-format-mirror.test.ts` | SF-1 〜 SF-17。ミラーの転記を両方向で固定 |
+| mc-dev-meta `MIRROR_SPECS` | 12 行目。**mc-save を source とする最初の行**。外側からの比較 |
+
+どちらも `index.ts` には出していない。理由は mx-gameplay の 4 つのミラーと同じで、
+他リポジトリのサービスを本パッケージの公開面に載せると
+スタンドインの削除が consumer にとって破壊的変更になるからである。
+副作用として `api-lock.md` は 156 entries のまま動いていない
+（plan.md §6 Step 3 の 4 週間時計に触れていない）。
+
+**残っているのは媒体だけ**である。`StoragePort` / `saveTo` / `loadFrom` は
+意図的にミラーしていない（`save-format-port.ts` のヘッダに列挙してある）。
+`ChunkStore.unload` が保存を始める日に要るもので、それは §5 の最終行である。
+
+### 1-6. 渓谷カーバー: 定数は 1 つだけ検算が要った
+
+`domain/ravine.ts`。移植元は `packages/world/domain/terrain/ravine-carver.ts`（68 行）。
+
+洞窟とは**機構が違う**ので `carver.ts` を拡張していない。
+洞窟は 3D 密度場の閾値、渓谷は**ノイズ帯** —
+低周波 2D 場の 1 つの値の周りの薄い区間である。
+連続場の等位集合は曲線なので、これが「峡谷」になる。
+
+**転記しただけの定数と、検算した定数を区別してある。**
+
+| 定数 | 出典 | 扱い |
+| --- | --- | --- |
+| `RAVINE_NOISE_SCALE` 0.004 | `ravine-carver.ts:10` | 転記。波長 250 ブロックは両者で同じ意味 |
+| `RAVINE_CENTER` 0.5 | `:12` | 転記 |
+| `RAVINE_HALF_WIDTH` 0.006 | `:15` | **転記 + 実測**。下記 |
+| `RAVINE_MAX_DEPTH` 28 | `:16` | 転記（美的判断としては未検証） |
+| `RAVINE_MIN_DEPTH` 3 | `:51` の literal | 転記。命名しただけ |
+| `RAVINE_FLOOR_Y` 6 | `:53` の literal | 転記 |
+| ~~`RAVINE_WORLD_OFFSET` 40_000~~ | `:11` | **落とした**。`channelSeed(seed, 'ravines')` が同じ仕事をする。`vegetation.ts` が salt を落としたのと同じ論拠 |
+| ~~`RAVINE_LAVA_BED_BELOW_Y` 16~~ | `:17` | **落とした**。下記の到達不能性 |
+
+**帯の幅だけは検算が要った。** 参照実装のコメント自身が
+「単一オクターブのノイズは 0.5 付近に集まるので、この狭い帯でも ~2% の柱を拾う」
+と書いている。つまり 0.006 は**あちらの分布に対して校正された数字**であって、
+`seeded-random.ts` の平滑化 value noise には無条件では移らない。
+
+参照実装はこの誤りを一度踏んでいて、証拠を残している —
+`biome-classifier.config.ts:32-33`:「旧 0.055 の帯は世界の ~16% を RIVER に分類した（vanilla は 3-6%）」。
+`CONTINENTALNESS_CONTRAST` と同じ形である。
+
+SURVEY 走査（8192×8192 を 16 ブロックおき、262,144 柱、5 シード）の結果:
+
+| 半幅 | 帯に入る柱 |
+| --- | --- |
+| **0.006** | **1.7 - 2.0%** ← 採用 |
+| 0.010 | 2.8 - 3.3% |
+| 0.020 | 5.6 - 6.5% |
+
+参照実装の意図 ~2% に合う。**転記できたのであって、帯幅が可搬なのではない。**
+`pnpm preview --stats` がこの割合を毎回印字する。
+
+**溶岩床が到達不能な理由**は算術である。水ガードが `surfaceY + 1` に水がある柱を全て拒否し、
+`terrain.ts` は `surfaceY + 1` から `seaLevel` まで水を入れる。
+よって彫られる柱は `surfaceY >= 63`、`floorY >= 63 - 28 = 35` であり、
+`floorY <= 16` は決して成立しない。`pnpm preview --stats` の実測でも最深床は 35 である。
+入力の無いコードパスのために LAVA id と `kernel-mirror` の行を増やすのは、
+`ore.ts` が記録した COAL `peakY = 96`（天井の上にある帯）と同じ誤りになる。
+
+**装飾の後に走る**（`generator.ts:141-142`「壁が鉱石と表層をきれいに切るように」）。
+その代償として、彫られた柱の上に立っていたものが宙に残る。
+草花は消している（`clearGroundCover`、band 柱の 7.7% で発生）。
+**木は消していない** — 5×5 の樹冠の所有者を `plantTree` が記録していないので、
+除去には機構が要る。実測 2.4%（最悪の窓で LOG 580 セル中 14）。
+`test/ravine.test.ts` R-8 が固定している。
+
+### 1-7. ポータル: 「生成器はまだ無い」は誤りだった（8 回目の訂正）
+
+この表は 6 回間違えたと §1-1 が書き、`chunk-format` で 7 回目になった。**これが 8 回目**である。
+
+行は「**枠の検出だけ**。生成器はまだ無い」と書いていたが、
+`domain/portal-frame.ts:296` に `generatePortalLayout` があり、
+`PortalLayout` 型があり、`test/portal-frame.test.ts` の 19 件がそれを使っている
+（検出との往復スイープ 760 フレームは、この関数が無ければ書けない）。
+
+**しかも同じ文書の §6 が既にそう書いていた** —
+「`generatePortalLayout`（枠の**生成**）のほうは §3.7 が直接の根拠になる」。
+表と本文が矛盾したまま置かれていた。`carver.ts` が既に彫っていた洞窟を ⬜ と書いていたのと同じ形である。
+
+🟡 のままなのは理由が変わったからで、程度が変わったからではない:
+**`generateChunk` がこれを呼んでいない。** 生成器はあるが呼び出し元が無いので、
+世界に自然生成される黒曜石の枠は今も 0 個である。
+それが埋まるのは要塞・村と同じ「構造物のブロック生成」の行（§5）であって、この関数の行ではない。
 
 ## 2. 非スコープ（ここに書いたら負け）
 
@@ -238,9 +369,9 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 | 省略したもの | 理由 | いつ入れるか |
 | --- | --- | --- |
 | `mc-noise` への依存 | 未 publish（plan.md §6 Step 0）。`domain/seeded-random.ts` が仮置き | mc-noise が消費可能になった時点 |
-| `mc-save` への依存 | 同上 | mc-save が消費可能になった時点 |
+| `mc-save` への依存 | 同上。ただし**フォーマット定義は待っていない** — `domain/save-format-port.ts` がミラー（§1-5） | mc-save が消費可能になった時点。その日にミラーを削除して import を張り替える |
 | `mc-kernel` への依存 | 同上。`domain/chunk.ts` `domain/biome.ts` の `BLOCK` が仮置き | kernel が消費可能になった時点 |
-| 渓谷カーバー | パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後 | **今**。植生（草・花）が入ったので前提は揃った |
+| ~~渓谷カーバー~~ | ~~パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後~~ | **完了**（`domain/ravine.ts`）。溶岩床は到達不能なので入れていない（§1-6）。木が宙に残る件だけが残り、理由つきでそのファイルに書いてある |
 | 構造物のブロック生成 | サイト決定は `domain/structure-siting.ts` で閉じた。残りはブロック 4 種の採用・チャンク跨ぎの書き込み規約・洞窟との交差規則 | そのファイルのヘッダに 3 項目として書いてある |
 | deepslate 鉱石 7 種 | 置く先の deepslate 層が無い。層と鉱石は**同時に**入れないと、灰色の石の中から深層岩鉱石が出る | deepslate 層を足すとき |
 | ライトグリッド | ~~4bit パックの実装は `packages/block/domain/light.ts` から~~ | **完了**（`domain/light.ts`）。増分伝播とチャンク境界の 2 点だけが残り、両方そのファイルに理由つきで書いてある |

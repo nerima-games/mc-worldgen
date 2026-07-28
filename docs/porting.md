@@ -104,7 +104,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | LOC | パス | 役割 | 状態 |
 | ---: | --- | --- | --- |
 | 109 | `packages/world/domain/terrain/cave-carver.ts` | **水床ガード `:70-74`、`computeWaterFloorYs` `:18-32`** | ✅ |
-| 68 | `packages/world/domain/terrain/ravine-carver.ts` | **2 層ガード `:41-46`。biome だけでは不十分だった証拠** | ⬜ |
+| 68 | `packages/world/domain/terrain/ravine-carver.ts` | **2 層ガード `:41-46`。biome だけでは不十分だった証拠** | ✅ `domain/ravine.ts`。溶岩床 `:60-63` のみ未移植（到達不能、responsibility.md §1-6） |
 | — | `packages/world/domain/terrain/constants.ts` | `CAVE_WATER_FLOOR_MARGIN = 3` (`:50`)、経緯コメント `:47-49` | ✅ |
 
 → [design-notes.md](./design-notes.md#dn-2)
@@ -217,13 +217,13 @@ light-engine-bfs / worker parity に存在する）。
 
 1. **`generator-types.ts` を読む** — `TerrainLevels` の注入パターン。数分で終わる（✅ 完了）
 2. **`cave-carver.ts` (109) と `ravine-carver.ts` (68) を読む** —
-   合計 177 LOC で、このリポジトリで最も価値の高いバグ修正が 2 つ入っている（✅ 洞窟のみ完了）
+   合計 177 LOC で、このリポジトリで最も価値の高いバグ修正が 2 つ入っている（✅ 両方完了）
 3. **`tree-placer.ts:169-220` と `tree-placer.config.ts` を読む** —
    格子ジッターの数式と定数（✅ 完了）
 4. **`biome-classifier.ts` (217) を読む** — ルールテーブルと 6 入力版（✅ 2 入力版のみ）
 5. **`density-function.ts:42-55` を読む** — スプラインベースの高さ場（⬜）
-6. **`generator.ts` (181) を読む** — パス順序。`:102` と `:141-155` のコメントが本体（⬜）
-7. **`packages/block/domain/light.ts` (211) を読む** — 4bit パック（⬜）
+6. **`generator.ts` (181) を読む** — パス順序。`:102` と `:141-155` のコメントが本体（✅ 洞窟・鉱石・植生・渓谷の順序を移植済み。残るは構造物のパス）
+7. **`packages/block/domain/light.ts` (211) を読む** — 4bit パック（✅ `domain/light.ts`）
 8. **`chunk-manager-ops.ts` (184) を読む** — mc-save 消費開始後（⬜）
 
 ### そのまま移植してはいけないもの
@@ -232,5 +232,7 @@ light-engine-bfs / worker parity に存在する）。
 | --- | --- |
 | `packages/world/domain/perlin.ts:42` の `rand ?? Math.random` | シード未指定フォールバック。**シードを必須にして削除する**（DN-6） |
 | `chunk-manager-ops-storage.ts:54-60` の `healHollowWaterBeds` | 名前もバージョンもテストも無いマイグレーション。mc-save の `defineFormat` 連鎖で表現する |
-| `ravine-carver.ts:42` の biome だけのガード | **不十分**。`:46` のブロック検査も必ず一緒に持ってくる（DN-2） |
+| `ravine-carver.ts:42` の biome だけのガード | **不十分**。`:46` のブロック検査も必ず一緒に持ってくる（DN-2）。**両方移植済み**、`test/ravine.test.ts` R-3 が `waterGuard: 'biome'` で不十分さを再現する |
+| `ravine-carver.ts:15` の `RAVINE_HALF_WIDTH = 0.006` | **帯幅は分布についての主張**であって可搬ではない。参照実装のコメント自身が「自分のノイズに合わせた」と書いている。転記する前に実測すること（responsibility.md §1-6。参照実装は river で一度失敗している） |
+| `ravine-carver.ts:17` の `RAVINE_LAVA_BED_BELOW_Y = 16` | **本リポジトリでは到達不能**。彫られる柱は `surfaceY >= 63` なので `floorY >= 35`。deepslate 層が入る日まで移植しない |
 | 木・構造物の位置決めがシードを含まない点 | 変えたいなら意図的に。移植ではなく挙動変更であると認識すること |

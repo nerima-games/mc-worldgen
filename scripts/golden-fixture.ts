@@ -73,13 +73,21 @@
  * the matrix was chosen by a rule, the rule was reasonable, and it still
  * produced a set on which "the carver's water-floor guard works" was true by
  * there being nothing for the guard to do.
+ *
+ * THE ELEVENTH WAS ADDED FOR THE SAME REASON, ONE FEATURE LATER, which is what
+ * makes the pattern worth naming rather than treating as bad luck twice. The
+ * ravine carver landed and every digest here was byte-identical, because a
+ * ravine is a thin curve at a 250-block wavelength and no chunk chosen by
+ * "nearest all-X" happens to sit on one. A selection rule that never mentions a
+ * feature cannot be expected to cover it, and the miss is silent in both
+ * directions: the suite passes whether the pass works or does nothing at all.
  */
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { BIOMES, BLOCK, type BiomeType } from '../domain/biome'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../domain/carver'
 import { columnIndex, readBlock, type Chunk } from '../domain/chunk'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, SEA_LEVEL } from '../domain/constants'
 import { ORE_BLOCK } from '../domain/ore'
 import { generateChunkAt } from '../domain/terrain'
 import { PLANT } from '../domain/vegetation'
@@ -145,6 +153,32 @@ export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
     // rule — reproduce the bug, do not merely assert its absence.
     why: 'the water-floor guard actually bites here: 229 columns break without it',
   },
+  {
+    biome: 'FOREST',
+    cx: 21,
+    cz: 11,
+    decorate: true,
+    // THE ELEVENTH ROW EXISTS FOR THE SAME REASON THE TENTH DOES, and the
+    // measurement that forced it was taken before a line of it was written: the
+    // ravine carver landed, every digest above was byte-identical, and the whole
+    // suite passed. Not because the pass does nothing — it carves 0.9-2.1% of
+    // the world — but because the ravine band is a thin curve at a 250-block
+    // wavelength and NONE of the first ten chunks intersects one. Zero band
+    // columns out of 2,560.
+    //
+    // That is docs/testing.md §4-b F-4 again, one feature later. A matrix chosen
+    // by "nearest all-X chunk" is a matrix chosen without reference to any
+    // feature that is rare and spatially structured, so it will keep missing
+    // them, and each miss looks exactly like a pass that works.
+    //
+    // (21, 11) is the strongest ravine chunk inside 40 chunks of the origin
+    // that is still single-biome: 205 of its 256 columns are carved, up to
+    // 4,135 cells, and its `topBlockY` floor is 39 against a shaper minimum of
+    // 38. FOREST rather than the marginally closer PLAINS candidates because a
+    // ravine that cuts a decorated chunk exercises the interaction the pass
+    // order is FOR — see `ravineCutColumns` below and `test/ravine.test.ts`.
+    why: 'the only golden chunk a ravine reaches: 205 of 256 columns carved',
+  },
 ]
 
 /**
@@ -194,6 +228,29 @@ export type GoldenSummary = {
    * F-1 shaper fix made the carver 34% more expensive.
    */
   readonly caveBandAir: number
+  /**
+   * Columns whose topmost non-AIR block is below `SEA_LEVEL`. The ravine count.
+   *
+   * Broken out for the reason `caveBandAir` gives, and the coupling here is
+   * worse: a ravine floor lands between y=35 and y=64, which is largely INSIDE
+   * `CAVE_FLOOR_Y..CAVE_CEILING_Y`, so without this field a ravine pass that
+   * stopped carving would move `caveBandAir` and be indistinguishable from a
+   * change to `carveCaves`.
+   *
+   * It is an exact signature rather than a proxy, and the argument is short
+   * enough to check: `domain/terrain.ts` fills water from `surfaceY + 1` to
+   * `seaLevel`, so any column with `surfaceY < SEA_LEVEL` has water — which is
+   * non-AIR — at `SEA_LEVEL`. A dry column therefore has its top at
+   * `SEA_LEVEL` or above, and `carveCaves` cannot lower it because
+   * `CAVE_CEILING_Y` is 58. Only a ravine can put the top of a column below
+   * sea level. It reads 0 on all ten pre-ravine rows and 114 on the eleventh.
+   *
+   * It UNDERCOUNTS, deliberately and by a knowable amount: a shallow cut on
+   * high ground can leave the floor above sea level, so this is the number of
+   * columns cut BELOW SEA LEVEL and not the number of columns carved (205 for
+   * that chunk). A drift detector does not need to be a census.
+   */
+  readonly ravineCutColumns: number
 }
 
 export type GoldenEntry = {
@@ -247,6 +304,7 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
   let topMin = Number.POSITIVE_INFINITY
   let topMax = Number.NEGATIVE_INFINITY
   let caveBandAir = 0
+  let ravineCutColumns = 0
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -285,6 +343,9 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
       }
       topMin = Math.min(topMin, columnTop)
       topMax = Math.max(topMax, columnTop)
+      if (columnTop >= 0 && columnTop < SEA_LEVEL) {
+        ravineCutColumns += 1
+      }
     }
   }
 
@@ -294,6 +355,7 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
     waterSurfaceY: waterColumns === 0 ? null : { min: waterMin, max: waterMax },
     topBlockY: { min: topMin, max: topMax },
     caveBandAir,
+    ravineCutColumns,
   }
 }
 

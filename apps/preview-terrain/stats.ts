@@ -49,6 +49,12 @@ import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../../domain/carver'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../../domain/constants'
 import { readBlock } from '../../domain/chunk'
 import {
+  ravineFloorY,
+  RAVINE_HALF_WIDTH,
+  RAVINE_MAX_DEPTH,
+  RAVINE_NOISE_SCALE,
+} from '../../domain/ravine'
+import {
   climateAt,
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -123,6 +129,9 @@ const surveyReport = (params: WorldParams, options: StatsOptions): ReadonlyArray
   let submerged = 0
   let pinnedHigh = 0
   let pinnedLow = 0
+  let ravineBandColumns = 0
+  let ravineCarvedColumns = 0
+  let ravineFloorMin = Number.POSITIVE_INFINITY
 
   const stride = Math.max(1, Math.floor(options.surveyStride))
 
@@ -147,6 +156,13 @@ const surveyReport = (params: WorldParams, options: StatsOptions): ReadonlyArray
       }
       if (sample.surfaceY <= MIN_SURFACE_Y) {
         pinnedLow += 1
+      }
+      if (sample.ravineDepth > 0) {
+        ravineBandColumns += 1
+      }
+      if (sample.ravineCarved) {
+        ravineCarvedColumns += 1
+        ravineFloorMin = Math.min(ravineFloorMin, ravineFloorY(sample.surfaceY, sample.ravineDepth))
       }
     }
   }
@@ -217,6 +233,34 @@ const surveyReport = (params: WorldParams, options: StatsOptions): ReadonlyArray
   lines.push(
     `  reachable biomes: ${String([...biomeCounts.keys()].length)} of ${String(BIOMES.length)}` +
       `   (OCEAN and BEACH are height overrides in biomeFor, not climate results)`,
+  )
+  lines.push('')
+
+  // THE RAVINE BAND, and it is in the SURVEY scan rather than the local one for
+  // exactly the reason this file's header gives about two windows. A ravine
+  // field has a 250-block wavelength, so a 400-block window contains under two
+  // features and any fraction read off it is a fact about which part of one
+  // curve happened to be in frame. That is the shape of the error
+  // `domain/terrain.ts` records against CONTINENTALNESS_CONTRAST — a narrow
+  // sample produced a plausible answer, not an obviously wrong one.
+  //
+  // `RAVINE_HALF_WIDTH` is transcribed from the reference and the reference's
+  // own comment says it is calibrated to ITS noise distribution. This line is
+  // what makes the transcription checkable here on every run instead of once.
+  const ravineFraction = ravineBandColumns / Math.max(1, total)
+  const carvedFraction = ravineCarvedColumns / Math.max(1, total)
+  lines.push(`ravines — RAVINE_HALF_WIDTH=${String(RAVINE_HALF_WIDTH)} at wavelength ${String(1 / RAVINE_NOISE_SCALE)}`)
+  lines.push(
+    `  inside the band ${percent(ravineBandColumns, total)}   ` +
+      `${bar(ravineFraction, 12)}   the reference states ~2% as the intent`,
+  )
+  lines.push(
+    `  carved after the biome guard ${percent(ravineCarvedColumns, total)}   ${bar(carvedFraction, 12)}`,
+  )
+  lines.push(
+    `  max depth ${String(RAVINE_MAX_DEPTH)}   deepest floor reached ${
+      ravineFloorMin === Number.POSITIVE_INFINITY ? 'none' : String(ravineFloorMin)
+    }` + `   (the lava-bed branch needs floorY <= 16 and is unreachable here — domain/ravine.ts)`,
   )
 
   return lines
