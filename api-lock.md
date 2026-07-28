@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 154
+exported declarations: 158
 supporting declarations: 2
 
 ## Exported
@@ -370,6 +370,12 @@ type ClimateSample = {
 const DEFAULT_TERRAIN_LEVELS: TerrainLevels;
 ```
 
+### Dimension  `type`
+
+```ts
+type Dimension = 'overworld' | 'nether' | 'end';
+```
+
 ### DirtySubscriberState  `type`
 
 ```ts
@@ -521,6 +527,12 @@ const MIN_SURFACE_Y = 38;
 const OUT_OF_WORLD: BlockReading;
 ```
 
+### PORTAL_SEARCH_RADIUS  `const`
+
+```ts
+const PORTAL_SEARCH_RADIUS = 128;
+```
+
 ### PortalAxis  `type`
 
 ```ts
@@ -544,6 +556,16 @@ type PortalFrame = {
 type PortalLayout = {
     readonly frame: ReadonlyArray<BlockPosition>;
     readonly interior: ReadonlyArray<BlockPosition>;
+};
+```
+
+### PortalTravelPlan  `type`
+
+```ts
+type PortalTravelPlan = {
+    readonly toDimension: Dimension;
+    readonly destination: BlockPosition;
+    readonly portalToCreate: Option.Option<PortalLayout>;
 };
 ```
 
@@ -957,6 +979,12 @@ const residentChunk: (state: ChunkStoreState, coord: ChunkCoord) => Chunk | unde
 
 ```ts
 const residentCoords: (state: ChunkStoreState) => ReadonlyArray<ChunkCoord>;
+```
+
+### resolveNetherTravel  `const`
+
+```ts
+const resolveNetherTravel: (from: Dimension, playerPos: BlockPosition, knownPortals: ReadonlyArray<BlockPosition>, searchRadius?: number) => PortalTravelPlan;
 ```
 
 ### setBlockAt  `const`

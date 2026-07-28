@@ -276,26 +276,30 @@ describe('block ids match mc-kernel/domain/block-registry.ts', () => {
   )
 
   /**
-   * The one column this repository knowingly does not transcribe.
+   * REDSTONE ORE EMITS 9, AND THIS FILE USED TO ASSERT THAT IT DID NOT.
    *
-   * Kernel gives `redstone_ore` and `deepslate_redstone_ore` `lightEmission: 9`
-   * (`block-registry.ts:1361-1363`) — nine rather than fifteen, the case a
-   * boolean `emissive` could not express. `domain/kernel-vocabulary.ts`'s
-   * emission table carries three rows and not five, so a wall of redstone ore
-   * reads as DARK in `domain/light.ts`.
+   * The test that stood here pinned `lightEmissionOfBlockId(REDSTONE)` to
+   * `LIGHT_LEVEL_MIN` and added `.not.toBe(9)`, describing the gap as a column
+   * 「this repository knowingly does not transcribe」 and as the CONSERVATIVE
+   * direction. Both halves were wrong. Dark is the NON-conservative direction —
+   * `docs/design-notes.md` DN-7 says so, because `hostile-spawn.ts` refuses a
+   * spawn above light 7, so a cell read darker than it is permits a spawn the
+   * real level forbids. And the gap was not knowing: kernel had seventeen
+   * emitters against this mirror's three.
    *
-   * That is the CONSERVATIVE direction for the only rule that consumes block
-   * light (`docs/design-notes.md` DN-7: `hostile-spawn.ts` refuses above light
-   * 7), so it is safe to ship — and it is recorded rather than left to be found,
-   * because the emission table's own header argues that the set is CLOSED and
-   * that closure is now a statement about three rows that kernel has five of.
+   * So the assertion was not recording a divergence, it was holding one open —
+   * a test that would have gone RED on the correct transcription. It is kept as
+   * a note because a green test asserting a defect is worth naming once: the
+   * emitting-set pin below is closed over kernel's whole range and would have
+   * caught this on its own, had its expected value not been hand-written from
+   * the same stale table it was checking.
    */
-  it.effect('records that redstone ore’s emission is kernel’s and is deliberately not mirrored', () =>
+  it.effect('transcribes redstone ore’s emission of 9, which is kernel’s number', () =>
     Effect.sync(() => {
-      expect(lightEmissionOfBlockId(ORE_BLOCK.REDSTONE)).toBe(LIGHT_LEVEL_MIN)
-      // If a future change transcribes it, this line is the one to delete — and
-      // the emitting-set assertion above will need 54 added to it.
-      expect(lightEmissionOfBlockId(ORE_BLOCK.REDSTONE)).not.toBe(9)
+      // `block-registry.ts:1361-1363`. Nine rather than fifteen is the case a
+      // boolean `emissive` could not express, which is why the column is a level.
+      expect(lightEmissionOfBlockId(ORE_BLOCK.REDSTONE)).toBe(9)
+      expect(lightEmissionOfBlockId(ORE_BLOCK.REDSTONE)).not.toBe(LIGHT_LEVEL_MIN)
     }),
   )
 
@@ -327,6 +331,41 @@ describe('block ids match mc-kernel/domain/block-registry.ts', () => {
  * anything.
  */
 describe('light columns match mc-kernel/domain/block-properties.ts', () => {
+  /**
+   * Every emitting row kernel has, with its level.
+   *
+   * Dumped from `mc-kernel/domain/block-registry.ts` rather than typed, for the
+   * reason the previous version of this pin demonstrates: it swept the whole id
+   * range correctly and still passed over fourteen missing emitters, because its
+   * expected value — `[11, 14, 15]` — was hand-written from the very table it
+   * was meant to be checking. A closed sweep against a hand-authored expectation
+   * only proves the mirror agrees with itself.
+   *
+   * SEVEN DISTINCT LEVELS, which is the assertion that keeps the column a number:
+   * 1 and 3 for the two `end_portal_frame` states, 7 for a redstone torch, 9 for
+   * both redstone ores, 11 for the nether portal, 14 for a torch, 15 for the
+   * rest.
+   */
+  const KERNEL_EMISSION_ROWS: ReadonlyArray<readonly [number, number]> = [
+    [11, 15], // lava
+    [14, 14], // torch
+    [15, 15], // glowstone
+    [44, 15], // amethyst_cluster
+    [54, 9], // redstone_ore
+    [61, 9], // deepslate_redstone_ore
+    [68, 15], // redstone_block
+    [75, 7], // redstone_torch
+    [80, 15], // redstone_lamp_lit
+    [87, 1], // end_portal_frame
+    [88, 3], // end_portal_frame_filled
+    [89, 15], // end_portal
+    [94, 15], // end_gateway
+    [95, 15], // end_rod
+    [97, 15], // ender_chest
+    [118, 11], // nether_portal
+    [119, 15], // fire
+  ]
+
   it.effect('transcribes every emitting row, and no others', () =>
     Effect.sync(() => {
       // `block-registry.ts:372` lava 15, `:422` torch 14, `:438` glowstone 15.
@@ -340,17 +379,29 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
       // column is not a boolean. If a future edit flattens it, this fails.
       expect(lightEmissionOfBlockId(14)).not.toBe(lightEmissionOfBlockId(15))
 
-      // CLOSED, not just present. The opacity table above went stale precisely
-      // because it asserted the rows it already had; asserting that NOTHING
-      // ELSE in kernel's assigned range emits is what would catch a fourth
-      // emitter being added to kernel and not transcribed here.
-      const emitting: Array<number> = []
+      // Each row reads back, id AND level. Asserted as a pair so that a wrong
+      // level fails as loudly as a missing row: a redstone torch transcribed at
+      // 15 instead of 7 lights a corridor kernel leaves dim.
+      for (const [id, level] of KERNEL_EMISSION_ROWS) {
+        expect({ id, level: lightEmissionOfBlockId(id) }).toStrictEqual({ id, level })
+      }
+
+      // CLOSED, over kernel's whole assigned range and not just the rows above.
+      // This is the direction that catches an eighteenth emitter added to kernel
+      // and never transcribed here — the failure that actually happened, twice.
+      const emitting: Array<readonly [number, number]> = []
       for (let id = 0; id <= BLOCK_ID_MAX; id += 1) {
         if (lightEmissionOfBlockId(id) > LIGHT_LEVEL_MIN) {
-          emitting.push(id)
+          emitting.push([id, lightEmissionOfBlockId(id)])
         }
       }
-      expect(emitting).toStrictEqual([11, 14, 15])
+      expect(emitting).toStrictEqual(KERNEL_EMISSION_ROWS)
+
+      // The levels kernel actually uses. A flattening edit that made every
+      // emitter 15 would still satisfy a set-of-ids check; it fails here.
+      expect(new Set(KERNEL_EMISSION_ROWS.map(([, level]) => level))).toStrictEqual(
+        new Set([1, 3, 7, 9, 11, 14, 15]),
+      )
     }),
   )
 
@@ -399,18 +450,24 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
    * treating a ladder, a rail, a flower, a cactus and a stone slab as fully
    * light-blocking.
    *
-   * The table below is therefore CLOSED at both ends. Every id in kernel's
-   * assigned range has a literal answer here, so a kernel row this mirror has
-   * not transcribed shows up as a failing assertion rather than as a dark
-   * chunk. It is transcribed from `mc-kernel/domain/block-registry.ts`'s
-   * `BLOCK_REGISTRY` — ids 0-17 from the original roster and 18-35 from the
-   * 「the rest of `PASSABLE_BLOCK_IDS`」 and 「the three non-`full` collision
-   * shapes」 sections.
+   * AND THEN IT WENT STALE THE SAME WAY A SECOND TIME. The table was re-derived
+   * to kernel's then-current 36 literals and stopped there, so when the roster
+   * reached 120 it pinned 36 rows against 49 non-opaque ones and passed —
+   * "closed at both ends" was only ever closed at the end the author knew about.
+   * Ice, the three crops, the redstone wiring, the End blocks, the purpur slab
+   * and stairs, both doors, the bed, the brewing stand, the nether portal and
+   * fire were all read as opaque, all in the DARK direction.
    *
-   * What it still does not do is notice a THIRTY-SIXTH kernel row. That needs a
-   * property probe in mc-dev-meta's `MIRROR_SPECS`, which does not exist yet;
-   * `domain/kernel-vocabulary.ts`'s header records the gap and why this file is
-   * a weaker substitute for it.
+   * The table below is therefore DUMPED from `mc-kernel/domain/block-registry.ts`
+   * rather than transcribed, and it carries every one of kernel's 120 assigned
+   * ids — opaque rows included, so that the pin fails on a row that CHANGES class
+   * as well as on one that is missing. The count assertions underneath are
+   * derived from the table rather than restated, so they cannot drift from it.
+   *
+   * The cross-repository half now exists too: mc-dev-meta's `MIRROR_SPECS`
+   * carries property probes for `opacityOfBlockId` and `lightEmissionOfBlockId`,
+   * so `pnpm check:mirrors` diffs both columns against kernel id by id. That is
+   * the stronger guarantee — it reads kernel, this file only reads itself.
    */
   const KERNEL_OPACITY_ROWS: ReadonlyArray<readonly [number, string]> = [
     [0, 'transparentSolid'], // air
@@ -428,7 +485,7 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
     [12, 'opaque'], // oak_planks
     [13, 'transparentSolid'], // glass
     [14, 'transparentSolid'], // torch
-    [15, 'opaque'], // glowstone — opaque AND emitting; see the row below
+    [15, 'opaque'], // glowstone
     [16, 'opaque'], // piston
     [17, 'opaque'], // cobblestone
     [18, 'transparentSolid'], // ladder
@@ -449,6 +506,90 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
     [33, 'transparentSolid'], // cactus
     [34, 'transparentSolid'], // pressure_plate
     [35, 'transparentSolid'], // stone_slab
+    [36, 'opaque'], // granite
+    [37, 'opaque'], // diorite
+    [38, 'opaque'], // andesite
+    [39, 'opaque'], // deepslate
+    [40, 'opaque'], // obsidian
+    [41, 'opaque'], // smooth_basalt
+    [42, 'opaque'], // calcite
+    [43, 'opaque'], // amethyst_block
+    [44, 'opaque'], // amethyst_cluster
+    [45, 'opaque'], // sandstone
+    [46, 'opaque'], // prismarine
+    [47, 'opaque'], // soul_sand
+    [48, 'transparentSolid'], // ice
+    [49, 'opaque'], // farmland
+    [50, 'opaque'], // coal_ore
+    [51, 'opaque'], // iron_ore
+    [52, 'opaque'], // gold_ore
+    [53, 'opaque'], // diamond_ore
+    [54, 'opaque'], // redstone_ore
+    [55, 'opaque'], // lapis_ore
+    [56, 'opaque'], // emerald_ore
+    [57, 'opaque'], // deepslate_coal_ore
+    [58, 'opaque'], // deepslate_iron_ore
+    [59, 'opaque'], // deepslate_gold_ore
+    [60, 'opaque'], // deepslate_diamond_ore
+    [61, 'opaque'], // deepslate_redstone_ore
+    [62, 'opaque'], // deepslate_lapis_ore
+    [63, 'opaque'], // deepslate_emerald_ore
+    [64, 'opaque'], // coal_block
+    [65, 'opaque'], // iron_block
+    [66, 'opaque'], // gold_block
+    [67, 'opaque'], // diamond_block
+    [68, 'opaque'], // redstone_block
+    [69, 'opaque'], // lapis_block
+    [70, 'opaque'], // emerald_block
+    [71, 'transparentSolid'], // wheat_crop
+    [72, 'transparentSolid'], // potato_crop
+    [73, 'transparentSolid'], // nether_wart_crop
+    [74, 'transparentSolid'], // redstone_wire
+    [75, 'transparentSolid'], // redstone_torch
+    [76, 'transparentSolid'], // lever
+    [77, 'transparentSolid'], // stone_button
+    [78, 'transparentSolid'], // repeater
+    [79, 'opaque'], // redstone_lamp
+    [80, 'opaque'], // redstone_lamp_lit
+    [81, 'opaque'], // observer
+    [82, 'opaque'], // comparator
+    [83, 'opaque'], // dispenser
+    [84, 'opaque'], // hopper
+    [85, 'opaque'], // piston_head
+    [86, 'opaque'], // end_stone
+    [87, 'opaque'], // end_portal_frame
+    [88, 'opaque'], // end_portal_frame_filled
+    [89, 'transparentSolid'], // end_portal
+    [90, 'transparentSolid'], // chorus_flower
+    [91, 'transparentSolid'], // chorus_plant
+    [92, 'transparentSolid'], // dragon_egg
+    [93, 'transparentSolid'], // end_crystal
+    [94, 'transparentSolid'], // end_gateway
+    [95, 'transparentSolid'], // end_rod
+    [96, 'opaque'], // end_stone_bricks
+    [97, 'opaque'], // ender_chest
+    [98, 'opaque'], // purpur_block
+    [99, 'opaque'], // purpur_pillar
+    [100, 'transparentSolid'], // purpur_slab
+    [101, 'transparentSolid'], // purpur_stairs
+    [102, 'opaque'], // shulker_box
+    [103, 'opaque'], // crafting_table
+    [104, 'opaque'], // furnace
+    [105, 'opaque'], // chest
+    [106, 'transparentSolid'], // door
+    [107, 'transparentSolid'], // door_open
+    [108, 'transparentSolid'], // oak_stairs
+    [109, 'opaque'], // anvil
+    [110, 'opaque'], // cauldron
+    [111, 'opaque'], // water_cauldron
+    [112, 'transparentSolid'], // bed
+    [113, 'opaque'], // enchanting_table
+    [114, 'transparentSolid'], // brewing_stand
+    [115, 'opaque'], // tnt
+    [116, 'opaque'], // nether_brick
+    [117, 'opaque'], // netherrack
+    [118, 'transparentSolid'], // nether_portal
+    [119, 'transparentSolid'], // fire
   ]
 
   it.effect('transcribes kernel’s opacity for EVERY assigned id, not a sample of them', () =>
@@ -463,9 +604,17 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
       const fluids = KERNEL_OPACITY_ROWS.filter(([, opacity]) => opacity === 'fluid').map(([id]) => id)
       expect(fluids).toStrictEqual([6, 11])
 
-      // 24 of kernel's 36 rows transmit light. The count is asserted because it
-      // is the number that was wrong: this table held 6.
-      expect(KERNEL_OPACITY_ROWS.filter(([id]) => transmitsLight(id))).toHaveLength(24)
+      // The table covers kernel's WHOLE assigned range, contiguous from 0. This
+      // is the assertion the previous version could not make: it stopped at 35
+      // and had no way to say so. If kernel assigns id 120, this fails.
+      expect(KERNEL_OPACITY_ROWS.map(([id]) => id)).toStrictEqual(
+        KERNEL_OPACITY_ROWS.map((_row, index) => index),
+      )
+      expect(KERNEL_OPACITY_ROWS).toHaveLength(120)
+
+      // 49 of kernel's 120 rows transmit light. The count is asserted because it
+      // is the number that was wrong twice: this table held 6, then 24.
+      expect(KERNEL_OPACITY_ROWS.filter(([id]) => transmitsLight(id))).toHaveLength(49)
     }),
   )
 
@@ -477,7 +626,10 @@ describe('light columns match mc-kernel/domain/block-properties.ts', () => {
       // rows positively would have to answer non-opaque here, and would
       // disagree with kernel on every byte a newer build or a corrupt chunk
       // can produce.
-      expect(opacityOfBlockId(36)).toBe('opaque')
+      // 120 is the first id kernel has NOT assigned — the roster runs 0-119. It
+      // used to be 36 here, which kernel has since assigned (`granite`), so
+      // this assertion had quietly stopped testing the unassigned case at all.
+      expect(opacityOfBlockId(120)).toBe('opaque')
       expect(opacityOfBlockId(200)).toBe('opaque')
       expect(opacityOfBlockId(BLOCK_ID_MAX)).toBe('opaque')
       expect(transmitsLight(200)).toBe(false)

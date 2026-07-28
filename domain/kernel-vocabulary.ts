@@ -284,22 +284,29 @@ export type BlockOpacity = (typeof BLOCK_OPACITIES)[number]
  * test below pins (`opacityOfBlockId(200) === 'opaque'`). The direction is
  * decided by kernel's default, not by which list is shorter.
  *
- * WHICH MATTERS NOW, BECAUSE THE SHORTER LIST HAS SWAPPED. Kernel's roster grew
- * from 18 block literals to 36, and 24 of the 36 rows are non-opaque against 12
- * opaque. The half of the original argument that appealed to brevity 「adding an
- * ordinary block to kernel's registry needs no edit here」 has expired: most new
- * blocks are plants, rails and slabs, and every one of them needs a row here.
- * The half that was load-bearing — agreeing with kernel's default — is
+ * WHICH MATTERS NOW, BECAUSE THE SHORTER LIST HAS SWAPPED. Kernel's roster is
+ * 120 block literals, and 49 of them are non-opaque against 71 opaque. The half
+ * of the original argument that appealed to brevity 「adding an ordinary block to
+ * kernel's registry needs no edit here」 has expired: most new blocks are plants,
+ * rails, slabs, stairs and redstone wiring, and every one of them needs a row
+ * here. The half that was load-bearing — agreeing with kernel's default — is
  * unaffected.
  *
- * THIS TABLE WAS STALE, and the staleness had already reached the light grid.
- * It carried six rows (air, water, oak_leaves, lava, glass, torch) while kernel
- * carried twenty-four, so `./light.ts` treated a ladder, a rail, a flower, a
- * cactus and a stone slab as fully light-blocking. Every missing row defaulted
- * to `'opaque'`, which is the DARK direction — the one `../docs/design-notes.md`
- * DN-7 identifies as non-conservative, because a cell read darker than it is
- * lets a hostile spawn where the rule would have refused
+ * THIS TABLE HAS NOW GONE STALE TWICE, the same way both times. It first carried
+ * six rows (air, water, oak_leaves, lava, glass, torch) against kernel's
+ * twenty-four; it was re-derived to twenty-four, kernel's roster then grew to
+ * 120, and it sat at twenty-four against forty-nine — missing ice, the three
+ * crops, the redstone wiring, the End blocks, the purpur slab and stairs, both
+ * doors, the bed, the brewing stand, the nether portal and fire. Every missing
+ * row defaulted to `'opaque'`, which is the DARK direction — the one
+ * `../docs/design-notes.md` DN-7 identifies as non-conservative, because a cell
+ * read darker than it is lets a hostile spawn where the rule would have refused
  * (`mx-gameplay/domain/mob/hostile-spawn.ts` refuses above light 7).
+ *
+ * THE SECOND STALENESS IS THE ARGUMENT FOR NOT RE-DERIVING BY HAND AGAIN. The
+ * rows below are a verbatim dump of kernel's registry, and the closed pin in
+ * `../test/kernel-mirror.test.ts` now covers kernel's whole assigned range
+ * rather than stopping at the highest id that happened to be transcribed.
  *
  * That is exactly the failure kernel's own `block-registry.ts` header predicts
  * of a hand-maintained membership set — 「手書きの membership set は名簿が伸びる
@@ -315,6 +322,22 @@ export type BlockOpacity = (typeof BLOCK_OPACITIES)[number]
  * class of its own, and light propagation depends on it: air is the medium, so
  * an air row that fell through to the `'opaque'` default would produce a world
  * in which no light travels at all and every cell below the surface reads 0.
+ *
+ * THE ROWS BELOW CARRY NO PROSE, deliberately, because they are machine-dumped
+ * and prose interleaved with them would not survive the next dump. The three
+ * notes worth keeping therefore live here:
+ *
+ *   - `'fluid'` is water (6) and lava (11) and NOTHING else. Kernel gives the
+ *     class to those two rows only; every other non-opaque row is
+ *     `'transparentSolid'`.
+ *   - CACTUS (33) is `cactusBlockProperties` (`blocks.config.flora.ts:9-15`):
+ *     solid AND transparent. It is the row kernel uses to argue that no single
+ *     `solid` boolean can exist — it transmits light while still colliding.
+ *   - The PLANTS take `opacity: 'transparentSolid'` from kernel's
+ *     `PLANT_PROPERTIES`, which derives it from `light.ts:14-17`'s
+ *     `properties.transparency` rather than from `meshing-worker-config.ts`
+ *     (whose transparent-solid set holds only glass and leaves). Kernel's own
+ *     row comment puts it plainly: opaque would make a flower cast a shadow.
  */
 const NON_OPAQUE_BLOCK_OPACITIES: ReadonlyMap<number, BlockOpacity> = new Map([
   [0, 'transparentSolid'], // air
@@ -323,17 +346,8 @@ const NON_OPAQUE_BLOCK_OPACITIES: ReadonlyMap<number, BlockOpacity> = new Map([
   [11, 'fluid'], // lava
   [13, 'transparentSolid'], // glass
   [14, 'transparentSolid'], // torch
-  // ids 18-35, kernel's 「the rest of `PASSABLE_BLOCK_IDS`」 pass plus the three
-  // non-`full` collision shapes. All `transparentSolid`: kernel gives `'fluid'`
-  // to water and lava and to nothing else.
   [18, 'transparentSolid'], // ladder
   [19, 'transparentSolid'], // cobweb
-  // The seven surface plants plus sugar_cane and lily_pad. Kernel's
-  // `PLANT_PROPERTIES` sets `opacity: 'transparentSolid'` for all of them,
-  // deliberately NOT from `meshing-worker-config.ts` (whose transparent-solid
-  // set holds only glass and leaves) but from `light.ts:14-17`, which builds
-  // attenuation from `properties.transparency` — true for every plant. Kernel's
-  // row comment puts it plainly: opaque would make a flower cast a shadow.
   [20, 'transparentSolid'], // sapling
   [21, 'transparentSolid'], // dandelion
   [22, 'transparentSolid'], // poppy
@@ -347,12 +361,34 @@ const NON_OPAQUE_BLOCK_OPACITIES: ReadonlyMap<number, BlockOpacity> = new Map([
   [30, 'transparentSolid'], // seagrass
   [31, 'transparentSolid'], // rail
   [32, 'transparentSolid'], // powered_rail
-  // cactus is `cactusBlockProperties` (`blocks.config.flora.ts:9-15`): solid AND
-  // transparent. It is the row kernel uses to argue that no single `solid`
-  // boolean can exist, and it transmits light while still colliding.
   [33, 'transparentSolid'], // cactus
   [34, 'transparentSolid'], // pressure_plate
   [35, 'transparentSolid'], // stone_slab
+  [48, 'transparentSolid'], // ice
+  [71, 'transparentSolid'], // wheat_crop
+  [72, 'transparentSolid'], // potato_crop
+  [73, 'transparentSolid'], // nether_wart_crop
+  [74, 'transparentSolid'], // redstone_wire
+  [75, 'transparentSolid'], // redstone_torch
+  [76, 'transparentSolid'], // lever
+  [77, 'transparentSolid'], // stone_button
+  [78, 'transparentSolid'], // repeater
+  [89, 'transparentSolid'], // end_portal
+  [90, 'transparentSolid'], // chorus_flower
+  [91, 'transparentSolid'], // chorus_plant
+  [92, 'transparentSolid'], // dragon_egg
+  [93, 'transparentSolid'], // end_crystal
+  [94, 'transparentSolid'], // end_gateway
+  [95, 'transparentSolid'], // end_rod
+  [100, 'transparentSolid'], // purpur_slab
+  [101, 'transparentSolid'], // purpur_stairs
+  [106, 'transparentSolid'], // door
+  [107, 'transparentSolid'], // door_open
+  [108, 'transparentSolid'], // oak_stairs
+  [112, 'transparentSolid'], // bed
+  [114, 'transparentSolid'], // brewing_stand
+  [118, 'transparentSolid'], // nether_portal
+  [119, 'transparentSolid'], // fire
 ])
 
 /** Total, like kernel's: an id outside the transcription is an ordinary cube. */
@@ -382,24 +418,55 @@ export const transmitsLight = (id: number): boolean => opacityOfBlockId(id) !== 
 /**
  * The rows of kernel's `BLOCK_REGISTRY` with a non-zero `lightEmission`.
  *
- * Three, and every one of them is a level rather than a boolean — which is the
- * whole of kernel's audit §5 finding on this column: plan.md §3.1 asked for
+ * Seventeen, and every one of them is a level rather than a boolean — which is
+ * the whole of kernel's audit §5 finding on this column: plan.md §3.1 asked for
  * `emissive: boolean` and the reference implementation ALREADY contradicted it
  * with `EMISSIVE_LEVEL_OVERRIDES` (`light.ts:24-46`). A torch is 14 and
  * glowstone is 15, and the one-level gap is visible in a lit room.
  *
- * UNLIKE the opacity table above, this one survived the roster growing from 18
- * literals to 36 — re-derived from kernel and still exactly three rows, because
- * none of the eighteen blocks added (plants, rails, a ladder, a cobweb, a
- * cactus, a slab) emits anything. That is luck rather than design, and it is the
- * reason the test below asserts the emitting set is CLOSED instead of only
- * checking that these three are present: a fourth emitter added to kernel is
- * invisible to a transcription that only spot-checks the rows it already knows.
+ * THIS TABLE HELD THREE ROWS AND KERNEL HAD SEVENTEEN. The header that stood
+ * here called the three-row version 「luck rather than design」 — kernel's roster
+ * had grown from 18 literals to 36 without adding an emitter — and then the luck
+ * ran out at 120: the redstone family, the amethyst cluster, the End blocks, the
+ * ender chest, the nether portal and fire all emit and all read as 0 here. Every
+ * missing row fell through to `LIGHT_LEVEL_MIN`, which is the DARK direction
+ * `../docs/design-notes.md` DN-7 names as non-conservative, so a redstone torch
+ * lit nothing and `mx-gameplay/domain/mob/hostile-spawn.ts` (which refuses above
+ * light 7) would permit a spawn beside it that kernel's numbers forbid.
+ *
+ * SEVEN DISTINCT LEVELS — 1, 3, 7, 9, 11, 14, 15 — which retires the last of the
+ * `emissive: boolean` argument. A boolean could not separate a redstone torch
+ * (7) from redstone ore (9) from a torch (14) from lava (15), and could say
+ * nothing at all about an `end_portal_frame` at 1 rising to 3 once its eye is
+ * socketed. A transcription that flattened any of them to "emits" would be
+ * inventing content, which audit §4.9.1(c) forbids in as many words.
+ *
+ * RE-DERIVED PROGRAMMATICALLY from kernel's registry rather than by hand, and
+ * the rows below are that dump verbatim. Hand-transcription is how this table
+ * reached three rows and how the opacity table above reached six; both defects
+ * had the same shape and neither was visible to a test that asserted only the
+ * rows it already carried. `../test/kernel-mirror.test.ts` therefore pins the
+ * emitting set CLOSED over kernel's whole assigned range, and mc-dev-meta's
+ * `pnpm check:mirrors` diffs this function against `propertyOfBlockId` id by id.
  */
 const BLOCK_LIGHT_EMISSION: ReadonlyMap<number, number> = new Map([
   [11, 15], // lava
   [14, 14], // torch
   [15, 15], // glowstone
+  [44, 15], // amethyst_cluster
+  [54, 9], // redstone_ore
+  [61, 9], // deepslate_redstone_ore
+  [68, 15], // redstone_block
+  [75, 7], // redstone_torch
+  [80, 15], // redstone_lamp_lit
+  [87, 1], // end_portal_frame
+  [88, 3], // end_portal_frame_filled
+  [89, 15], // end_portal
+  [94, 15], // end_gateway
+  [95, 15], // end_rod
+  [97, 15], // ender_chest
+  [118, 11], // nether_portal
+  [119, 15], // fire
 ])
 
 /** Total: kernel's default is `LIGHT_LEVEL_MIN`, so an unknown id emits nothing. */

@@ -31,6 +31,26 @@ export * from './domain/chunk-store-state'
 export * from './domain/constants'
 export * from './domain/kernel-vocabulary'
 export * from './domain/light'
+// `Dimension` is published from here, and that is a DECISION rather than a
+// widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
+// deliberately kept it off this barrel so that no consumer could depend on the
+// spelling while its owner was undecided. The owner is now decided and it is
+// this repository, so the reason for withholding it has expired — and the
+// withholding had become the blocker: mc-sim cannot record which dimension a
+// player is in without a name for one, and a name mirrored from a module no
+// barrel exports cannot be repointed. `resolveNetherTravel` comes with it for
+// the same reason, so that mx-gameplay has something to mirror.
+//
+// WHERE TO REOPEN THIS. The argument that put the word here rather than in
+// mc-kernel is that this repository owns every rule that READS the union, and
+// that mc-kernel had no `Dimension` of its own — a candidate rather than an
+// incumbent, which is a weaker claim than the one that makes it the owner of
+// `BlockType`. If a consumer ever needs `Dimension` WITHOUT needing
+// mc-worldgen, that argument stops holding and the word should move to
+// mc-kernel. This comment is the place to reopen it; the mirrors in mc-sim and
+// mx-gameplay are transcriptions, so moving it is a repoint rather than a
+// rewrite.
+export * from './domain/nether-travel'
 export * from './domain/portal-frame'
 export * from './domain/seeded-random'
 export * from './domain/terrain'

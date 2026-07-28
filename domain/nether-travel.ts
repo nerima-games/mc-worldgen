@@ -97,26 +97,33 @@ import { generatePortalLayout, type PortalAxis, type PortalLayout } from './port
 /**
  * Which world a cell is in.
  *
- * DECLARED HERE PROVISIONALLY, AND THIS REPOSITORY IS NOT CLAIMING THE WORD.
- * `docs/responsibility.md` §6 records the measurement — 「**mc-kernel には
- * `Dimension` 型が無い**（実測: `grep -rn "Dimension" mc-kernel/domain/*.ts` は
- * 1 件のコメントのみ）」 — and re-measuring it while porting this file returned
- * nothing at all in mc-kernel and nothing in mc-sim either.
+ * OWNED HERE. THIS REPOSITORY IS CLAIMING THE WORD, and until recently it was
+ * explicitly not — the paragraph this replaces read 「DECLARED HERE
+ * PROVISIONALLY, AND THIS REPOSITORY IS NOT CLAIMING THE WORD」 and nominated
+ * mc-kernel. The nomination was reasonable and it was not taken.
  *
- * So the three-value union below is a local vocabulary in exactly the sense
- * mx-gameplay refused to create one for buckets and shears: writing it is this
- * repository inventing a word another repository will own. The difference, and
- * the reason it is written anyway rather than deferred, is that this union is
- * the ARGUMENT AND RESULT of a total function and nothing else — no service
- * holds it, no save file carries it, nothing in this repository generates
- * differently because of it, and `index.ts` does not publish it. A consumer
- * cannot come to depend on the spelling because no consumer can see it.
+ * WHAT DECIDED IT was not a new measurement. `docs/responsibility.md` §6's
+ * finding still holds exactly as recorded — 「**mc-kernel には `Dimension` 型が
+ * 無い**」, re-measured again here and still returning one unrelated comment in
+ * `block-registry.ts` — so kernel remained a candidate rather than an incumbent.
+ * What changed is that the reference declares its `Dimension` in
+ * `packages/world` (`nether-travel.ts:17`), which IS this repository, and a
+ * noun's owner being the repository that already owns the rule reading it beats
+ * a noun's owner being the repository everything happens to depend on.
  *
- * WHEN THE OWNER APPEARS this alias is deleted and imported, exactly as
- * `./kernel-vocabulary` will be. The likely owner is mc-kernel, on the same
- * grounds that make it the owner of `BlockType`: two repositories that disagree
- * about how many dimensions there are is the 「二つの綴り」 failure plan.md §3.4
- * describes.
+ * THE WITHHOLDING HAS THEREFORE EXPIRED. The previous paragraph justified
+ * keeping this off `index.ts` on the ground that 「A consumer cannot come to
+ * depend on the spelling because no consumer can see it」, which was the right
+ * caution for a word with no owner and is a defect for a word with one: mc-sim
+ * must record which dimension a player is in, and a name mirrored from a module
+ * no barrel exports cannot be repointed. It is published — see `index.ts`.
+ *
+ * THE HAZARD THAT REPLACES IT is the one plan.md §3.4 describes, 「二つの綴り」,
+ * and it is now this repository's to prevent rather than to avoid: the reference
+ * itself declares `Dimension` TWICE (`packages/world/domain/nether/nether-travel
+ * .ts:17` and `packages/worker/domain/terrain-worker-protocol.ts:18`). Consumers
+ * mirror this declaration and only this one; `mc-dev-meta`'s `check:mirrors`
+ * is what makes that checkable rather than hoped for.
  *
  * `'end'` is in the union and is NOT a destination of this rule — see
  * `resolveNetherTravel`. It is here because omitting it would make the union

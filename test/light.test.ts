@@ -322,6 +322,70 @@ describe('block light', () => {
     }),
   )
 
+  /**
+   * THE FOURTEEN EMITTERS THE MIRROR HAD LOST, measured through the light grid.
+   *
+   * `domain/kernel-vocabulary.ts` carried three emitting rows while kernel had
+   * seventeen, so every other emitter fell through to `LIGHT_LEVEL_MIN` and this
+   * pass seeded nothing for it. A redstone torch lit nothing; a nether portal
+   * lit nothing. The transcription is fixed and pinned by
+   * `test/kernel-mirror.test.ts`, but that file only asserts what
+   * `lightEmissionOfBlockId` ANSWERS — it never runs the propagation, so it
+   * cannot show that a placed emitter actually lights a room.
+   *
+   * These are the levels a boolean `emissive` could not have expressed, which is
+   * why they are worth measuring separately rather than trusting the torch test
+   * to stand in for all seventeen rows.
+   */
+  const REDSTONE_TORCH = BlockId(75)
+  const NETHER_PORTAL = BlockId(118)
+  const END_PORTAL_FRAME = BlockId(87)
+
+  it.effect('a redstone torch lights the room at SEVEN, not at zero and not at fourteen', () =>
+    Effect.sync(() => {
+      const chunk = sealedRoom()
+      const y = SURFACE_Y + 1
+      chunk.blocks[blockIndex(4, y, 4)] = REDSTONE_TORCH
+
+      const light = computeChunkLight(chunk)
+
+      // Before the mirror was re-transcribed this cell read 0 and the room
+      // stayed dark, which is the DARK direction DN-7 names as non-conservative.
+      expect(getLightAt(light.block, blockIndex(4, y, 4))).toBe(7)
+      expect(getLightAt(light.block, blockIndex(5, y, 4))).toBe(6)
+      expect(getLightAt(light.block, blockIndex(7, y, 4))).toBe(4)
+
+      // Seven and not fourteen. `mx-gameplay/domain/mob/hostile-spawn.ts`
+      // refuses a spawn ABOVE light 7, so a redstone torch sits exactly on the
+      // threshold: its own cell refuses, and the cell beside it permits. A
+      // transcription that flattened every emitter to 15 would move that
+      // boundary across a whole room.
+      expect(getLightAt(light.block, blockIndex(4, y, 4))).not.toBe(14)
+      expect(getLightAt(light.block, blockIndex(5, y, 4))).toBeLessThan(7)
+    }),
+  )
+
+  it.effect('a nether portal emits 11, and an end portal frame only 1', () =>
+    Effect.sync(() => {
+      const y = SURFACE_Y + 1
+
+      const portal = sealedRoom()
+      portal.blocks[blockIndex(4, y, 4)] = NETHER_PORTAL
+      expect(getLightAt(computeChunkLight(portal).block, blockIndex(4, y, 4))).toBe(11)
+
+      // One. The dimmest emitting row kernel has, and the row that makes the
+      // strongest case against `emissive: boolean`: an unlit frame emits 1 and
+      // rises to 3 once its eye is socketed, which a flag cannot say at all.
+      const frame = sealedRoom()
+      frame.blocks[blockIndex(4, y, 4)] = END_PORTAL_FRAME
+      const frameLight = computeChunkLight(frame)
+
+      expect(getLightAt(frameLight.block, blockIndex(4, y, 4))).toBe(1)
+      // It lights its own cell and nothing else: 1 attenuates to 0 in one step.
+      expect(getLightAt(frameLight.block, blockIndex(5, y, 4))).toBe(0)
+    }),
+  )
+
   it.effect('does not travel through rock, and DOES travel around it', () =>
     Effect.sync(() => {
       // Both halves matter, and the first draft of this test asserted the wrong

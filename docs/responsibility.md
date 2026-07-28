@@ -477,16 +477,47 @@ plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動�
   ミラーか import のどちらかが要り、どちらも barrel を経由する。
   それは §1-4 が「publish 後に払うべき代金」と呼んだものと同じ種類の判断であり、
   **決定であって事故であるべきではない**ので、ここで止めて記録してある。
-- **ポータル一覧の所有者は決めていない。** `findNearestPortal` の候補は今も引数で、
-  参照実装の所有者はサービス（`packages/world/application/nether-service.ts` の
-  `getPortals(dimension)`）である。サービスはセーブファイルを持つ名詞であり、
-  距離比較を移植した副作用でここに生えるべきものではない。
-- **`Dimension` は借りているだけである。** `domain/nether-travel.ts` が 3 値の union を
-  宣言しているが、これは §6 本体の実測（mc-kernel に `Dimension` 型は無い）が
-  今も正しいことの裏返しである。再実測しても mc-kernel に 0 件、
-  **mc-sim にも 0 件**（`grep -rn "setActiveDimension\|activeDimension" mc-sim` も 0 件）。
-  barrel に出していないので consumer は綴りに依存できず、
-  所有者が現れた日に import へ差し替わる。
+- **ポータル一覧の所有者は決まった —— 本リポジトリである。ただしまだ実装していない。**
+  以前この項は「決めていない」と書いていた。決まった論拠は `ChunkStore` をここに置いたのと
+  同じもので、**ポータルはセーブを跨いで残るワールド状態**であり、本リポジトリは既に
+  チャンクのライフサイクルとライトグリッドを同じ理由で所有している。
+  参照実装の所有者もサービス（`packages/world/application/nether-service.ts` の
+  `getPortals(dimension)`）であり、`packages/world` は本リポジトリである。
+  mx-gameplay が持てば、ルールしか持たないリポジトリがワールド状態の第 2 の所有者になる ——
+  あちらがバケツとハサミについて拒否した「発明」と同じ形である。
+
+  **実装は本タスクの範囲外であり、それは意図的な線引きである。** ポータル台帳は
+  チャンク単位の永続状態でありセーブフォーマットを伴う。滞留タイマーの作業に
+  抱き合わせれば、レビュー可能な変更がレビュー不能な変更になる。
+  したがって `findNearestPortal` の候補は今も引数で、
+  距離比較を移植した副作用でサービスがここに生えることはない。
+
+  **実装するときに最初に読むべき危険がこれである。** `knownPortals` は
+  **行き先の次元のもの**でなければならない。出発側の一覧を渡すと、
+  **いま出ていく世界にあるポータルを黙って再利用する** —— そして
+  `BlockPosition` はどの世界のセルかを言わないので、**どの型もこれを捕まえられない**。
+  参照実装は呼ぶ前に行き先の `getPortals` を引いている
+  （`physics-stage-portal.ts:55-57`）。呼び出し規約であって型ではない、
+  というのが `domain/nether-travel.ts` の当該注記の主旨である。
+
+  現状の消費側（`mx-gameplay/domain/portal-travel.ts`）は**空リストを渡している**ので、
+  この危険は今日は起きえない —— 起きうるようになるのは、まさにこの台帳を実装した日である。
+- **`Dimension` は借り物ではなくなった —— 本リポジトリが所有する。**
+  この箇条書きは以前「借りているだけである」「barrel に出していないので consumer は
+  綴りに依存できず、所有者が現れた日に import へ差し替わる」と書いていた。
+  所有者は現れず、**決めた**。決め手は新しい実測ではない ——
+  §6 本体の実測（mc-kernel に `Dimension` 型は無い）は今も正しく、再実測しても
+  `block-registry.ts` の無関係なコメント 1 件だけである。変わったのは論拠のほうで、
+  参照実装が `Dimension` を `packages/world`（= 本リポジトリ）に宣言していること、
+  そして**その union を読むルールを既に所有しているのは本リポジトリだ**ということ。
+  「全員が依存しているから」は所有の理由にならない。
+  したがって `index.ts` に出してある（`resolveNetherTravel` も同じ理由で一緒に出た）。
+  **出さないことのほうが欠陥になった**からである: mc-sim は
+  プレイヤーがどの次元に居るかを記録せねばならず、
+  どの barrel も出していない module から取ったミラーは repoint できない。
+  代わりに引き受けた危険は plan.md §3.4 の「二つの綴り」であり、
+  参照実装自身が 2 回宣言している（`packages/worker/domain/terrain-worker-protocol.ts:18`）。
+  消費側は本宣言だけをミラーし、`mc-dev-meta` の `check:mirrors` がそれを機械で固定する。
 
 **「移動そのもの」を止めている名詞も、これで名前がついた。**
 mx-gameplay の `docs/testing.md` §3-1 は 3 本目を
@@ -494,5 +525,18 @@ mx-gameplay の `docs/testing.md` §3-1 は 3 本目を
 参照実装はプレイヤーを名簿では動かさず `gameState.respawn(pos)` を呼んでおり、
 mc-sim の対応物は**存在して publish 済み**である
 （`PlayerServiceApi.moveTo(feetPosition)`、`mc-sim/application/player-service.ts:25`、
-barrel は `index.ts:40`）。**本当に無いのは次元のほう**で、それは
-上の 3 つ目の箇条書きが書いた「誰も持っていない名詞」そのものである。
+barrel は `index.ts:40`）。**本当に無いのは次元のほう**だった。
+
+**その次元も、いま名前と持ち主がついた。** 語は本リポジトリが所有して publish し
+（上の箇条書き）、**状態**は mc-sim が持つ —— `PlayerServiceApi.dimension` /
+`setDimension`（`mc-sim/application/player-service.ts`）。語と状態が別の
+リポジトリにあるのは分裂ではなく本プロジェクトの通常形であり、
+`BlockType` を kernel が所有して `ChunkStore` が値を持つのと同じ形である。
+
+**ただし 3 本目はまだ緑にならない。** 残っているのは上の 2 つ目の箇条書き ——
+**ポータル一覧**であり、これは barrel の問題ではなく所有の問題だった。
+**所有者は本リポジトリに決まり、実装はまだである**（上の箇条書きに論拠と、
+実装時に最初に踏む危険を書いてある）。`resolveNetherTravel` の `knownPortals` は
+今も引数で、実測でも mc-sim / mc-worldgen / mx-gameplay の `domain/` `application/` を
+通じて実装は 0 件である。消費側は空リストを渡すので、
+**既存ポータルは再利用されず、毎回新しいものが計画される**。
