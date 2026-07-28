@@ -22,6 +22,7 @@
 | 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石変種のみ |
 | 構造物（要塞） | **サイト決定のみ** `domain/structure-siting.ts`。ブロック生成器は無い | 🟡 配置決定のみ |
 | 構造物（ポータル） | 検出 `detectNetherPortal` と**生成 `generatePortalLayout`（`portal-frame.ts:296`）の両方**がある。無いのは `generateChunk` からの呼び出しで、世界に自然生成されるポータルはまだ 0 個（下記 §1-7） | 🟡 呼び出し元が無い |
+| 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。`index.ts` には出していないので `api-lock.md` は動いていない（下記 §6-1） | 🟡 barrel 未公開 |
 | 構造物（村） | **参照実装に存在しない**（下記 §1-3）。移植ではなく新規設計になる | ⬜ 出典なし |
 | 構造物（End） | End 次元も `end_*` ブロックも無い。§5 の規模判断のまま | ⬜ |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
@@ -426,12 +427,72 @@ plan.md §3.7 は本リポジトリに「構造物（村/**ポータル**/End）
 
 | 参照実装のファイル | 判定 | 根拠 |
 | --- | --- | --- |
-| `nether-link.ts` の `overworldToNether` / `netherToOverworld` | **ここ**（未移植） | 8:1 の座標スケーリング。2 つの次元の**座標空間の関係**であって、入力も出力も座標しかない。`chunkCoordOfBlock` と同じ種類のもの |
-| `nether-link.ts` の `findNearestPortal` | **ここ**（未移植、ただし注記つき） | 候補配列を**引数で受ける**最近傍探索。`BlockAt` と同じ注入形。ただし「世界に存在するポータルの一覧」を**所有する**のが誰かは別問題で、それはまだ誰にも割り当てられていない |
-| `nether-travel.ts` の `resolveNetherTravel` | **mx-gameplay** | `playerPos` を受けて**プレイヤーをどこへ動かすか**を返す。plan.md §3.11 そのもの。上の 3 つを合成するだけなので、依存の向きも合っている |
+| `nether-link.ts` の `overworldToNether` / `netherToOverworld` | **ここ** | 8:1 の座標スケーリング。2 つの次元の**座標空間の関係**であって、入力も出力も座標しかない。`chunkCoordOfBlock` と同じ種類のもの → ✅ `domain/nether-link.ts` |
+| `nether-link.ts` の `findNearestPortal` | **ここ**（注記は生きている） | 候補配列を**引数で受ける**最近傍探索。`BlockAt` と同じ注入形。ただし「世界に存在するポータルの一覧」を**所有する**のが誰かは別問題で、それはまだ誰にも割り当てられていない → ✅ `domain/nether-link.ts`。**注記のほうは消費していない**: 候補は今も引数のままで、所有者は今も居ない（下記 §6-1） |
+| `nether-travel.ts` の `resolveNetherTravel` | ~~**mx-gameplay**~~ → **ここ**（下記 §6-1） | ~~`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す。plan.md §3.11 そのもの。上の 3 つを合成するだけなので、依存の向きも合っている~~ → ✅ `domain/nether-travel.ts` |
 | `end/end-portal-frame.ts` | **ここ**（未移植、意図的） | 形は `portal-frame.ts` と同型（注入された `BlockAt` の純粋ルール）なので境界の議論は同じ結論を出す。移植しなかったのは**規模の理由**である: End 次元も要塞生成器も `end_*` ブロックも本リポジトリにまだ無いので、生産者も消費者も無いルールを 1 本増やすことになる。構造物（End）に着手する時に一緒に来るのが正しい |
 
-`nether-travel.ts` が mx-gameplay だと言えるのは、そこに `Dimension` 型と
-`playerPos` が出てくるからである。**mc-kernel には `Dimension` 型が無い**
-（実測: `grep -rn "Dimension" mc-kernel/domain/*.ts` は 1 件のコメントのみ）。
-次元を跨ぐ移動を書く側が、まずその語彙を kernel に要求することになる。
+### 6-1. `resolveNetherTravel` の行を覆した。理由と、覆さなかったもの
+
+上の表の 3 行目は **mx-gameplay** と書いてあり、この節はそれを覆している。
+覆す側が根拠を書くのが筋なので、まず**覆していない**ほうを書く。
+
+**旧根拠は §6 が正そうとした「カテゴリからの拒否」ではない。**
+「`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す」は
+plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動かすから」という
+確かめられない category ではない。§3.11 は実際に
+「ポータル / 次元移動ルール」を mx-gameplay に割り当てている。
+だから答えなければならないのは文書のほうで、答えは 3 つある。
+
+**1. 旧根拠の後半が逆を指している。** 「上の 3 つを合成するだけ」——
+そしてその 3 つは、**同じ表の上 2 行と `portal-frame.ts` によって全部ここのもの**である。
+部品 4 つの全部と別のリポジトリに合成関数を置くのは
+「依存の向きが合っている」ではなく、**1 つが越えずに済むように 4 つが境界を越える**ことである。
+実際の代償も測れる: mx-gameplay 側は 4 記号のミラーを 1 本増やすことになり、
+それは mc-dev-meta の `MIRROR_SPECS` に登録が要り、登録は
+「source の barrel にその記号があるか」の照合を通るので、
+**mc-worldgen の `index.ts` を動かす**（= `api-lock.md` の 4 週間時計を振り出しに戻す）。
+
+**2. `playerPos` は `BlockPosition` になった。これは §6 が既に一度受け入れた証拠である。**
+§6 の検出器についての一番強い論拠は「移植で消えた 1 行」——
+参照実装の `Math.floor(ignition.x)` が、引数がブランドされた整数になったことで
+することが無くなって消えた、というものだった。**同じことがこの関数でも起きる。**
+参照実装の `playerPos: Position` はエンティティの浮動小数座標で、
+`domain/nether-travel.ts` の引数はセルである。署名にも本体にもエンティティ的なものは無い。
+
+**3. plan.md §3.11 の「遷移の発火」は別の場所にあり、そこは mx-gameplay である。**
+「発火」はタイマーである —— ポータルブロックの中に 4 秒立ち、
+そのあと再点火までの冷却がある。それが
+`mx-gameplay/domain/portal-dwell.ts`（`stepPortalDwell`）で、座標を 1 つも持たない。
+§3.11 はその file によって**満たされている**のであって、こちらに否定されてはいない。
+検出（ここ）と点火（mx-gameplay）が別リポジトリに行き、plan.md の 2 通りの読みが
+どちらも正しかった §6 本体とまったく同じ形である。
+
+**覆していないもの、3 つ。**
+
+- **`index.ts` には出していない。** `domain/nether-link.ts` も `domain/nether-travel.ts` も
+  barrel に無いので `api-lock.md` は 156 entries のまま動いていない
+  （§1-5-b の `save-format-port.ts` / `chunk-format.ts` と同じ扱い）。
+  **repoint の日には export が要る** —— mx-gameplay がこれを使うには
+  ミラーか import のどちらかが要り、どちらも barrel を経由する。
+  それは §1-4 が「publish 後に払うべき代金」と呼んだものと同じ種類の判断であり、
+  **決定であって事故であるべきではない**ので、ここで止めて記録してある。
+- **ポータル一覧の所有者は決めていない。** `findNearestPortal` の候補は今も引数で、
+  参照実装の所有者はサービス（`packages/world/application/nether-service.ts` の
+  `getPortals(dimension)`）である。サービスはセーブファイルを持つ名詞であり、
+  距離比較を移植した副作用でここに生えるべきものではない。
+- **`Dimension` は借りているだけである。** `domain/nether-travel.ts` が 3 値の union を
+  宣言しているが、これは §6 本体の実測（mc-kernel に `Dimension` 型は無い）が
+  今も正しいことの裏返しである。再実測しても mc-kernel に 0 件、
+  **mc-sim にも 0 件**（`grep -rn "setActiveDimension\|activeDimension" mc-sim` も 0 件）。
+  barrel に出していないので consumer は綴りに依存できず、
+  所有者が現れた日に import へ差し替わる。
+
+**「移動そのもの」を止めている名詞も、これで名前がついた。**
+mx-gameplay の `docs/testing.md` §3-1 は 3 本目を
+「mc-sim の名簿と次元サービス待ち」と書いているが、名簿のほうは誤りである:
+参照実装はプレイヤーを名簿では動かさず `gameState.respawn(pos)` を呼んでおり、
+mc-sim の対応物は**存在して publish 済み**である
+（`PlayerServiceApi.moveTo(feetPosition)`、`mc-sim/application/player-service.ts:25`、
+barrel は `index.ts:40`）。**本当に無いのは次元のほう**で、それは
+上の 3 つ目の箇条書きが書いた「誰も持っていない名詞」そのものである。

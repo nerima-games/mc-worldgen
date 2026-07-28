@@ -58,10 +58,12 @@ test/save-format-mirror.test.ts  17 tests   mc-save ミラー SF-1..SF-17
 test/api-lock.test.ts            26 tests   API ロックのハーネス
 test/kernel-mirror.test.ts       21 tests   BLOCK / ORE_BLOCK / PLANT 番号の mc-kernel との一致
 test/portal-frame.test.ts        19 tests   ネザーポータル枠の検出と生成（全サイズ往復 + 変異検証）
+test/nether-travel.test.ts       25 tests   8:1 スケーリングの往復、最近傍探索、移動先の解決
+                                            （生成したポータルを検出器に通す往復 + 変異検証）
 test/vertical-slice.test.ts       4 tests   縦の結合
 test/dependency-policy.test.ts   22 tests   16 リポジトリのグラフ、import ゲート
                                  ─────
-                                310 tests   全て green
+                                335 tests   全て green
 ```
 
 > 旧版はここを 132 と書き、次の版は 193 と書き、その次は 214 と書いていた。
@@ -122,6 +124,38 @@ AIR 検査を消しても全テストが通った。「点火セルが AIR で�
 このテストは変異検証**が見つけた**ものであって、書いてから変異させたのではない。
 §4-b F-4（落ちようのないガードを出荷した記録）と同じ穴が、
 同じ形でもう一度開いていた。
+
+### `test/nether-travel.test.ts` — 同じ手当てを、参照実装のテストが**無い**ほうにも
+
+`domain/nether-link.ts` と `domain/nether-travel.ts` は
+参照実装のテスト 16 本（`packages/world/test/nether-link.test.ts` 10 本、
+`nether-travel.test.ts` 6 本）を全部移植した上で 9 本足してある。
+足した 9 本のうち 5 本は参照実装が**一度も触っていない性質**で、
+`test/portal-frame.test.ts` と同じく変異させて赤を確認した。10 件、全て revert 済み:
+
+| 変異 | 結果 | 落ちたテスト |
+| --- | --- | --- |
+| `NETHER_HORIZONTAL_RATIO` 8 → 4 | 🔴 9 件 | `is 8` ほか、往復 2 本を含む |
+| `Math.floor` → `Math.trunc` | 🔴 2 件 | `floors toward negative infinity`、`Overworld -> Nether -> Overworld is NOT` |
+| 半径比較 `>` → `>=` | 🔴 4 件 | `accepts a candidate at exactly the radius` |
+| 負の半径ガードを削除 | 🔴 2 件 | `DIVERGENCE: a negative or non-finite radius accepts nothing` |
+| 同距離の tie を後勝ちにする | 🔴 2 件 | `keeps the earliest candidate on an exact tie` |
+| 距離から Y 項を落とす | 🔴 2 件 | `measures vertically too` |
+| `DEFAULT_PORTAL_HEIGHT` 3 → 2 | 🔴 2 件 | `plans a portal that detection actually accepts` |
+| `DEFAULT_PORTAL_WIDTH` 2 → 1 | 🔴 2 件 | 同上 |
+| 常に overworld → nether にスケールする | 🔴 3 件 | `nether -> overworld scales up` ほか 2 件 |
+| ポータル再利用時に**スケール点**へ着く | 🔴 2 件 | `reuses an existing portal near the scaled destination` |
+
+**7 番目と 8 番目が本節の要点である。**
+`domain/portal-frame.ts` の寸法ガードのヘッダは MIN 2x3 を「JUSTIFIED」と書き、
+その根拠を**参照実装の別ファイル**（`nether-travel.ts:23-24` が自動生成ポータルを
+独立に 2x3 と定義していること）に置いていた。**その別ファイルが今このリポジトリにある。**
+つまり根拠は引用ではなく**実行できる**ものになり、
+`plans a portal that detection actually accepts` が生成 → 検出の往復でそれを固定する。
+参照実装の側の主張は `interior` が 6 セルであること（`toHaveLength(6)`）で、
+**2x3 を 1x3 や 3x2 に変えても 6 のままか、6 でなくなっても形の誤りは見えない**。
+生成器と検出器が同時に壊れることに合意しない限り落ちる、というのが
+`test/portal-frame.test.ts` の 760 フレーム掃きと同じ性質である。
 
 ### fixture は探索する
 
