@@ -80,7 +80,9 @@ import { BIOMES, BLOCK, type BiomeType } from '../domain/biome'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../domain/carver'
 import { columnIndex, readBlock, type Chunk } from '../domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
+import { ORE_BLOCK } from '../domain/ore'
 import { generateChunkAt } from '../domain/terrain'
+import { PLANT } from '../domain/vegetation'
 
 /**
  * The seed every golden is taken at.
@@ -145,13 +147,30 @@ export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
   },
 ]
 
-/** Block id -> the name this repository generates it under. Every id, so a zero is visible. */
-export const BLOCK_NAMES: ReadonlyArray<readonly [string, number]> = Object.entries(BLOCK).map(
-  ([name, id]) => [name, id] as const,
-)
+/**
+ * Block id -> the name this repository generates it under. Every id, so a zero
+ * is visible.
+ *
+ * THE ORE AND PLANT TABLES ARE HERE AND NOT IN `BLOCK`, and the summary is the
+ * place that difference shows. `domain/ore.ts` and `domain/vegetation.ts` hold
+ * their own id tables rather than extending `domain/biome.ts`'s `BLOCK`, because
+ * `BLOCK` is re-exported by `index.ts` and therefore sits in `api-lock.md`,
+ * whose four-week clock is plan.md §6 Step 3's gate on publishing.
+ *
+ * The cost of that choice is paid right here: three tables have to be joined by
+ * hand, and an id added to one of them and not to this list would be counted as
+ * `UNKNOWN_<n>` in every golden summary. `summarise` below does exactly that
+ * rather than dropping it, and `test/chunk-golden.test.ts` I-1 fails on it
+ * separately, so the failure mode is a loud diff rather than a silent one.
+ */
+export const BLOCK_NAMES: ReadonlyArray<readonly [string, number]> = [
+  ...Object.entries(BLOCK),
+  ...Object.entries(ORE_BLOCK).map(([name, id]) => [`${name}_ORE`, id] as const),
+  ...Object.entries(PLANT),
+].map(([name, id]) => [name, id] as const)
 
 export type GoldenSummary = {
-  /** Every one of the eleven ids, including the zeroes — which is how the unreachable `GRAVEL` of docs/design-notes.md DN-11 was found. */
+  /** Every id in `BLOCK_NAMES` — terrain, ore and plant — including the zeroes, which is how the unreachable `GRAVEL` of docs/design-notes.md DN-11 was found. */
   readonly blockCounts: Readonly<Record<string, number>>
   /** Every one of the eight biomes, including the zeroes. */
   readonly biomeCounts: Readonly<Record<string, number>>

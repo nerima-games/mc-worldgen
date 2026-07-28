@@ -62,8 +62,15 @@ import {
   type TerrainLevels,
 } from './constants'
 import { chunkCoord, type ChunkCoord } from './kernel-vocabulary'
+import { placeOres } from './ore'
 import { channelSeed, fbm2D } from './seeded-random'
 import { shouldPlaceTree, TREE_CROWN_RADIUS } from './tree-placement'
+import {
+  canPlaceGroundPlantAt,
+  groundPlantAt,
+  plantGroundCover,
+  shouldPlaceGroundPlant,
+} from './vegetation'
 
 /** Lowest and highest surface the base terrain shaper will produce. */
 export const MIN_SURFACE_Y = 38
@@ -310,6 +317,10 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options: Generate
 
   carveCaves(blocks, seed, coord, options.carve ?? {})
 
+  // Ore goes in AFTER carving, so that a cave wall can expose a vein, and it is
+  // NOT behind `decorate` — ore is stone, not decoration. See `domain/ore.ts`.
+  placeOres(blocks, seed, coord)
+
   if (options.decorate !== false) {
     for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
       for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -326,6 +337,28 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options: Generate
           })
         ) {
           plantTree(blocks, lx, lz, surfaceY)
+        }
+      }
+    }
+
+    // Ground cover runs in a SECOND pass, after every trunk is standing. The
+    // support rule refuses a column whose `surfaceY + 1` is not AIR, so a plant
+    // can never displace a trunk — but only if every trunk is already there.
+    // Fused into the loop above, a plant placed at (lx, lz) before that column's
+    // own tree was considered would make the tree's first log overwrite it, and
+    // the flower would vanish depending on iteration order.
+    for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+      for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+        const surfaceY = surfaces[columnIndex(lx, lz)] ?? 0
+        const biome = biomes[columnIndex(lx, lz)] ?? 'PLAINS'
+        const wx = worldX(coord, lx)
+        const wz = worldZ(coord, lz)
+
+        if (
+          shouldPlaceGroundPlant({ seed, worldX: wx, worldZ: wz, biome, surfaceY }) &&
+          canPlaceGroundPlantAt(blocks, lx, surfaceY, lz)
+        ) {
+          plantGroundCover(blocks, lx, surfaceY, lz, groundPlantAt(seed, wx, wz, biome))
         }
       }
     }

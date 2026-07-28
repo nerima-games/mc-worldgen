@@ -16,6 +16,8 @@
  */
 import type { BiomeType } from '../../domain/biome'
 import { BLOCK } from '../../domain/biome'
+import { ORE_BLOCK } from '../../domain/ore'
+import { PLANT } from '../../domain/vegetation'
 
 export type Rgb = readonly [number, number, number]
 
@@ -51,6 +53,29 @@ const BLOCK_COLORS: ReadonlyArray<readonly [number, Rgb]> = [
   // Dark violet rather than near-black so that a frame standing against stone at
   // night-time brightness is still a frame and not a hole in the picture.
   [BLOCK.OBSIDIAN, [82, 54, 128]],
+
+  // Ore. Each is its real-world mineral colour lifted well clear of STONE's
+  // [110, 110, 118], because the `slice` view is where 「is there any coal in
+  // this world」 gets answered by eye, and an ore that reads as grey against grey
+  // answers it wrongly. They are deliberately more saturated than any terrain
+  // colour above: a vein is a handful of cells in a wall of stone, so it has to
+  // survive being one pixel.
+  [ORE_BLOCK.COAL, [42, 42, 48]],
+  [ORE_BLOCK.IRON, [200, 154, 112]],
+  [ORE_BLOCK.GOLD, [244, 205, 76]],
+  [ORE_BLOCK.DIAMOND, [92, 219, 213]],
+  [ORE_BLOCK.REDSTONE, [214, 54, 54]],
+  [ORE_BLOCK.LAPIS, [48, 84, 190]],
+  [ORE_BLOCK.EMERALD, [42, 194, 106]],
+
+  // Ground cover. The two flowers must separate from GRASS [106, 168, 79] and
+  // from each other, or 「are there flowers」 and 「are they all one kind」 are
+  // both unanswerable from the top view — which is the view that shows ground
+  // cover at all, since it is one block tall.
+  [PLANT.DANDELION, [236, 226, 92]],
+  [PLANT.POPPY, [206, 66, 62]],
+  [PLANT.TALL_GRASS, [132, 190, 96]],
+  [PLANT.FERN, [96, 152, 88]],
 ]
 
 const BLOCK_COLOR_BY_ID: ReadonlyMap<number, Rgb> = new Map(BLOCK_COLORS)
@@ -81,6 +106,23 @@ const BLOCK_GLYPHS: ReadonlyArray<readonly [number, string]> = [
   // `O` for the ring. It has to survive `--ascii`, which is the mode a frame
   // gets pasted into a bug report in, so it cannot rely on the colour above.
   [BLOCK.OBSIDIAN, 'O'],
+  // Ore: the mineral's initial, upper case, so a vein reads as a word in a wall
+  // of `#`. `R` is redstone and `L` is lapis; `I` would collide with nothing but
+  // is kept as iron for the same reason. These matter in `--ascii`, where the
+  // colours above are gone and the glyph is the whole signal.
+  [ORE_BLOCK.COAL, 'C'],
+  [ORE_BLOCK.IRON, 'I'],
+  [ORE_BLOCK.GOLD, 'G'],
+  [ORE_BLOCK.DIAMOND, 'D'],
+  [ORE_BLOCK.REDSTONE, 'R'],
+  [ORE_BLOCK.LAPIS, 'L'],
+  [ORE_BLOCK.EMERALD, 'E'],
+  // Ground cover: lower case, so a printed frame separates 「something grows
+  // here」 from 「something is buried here」 by case alone.
+  [PLANT.DANDELION, 'y'],
+  [PLANT.POPPY, 'r'],
+  [PLANT.TALL_GRASS, 'w'],
+  [PLANT.FERN, 'n'],
 ]
 
 const BLOCK_GLYPH_BY_ID: ReadonlyMap<number, string> = new Map(BLOCK_GLYPHS)

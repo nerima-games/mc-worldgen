@@ -28,7 +28,7 @@
  * `test/golden/chunk-goldens.json`, and that a blessed-bug regeneration would
  * therefore fail:
  *
- *   blocksSha256  <- I-1  every byte is a declared BLOCK id
+ *   blocksSha256  <- I-1  every byte is a declared GENERATED id
  *                   I-2  bedrock floor under all 256 columns
  *                   I-3  water surface is exactly SEA_LEVEL          (DN-1)
  *                   I-4  no air inside the shell under water         (DN-2)
@@ -37,6 +37,20 @@
  *   biomesSha256  <- I-6  agrees with `biomeFor` recomputed per column
  *                   I-7  every entry is a member of the closed roster
  *   both          <- I-8  regenerating is byte-identical
+ *
+ * Two generation passes arrived after this list and brought their own backing
+ * with them, in their own files rather than here, because both needed a survey
+ * wider than the ten golden chunks:
+ *
+ *   ore           <- `test/ore.test.ts` O-1 .. O-5. O-2 is the conclusive one
+ *                   (a vein replaces STONE and nothing else, on a buffer whose
+ *                   contents are known) and O-5 reproduces the defect the
+ *                   corrected depth bands fix.
+ *   ground cover  <- `test/vegetation.test.ts` V-1 .. V-6.
+ *
+ * I-2 is doing double duty since ore arrived and is worth naming for it: a vein
+ * that ate the bedrock floor is the one way this pass could corrupt a world
+ * rather than merely decorate it, and I-2 is what refuses it.
  *
  * I-6 is the load-bearing one for the biome half. `generateChunk` fills
  * `chunk.biomes` inside its own column loop; recomputing the array through
@@ -62,7 +76,9 @@ import {
   SEA_LEVEL,
   WATER_FLOOR_MARGIN,
 } from '../domain/constants'
+import { ORE_IDS } from '../domain/ore'
 import { biomeFor, generateChunkAt, surfaceHeightAt } from '../domain/terrain'
+import { PLANT_IDS } from '../domain/vegetation'
 import {
   generateGoldenChunk,
   goldenEntry,
@@ -221,6 +237,13 @@ describe('the golden matrix', () => {
    * The ninth row earns its place only if it differs from the sixth in exactly
    * one respect. If decoration ever leaked into the base pass — a tree that
    * displaced a stone block, say — this is what would catch it.
+   *
+   * GROUND COVER JOINED THE SET AND ORE DELIBERATELY DID NOT. Plants are
+   * decoration and appear below; ore is stone, runs before this flag is
+   * consulted, and is asserted to be identical across it by
+   * `test/ore.test.ts` O-4. If a future change put ore behind `decorate`, the
+   * set comparison below is what would fail, which is the right place for it to
+   * fail — this test is the definition of what the flag means.
    */
   it.effect('isolates the decoration pass: the two FOREST rows differ only in vegetation', () =>
     Effect.sync(() => {
@@ -237,8 +260,18 @@ describe('the golden matrix', () => {
       }
 
       expect(changed.length).toBeGreaterThan(0)
-      // Every difference is a log or a leaf, and every one of them replaced air.
-      expect(new Set(changed)).toStrictEqual(new Set([BLOCK.LOG, BLOCK.LEAVES]))
+      // Every difference is a log, a leaf or a ground plant — and this chunk is
+      // FOREST, so all four plant variants are reachable in it.
+      const vegetation = new Set<number>([BLOCK.LOG, BLOCK.LEAVES, ...PLANT_IDS])
+      for (const value of changed) {
+        expect(vegetation.has(value), `decoration wrote a non-vegetation id ${String(value)}`).toBe(true)
+      }
+      // Both halves are present, so this is not passing because one of them
+      // stopped generating.
+      expect(changed.some((value) => value === BLOCK.LOG)).toBe(true)
+      expect(changed.some((value) => PLANT_IDS.includes(value))).toBe(true)
+
+      // And every one of them replaced AIR: decoration adds, it never digs.
       for (let index = 0; index < decorated.blocks.length; index += 1) {
         if (readBlock(bare.blocks, index) !== readBlock(decorated.blocks, index)) {
           expect(readBlock(bare.blocks, index)).toBe(BLOCK.AIR)
@@ -254,7 +287,7 @@ describe('the golden matrix', () => {
  * ---------------------------------------------------------------------------
  */
 describe('what backs the block digest', () => {
-  it.effect('I-1: every byte in every golden chunk is a declared BLOCK id', () =>
+  it.effect('I-1: every byte in every golden chunk is a declared GENERATED id', () =>
     Effect.sync(() => {
       // `BLOCK` is the ids this repository NAMES, which since `OBSIDIAN` arrived
       // is a strictly larger set than the ids terrain GENERATES. Taking the
@@ -263,35 +296,80 @@ describe('what backs the block digest', () => {
       // started passing, and this test would have gone on reporting success
       // about a claim it had stopped making. So the generated set is spelled as
       // a subtraction, and a future non-generated id has to be subtracted too.
-      const declared = new Set<number>(Object.values(BLOCK))
+      //
+      // IT IS NOW ALSO A UNION, and that is the visible cost of holding the ore
+      // and plant ids outside `BLOCK`. They live in `domain/ore.ts` and
+      // `domain/vegetation.ts` because `BLOCK` is re-exported by `index.ts` and
+      // therefore sits in `api-lock.md`, whose four-week clock is plan.md §6
+      // Step 3's publish gate. The union is written out here so that the set
+      // this invariant ranges over is one readable expression rather than three
+      // tables a reader has to go and find.
+      const declared = new Set<number>([...Object.values(BLOCK), ...ORE_IDS, ...PLANT_IDS])
       declared.delete(BLOCK.OBSIDIAN)
-      expect(declared.size).toBe(Object.keys(BLOCK).length - 1)
+      expect(declared.size).toBe(Object.keys(BLOCK).length - 1 + ORE_IDS.length + PLANT_IDS.length)
 
+      // ONE `expect` FOR 655,360 BYTES, and the loop collects rather than
+      // asserting. The obvious form — `expect(...)` inside the inner loop — is
+      // ten chunks times 65,536 matcher invocations, which measured at 2.3s
+      // alone and over 11s under a loaded `vitest run`, i.e. past the 10s
+      // `testTimeout`. An invariant that fails intermittently because the
+      // machine was busy teaches everyone to re-run it, which is the one habit
+      // that makes a golden suite useless.
+      const offenders = new Map<string, Set<number>>()
       for (const { spec, chunk } of generated) {
         for (const value of chunk.blocks) {
-          expect(declared.has(value), `${describeSpec(spec)} contains unknown block id ${String(value)}`).toBe(
-            true,
-          )
+          if (!declared.has(value)) {
+            const key = describeSpec(spec)
+            offenders.set(key, (offenders.get(key) ?? new Set<number>()).add(value))
+          }
         }
       }
+
+      expect(
+        [...offenders].map(([where, ids]) => `${where}: ${[...ids].join(', ')}`),
+        'golden chunks contain block ids nothing declares',
+      ).toStrictEqual([])
     }),
   )
 
+  /**
+   * I-2 DOES NOT BACK THE ORE PASS, and this comment used to say it did.
+   *
+   * The claim was that a vein reaching the bedrock floor is the one way ore
+   * could corrupt a world rather than decorate it, and that I-2 refuses it.
+   * Measured by mutation: dropping `ORE_MIN_Y_FLOOR` from `BEDROCK_Y + 1` to
+   * `BEDROCK_Y` leaves this test green, because `growVein` replaces `BLOCK.STONE`
+   * and the floor cell is `BLOCK.BEDROCK` — the band was never what stood
+   * between them. `test/ore.test.ts` O-2 is the test that goes red.
+   *
+   * What I-2 still does for ore is real but narrower: it is the check that
+   * nothing in the new pass introduced a BEDROCK byte anywhere, which is a
+   * different failure from eating one.
+   *
+   * Collected rather than asserted per cell, for the reason I-1 gives.
+   */
   it.effect('I-2: every column stands on bedrock, and bedrock is only at the floor', () =>
     Effect.sync(() => {
+      const missing: Array<string> = []
+      const stray: Array<string> = []
+
       for (const { spec, chunk } of generated) {
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            expect(
-              readBlock(chunk.blocks, blockIndex(lx, BEDROCK_Y, lz)),
-              `${describeSpec(spec)} has no bedrock at (${String(lx)}, ${String(lz)})`,
-            ).toBe(BLOCK.BEDROCK)
+            if (readBlock(chunk.blocks, blockIndex(lx, BEDROCK_Y, lz)) !== BLOCK.BEDROCK) {
+              missing.push(`${describeSpec(spec)} (${String(lx)}, ${String(lz)})`)
+            }
             for (let y = BEDROCK_Y + 1; y < CHUNK_HEIGHT; y += 1) {
-              expect(readBlock(chunk.blocks, blockIndex(lx, y, lz))).not.toBe(BLOCK.BEDROCK)
+              if (readBlock(chunk.blocks, blockIndex(lx, y, lz)) === BLOCK.BEDROCK) {
+                stray.push(`${describeSpec(spec)} (${String(lx)}, ${String(y)}, ${String(lz)})`)
+              }
             }
           }
         }
       }
+
+      expect(missing, 'columns with no bedrock floor').toStrictEqual([])
+      expect(stray, 'bedrock above the floor').toStrictEqual([])
     }),
   )
 

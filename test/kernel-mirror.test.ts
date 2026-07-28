@@ -42,6 +42,8 @@ import {
   type ChunkCoord,
   type LocalBlockCoord,
 } from '../domain/kernel-vocabulary'
+import { ORE_BLOCK } from '../domain/ore'
+import { PLANT } from '../domain/vegetation'
 
 describe('coordinate vocabulary matches mc-kernel/domain/coordinates.ts', () => {
   /** Kernel's `ChunkCoord`, restated from `mc-kernel/domain/coordinates.ts:87-90`. */
@@ -197,6 +199,103 @@ describe('block ids match mc-kernel/domain/block-registry.ts', () => {
       // transcription above are both updated.
       expect(Object.keys(BLOCK).length).toBe(Object.keys(KERNEL_IDS).length)
       expect(new Set(Object.values(BLOCK)).size).toBe(Object.keys(BLOCK).length)
+    }),
+  )
+
+  /**
+   * The ore and plant ids, which are NOT in `BLOCK` and are transcribed all the
+   * same.
+   *
+   * They live in `domain/ore.ts` and `domain/vegetation.ts` rather than in
+   * `BLOCK` because `BLOCK` is re-exported by `index.ts` and appears in
+   * `api-lock.md`, and plan.md §6 Step 3 gates publication on that file being
+   * unchanged for four weeks. That is a deliberate trade and it has a cost:
+   * without this block, eleven ids that a generated chunk actually contains
+   * would have no cross-check against kernel at all, and the `Object.keys`
+   * count above — which is what catches an untranscribed addition to `BLOCK` —
+   * cannot see them.
+   *
+   * The arrow of authorship runs kernel -> here for all eleven, like
+   * `OBSIDIAN` and unlike the first eleven terrain ids. A drift on any of them
+   * is this repository's to fix.
+   */
+  const KERNEL_DECORATION_IDS = {
+    // `block-registry.ts:869` dandelion, `:889` poppy, `:949` tall_grass,
+    // `:969` fern. All four are `opacity: 'transparentSolid'` there, which the
+    // opacity table below already carries — so a flower casts no shadow.
+    dandelion: 21,
+    poppy: 22,
+    tall_grass: 25,
+    fern: 26,
+    // `block-registry.ts:1367` .. `:1444`, the seven STONE-variant ores.
+    // Kernel also assigns the deepslate twins 57-63; this repository generates
+    // no deepslate stratum for them to sit in, so it writes none of them and
+    // `domain/ore.ts` records the pair as one owed item.
+    coal_ore: 50,
+    iron_ore: 51,
+    gold_ore: 52,
+    diamond_ore: 53,
+    redstone_ore: 54,
+    lapis_ore: 55,
+    emerald_ore: 56,
+  } as const
+
+  it.effect('assigns kernel’s number to every ore and plant this generator writes', () =>
+    Effect.sync(() => {
+      expect(PLANT.DANDELION).toBe(KERNEL_DECORATION_IDS.dandelion)
+      expect(PLANT.POPPY).toBe(KERNEL_DECORATION_IDS.poppy)
+      expect(PLANT.TALL_GRASS).toBe(KERNEL_DECORATION_IDS.tall_grass)
+      expect(PLANT.FERN).toBe(KERNEL_DECORATION_IDS.fern)
+
+      expect(ORE_BLOCK.COAL).toBe(KERNEL_DECORATION_IDS.coal_ore)
+      expect(ORE_BLOCK.IRON).toBe(KERNEL_DECORATION_IDS.iron_ore)
+      expect(ORE_BLOCK.GOLD).toBe(KERNEL_DECORATION_IDS.gold_ore)
+      expect(ORE_BLOCK.DIAMOND).toBe(KERNEL_DECORATION_IDS.diamond_ore)
+      expect(ORE_BLOCK.REDSTONE).toBe(KERNEL_DECORATION_IDS.redstone_ore)
+      expect(ORE_BLOCK.LAPIS).toBe(KERNEL_DECORATION_IDS.lapis_ore)
+      expect(ORE_BLOCK.EMERALD).toBe(KERNEL_DECORATION_IDS.emerald_ore)
+
+      // Closed on this side too, so adding a generated id without transcribing
+      // its kernel row fails here rather than in a save file.
+      expect(Object.keys(PLANT).length + Object.keys(ORE_BLOCK).length).toBe(
+        Object.keys(KERNEL_DECORATION_IDS).length,
+      )
+    }),
+  )
+
+  it.effect('keeps every generated id distinct across all three tables', () =>
+    Effect.sync(() => {
+      // `BLOCK`, `PLANT` and `ORE_BLOCK` are three separate tables that share
+      // one byte-wide id space and one chunk buffer. Nothing but this checks
+      // that they do not collide, and a collision would be a block that loads
+      // as a different block — the save-format failure this whole file exists
+      // to prevent, arriving by a route the `BLOCK`-only checks cannot see.
+      const all = [...Object.values(BLOCK), ...Object.values(PLANT), ...Object.values(ORE_BLOCK)]
+      expect(new Set(all).size).toBe(all.length)
+    }),
+  )
+
+  /**
+   * The one column this repository knowingly does not transcribe.
+   *
+   * Kernel gives `redstone_ore` and `deepslate_redstone_ore` `lightEmission: 9`
+   * (`block-registry.ts:1361-1363`) — nine rather than fifteen, the case a
+   * boolean `emissive` could not express. `domain/kernel-vocabulary.ts`'s
+   * emission table carries three rows and not five, so a wall of redstone ore
+   * reads as DARK in `domain/light.ts`.
+   *
+   * That is the CONSERVATIVE direction for the only rule that consumes block
+   * light (`docs/design-notes.md` DN-7: `hostile-spawn.ts` refuses above light
+   * 7), so it is safe to ship — and it is recorded rather than left to be found,
+   * because the emission table's own header argues that the set is CLOSED and
+   * that closure is now a statement about three rows that kernel has five of.
+   */
+  it.effect('records that redstone ore’s emission is kernel’s and is deliberately not mirrored', () =>
+    Effect.sync(() => {
+      expect(lightEmissionOfBlockId(ORE_BLOCK.REDSTONE)).toBe(LIGHT_LEVEL_MIN)
+      // If a future change transcribes it, this line is the one to delete — and
+      // the emitting-set assertion above will need 54 added to it.
+      expect(lightEmissionOfBlockId(ORE_BLOCK.REDSTONE)).not.toBe(9)
     }),
   )
 

@@ -115,10 +115,26 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | ---: | --- | --- | --- |
 | 250 | `packages/world/domain/terrain/tree-placer.ts` | 格子ジッター `:169-179`、3 ゲート `:189-220`、設計根拠 `:184-188` | ✅ 配置のみ |
 | — | `packages/world/domain/terrain/tree-placer.config.ts` | 定数 `:26-41`、注記 `:30-34` | ✅ |
-| 265 | `packages/world/domain/terrain/plant-placement-rules.ts` | 草・花 | ⬜ |
-| 187 | `packages/world/domain/terrain/ore-generator.ts` | 鉱石 | ⬜ |
+| 265 | `packages/world/domain/terrain/plant-placement-rules.ts` | 草・花 | ✅ 地被のみ → `domain/vegetation.ts` |
+| 114 | `packages/world/domain/terrain/plant-placement-model.ts` | 密度表 `:66-75`、salt `:30-31` | ✅ 密度を転記 |
+| 108 | `packages/world/domain/terrain/plant-placement-ops.ts` | `placeGroundPlant` `:82-89` | ✅ 地被のみ |
+| 187 | `packages/world/domain/terrain/ore-generator.ts` | 鉱石 | ✅ 石変種 7 種 → `domain/ore.ts` |
+
+### 5-1. 植生・鉱石で**移植しなかった**もの
+
+| 未移植 | 理由 |
+| --- | --- |
+| サトウキビ / サボテン / スイレン / キノコ | 依存するバイオーム（SWAMP / JUNGLE / RIVER / FLOWER_FOREST）が本リポジトリの名簿に無いか、要求する土台を生成していない |
+| 昆布 / 海草 | 水中カラムの規則が要る。`plant-placement-ops.ts:32-52` の水クッション判定ごと |
+| deepslate 鉱石 7 種（kernel 57-63） | 置く先の deepslate 層が無い。`DEEPSLATE_CEILING = 16` は**石の事実**であって鉱石の事実ではない |
+| `redstone_ore` の `lightEmission: 9` | `domain/kernel-vocabulary.ts` の発光表は 3 行のまま。DN-7 の保守側なので出荷可。`test/kernel-mirror.test.ts` が明示的に記録している |
 
 ## 6. 構造物
+
+| LOC | パス | 状態 |
+| ---: | --- | --- |
+| 174 | `packages/world/domain/terrain/stronghold.ts` | 🟡 サイト決定のみ → `domain/structure-siting.ts`。ブロック生成器は未移植 |
+| — | **村** | ⬜ **参照実装に存在しない**。実測: `packages/world` の「village」4 箇所は全て作物のコメント + Mob 名。移植ではなく新規設計 |
 
 | LOC | パス |
 | ---: | --- |

@@ -161,12 +161,20 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   plan.md §6 Step 2 の「最初の遊べる成果物」であり、
   **完成条件 2（プレビューが操作可能）はこれで満たした**。
   mc-playground-kit は使っていない（kit が worldgen に依存しているので循環する）
-- **シード固定ゴールデンハッシュは未実装。** 参照実装にも 1 本も無い。
-  決定論が証明済みなので安価に導入できる
+- ✅ **シード固定ゴールデンハッシュは実装済み** — `test/golden/chunk-goldens.json`（10 行）、
+  `scripts/golden-fixture.ts`、`pnpm goldens:update`。参照実装には 1 本も無い。
+  各ダイジェストには**独立した不変条件**が付いている（`test/chunk-golden.test.ts` I-1..I-8、
+  `test/ore.test.ts` O-1..O-5、`test/vegetation.test.ts` V-1..V-6）。
+  ダイジェスト単独では「今日のバグ」をそのまま記録するだけなので、
+  ゴールデンを動かすときは**先に不変条件で正しさを示す**
 - **実装済み**: `ChunkStore`（plan.md §3.7 の `ChunkManager`）— ロード / アンロード /
   ブロック書き込み / ダーティチャンネル。所有権の根拠は [docs/public-api.md](./docs/public-api.md) §6-0
-- **未実装**: 渓谷カーバー、草・花、鉱石、構造物、ライトグリッド、チャンク永続化、
-  ワーカープール Port、チャンクフォーマット定義
+- ✅ **実装済み**: ライトグリッド（`domain/light.ts`）、草・花（`domain/vegetation.ts`）、
+  鉱石（`domain/ore.ts`）、要塞のサイト決定（`domain/structure-siting.ts`）
+- **未実装**: 渓谷カーバー、構造物のブロック生成、村（**参照実装に出典が無い**）、
+  End 次元、チャンク永続化、ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
+  チャンクフォーマット定義（mc-save が未 publish で**ブロック中**）。
+  内訳と根拠は [docs/responsibility.md](./docs/responsibility.md) §1-1
 - **バイオーム分類は 2 入力版のみ。** 参照実装は 6 入力（continentalness / erosion /
   pv / riverNoise を含む）で 13 バイオーム
 - **`domain/seeded-random.ts` は mc-noise の仮置き**、

@@ -15,17 +15,99 @@
 | 決定論シード | `(seed, coords) → Chunk` の全域性 | ✅ |
 | バイオーム分類 | 気候 → バイオーム（ルールテーブル、first-match-wins） | ✅ 2 入力版 |
 | 地形生成 | 高さ場 → ブロック充填 → 水位 | ✅ |
-| カーバー（洞窟） | **水域の床マージン検査つき** | ✅ |
-| カーバー（渓谷） | 同上 | ⬜ |
+| カーバー（洞窟） | **水域の床マージン検査つき**。`domain/carver.ts` の `carveCaves` | ✅ |
+| カーバー（渓谷） | `domain/carver.ts` は**洞窟だけ**。渓谷は未着手 | ⬜ |
 | 植生（木） | 格子ジッター配置 | ✅ 配置ロジック |
-| 植生（草・花） | | ⬜ |
-| 鉱石 | | ⬜ |
-| 構造物（村 / ポータル / End / 要塞） | ポータルは**枠の検出だけ** `domain/portal-frame.ts`。生成器はまだ無い | 🟡 検出のみ |
-| ライトグリッド | BFS 光伝播、4bit パック。**データはここが所有** | ⬜ |
+| 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダ。`domain/vegetation.ts` | ✅ |
+| 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石変種のみ |
+| 構造物（要塞） | **サイト決定のみ** `domain/structure-siting.ts`。ブロック生成器は無い | 🟡 配置決定のみ |
+| 構造物（ポータル） | **枠の検出だけ** `domain/portal-frame.ts`。生成器はまだ無い | 🟡 検出のみ |
+| 構造物（村） | **参照実装に存在しない**（下記 §1-3）。移植ではなく新規設計になる | ⬜ 出典なし |
+| 構造物（End） | End 次元も `end_*` ブロックも無い。§5 の規模判断のまま | ⬜ |
+| ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
-| ワーカープール Port | 実装は利用側が注入 | ⬜ |
-| チャンクフォーマット定義 | mc-save の `defineFormat` で | ⬜ |
+| ワーカープール Port | 注入の**継ぎ目**は `ChunkSource` にある。参照実装の**名前つき Port 型**は未定義（下記 §1-4） | 🟡 継ぎ目のみ |
+| チャンクフォーマット定義 | mc-save の `defineFormat` は**存在する**が import できない（下記 §1-5） | ⬜ publish 待ち |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
+
+### 1-1. この表は 6 回間違えた。今回の訂正の内訳
+
+上の表は **⬜ が 7 行あった**。実測した結果、その 7 行は 3 種類に分かれた。
+
+| 元の行 | 判定 | 根拠 |
+| --- | --- | --- |
+| ライトグリッド | **STALE（実装済みだった）** | `domain/light.ts` は 361 行。BFS 伝播・4bit パック・2 グリッド・`test/light.ts` 28 件。⬜ のまま放置されていた |
+| ワーカープール Port | **半分 STALE** | 継ぎ目 `ChunkSource` は実装済みで `test/chunk-store.test.ts` が使っている。名前つき Port 型だけが無い |
+| カーバー（渓谷） | **REAL** | `carver.ts` は存在するが `carveCaves` だけ。渓谷は 1 行も無い |
+| 植生（草・花） | **REAL** → 今回実装 | `tree-placement.ts` は木であって地被ではなかった |
+| 鉱石 | **REAL** → 今回実装 | 「ore」は 10 ファイルに出るが**全て語彙**（`porting.md` の未移植行と `terrain.ts` のコメント）。配置コードは 0 行だった |
+| 構造物（村 / End / 要塞） | **REAL**、ただし村は種類が違う | 要塞はサイト決定を実装。村は §1-3 |
+| チャンクフォーマット定義 | **REAL、かつブロック中** | §1-5 |
+
+**⬜ が「まだ誰も手をつけていない」を意味しない行が 2 つあった。**
+状態表が信用されなくなるのはこの 2 行のせいであって、未実装の 5 行のせいではない。
+
+### 1-2. 鉱石: 参照実装の深度帯は 3 行が移植できなかった
+
+`ORE_CONFIGS`（`terrain/constants.ts:72-78`）は参照実装の地形に合わせてある。
+本リポジトリの石は **構造的に y ≤ 87 にしか存在しない**
+（`MAX_SURFACE_Y - FILLER_DEPTH - 1 = 92 - 4 - 1`）。
+COAL と EMERALD の `peakY = 96` はこの天井の**上**にある。
+
+実測（144 チャンク × 3 シード、両方の帯を同じ石に対して実行）:
+
+| 鉱石 | 意図した量 | 本リポジトリの帯 | 参照実装の帯 |
+| --- | ---: | --- | --- |
+| COAL | 180 | 97 / 99 / 99 % | 68 / 80 / 82 % |
+| EMERALD | 4 | 94 / 100 / 102 % | 57 / 74 / 74 % |
+| 他 5 種 | — | 95-104 % | 95-104 %（**動かない**） |
+
+**そのまま転記していれば石炭が 2-3 割、エメラルドが 3-4 割静かに消えていた。**
+`CONTINENTALNESS_CONTRAST` と同じ形の誤り —
+数値は実在し、出典もあり、別の地形を記述している。
+`test/ore.test.ts` O-5 が**この欠陥を再現する**ので、帯を戻せば赤くなる。
+
+### 1-3. 村は「未移植」ではなく「出典が無い」
+
+`docs/porting.md` §6 が構造物として挙げる 5 ファイルに村は無い。
+それは列挙漏れではない。実測: `packages/world` 全体で「village」は 4 箇所、
+**全て作物の成長に関するコメント**（`crop-growth.ts:2`、
+`crop-growth-service.ts:20`、`block-service.config.ts:175`）と、
+`world-metadata-model.ts:59,68` の Mob 名 `Villager` / `ZombieVillager` である。
+
+**参照実装に村の生成器は無い。**
+したがって村は「移植すればよい行」ではなく、家のスキーマ・道路グラフ・
+村人スポーン・バイオーム別パレットを**新規に設計する行**である。
+他の全ての行が転記であるのに対し、これだけ種類とリスクが違う。
+⬜ のままだと「誰かがまだ手をつけていないだけ」に読めるので、
+状態を **⬜ 出典なし** に変えた。
+
+### 1-4. ワーカープール Port: 継ぎ目はあり、型が無い
+
+`ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>` が注入点で、
+`ChunkStoreLayer(source)` がそれを受け取る。plan.md §3.7 の
+「実装は利用側が注入」は**すでに満たされている**。
+
+無いのは参照実装の名前つき Port
+（`terrain-worker-pool-port.ts:35`、タグ
+`@minecraft/application/terrain/TerrainWorkerPoolPort`、
+`generateTerrain(coord, options): Effect<ChunkBlocks, TerrainGenerationError>`）である。
+
+**これを足すと `api-lock.md` が動く。** タグ・エラー型・オプション型で
+最低 4 つの新規 export になり、plan.md §6 Step 3 の 4 週間時計が振り出しに戻る。
+継ぎ目が既に機能している以上、**それは publish 後に払うべき代金**であって
+今払う理由が無い。パリティテスト（`docs/public-api.md` §7）も
+Worker 実装が現れるまで書けない。
+
+### 1-5. チャンクフォーマット定義はブロックされている
+
+mc-save の `defineFormat` は**実在する**（`mc-save/domain/format.ts:132`）。
+import できない理由は `domain/kernel-vocabulary.ts` と同じで、
+mc-save が未 publish（plan.md §6 Step 3）であり
+`package.json#dependencies` に無いものを `pnpm check:deps` が拒否するからである。
+
+つまりこの行は「やっていない」ではなく「**やれない**」。
+§5 の表と同じ扱いにすべき行だった。
 
 ## 2. 非スコープ（ここに書いたら負け）
 
@@ -158,9 +240,10 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 | `mc-noise` への依存 | 未 publish（plan.md §6 Step 0）。`domain/seeded-random.ts` が仮置き | mc-noise が消費可能になった時点 |
 | `mc-save` への依存 | 同上 | mc-save が消費可能になった時点 |
 | `mc-kernel` への依存 | 同上。`domain/chunk.ts` `domain/biome.ts` の `BLOCK` が仮置き | kernel が消費可能になった時点 |
-| 渓谷カーバー | パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後 | 植生の後 |
-| 構造物 | 単体で大きい。地形が安定してから | 地形プレビューの後 |
-| ライトグリッド | 4bit パックの実装は `packages/block/domain/light.ts` から | チャンクフォーマット確定後 |
+| 渓谷カーバー | パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後 | **今**。植生（草・花）が入ったので前提は揃った |
+| 構造物のブロック生成 | サイト決定は `domain/structure-siting.ts` で閉じた。残りはブロック 4 種の採用・チャンク跨ぎの書き込み規約・洞窟との交差規則 | そのファイルのヘッダに 3 項目として書いてある |
+| deepslate 鉱石 7 種 | 置く先の deepslate 層が無い。層と鉱石は**同時に**入れないと、灰色の石の中から深層岩鉱石が出る | deepslate 層を足すとき |
+| ライトグリッド | ~~4bit パックの実装は `packages/block/domain/light.ts` から~~ | **完了**（`domain/light.ts`）。増分伝播とチャンク境界の 2 点だけが残り、両方そのファイルに理由つきで書いてある |
 | `ChunkStore` の永続化（`unload` が保存しない） | 永続化（mc-save）が要る | mc-save 消費開始後。ストレージ読み出しは `ChunkSource` の前段に合成され、`ChunkStoreApi` は変わらない |
 
 ## 6. ポータル: 検出はここ、移動は mx-gameplay
