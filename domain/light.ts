@@ -91,7 +91,7 @@ import {
   LIGHT_LEVEL_MAX,
   LIGHT_LEVEL_MIN,
   transmitsLight,
-} from "@nerima-games/mc-kernel"
+} from './kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // Storage

@@ -45,7 +45,7 @@ import { BLOCK } from '../domain/biome'
 import { emptyBlocks, type Chunk } from '../domain/chunk'
 import type { ChunkDirtyBatch } from '../domain/chunk-store-state'
 import { blockIndex, CHUNK_SIZE_XZ } from '../domain/constants'
-import { blockPosition, chunkCoord, type BlockId, type BlockPosition } from "@nerima-games/mc-kernel"
+import { blockPosition, chunkCoord, type BlockId, type BlockPosition } from '../domain/kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // The capability half, restated from mc-kernel/domain/block-registry.ts
@@ -55,7 +55,7 @@ import { blockPosition, chunkCoord, type BlockId, type BlockPosition } from "@ne
  * Kernel's `capabilityOfBlockId(id, 'fallsWhenUnsupported')` and
  * `(id, 'replaceable')`, for the ids this scenario uses.
  *
- * Restated rather than imported for the reason `@nerima-games/mc-kernel`
+ * Restated rather than imported for the reason `domain/kernel-vocabulary.ts`
  * gives: mc-kernel is not published (plan.md §6 Step 3), and this repository's
  * shipped code deliberately does not mirror the block TABLE — mc-worldgen never
  * asks what a block does. A test may, because a test is standing in for

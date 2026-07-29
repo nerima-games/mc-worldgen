@@ -29,7 +29,7 @@ import { BLOCK } from '../../domain/biome'
 import type { CarveOptions } from '../../domain/carver'
 import type { Chunk } from '../../domain/chunk'
 import { readBlock } from '../../domain/chunk'
-import { chunkCoord } from "@nerima-games/mc-kernel"
+import { chunkCoord } from '../../domain/kernel-vocabulary'
 import type { TerrainLevels } from '../../domain/constants'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../domain/constants'
 import { ravineDepthAt, ravineDistanceAt } from '../../domain/ravine'

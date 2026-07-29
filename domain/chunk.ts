@@ -16,18 +16,18 @@
  * Two spellings of one coordinate existed across the roster — kernel's
  * `{cx, cz}` and this repository's `{x, z}` — and this module's header already
  * conceded that kernel would own the type. It now does: `ChunkCoord` comes from
- * `@nerima-games/mc-kernel`, which explains why the `c` prefix is worth having
+ * `./kernel-vocabulary`, which explains why the `c` prefix is worth having
  * (with `{x, z}`, passing a chunk coordinate where a block coordinate belongs
  * is silent; with `{cx, cz}` it is a type error).
  *
  * `ChunkCoord` is imported rather than re-exported: two `export *` barrels that
  * both carry one name make it AMBIGUOUS, and TypeScript resolves an ambiguous
  * star re-export by silently dropping the name from the barrel. Import it from
- * `@nerima-games/mc-kernel`, which is where it lives.
+ * `./kernel-vocabulary`, which is where it lives.
  */
 import { type BiomeType } from './biome'
 import { blockIndex, CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
-import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from "@nerima-games/mc-kernel"
+import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from './kernel-vocabulary'
 
 export type Chunk = {
   readonly coord: ChunkCoord

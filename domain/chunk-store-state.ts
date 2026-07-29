@@ -42,7 +42,7 @@ import {
   localCoordOfBlock,
   type BlockPosition,
   type ChunkCoord,
-} from "@nerima-games/mc-kernel"
+} from './kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // Keys
