@@ -27,6 +27,7 @@
 export * from './domain/biome'
 export * from './domain/carver'
 export * from './domain/chunk'
+export { CHUNK_FORMAT } from './domain/chunk-format'
 export * from './domain/chunk-store-state'
 export * from './domain/constants'
 export * from './domain/kernel-vocabulary'

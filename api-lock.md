@@ -13,8 +13,8 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 158
-supporting declarations: 2
+exported declarations: 159
+supporting declarations: 6
 
 ## Exported
 
@@ -187,6 +187,12 @@ const CAVE_FLOOR_Y = 6;
 
 ```ts
 const CAVE_THRESHOLD = 0.62;
+```
+
+### CHUNK_FORMAT  `const`
+
+```ts
+const CHUNK_FORMAT: SaveFormat<Chunk, ChunkEncoded>;
 ```
 
 ### CHUNK_HEIGHT  `const`
@@ -1113,10 +1119,50 @@ Not exported from the barrel, but named by the signatures above, so a
 consumer is exposed to them. `Context.Tag` service classes emit their real
 type onto one of these.
 
+### CHUNK_STRUCT  `const`
+
+```ts
+const CHUNK_STRUCT: Schema.Struct<{
+    coord: Schema.Schema<ChunkCoord, {
+        readonly cx: number;
+        readonly cz: number;
+    }, never>;
+    blocks: Schema.filter<Schema.Schema<Uint8Array<ArrayBufferLike>, string, never>>;
+    biomes: Schema.filter<Schema.Array$<Schema.Literal<["OCEAN", "BEACH", "DESERT", "SAVANNA", "PLAINS", "FOREST", "TAIGA", "SNOW"]>>>;
+}>;
+```
+
+### ChunkEncoded  `type`
+
+```ts
+type ChunkEncoded = Schema.Schema.Encoded<typeof CHUNK_STRUCT>;
+```
+
 ### ChunkStore_base  `const`
 
 ```ts
 const ChunkStore_base: Context.TagClass<ChunkStore, "@nerima-games/mc-worldgen/ChunkStore", ChunkStoreApi>;
+```
+
+### Migration  `type`
+
+```ts
+type Migration = {
+    readonly from: number;
+    readonly describe: string;
+    readonly migrate: (payload: unknown) => Effect.Effect<unknown, string>;
+};
+```
+
+### SaveFormat  `type`
+
+```ts
+type SaveFormat<A, I = A> = {
+    readonly name: string;
+    readonly version: number;
+    readonly schema: Schema.Schema<A, I>;
+    readonly migrations: ReadonlyArray<Migration>;
+};
 ```
 
 ### Scope  `type`
