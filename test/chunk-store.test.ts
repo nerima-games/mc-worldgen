@@ -313,6 +313,28 @@ describe('the dirty channel', () => {
     ),
   )
 
+  it.effect('remeshes a loaded horizontal neighbour when a boundary opens or closes', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.load(chunkCoord(0, 0))
+        const subscription = yield* store.subscribeDirty
+        yield* subscription.drain
+
+        yield* store.load(chunkCoord(1, 0))
+
+        const afterLoad = yield* subscription.drain
+        expect(afterLoad.changed.map(chunkKeyOf).sort()).toStrictEqual(['0,0', '1,0'])
+        expect(afterLoad.removed).toStrictEqual([])
+
+        yield* store.unload(chunkCoord(1, 0))
+
+        const afterUnload = yield* subscription.drain
+        expect(afterUnload.changed).toStrictEqual([chunkCoord(0, 0)])
+        expect(afterUnload.removed).toStrictEqual([chunkCoord(1, 0)])
+      }),
+    ),
+  )
+
   it.effect('a chunk that comes back after an unload is changed, not removed', () =>
     withStore((store) =>
       Effect.gen(function* () {
