@@ -57,7 +57,7 @@ import {
   type ChunkEncoded,
 } from '../domain/chunk-format'
 import { CHUNK_VOLUME } from '../domain/constants'
-import { chunkCoord } from '../domain/kernel-vocabulary'
+import { chunkCoord } from "@nerima-games/mc-kernel"
 import {
   decodeSave,
   encodeSave,
@@ -72,7 +72,7 @@ const SEED = 20260728
 /**
  * One generated chunk, at a coordinate with a NEGATIVE component.
  *
- * Negative on purpose: `chunkCoord` normalises `-0` (`kernel-vocabulary.ts:153`)
+ * Negative on purpose: `chunkCoord` normalises `-0` (`@nerima-games/mc-kernel:153`)
  * and a coordinate that only ever gets tested at the origin cannot show that the
  * sign survives base64's neighbours in the same struct.
  *

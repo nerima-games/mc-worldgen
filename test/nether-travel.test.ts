@@ -42,7 +42,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 import { BLOCK } from '../domain/biome'
-import { blockPosition, type BlockPosition } from '../domain/kernel-vocabulary'
+import { blockPosition, type BlockPosition } from "@nerima-games/mc-kernel"
 import {
   NETHER_HORIZONTAL_RATIO,
   findNearestPortal,

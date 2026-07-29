@@ -75,7 +75,7 @@
 import { Context, Effect, Layer, Ref } from 'effect'
 import type { Chunk } from '../domain/chunk'
 import * as Store from '../domain/chunk-store-state'
-import type { BlockId, BlockPosition, ChunkCoord } from '../domain/kernel-vocabulary'
+import type { BlockId, BlockPosition, ChunkCoord } from "@nerima-games/mc-kernel"
 import { generateChunk, type GenerateOptions } from '../domain/terrain'
 
 /**

@@ -23,7 +23,7 @@ import { BLOCK } from '../domain/biome'
 import { emptyBlocks, type Chunk } from '../domain/chunk'
 import { chunkKeyOf, chunkCoordOfKey, wasWritten } from '../domain/chunk-store-state'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { blockPosition, chunkCoord, type ChunkCoord } from '../domain/kernel-vocabulary'
+import { blockPosition, chunkCoord, type ChunkCoord } from "@nerima-games/mc-kernel"
 
 // ---------------------------------------------------------------------------
 // A deterministic world with no noise in it.

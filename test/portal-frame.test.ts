@@ -28,7 +28,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 import { BLOCK } from '../domain/biome'
-import { blockPosition, type BlockPosition } from '../domain/kernel-vocabulary'
+import { blockPosition, type BlockPosition } from "@nerima-games/mc-kernel"
 import {
   detectNetherPortal,
   generatePortalLayout,
@@ -325,7 +325,7 @@ describe('detectNetherPortal', () => {
 
   it.effect('works at negative coordinates and below sea level', () =>
     Effect.sync(() => {
-      // `blockPosition` normalises -0 to 0 (`kernel-vocabulary.ts`), so a portal
+      // `blockPosition` normalises -0 to 0 (`@nerima-games/mc-kernel`), so a portal
       // straddling the origin is the case where a detected cell could compare
       // unequal to the generated one under `toStrictEqual` despite `===`.
       const origin = blockPosition(-1, 12, -7)

@@ -90,7 +90,7 @@
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
 import { Option } from 'effect'
-import { type BlockPosition } from './kernel-vocabulary'
+import { type BlockPosition } from "@nerima-games/mc-kernel"
 import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link'
 import { generatePortalLayout, type PortalAxis, type PortalLayout } from './portal-frame'
 

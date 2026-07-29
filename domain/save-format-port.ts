@@ -30,8 +30,8 @@
  * ---------------------------------------------------------------------------
  *
  * §1-5 recorded the chunk format as 「⬜ publish 待ち」 and gave the reason as
- * 「import できない理由は `domain/kernel-vocabulary.ts` と同じ」. That sentence
- * is true and is the refutation of its own conclusion: `kernel-vocabulary.ts`
+ * 「import できない理由は `@nerima-games/mc-kernel` と同じ」. That sentence
+ * is true and is the refutation of its own conclusion: `@nerima-games/mc-kernel`
  * is not a file that waited for a publish, it is the file that made waiting
  * unnecessary. Five repositories carry one, three carry a `frame-contract.ts`,
  * and mx-gameplay carries four more. The organisation's answer to "the package

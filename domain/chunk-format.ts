@@ -104,7 +104,7 @@
  * are one nominal type to `tsc` and two unrelated refinements at runtime.
  *
  * `Schema.fromBrand` takes the EXISTING `Brand.Constructor` from
- * `./kernel-vocabulary` instead, so the refinement below is kernel's own and
+ * `@nerima-games/mc-kernel` instead, so the refinement below is kernel's own and
  * there is only ever one of it.
  *
  * THE ARGUMENT IS STRUCTURAL, AND IT HAS TO BE, because today the two spellings
@@ -127,7 +127,7 @@ import { Schema } from 'effect'
 import { BIOMES } from './biome'
 import { type Chunk } from './chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
-import { ChunkAxis, type ChunkCoord } from './kernel-vocabulary'
+import { ChunkAxis, type ChunkCoord } from "@nerima-games/mc-kernel"
 import { defineFormat, FIRST_VERSION, type SaveFormat } from './save-format-port'
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
@@ -149,7 +149,7 @@ export const CHUNK_FORMAT_NAME = '@nerima-games/mc-worldgen/chunk'
  * `ChunkAxis`, refined by kernel's OWN constructor rather than a second one.
  *
  * See this file's header. `Schema.fromBrand(ChunkAxis)` reuses the
- * `Brand.refined` in `./kernel-vocabulary`; `Schema.brand('ChunkAxis')` would
+ * `Brand.refined` in `@nerima-games/mc-kernel`; `Schema.brand('ChunkAxis')` would
  * declare a rival under the same key. The two predicates agree TODAY — the
  * header records the measurement and why that is not a reason to rely on it.
  */

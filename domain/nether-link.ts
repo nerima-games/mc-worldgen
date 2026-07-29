@@ -5,7 +5,7 @@
  * That ratio, the scaling in both directions, and the search for an existing
  * portal near a scaled destination are the whole of this file. Nothing below
  * reads a block, holds a state, or knows what an entity is: it maps coordinates
- * to coordinates, which is the same kind of thing `./kernel-vocabulary`'s
+ * to coordinates, which is the same kind of thing `@nerima-games/mc-kernel`'s
  * `chunkCoordOfBlock` is.
  *
  * ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@
  * failing test rather than a silent halving of the Nether.
  */
 import { Option } from 'effect'
-import { blockPosition, type BlockPosition } from './kernel-vocabulary'
+import { blockPosition, type BlockPosition } from "@nerima-games/mc-kernel"
 
 /**
  * Overworld blocks per Nether block, on the horizontal axes only.
@@ -67,7 +67,7 @@ export const NETHER_HORIZONTAL_RATIO = 8
  * `Math.floor` rather than a truncation, which matters and is the reference's
  * own choice (`nether-link.ts:20-22`): `-1 / 8` truncates to `-0` and floors to
  * `-1`, and only the second keeps the mapping monotone across the origin. It is
- * the same `floorDiv` `./kernel-vocabulary`'s `chunkCoordOfBlock` uses to find
+ * the same `floorDiv` `@nerima-games/mc-kernel`'s `chunkCoordOfBlock` uses to find
  * the chunk that owns a cell, for the same reason and with the same argument.
  *
  * Y IS CARRIED ACROSS UNCHANGED. The reference's header says callers clamp it to

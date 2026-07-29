@@ -13,16 +13,10 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 158
+exported declarations: 132
 supporting declarations: 2
 
 ## Exported
-
-### AIR_BLOCK_ID  `const`
-
-```ts
-const AIR_BLOCK_ID: BlockId;
-```
 
 ### BEDROCK_Y  `const`
 
@@ -67,18 +61,6 @@ const BLOCK: {
 };
 ```
 
-### BLOCK_ID_MAX  `const`
-
-```ts
-const BLOCK_ID_MAX = 255;
-```
-
-### BLOCK_OPACITIES  `const`
-
-```ts
-const BLOCK_OPACITIES: readonly ["transparentSolid", "fluid", "opaque"];
-```
-
 ### BiomeSurface  `type`
 
 ```ts
@@ -99,46 +81,6 @@ type BiomeType = (typeof BIOMES)[number];
 
 ```ts
 type BlockAt = (x: number, y: number, z: number) => number;
-```
-
-### BlockAxis  `const`
-
-```ts
-const BlockAxis: Brand.Brand.Constructor<BlockAxis>;
-```
-
-### BlockAxis  `type`
-
-```ts
-type BlockAxis = number & Brand.Brand<'BlockAxis'>;
-```
-
-### BlockId  `const`
-
-```ts
-const BlockId: Brand.Brand.Constructor<BlockId>;
-```
-
-### BlockId  `type`
-
-```ts
-type BlockId = number & Brand.Brand<'BlockId'>;
-```
-
-### BlockOpacity  `type`
-
-```ts
-type BlockOpacity = (typeof BLOCK_OPACITIES)[number];
-```
-
-### BlockPosition  `type`
-
-```ts
-type BlockPosition = {
-    readonly x: BlockAxis;
-    readonly y: BlockAxis;
-    readonly z: BlockAxis;
-};
 ```
 
 ### BlockReading  `type`
@@ -234,27 +176,6 @@ type Chunk = {
     readonly coord: ChunkCoord;
     readonly blocks: Uint8Array;
     readonly biomes: ReadonlyArray<BiomeType>;
-};
-```
-
-### ChunkAxis  `const`
-
-```ts
-const ChunkAxis: Brand.Brand.Constructor<ChunkAxis>;
-```
-
-### ChunkAxis  `type`
-
-```ts
-type ChunkAxis = number & Brand.Brand<'ChunkAxis'>;
-```
-
-### ChunkCoord  `type`
-
-```ts
-type ChunkCoord = {
-    readonly cx: ChunkAxis;
-    readonly cz: ChunkAxis;
 };
 ```
 
@@ -431,18 +352,6 @@ const LIGHT_BYTE_LENGTH: number;
 const LIGHT_CHUNK_NOT_LOADED: LightReading;
 ```
 
-### LIGHT_LEVEL_MAX  `const`
-
-```ts
-const LIGHT_LEVEL_MAX = 15;
-```
-
-### LIGHT_LEVEL_MIN  `const`
-
-```ts
-const LIGHT_LEVEL_MIN = 0;
-```
-
 ### LIGHT_OUT_OF_WORLD  `const`
 
 ```ts
@@ -460,28 +369,6 @@ type LightReading = {
     readonly _tag: 'ChunkNotLoaded';
 } | {
     readonly _tag: 'OutOfWorld';
-};
-```
-
-### LocalAxis  `const`
-
-```ts
-const LocalAxis: Brand.Brand.Constructor<LocalAxis>;
-```
-
-### LocalAxis  `type`
-
-```ts
-type LocalAxis = number & Brand.Brand<'LocalAxis'>;
-```
-
-### LocalBlockCoord  `type`
-
-```ts
-type LocalBlockCoord = {
-    readonly lx: LocalAxis;
-    readonly ly: BlockAxis;
-    readonly lz: LocalAxis;
 };
 ```
 
@@ -716,18 +603,6 @@ const blockAt: (state: ChunkStoreState, position: BlockPosition) => BlockReading
 const blockIndex: (x: number, y: number, z: number) => number;
 ```
 
-### blockPosition  `const`
-
-```ts
-const blockPosition: (x: number, y: number, z: number) => BlockPosition;
-```
-
-### blockPositionOfChunkLocal  `const`
-
-```ts
-const blockPositionOfChunkLocal: (chunk: ChunkCoord, local: LocalBlockCoord) => BlockPosition;
-```
-
 ### blockReading  `const`
 
 ```ts
@@ -752,18 +627,6 @@ const cellOf: (worldCoordinate: number) => number;
 const channelSeed: (seed: number, channel: string) => number;
 ```
 
-### chunkCoord  `const`
-
-```ts
-const chunkCoord: (cx: number, cz: number) => ChunkCoord;
-```
-
-### chunkCoordOfBlock  `const`
-
-```ts
-const chunkCoordOfBlock: (value: BlockPosition) => ChunkCoord;
-```
-
 ### chunkCoordOfKey  `const`
 
 ```ts
@@ -780,12 +643,6 @@ const chunkKeyOf: (coord: ChunkCoord) => ChunkKey;
 
 ```ts
 const chunkSnapshotOf: (chunk: Chunk) => Chunk;
-```
-
-### clampLightLevel  `const`
-
-```ts
-const clampLightLevel: (value: number) => number;
 ```
 
 ### classifyBiome  `const`
@@ -915,22 +772,10 @@ const latticeValue: (seed: number, x: number, z: number) => number;
 const lightAt: (state: ChunkStoreState, position: BlockPosition) => readonly [LightReading, ChunkStoreState];
 ```
 
-### lightEmissionOfBlockId  `const`
-
-```ts
-const lightEmissionOfBlockId: (id: number) => number;
-```
-
 ### lightReading  `const`
 
 ```ts
 const lightReading: (sky: number, block: number) => LightReading;
-```
-
-### localCoordOfBlock  `const`
-
-```ts
-const localCoordOfBlock: (value: BlockPosition) => LocalBlockCoord;
 ```
 
 ### makeChunkStore  `const`
@@ -949,12 +794,6 @@ const mulberry32: (seed: number) => (() => number);
 
 ```ts
 const neighboursOf: (state: ChunkStoreState, coord: ChunkCoord) => ChunkNeighbours;
-```
-
-### opacityOfBlockId  `const`
-
-```ts
-const opacityOfBlockId: (id: number) => BlockOpacity;
 ```
 
 ### packPosLevel  `const`
@@ -1021,12 +860,6 @@ const subscribed: (state: ChunkStoreState) => readonly [SubscriberId, ChunkStore
 
 ```ts
 const surfaceHeightAt: (seed: number, wx: number, wz: number) => number;
-```
-
-### transmitsLight  `const`
-
-```ts
-const transmitsLight: (id: number) => boolean;
 ```
 
 ### treeCellCandidate  `const`

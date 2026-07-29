@@ -13,7 +13,7 @@
  * THIS TEST IS THE WEAKER HALF, AND SAYING SO IS THE POINT
  * ---------------------------------------------------------------------------
  *
- * `domain/kernel-vocabulary.ts`'s header states the limit that applies here word
+ * `@nerima-games/mc-kernel`'s header states the limit that applies here word
  * for word: 「this file's correctness is checked by a test that this repository
  * could edit in the same commit that breaks it」. Everything below is a
  * transcription checked against another transcription. Both can be wrong

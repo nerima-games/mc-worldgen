@@ -62,7 +62,7 @@
 import { BLOCK } from './biome'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from './constants'
 import { readBlock, worldX, worldZ } from './chunk'
-import type { ChunkCoord } from './kernel-vocabulary'
+import type { ChunkCoord } from "@nerima-games/mc-kernel"
 import { channelSeed, valueNoise2D } from './seeded-random'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */

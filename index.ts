@@ -29,7 +29,6 @@ export * from './domain/carver'
 export * from './domain/chunk'
 export * from './domain/chunk-store-state'
 export * from './domain/constants'
-export * from './domain/kernel-vocabulary'
 export * from './domain/light'
 // `Dimension` is published from here, and that is a DECISION rather than a
 // widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and

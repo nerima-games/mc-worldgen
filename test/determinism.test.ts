@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { chunkCoord } from '../domain/kernel-vocabulary'
+import { chunkCoord } from "@nerima-games/mc-kernel"
 import { CHUNK_VOLUME } from '../domain/constants'
 import { generateChunk, generateChunkAt, surfaceHeightAt } from '../domain/terrain'
 

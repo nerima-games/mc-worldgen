@@ -131,7 +131,7 @@ export type StrongholdSite = {
   readonly z: number
 }
 
-/** Euclidean floor division — correct for negative operands, as in `./kernel-vocabulary.ts`. */
+/** Euclidean floor division — correct for negative operands, as in `@nerima-games/mc-kernel`. */
 const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
 
 /**

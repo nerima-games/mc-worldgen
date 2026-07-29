@@ -24,7 +24,7 @@ import { Effect } from 'effect'
 import { BLOCK } from '../domain/biome'
 import { readBlock, worldX, worldZ, type Chunk } from '../domain/chunk'
 import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { chunkCoord } from '../domain/kernel-vocabulary'
+import { chunkCoord } from "@nerima-games/mc-kernel"
 import {
   MAX_SEED_ATTEMPTS,
   ORE_BLOCK,

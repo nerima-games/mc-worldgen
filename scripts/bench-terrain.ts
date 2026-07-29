@@ -49,7 +49,6 @@
 import {
   carveCaves,
   channelSeed,
-  chunkCoord,
   CHUNK_SIZE_XZ,
   climateAt,
   DEFAULT_TERRAIN_LEVELS,
@@ -60,8 +59,8 @@ import {
   valueNoise2D,
   worldX,
   worldZ,
-  type ChunkCoord,
 } from '../index'
+import { chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   checkGuards,
   checkWorkloads,
