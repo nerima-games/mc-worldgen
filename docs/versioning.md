@@ -15,7 +15,9 @@
 
 plan.md §6 Step 0 / §8:
 
-> npm 公開・バージョン bump 運用は**界面安定（4 週間 API ロック無変更）まで開始しない**
+> npm 公開・バージョン bump 運用は**界面が安定したと maintainer が判断するまで開始しない**
+> （RELEASE_STANDARD.md §4.2: 1.0.0 昇格は日数計測ベースの自動ゲートではなく、
+> maintainer の裁量判断による）
 >
 > リスク「新規構築初期は全界面が高 churn」→ 対策「npm 公開を遅らせ dev-meta workspace で開発。
 > bump 連鎖を構造的に回避」
@@ -73,7 +75,8 @@ mc-worldgen の場合、具体的には:
    （ダーティ通知はこのリポジトリが所有する。plan.md §3.8 は mc-sim の API と
    しているが、フラグを持つのは §3.7 によりここであり、sim 経由にすると毎フレーム
    全チャンクのポーリングになる。根拠は [public-api.md](./public-api.md) §6-2）
-3. その状態で API を 4 週間変更していない（plan.md §6 Step 3 の API ロック条件）
+3. 上記の消費・動作確認が完了したと maintainer が判断している
+   （日数計測ベースの自動ゲートは廃止。RELEASE_STANDARD.md §4.2 参照）
 4. 地形プレビューが操作可能である（plan.md §6 Step 2 の完了条件）
 5. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
 

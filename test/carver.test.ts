@@ -1,10 +1,10 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { CAVE_CEILING_Y, computeWaterFloorYs } from '../domain/carver'
-import { biomeAt, readBlock } from '../domain/chunk'
-import { blockIndex, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../domain/constants'
-import { generateChunkAt } from '../domain/terrain'
+import { BLOCK } from '../src/domain/biome'
+import { CAVE_CEILING_Y, computeWaterFloorYs } from '../src/domain/carver'
+import { biomeAt, readBlock } from '../src/domain/chunk'
+import { blockIndex, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../src/domain/constants'
+import { generateChunkAt } from '../src/domain/terrain'
 
 /**
  * ---------------------------------------------------------------------------

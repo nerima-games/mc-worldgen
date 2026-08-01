@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { DEFAULT_TERRAIN_LEVELS } from '../domain/constants'
-import { channelSeed, fbm2D } from '../domain/seeded-random'
-import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from '../domain/terrain'
+import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
+import { channelSeed, fbm2D } from '../src/domain/seeded-random'
+import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from '../src/domain/terrain'
 
 /**
  * ---------------------------------------------------------------------------

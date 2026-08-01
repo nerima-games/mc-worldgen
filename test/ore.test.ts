@@ -21,10 +21,10 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { readBlock, worldX, worldZ, type Chunk } from '../domain/chunk'
-import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { chunkCoord } from '../domain/kernel-vocabulary'
+import { BLOCK } from '../src/domain/biome'
+import { readBlock, worldX, worldZ, type Chunk } from '../src/domain/chunk'
+import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { chunkCoord } from '../src/domain/kernel-vocabulary'
 import {
   MAX_SEED_ATTEMPTS,
   ORE_BLOCK,
@@ -36,9 +36,9 @@ import {
   oreStreamSeed,
   sampleOreY,
   type OreConfig,
-} from '../domain/ore'
-import { mulberry32 } from '../domain/seeded-random'
-import { MAX_SURFACE_Y, generateChunkAt, surfaceHeightAt } from '../domain/terrain'
+} from '../src/domain/ore'
+import { mulberry32 } from '../src/domain/seeded-random'
+import { MAX_SURFACE_Y, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 
 const ORE_ID_SET = new Set<number>(ORE_IDS)

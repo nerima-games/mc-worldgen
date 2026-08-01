@@ -15,8 +15,15 @@ export default defineConfig({
     },
     include: ['test/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.git/**'],
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // 60s, not 10s: several property-based / golden-fixture tests
+    // (test/ore.test.ts O-5, test/chunk-golden.test.ts I-8, test/carver.test.ts)
+    // run real terrain generation many times over and take 15-25s under plain
+    // `pnpm test`, but multiple times longer under v8 coverage instrumentation
+    // (`pnpm test:coverage`). At the previous 10s value they timed out under
+    // coverage even though nothing was actually wrong — this is headroom for
+    // instrumentation overhead, not a change to what the tests assert.
+    testTimeout: 60000,
+    hookTimeout: 60000,
     teardownTimeout: 5000,
     slowTestThreshold: 300,
     fileParallelism: true,
@@ -28,7 +35,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       enabled: false,
-      include: ['index.ts', 'domain/**/*.ts', 'application/**/*.ts'],
+      include: ['src/index.ts', 'src/domain/**/*.ts', 'src/application/**/*.ts'],
       exclude: [
         '**/*.d.ts',
         '**/*.config.ts',
@@ -38,18 +45,8 @@ export default defineConfig({
       all: true,
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      // NO THRESHOLD YET — deliberate.
-      //
-      // The reference repository (takeokunn/ts-minecraft) enforces 99% on
-      // branches/functions/lines/statements. A threshold on a skeleton would be
-      // meaningless: it would be trivially satisfied by a handful of type-only
-      // modules and would say nothing about the real implementation.
-      //
-      // Coverage is collected and reported (`pnpm test:coverage`) so the number
-      // is always visible. The 99% gate is turned on — here and in the CI
-      // workflow — when this repository reaches its completion criteria.
-      //
-      //   thresholds: { branches: 99, functions: 99, lines: 99, statements: 99 },
+      // TEST_STANDARD.md §3: 4-metric 99% gate, enabled org-wide, no phase-in.
+      thresholds: { branches: 99, functions: 99, lines: 99, statements: 99 },
     },
   },
   esbuild: {

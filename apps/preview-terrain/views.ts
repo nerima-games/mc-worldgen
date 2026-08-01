@@ -34,10 +34,10 @@
  * sea level off a first-person camera means counting blocks you are standing
  * in. The cross-section shows both at a glance.
  */
-import type { BiomeType } from '../../domain/biome'
-import { BLOCK } from '../../domain/biome'
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../domain/constants'
-import { MAX_SURFACE_Y, MIN_SURFACE_Y } from '../../domain/terrain'
+import type { BiomeType } from '../../src/domain/biome'
+import { BLOCK } from '../../src/domain/biome'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../src/domain/constants'
+import { MAX_SURFACE_Y, MIN_SURFACE_Y } from '../../src/domain/terrain'
 import {
   BIOME_COLOR,
   BIOME_GLYPH,

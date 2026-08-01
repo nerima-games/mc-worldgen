@@ -18,12 +18,12 @@ import {
   ChunkStoreLayer,
   generatedChunkSource,
   type ChunkSource,
-} from '../application/chunk-store'
-import { BLOCK } from '../domain/biome'
-import { emptyBlocks, type Chunk } from '../domain/chunk'
-import { chunkKeyOf, chunkCoordOfKey, wasWritten } from '../domain/chunk-store-state'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { blockPosition, chunkCoord, type ChunkCoord } from '../domain/kernel-vocabulary'
+} from '../src/application/chunk-store'
+import { BLOCK } from '../src/domain/biome'
+import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { chunkKeyOf, chunkCoordOfKey, wasWritten } from '../src/domain/chunk-store-state'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // A deterministic world with no noise in it.

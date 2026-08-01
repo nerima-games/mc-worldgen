@@ -47,7 +47,7 @@
  *  - `pnpm verify` does not run this app. `tsconfig.preview.json` typechecks it
  *    and `pnpm lint` lints it, but `pnpm preview` is not a gate.
  */
-import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from '../../domain/constants'
+import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from '../../src/domain/constants'
 import { ANSI_STYLE, buildHud, HUD_ROWS, PLAIN_STYLE } from './hud'
 import { parseArguments, USAGE, type PreviewOptions } from './options'
 import { dim } from './raster'

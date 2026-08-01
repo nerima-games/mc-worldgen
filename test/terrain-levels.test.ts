@@ -1,9 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, LAKE_LEVEL, SEA_LEVEL } from '../domain/constants'
-import { readBlock } from '../domain/chunk'
-import { generateChunkAt } from '../domain/terrain'
+import { BLOCK } from '../src/domain/biome'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, LAKE_LEVEL, SEA_LEVEL } from '../src/domain/constants'
+import { readBlock } from '../src/domain/chunk'
+import { generateChunkAt } from '../src/domain/terrain'
 
 /**
  * ---------------------------------------------------------------------------

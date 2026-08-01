@@ -7,9 +7,7 @@
     "types": ["node"]
   },
   "include": [
-    "index.ts",
-    "domain/**/*.ts",
-    "application/**/*.ts",
+    "src/**/*.ts",
     "test/**/*.ts",
     "scripts/**/*.ts",
     "vitest.config.ts"

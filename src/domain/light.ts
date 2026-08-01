@@ -35,7 +35,7 @@
  * 64 KB block buffer, so light would be TWICE the size of the world it
  * describes. Packed, it is 32 KB each and 64 KB the pair.
  *
- * `no-bitwise` is `off` in this repository's `oxlint.json`, and this file plus
+ * `no-bitwise` is `off` in this repository's `.oxlintrc.json`, and this file plus
  * `./seeded-random` are the two reasons recorded there.
  *
  * ---------------------------------------------------------------------------

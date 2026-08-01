@@ -11,9 +11,9 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { readBlock } from '../domain/chunk'
-import { BEDROCK_Y, blockIndex, CHUNK_SIZE_XZ } from '../domain/constants'
+import { BLOCK } from '../src/domain/biome'
+import { readBlock } from '../src/domain/chunk'
+import { BEDROCK_Y, blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   STRONGHOLD_FLOOR_Y,
   STRONGHOLD_REGION_SIZE,
@@ -22,8 +22,8 @@ import {
   nearestStrongholdSite,
   strongholdSiteForRegion,
   strongholdSitesNearChunk,
-} from '../domain/structure-siting'
-import { MIN_SURFACE_Y, generateChunkAt } from '../domain/terrain'
+} from '../src/domain/structure-siting'
+import { MIN_SURFACE_Y, generateChunkAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 
 describe('the region rule', () => {

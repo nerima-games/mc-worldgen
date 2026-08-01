@@ -627,5 +627,5 @@ packPosLevel = (x, y, z, lvl) => (x << 13) | (z << 9) | y | (lvl << 17)
 （`chunk-manager-ops-storage.ts:61`）。
 チャンクフォーマットを `defineFormat` で定義するとき、この判断を引き継ぐか決めること。
 
-なお `no-bitwise` は mc-worldgen の `oxlint.json` でのみ `off` にしてある。
+なお `no-bitwise` は mc-worldgen の `.oxlintrc.json` でのみ `off` にしてある。
 シード PRNG とこのライトパックの両方が bit 演算を必要とするためで、理由はそこに書いてある。
