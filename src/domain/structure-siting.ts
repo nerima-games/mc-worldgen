@@ -9,27 +9,6 @@
  * chunk write its own stronghold slice without cross-chunk mutation.
  *
  * ---------------------------------------------------------------------------
- * THERE IS NO VILLAGE TO PORT, AND THAT IS A FINDING RATHER THAN AN EXCUSE
- * ---------------------------------------------------------------------------
- *
- * `docs/responsibility.md` lists 村 alongside End and 要塞, and `docs/porting.md`
- * §6 lists five reference files for 構造物 — nether-generator, portal-frame,
- * stronghold, nether-fortress, end-portal-frame. NO VILLAGE FILE IS AMONG THEM,
- * and it is not an omission in that list: measured over the whole of
- * `packages/world`, the string 「village」 occurs four times and every one is a
- * comment about CROP GROWTH (`crop-growth.ts:2`,
- * `crop-growth-service.ts:20`, `block-service.config.ts:175`) plus the mob names
- * `Villager` and `ZombieVillager` in `world-metadata-model.ts:59,68`.
- *
- * The reference implementation has no village generator. So 村 is not a port
- * that has not happened — it is CONTENT THIS ORGANISATION HAS NEVER WRITTEN, and
- * building one here would be design work (house schemas, a road graph, villager
- * spawning, biome-specific palettes) rather than the transcription every other
- * row in this repository is. That is a different kind of task with a different
- * kind of risk, and `docs/responsibility.md` now says so rather than carrying a
- * ⬜ that reads as 「somebody just has not got to it」.
- *
- * ---------------------------------------------------------------------------
  * THE SEED, FOR THE THIRD TIME
  * ---------------------------------------------------------------------------
  *
@@ -46,6 +25,7 @@
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
 import { Option } from 'effect'
+import type { BiomeType } from './biome'
 import { channelSeed, latticeValue } from './seeded-random'
 
 /**
@@ -91,8 +71,104 @@ export type StrongholdSite = {
   readonly z: number
 }
 
+export const VILLAGE_REGION_SIZE = 160
+export const VILLAGE_REGION_SPAWN_PERMILLE = 120
+export const VILLAGE_SITE_MARGIN = 32
+export const VILLAGE_HALF_EXTENT = 30
+const PERMILLE_SCALE = 1000
+const VILLAGE_MIN_DRY_CLEARANCE = 1
+const VILLAGE_MAX_HEIGHT_VARIATION = 6
+const CHUNK_SIZE = 16
+const CHUNK_MAX_LOCAL = 15
+const VILLAGE_SITE_MARGIN_SIDES = 2
+const REGION_STEP = 1
+
+export type VillageSite = {
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  readonly x: number
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  readonly z: number
+}
+
+export type VillageTerrainSample = {
+  readonly biome: BiomeType
+  readonly surfaceY: number
+  readonly seaLevel: number
+}
+
+// eslint-disable-next-line id-length -- x/z are canonical world axes.
+export type VillageTerrainSampler = (x: number, z: number) => VillageTerrainSample
+
 /** Euclidean floor division — correct for negative operands, as in `./kernel-vocabulary.ts`. */
 const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
+
+/** A sparse, seeded candidate accepted only when its complete footprint is dry, level plains. */
+// eslint-disable-next-line max-params, max-statements -- Public siting API mirrors other seeded region locators.
+export const villageSiteForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: VillageTerrainSampler,
+): Option.Option<VillageSite> => {
+  const roll = latticeValue(channelSeed(seed, 'village-present'), regionX, regionZ)
+  if (roll >= VILLAGE_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
+    return Option.none()
+  }
+
+  const span = VILLAGE_REGION_SIZE - VILLAGE_SITE_MARGIN * VILLAGE_SITE_MARGIN_SIDES
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  const x = regionX * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN +
+    Math.floor(latticeValue(channelSeed(seed, 'village-x'), regionX, regionZ) * span)
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  const z = regionZ * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN +
+    Math.floor(latticeValue(channelSeed(seed, 'village-z'), regionX, regionZ) * span)
+  const probes = [
+    sampleTerrain(x, z),
+    sampleTerrain(x - VILLAGE_HALF_EXTENT, z),
+    sampleTerrain(x + VILLAGE_HALF_EXTENT, z),
+    sampleTerrain(x, z - VILLAGE_HALF_EXTENT),
+    sampleTerrain(x, z + VILLAGE_HALF_EXTENT),
+  ]
+  if (probes.some((probe) => probe.biome !== 'PLAINS' || probe.surfaceY <= probe.seaLevel + VILLAGE_MIN_DRY_CLEARANCE)) {
+    return Option.none()
+  }
+
+  const heights = probes.map((probe) => probe.surfaceY)
+  if (Math.max(...heights) - Math.min(...heights) > VILLAGE_MAX_HEIGHT_VARIATION) {
+    return Option.none()
+  }
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  return Option.some({ x, z })
+}
+
+/** Finds all accepted village centres whose footprint can overlap this chunk. */
+// eslint-disable-next-line max-params, max-statements -- Public chunk query mirrors other structure writers.
+export const villageSitesNearChunk = (
+  seed: number,
+  chunkX: number,
+  chunkZ: number,
+  sampleTerrain: VillageTerrainSampler,
+): ReadonlyArray<VillageSite> => {
+  const minX = chunkX * CHUNK_SIZE - VILLAGE_HALF_EXTENT
+  const maxX = chunkX * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT
+  const minZ = chunkZ * CHUNK_SIZE - VILLAGE_HALF_EXTENT
+  const maxZ = chunkZ * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT
+  const sites: Array<VillageSite> = []
+
+  for (let regionX = floorDiv(minX, VILLAGE_REGION_SIZE); regionX <= floorDiv(maxX, VILLAGE_REGION_SIZE); regionX += REGION_STEP) {
+    for (let regionZ = floorDiv(minZ, VILLAGE_REGION_SIZE); regionZ <= floorDiv(maxZ, VILLAGE_REGION_SIZE); regionZ += REGION_STEP) {
+      const site = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
+      if (
+        Option.isSome(site) &&
+        site.value.x >= minX && site.value.x <= maxX &&
+        site.value.z >= minZ && site.value.z <= maxZ
+      ) {
+        sites.push(site.value)
+      }
+    }
+  }
+  return sites
+}
 
 /**
  * The site in one region, or nothing.

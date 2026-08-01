@@ -55,8 +55,10 @@ export * from './domain/light'
 export * from './domain/nether-travel'
 export * from './domain/portal-frame'
 export * from './domain/seeded-random'
+export * from './domain/structure-siting'
 export * from './domain/terrain'
 export * from './domain/tree-placement'
+export * from './domain/village'
 
 // --- Application: Effect services -------------------------------------------
 export * from './application/chunk-store'
