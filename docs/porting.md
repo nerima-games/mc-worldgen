@@ -133,7 +133,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 
 | LOC | パス | 状態 |
 | ---: | --- | --- |
-| 174 | `packages/world/domain/terrain/stronghold.ts` | 🟡 サイト決定のみ → `domain/structure-siting.ts`。ブロック生成器は未移植 |
+| 174 | `packages/world/domain/terrain/stronghold.ts` | ✅ サイト決定 → `domain/structure-siting.ts`、13×13 石室生成 → `domain/stronghold.ts` |
 | — | **村** | ⬜ **参照実装に存在しない**。実測: `packages/world` の「village」4 箇所は全て作物のコメント + Mob 名。移植ではなく新規設計 |
 
 | LOC | パス |
@@ -222,7 +222,7 @@ light-engine-bfs / worker parity に存在する）。
    格子ジッターの数式と定数（✅ 完了）
 4. **`biome-classifier.ts` (217) を読む** — ルールテーブルと 6 入力版（✅ 2 入力版のみ）
 5. **`density-function.ts:42-55` を読む** — スプラインベースの高さ場（⬜）
-6. **`generator.ts` (181) を読む** — パス順序。`:102` と `:141-155` のコメントが本体（✅ 洞窟・鉱石・植生・渓谷の順序を移植済み。残るは構造物のパス）
+6. **`generator.ts` (181) を読む** — パス順序。`:102` と `:141-155` のコメントが本体（✅ 洞窟・鉱石・植生・渓谷・要塞の順序を移植済み）
 7. **`packages/block/domain/light.ts` (211) を読む** — 4bit パック（✅ `domain/light.ts`）
 8. **`chunk-manager-ops.ts` (184) を読む** — mc-save 消費開始後（⬜）
 

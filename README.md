@@ -170,11 +170,12 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
 - **実装済み**: `ChunkStore`（plan.md §3.7 の `ChunkManager`）— ロード / アンロード /
   ブロック書き込み / ダーティチャンネル。所有権の根拠は [docs/public-api.md](./docs/public-api.md) §6-0
 - ✅ **実装済み**: ライトグリッド（`domain/light.ts`）、草・花（`domain/vegetation.ts`）、
-  鉱石（`domain/ore.ts`）、要塞のサイト決定（`domain/structure-siting.ts`）、
+  鉱石（`domain/ore.ts`）、要塞のサイト決定と 13×13 石室生成
+  （`domain/structure-siting.ts`、`domain/stronghold.ts`）、
   **渓谷カーバー（`domain/ravine.ts`）** — 2 層の水ガードごと。
   帯幅 `RAVINE_HALF_WIDTH` は参照実装から転記する前に実測している
   （帯幅は分布についての主張なので可搬ではない。[docs/responsibility.md](./docs/responsibility.md) §1-6）
-- **未実装**: 構造物のブロック生成、村（**参照実装に出典が無い**）、
+- **未実装**: 村（**参照実装に出典が無い**）、自然生成 Nether portal、
   End 次元、チャンク永続化、ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
   チャンクフォーマット定義（mc-save が未 publish で**ブロック中**）。
   内訳と根拠は [docs/responsibility.md](./docs/responsibility.md) §1-1

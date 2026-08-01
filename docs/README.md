@@ -97,6 +97,6 @@ mc-worldgen では `tsconfig.base.json` の `lib` に `"DOM"` を入れないこ
 
 ## 現在の状態
 
-叩き台 (pre-audit first cut)。`pnpm verify` は green（54 tests）。
-構造物・ライトグリッド・チャンク永続化は未実装（`ChunkStore` は実装済み）
+監査済みの実装状況。301 tests。要塞石室・ライトグリッド・`ChunkStore` は実装済み。
+村・End 構造物・自然生成 Nether portal・チャンク永続化は未実装
 （[testing.md](./testing.md)）。
