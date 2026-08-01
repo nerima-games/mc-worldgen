@@ -124,7 +124,7 @@
  * means there is no second predicate to drift.
  */
 import { Schema } from 'effect'
-import { BIOMES } from './biome'
+import { CHUNK_BIOMES } from './biome'
 import { type Chunk } from './chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
 import { ChunkAxis, type ChunkCoord } from './kernel-vocabulary'
@@ -191,7 +191,7 @@ const ChunkBlocksSchema = Schema.Uint8ArrayFromBase64.pipe(
  * `./save-format-port` exists for exactly this and runs on the raw payload
  * before any schema sees it.
  */
-const ChunkBiomesSchema = Schema.Array(Schema.Literal(...BIOMES)).pipe(
+const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(
   Schema.filter((biomes) =>
     biomes.length === CHUNK_BIOME_COUNT
       ? undefined

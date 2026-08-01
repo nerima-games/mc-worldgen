@@ -87,14 +87,19 @@ export const chunkCoord: (x: number, z: number) => ChunkCoord
 export type Chunk = {
   readonly coord: ChunkCoord
   readonly blocks: Uint8Array                    // CHUNK_VOLUME 個のブロック id
-  readonly biomes: ReadonlyArray<BiomeType>      // 柱ごと。index = lz * 16 + lx
+  readonly biomes: ReadonlyArray<ChunkBiomeType> // 柱ごと。index = lz * 16 + lx
 }
 
 export const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions) => Chunk
 export const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => Chunk
+export const generateEndChunk: (seed: number, coord: ChunkCoord) => Chunk
+export const generateEndChunkAt: (seed: number, x: number, z: number) => Chunk
+export const endSurfaceHeightAt: (seed: number, wx: number, wz: number) => number | undefined
 ```
 
 `domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
+End の3関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
+シード依存の外縁島を絶対ワールド座標から生成する。
 
 参照実装も実質同期だった。`generateTerrainBlocks`
 （`packages/world/application/terrain-generation.ts:120`）は
@@ -138,6 +143,8 @@ x = 16 の倍数に継ぎ目が出ない。
 ```typescript
 export const BIOMES: readonly ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW']
 export type BiomeType = (typeof BIOMES)[number]
+export const CHUNK_BIOMES: readonly [...typeof BIOMES, 'END']
+export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
 export type ClimateSample = { readonly temperature: number; readonly humidity: number }
 export const classifyBiome: (climate: ClimateSample) => BiomeType

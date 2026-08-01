@@ -49,7 +49,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOMES } from '../src/domain/biome'
+import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
   CHUNK_BIOME_COUNT,
   CHUNK_FORMAT,
@@ -259,17 +259,19 @@ describe('the biome roster is a closed save format', () => {
     }),
   )
 
-  it('CF-9: every name in BIOMES is accepted, so the roster and the schema agree', () => {
+  it.effect('CF-9: every chunk biome is accepted by the schema', () =>
+    Effect.gen(function* () {
     // The other direction, and the one that would rot silently: a biome added
     // to `BIOMES` but not to the schema makes a freshly generated chunk
     // unsaveable. They are built from the same constant today; this fails if
     // anyone splits them.
-    const encodedNames = new Set(ENCODED.biomes as ReadonlyArray<string>)
-    expect(encodedNames.size).toBeGreaterThan(0)
-    for (const name of encodedNames) {
-      expect(BIOMES as ReadonlyArray<string>).toContain(name)
+    for (const name of CHUNK_BIOMES) {
+      const biomes = Array.from({ length: CHUNK_BIOME_COUNT }, () => name)
+      const outcome = yield* decodeOutcome(envelopeWith({ biomes }))
+      expect(outcome._tag, `${name} is missing from the chunk schema`).toBe('Accepted')
     }
-  })
+    }),
+  )
 })
 
 describe('an envelope that is not ours', () => {

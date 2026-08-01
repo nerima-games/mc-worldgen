@@ -205,7 +205,7 @@ describe('the golden matrix', () => {
   it.effect('really is one biome per chunk, all 256 columns, as the selection rule claims', () =>
     Effect.sync(() => {
       for (const { spec, chunk } of generated) {
-        const distinct = new Set<BiomeType>(chunk.biomes)
+        const distinct = new Set<BiomeType>(chunk.biomes as ReadonlyArray<BiomeType>)
 
         expect(distinct.size, `${describeSpec(spec)} is no longer a single-biome chunk`).toBe(1)
         expect([...distinct][0]).toBe(spec.biome)

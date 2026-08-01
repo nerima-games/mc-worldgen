@@ -138,6 +138,7 @@ domain/
   carver.ts           洞窟カーバー ★水域床ガード
   tree-placement.ts   格子ジッター配置
   terrain.ts          generateChunk(seed, coords)
+  end-terrain.ts      generateEndChunk(seed, coords)
 apps/
   preview-terrain/    内蔵地形プレビュー（dev アプリ。公開 API ではない）
 scripts/
@@ -176,9 +177,10 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   帯幅 `RAVINE_HALF_WIDTH` は参照実装から転記する前に実測している
   （帯幅は分布についての主張なので可搬ではない。[docs/responsibility.md](./docs/responsibility.md) §1-6）
 - **未実装**: 村（**参照実装に出典が無い**）、自然生成 Nether portal、
-  End 次元、チャンク永続化、ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
+  End 構造物、チャンク永続化、ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
   チャンクフォーマット定義（mc-save が未 publish で**ブロック中**）。
   内訳と根拠は [docs/responsibility.md](./docs/responsibility.md) §1-1
+- **End 地形**: `generateEndChunk` が中央島、虚空リング、シード依存の外縁島を生成
 - **バイオーム分類は 2 入力版のみ。** 参照実装は 6 入力（continentalness / erosion /
   pv / riverNoise を含む）で 13 バイオーム
 - **`domain/seeded-random.ts` は mc-noise の仮置き**、

@@ -98,5 +98,5 @@ mc-worldgen では `tsconfig.base.json` の `lib` に `"DOM"` を入れないこ
 ## 現在の状態
 
 監査済みの実装状況。301 tests。要塞石室・ライトグリッド・`ChunkStore` は実装済み。
-村・End 構造物・自然生成 Nether portal・チャンク永続化は未実装
+村・End 構造物・自然生成 Nether portal・チャンク永続化は未実装。End の基礎地形（中央島・虚空リング・外縁島）は実装済み
 （[testing.md](./testing.md)）。

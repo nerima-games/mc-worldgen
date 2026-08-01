@@ -24,7 +24,7 @@
 | 構造物（ポータル） | 検出 `detectNetherPortal` と**生成 `generatePortalLayout`（`portal-frame.ts:296`）の両方**がある。無いのは `generateChunk` からの呼び出しで、世界に自然生成されるポータルはまだ 0 個（下記 §1-7） | 🟡 呼び出し元が無い |
 | 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。`index.ts` には出していないので `api-lock.md` は動いていない（下記 §6-1） | 🟡 barrel 未公開 |
 | 構造物（村） | **参照実装に存在しない**（下記 §1-3）。移植ではなく新規設計になる | ⬜ 出典なし |
-| 構造物（End） | End 次元も `end_*` ブロックも無い。§5 の規模判断のまま | ⬜ |
+| 構造物（End） | End の基礎地形と `end_stone` はあるが、中央構造物・gateway・crystal は未実装 | ⬜ |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
 | ワーカープール Port | 注入の**継ぎ目**は `ChunkSource` にある。参照実装の**名前つき Port 型**は未定義（下記 §1-4） | 🟡 継ぎ目のみ |
@@ -430,7 +430,7 @@ plan.md §3.7 は本リポジトリに「構造物（村/**ポータル**/End）
 | `nether-link.ts` の `overworldToNether` / `netherToOverworld` | **ここ** | 8:1 の座標スケーリング。2 つの次元の**座標空間の関係**であって、入力も出力も座標しかない。`chunkCoordOfBlock` と同じ種類のもの → ✅ `domain/nether-link.ts` |
 | `nether-link.ts` の `findNearestPortal` | **ここ**（注記は生きている） | 候補配列を**引数で受ける**最近傍探索。`BlockAt` と同じ注入形。ただし「世界に存在するポータルの一覧」を**所有する**のが誰かは別問題で、それはまだ誰にも割り当てられていない → ✅ `domain/nether-link.ts`。**注記のほうは消費していない**: 候補は今も引数のままで、所有者は今も居ない（下記 §6-1） |
 | `nether-travel.ts` の `resolveNetherTravel` | ~~**mx-gameplay**~~ → **ここ**（下記 §6-1） | ~~`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す。plan.md §3.11 そのもの。上の 3 つを合成するだけなので、依存の向きも合っている~~ → ✅ `domain/nether-travel.ts` |
-| `end/end-portal-frame.ts` | **ここ**（未移植、意図的） | 形は `portal-frame.ts` と同型（注入された `BlockAt` の純粋ルール）なので境界の議論は同じ結論を出す。要塞の石室と `end_portal_frame` 語彙は実装したが、End 次元と完成ポータル判定はまだ無い。構造物（End）に着手する時に一緒に来るのが正しい |
+| `end/end-portal-frame.ts` | **ここ**（未移植、意図的） | 形は `portal-frame.ts` と同型（注入された `BlockAt` の純粋ルール）なので境界の議論は同じ結論を出す。要塞の石室、`end_portal_frame` 語彙、End の基礎地形は実装したが、完成ポータル判定はまだ無い。構造物（End）に着手する時に一緒に来るのが正しい |
 
 ### 6-1. `resolveNetherTravel` の行を覆した。理由と、覆さなかったもの
 

@@ -370,7 +370,7 @@ export const goldenEntry = (spec: GoldenSpec): GoldenEntry => {
     cz: spec.cz,
     decorate: spec.decorate,
     blocksSha256: sha256(chunk.blocks),
-    biomesSha256: biomesDigest(chunk.biomes),
+    biomesSha256: biomesDigest(chunk.biomes as ReadonlyArray<BiomeType>),
     summary: summarise(chunk),
   }
 }

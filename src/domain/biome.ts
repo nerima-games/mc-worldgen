@@ -29,6 +29,11 @@ export const BIOMES =['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST',
 
 export type BiomeType = (typeof BIOMES)[number]
 
+/** Biomes that may be stored in a dimension-agnostic chunk. */
+export const CHUNK_BIOMES = [...BIOMES, 'END'] as const
+
+export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
+
 /** Climate at a column. Both axes are normalised to [0, 1]. */
 export type ClimateSample = {
   readonly temperature: number
