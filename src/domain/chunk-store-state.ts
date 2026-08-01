@@ -34,7 +34,7 @@
  */
 import { getBlockAt, setBlockAt, type Chunk } from './chunk'
 import { blockIndex, CHUNK_HEIGHT } from './constants'
-import { computeChunkLight, getLightAt, type ChunkLight } from './light'
+import { computeChunkLights, getLightAt, type ChunkLight } from './light'
 import {
   BlockId,
   chunkCoord,
@@ -290,19 +290,6 @@ export const emptyChunkStoreState: ChunkStoreState = {
  * Returns the SAME map when there was nothing to forget, so a write to a chunk
  * whose light was never computed allocates nothing.
  */
-const withoutLight = (
-  lights: ReadonlyMap<ChunkKey, ChunkLight>,
-  key: ChunkKey,
-): ReadonlyMap<ChunkKey, ChunkLight> => {
-  if (!lights.has(key)) {
-    return lights
-  }
-
-  const next = new Map(lights)
-  next.delete(key)
-  return next
-}
-
 /**
  * Record a change against every subscriber at once.
  *
@@ -353,6 +340,21 @@ const HORIZONTAL_NEIGHBOUR_OFFSETS = [
   [0, -1],
 ] as const
 
+const lightKeysAround = (coord: ChunkCoord): ReadonlyArray<ChunkKey> => [
+  chunkKeyOf(coord),
+  ...HORIZONTAL_NEIGHBOUR_OFFSETS.map(([dcx, dcz]) => chunkKeyOf(chunkCoord(coord.cx + dcx, coord.cz + dcz))),
+]
+
+const withoutLights = (
+  lights: ReadonlyMap<ChunkKey, ChunkLight>,
+  keys: ReadonlyArray<ChunkKey>,
+): ReadonlyMap<ChunkKey, ChunkLight> => {
+  if (!keys.some((key) => lights.has(key))) return lights
+  const next = new Map(lights)
+  for (const key of keys) next.delete(key)
+  return next
+}
+
 /** Mark resident neighbours whose exposed boundary faces changed. */
 const noteLoadedNeighbours = (
   subscribers: ReadonlyMap<SubscriberId, DirtySubscriberState>,
@@ -396,7 +398,7 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
     // reload path (storage, or a regenerated chunk) safe without the caller
     // having to remember; leaving it would light a chunk from storage with the
     // grid of whatever used to be resident at that coordinate.
-    lights: withoutLight(state.lights, key),
+    lights: withoutLights(state.lights, lightKeysAround(chunk.coord)),
     subscribers,
     nextSubscriberId: state.nextSubscriberId,
   }
@@ -433,7 +435,7 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
       loaded,
       // Not merely invalidated — the chunk is gone, so a grid kept here would be
       // a leak keyed by a coordinate nothing can reach.
-      lights: withoutLight(state.lights, key),
+      lights: withoutLights(state.lights, lightKeysAround(coord)),
       subscribers,
       nextSubscriberId: state.nextSubscriberId,
     },
@@ -488,6 +490,12 @@ export const withBlockAt = (
 
   setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
 
+  const lightKeys = [key]
+  if (local.lx === 0) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx - 1, coord.cz)))
+  if (local.lx === 15) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx + 1, coord.cz)))
+  if (local.lz === 0) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz - 1)))
+  if (local.lz === 15) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz + 1)))
+
   return [
     { _tag: 'Written', previous, chunk: coord },
     {
@@ -504,7 +512,7 @@ export const withBlockAt = (
       // the block that was already there, so the light it would recompute is the
       // light that is already cached. Invalidating there would relight a chunk
       // every tick for a fluid re-asserting its own level.
-      lights: withoutLight(state.lights, key),
+      lights: withoutLights(state.lights, lightKeys),
       subscribers: noteChange(state.subscribers, key, 'changed'),
       nextSubscriberId: state.nextSubscriberId,
     },
@@ -552,9 +560,9 @@ export const lightAt = (
     return [lightReading(getLightAt(cached.sky, voxel), getLightAt(cached.block, voxel)), state]
   }
 
-  const computed = computeChunkLight(chunk)
-  const lights = new Map(state.lights)
-  lights.set(key, computed)
+  const lights = computeChunkLights(state.loaded)
+  const computed = lights.get(key)
+  if (computed === undefined) return [LIGHT_CHUNK_NOT_LOADED, state]
 
   return [
     lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),

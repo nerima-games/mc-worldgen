@@ -25,6 +25,7 @@ import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   computeChunkLight,
+  computeChunkLights,
   emptyChunkLight,
   getLightAt,
   LIGHT_BYTE_LENGTH,
@@ -265,8 +266,8 @@ describe('sky light', () => {
 
 describe('block light', () => {
   /** The sealed room the sky cannot reach, so that only emitters are measured. */
-  const sealedRoom = (): Chunk => {
-    const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+  const sealedRoom = (coord = chunkCoord(0, 0)): Chunk => {
+    const chunk = flatChunk(coord, SURFACE_Y)
     const lidY = SURFACE_Y + 2
 
     for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
@@ -498,7 +499,7 @@ describe('block light', () => {
     }),
   )
 
-  it.effect('does not cross a chunk boundary, which is a KNOWN gap and not an accident', () =>
+  it.effect('keeps the single-chunk API isolated when no neighbour is resident', () =>
     Effect.sync(() => {
       // `domain/light.ts`'s header argues this at length and names the failure
       // mode: a hostile spawning inside the lit border of a torch-lit room on
@@ -515,6 +516,19 @@ describe('block light', () => {
       expect(getLightAt(light.block, blockIndex(14, y, 8))).toBe(13)
       // x = 16 is the neighbouring chunk. Nothing here can reach it.
       expect(getLightAt(light.block, blockIndex(15, y, 9))).toBe(13)
+    }),
+  )
+
+  it.effect('propagates block light across a resident chunk boundary', () =>
+    Effect.sync(() => {
+      const left = sealedRoom(chunkCoord(0, 0))
+      const right = sealedRoom(chunkCoord(1, 0))
+      const y = SURFACE_Y + 1
+      left.blocks[blockIndex(15, y, 8)] = TORCH
+
+      const lights = computeChunkLights(new Map([['right', right], ['left', left]]))
+      expect(getLightAt(lights.get('right')!.block, blockIndex(0, y, 8))).toBe(13)
+      expect(getLightAt(lights.get('right')!.block, blockIndex(1, y, 8))).toBe(12)
     }),
   )
 })
@@ -612,6 +626,61 @@ describe('ChunkStore.getLight', () => {
         _tag: 'Light',
         sky: 0,
         block: 13,
+      })
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+  )
+
+  it.effect('is load-order invariant and relights both sides after a boundary write', () =>
+    Effect.gen(function* () {
+      const store = yield* ChunkStore
+      yield* store.load(chunkCoord(1, 0))
+      yield* store.load(chunkCoord(0, 0))
+      yield* store.setBlock(blockPosition(15, ROOM_Y, 8), TORCH)
+
+      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 13,
+      })
+
+      yield* store.setBlock(blockPosition(16, ROOM_Y, 8), BLOCK.STONE)
+      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 0,
+      })
+
+      yield* store.setBlock(blockPosition(16, ROOM_Y, 8), BLOCK.AIR)
+      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 13,
+      })
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+  )
+
+  it.effect('spreads sky light sideways through an opening at a resident seam', () =>
+    Effect.gen(function* () {
+      const store = yield* ChunkStore
+      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(1, 0))
+      yield* store.setBlock(blockPosition(15, ROOF_Y, 8), BLOCK.AIR)
+
+      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+        _tag: 'Light', sky: 14, block: 0,
+      })
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+  )
+
+  it.effect('treats an unloaded seam as closed and relights it after reload', () =>
+    Effect.gen(function* () {
+      const store = yield* ChunkStore
+      yield* store.load(chunkCoord(0, 0))
+      yield* store.setBlock(blockPosition(15, ROOM_Y, 8), TORCH)
+      expect((yield* store.getLight(blockPosition(16, ROOM_Y, 8)))._tag).toBe('ChunkNotLoaded')
+
+      yield* store.load(chunkCoord(1, 0))
+      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 13,
+      })
+      yield* store.unload(chunkCoord(1, 0))
+      yield* store.load(chunkCoord(1, 0))
+      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 13,
       })
     }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
   )
