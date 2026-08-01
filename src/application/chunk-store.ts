@@ -72,11 +72,18 @@
  * sources, because a second world load inherited the first world's fibers and
  * refs and deadlocked. Every read-modify-write is one `Ref.modify`.
  */
+import type { StoragePort } from '@nerima-games/mc-save'
 import { Context, Effect, Layer, Ref } from 'effect'
 import type { Chunk } from '../domain/chunk'
 import * as Store from '../domain/chunk-store-state'
 import type { BlockId, BlockPosition, ChunkCoord } from '../domain/kernel-vocabulary'
 import { generateChunk, type GenerateOptions } from '../domain/terrain'
+import {
+  makeChunkPersistence,
+  type ChunkPersistence,
+  type ChunkPersistenceContext,
+  type ChunkPersistenceError,
+} from './chunk-persistence'
 
 /**
  * Where a chunk comes from when it is not resident.
@@ -88,10 +95,9 @@ import { generateChunk, type GenerateOptions } from '../domain/terrain'
  * synchronous generator slots in with `Effect.sync`; mc-render's worker pool
  * slots in later without changing one line of `ChunkStoreApi`.
  *
- * The lifecycle plan.md §3.7 eventually wants is cache → IndexedDB → generate.
- * This is the third arrow. The second belongs to mc-save and is not consumable
- * yet (plan.md §6 Step 3); when it is, it composes in front of this Port rather
- * than changing it.
+ * The persistent layer implements plan.md §3.7's cache → storage → generate
+ * lifecycle. This Port remains the final fallback, so worker-pool generation
+ * stays independent from the mc-save storage implementation.
  */
 export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
 
@@ -122,7 +128,7 @@ export type ChunkStoreApi = {
    * Make a chunk resident, generating it through `ChunkSource` if it is not.
    * Resolves to the LIVE chunk — see `domain/chunk-store-state.ts` on aliasing.
    */
-  readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk>
+  readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk, ChunkPersistenceError>
   /** Look without loading. `undefined` if not resident. Live view. */
   readonly peek: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>
   /** A detached copy that will not change under the caller. */
@@ -136,7 +142,7 @@ export type ChunkStoreApi = {
    */
   readonly neighbours: (coord: ChunkCoord) => Effect.Effect<Store.ChunkNeighbours>
   /** Drop a chunk. Resolves to whether anything was resident. */
-  readonly unload: (coord: ChunkCoord) => Effect.Effect<boolean>
+  readonly unload: (coord: ChunkCoord) => Effect.Effect<boolean, ChunkPersistenceError>
 
   /** Read one block. Total: distinguishes air from not-loaded from out-of-world. */
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
@@ -209,7 +215,18 @@ export class ChunkStore extends Context.Tag('@nerima-games/mc-worldgen/ChunkStor
   ChunkStoreApi
 >() {}
 
-export const makeChunkStore = (source: ChunkSource): Effect.Effect<ChunkStoreApi> =>
+const chunksEqual = (left: Chunk, right: Chunk): boolean =>
+  left.coord.cx === right.coord.cx &&
+  left.coord.cz === right.coord.cz &&
+  left.biomes.length === right.biomes.length &&
+  left.biomes.every((biome, index) => biome === right.biomes[index]) &&
+  left.blocks.length === right.blocks.length &&
+  left.blocks.every((block, index) => block === right.blocks[index])
+
+const makeChunkStoreInternal = (
+  source: ChunkSource,
+  persistence?: ChunkPersistence,
+): Effect.Effect<ChunkStoreApi> =>
   Effect.map(Ref.make(Store.emptyChunkStoreState), (state) => {
     const drainFor = (id: Store.SubscriberId): Effect.Effect<Store.ChunkDirtyBatch> =>
       Ref.modify(state, (current) => Store.drained(current, id))
@@ -230,7 +247,8 @@ export const makeChunkStore = (source: ChunkSource): Effect.Effect<ChunkStoreApi
             return resident
           }
 
-          const generated = yield* source(coord)
+          const stored = persistence === undefined ? undefined : yield* persistence.load(coord)
+          const generated = stored !== undefined && stored._tag === 'Some' ? stored.value : yield* source(coord)
 
           // Re-check inside the modify. Generation is an Effect and may suspend,
           // so another fiber can have loaded this coordinate meanwhile; the
@@ -260,7 +278,32 @@ export const makeChunkStore = (source: ChunkSource): Effect.Effect<ChunkStoreApi
 
       neighbours: (coord) => Effect.map(Ref.get(state), (current) => Store.neighboursOf(current, coord)),
 
-      unload: (coord) => Ref.modify(state, (current) => Store.withoutChunk(current, coord)),
+      unload: (coord) => {
+        if (persistence === undefined) {
+          return Ref.modify(state, (current) => Store.withoutChunk(current, coord))
+        }
+
+        const saveUntilCurrent = (): Effect.Effect<boolean, ChunkPersistenceError> =>
+          Effect.gen(function* () {
+            const resident = Store.residentChunk(yield* Ref.get(state), coord)
+            if (resident === undefined) {
+              return false
+            }
+
+            const snapshot = Store.chunkSnapshotOf(resident)
+            yield* persistence.save(snapshot)
+
+            const removed = yield* Ref.modify(state, (current) => {
+              const latest = Store.residentChunk(current, coord)
+              return latest !== undefined && chunksEqual(latest, snapshot)
+                ? Store.withoutChunk(current, coord)
+                : ([false, current] as const)
+            })
+            return removed ? true : yield* saveUntilCurrent()
+          })
+
+        return saveUntilCurrent()
+      },
 
       getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current, position)),
 
@@ -288,14 +331,20 @@ export const makeChunkStore = (source: ChunkSource): Effect.Effect<ChunkStoreApi
     }
   })
 
+export const makeChunkStore = (source: ChunkSource): Effect.Effect<ChunkStoreApi> =>
+  makeChunkStoreInternal(source)
+
+export const makePersistentChunkStore = (
+  source: ChunkSource,
+  context: ChunkPersistenceContext,
+): Effect.Effect<ChunkStoreApi, never, StoragePort> =>
+  Effect.flatMap(makeChunkPersistence(context), (persistence) =>
+    makeChunkStoreInternal(source, persistence),
+  )
+
 /**
- * The in-memory implementation, as a `Layer`.
- *
- * "In-memory" is the whole of it today, and deliberately: persistence is
- * mc-save's toolkit applied to a format this repository defines (plan.md §3.7),
- * and mc-save is not consumable yet. When it is, the storage read composes in
- * front of `ChunkSource` and this Layer gains a parameter — no consumer of
- * `ChunkStoreApi` changes.
+ * The in-memory implementation, as a `Layer`. Use
+ * `PersistentChunkStoreLayer` when unloads must be written through mc-save.
  */
 export const ChunkStoreLayer = (source: ChunkSource): Layer.Layer<ChunkStore> =>
   Layer.effect(ChunkStore, makeChunkStore(source))
@@ -305,3 +354,16 @@ export const GeneratedChunkStoreLayer = (
   seed: number,
   options: GenerateOptions = {},
 ): Layer.Layer<ChunkStore> => ChunkStoreLayer(generatedChunkSource(seed, options))
+
+export const PersistentChunkStoreLayer = (
+  source: ChunkSource,
+  context: ChunkPersistenceContext,
+): Layer.Layer<ChunkStore, never, StoragePort> =>
+  Layer.effect(ChunkStore, makePersistentChunkStore(source, context))
+
+export const PersistentGeneratedChunkStoreLayer = (
+  seed: number,
+  context: ChunkPersistenceContext,
+  options: GenerateOptions = {},
+): Layer.Layer<ChunkStore, never, StoragePort> =>
+  PersistentChunkStoreLayer(generatedChunkSource(seed, options), context)

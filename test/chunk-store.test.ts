@@ -13,6 +13,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
+import type { ChunkPersistenceError } from '../src/application/chunk-persistence'
 import {
   ChunkStore,
   ChunkStoreLayer,
@@ -61,7 +62,9 @@ const flatSource: ChunkSource = (coord) => Effect.sync(() => flatChunk(coord, FL
 const flatWorld = ChunkStoreLayer(flatSource)
 
 /** Run an Effect against a fresh store. Each test gets its own — no singleton. */
-const withStore = <A>(body: (store: Effect.Effect.Success<typeof ChunkStore>) => Effect.Effect<A>) =>
+const withStore = <A>(
+  body: (store: Effect.Effect.Success<typeof ChunkStore>) => Effect.Effect<A, ChunkPersistenceError>,
+) =>
   Effect.flatMap(ChunkStore, body).pipe(Effect.provide(flatWorld))
 
 describe('residency', () => {

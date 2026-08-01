@@ -59,3 +59,4 @@ export * from './domain/tree-placement'
 
 // --- Application: Effect services -------------------------------------------
 export * from './application/chunk-store'
+export * from './application/chunk-persistence'
