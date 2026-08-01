@@ -20,9 +20,29 @@ export const VILLAGE_BLOCK = {
 } as const
 
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
-type House = { readonly x: number; readonly z: number }
+export type VillageVillagerProfession = 'farmer' | 'toolsmith'
+
+export type VillageVillagerSpawn = {
+  readonly id: string
+  readonly profession: VillageVillagerProfession
+  readonly villageSite: VillageSite
+  // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+  readonly x: number
+  // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+  readonly y: number
+  // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+  readonly z: number
+}
+
+// eslint-disable-next-line id-length -- x/z are canonical world axes.
+type House = { readonly x: number; readonly z: number; readonly profession: VillageVillagerProfession }
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed offsets define the compact village plan.
-const HOUSES: ReadonlyArray<House> = [{ x: -14, z: -10 }, { x: 14, z: 10 }]
+const HOUSES: ReadonlyArray<House> = [
+  // eslint-disable-next-line id-length, no-magic-numbers -- Fixed x/z offsets define the compact village plan.
+  { profession: 'farmer', x: -14, z: -10 },
+  // eslint-disable-next-line id-length, no-magic-numbers -- Fixed x/z offsets define the compact village plan.
+  { profession: 'toolsmith', x: 14, z: 10 },
+]
 const HOUSE_HALF_X = 4
 const HOUSE_HALF_Z = 3
 const HOUSE_WALL_HEIGHT = 4
@@ -39,6 +59,37 @@ const houseFloorY = (site: VillageSite, house: House, sample: VillageTerrainSamp
   // eslint-disable-next-line no-magic-numbers -- The floor sits one block above the highest ground.
   return highest + 1
 }
+
+/** One stable spawn per generated house, standing on that house's actual floor. */
+// eslint-disable-next-line id-length -- Spawn descriptors expose canonical world axes.
+export const villageVillagerSpawnsForSite = (
+  seed: number,
+  site: VillageSite,
+  sampleTerrain: VillageTerrainSampler,
+): ReadonlyArray<VillageVillagerSpawn> => HOUSES.map((house, houseIndex) => ({
+  id: `village:${String(seed)}:${String(site.x)}:${String(site.z)}:house:${String(houseIndex)}`,
+  profession: house.profession,
+  villageSite: site,
+  // eslint-disable-next-line id-length -- x is the canonical world axis.
+  x: site.x + house.x,
+  // eslint-disable-next-line id-length, no-magic-numbers -- y is the canonical axis; feet occupy air above the floor.
+  y: houseFloorY(site, house, sampleTerrain) + 1,
+  // eslint-disable-next-line id-length -- z is the canonical world axis.
+  z: site.z + house.z,
+}))
+
+/** Enumerates only the stable village spawns owned by this chunk. */
+// eslint-disable-next-line max-params -- Chunk lookup requires its seed, two coordinates and terrain sampler.
+export const villageVillagerSpawnsForChunk = (
+  seed: number,
+  chunkX: number,
+  chunkZ: number,
+  sampleTerrain: VillageTerrainSampler,
+): ReadonlyArray<VillageVillagerSpawn> => villageSitesNearChunk(seed, chunkX, chunkZ, sampleTerrain)
+  .flatMap((site) => villageVillagerSpawnsForSite(seed, site, sampleTerrain))
+  .filter((spawn) =>
+    Math.floor(spawn.x / CHUNK_SIZE_XZ) === chunkX && Math.floor(spawn.z / CHUNK_SIZE_XZ) === chunkZ,
+  )
 
 // eslint-disable-next-line max-params, max-statements -- A pure block resolver needs all three axes plus site and terrain.
 const houseBlockAt = (

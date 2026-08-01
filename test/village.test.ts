@@ -5,7 +5,7 @@ import { Effect, Option } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { getBlockAt } from '../src/domain/chunk'
 // eslint-disable-next-line sort-imports -- Domain imports follow their dependency order.
-import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
+import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { chunkCoord } from '../src/domain/kernel-vocabulary'
 // eslint-disable-next-line sort-imports -- Grouped siting types and values stay together.
 import {
@@ -15,7 +15,12 @@ import {
 } from '../src/domain/structure-siting'
 import { biomeFor, generateChunk, surfaceHeightAt } from '../src/domain/terrain'
 // eslint-disable-next-line sort-imports -- Layout assertions import the public village resolver last.
-import { VILLAGE_BLOCK, villageBlockAt } from '../src/domain/village'
+import {
+  VILLAGE_BLOCK,
+  villageBlockAt,
+  villageVillagerSpawnsForChunk,
+  villageVillagerSpawnsForSite,
+} from '../src/domain/village'
 
 const SEED = 20260726
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed accepted site is a deterministic integration fixture.
@@ -93,6 +98,66 @@ describe('village siting', () => {
 })
 
 describe('village layout and chunk integration', () => {
+  it.effect('describes one deterministic, safe villager spawn per house', () =>
+    Effect.sync(() => {
+      const spawns = villageVillagerSpawnsForSite(SEED, SITE, flatPlains)
+      expect(spawns).toStrictEqual([
+        {
+          id: 'village:20260726:-6142:-2509:house:0',
+          profession: 'farmer',
+          villageSite: SITE,
+          // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+          x: -6156,
+          // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+          y: 72,
+          // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+          z: -2519,
+        },
+        {
+          id: 'village:20260726:-6142:-2509:house:1',
+          profession: 'toolsmith',
+          villageSite: SITE,
+          // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+          x: -6128,
+          // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+          y: 72,
+          // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+          z: -2499,
+        },
+      ])
+      expect(villageVillagerSpawnsForSite(SEED, SITE, flatPlains)).toStrictEqual(spawns)
+
+      for (const spawn of spawns) {
+        // eslint-disable-next-line id-length, no-magic-numbers -- x/y/z are canonical axes; one block below is the floor.
+        expect(villageBlockAt(SITE, spawn.x, spawn.y - 1, spawn.z, flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
+        // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
+        expect(villageBlockAt(SITE, spawn.x, spawn.y, spawn.z, flatPlains)).toBe(BLOCK.AIR)
+        // eslint-disable-next-line id-length, no-magic-numbers -- x/y/z are canonical axes; one block above is headroom.
+        expect(villageBlockAt(SITE, spawn.x, spawn.y + 1, spawn.z, flatPlains)).toBe(BLOCK.AIR)
+      }
+    }),
+  )
+
+  it.effect('assigns each spawn to exactly one chunk independent of chunk load order', () =>
+    Effect.sync(() => {
+      const expected = villageVillagerSpawnsForSite(SEED, SITE, flatPlains)
+      const chunks = expected.map((spawn) => ({
+        // eslint-disable-next-line id-length -- x is the canonical world axis.
+        cx: Math.floor(spawn.x / CHUNK_SIZE_XZ),
+        // eslint-disable-next-line id-length -- z is the canonical world axis.
+        cz: Math.floor(spawn.z / CHUNK_SIZE_XZ),
+      }))
+      const forward = chunks.flatMap(({ cx, cz }) => villageVillagerSpawnsForChunk(SEED, cx, cz, flatPlains))
+      const reverse = [...chunks].reverse().flatMap(({ cx, cz }) => villageVillagerSpawnsForChunk(SEED, cx, cz, flatPlains))
+
+      expect(new Set(forward.map(({ id }) => id)).size).toBe(expected.length)
+      expect(forward.map(({ id }) => id).sort()).toStrictEqual(expected.map(({ id }) => id).sort())
+      expect(reverse.map(({ id }) => id).sort()).toStrictEqual(forward.map(({ id }) => id).sort())
+      // eslint-disable-next-line id-length, no-magic-numbers -- Negative x/z exercise floor division across chunk boundaries.
+      expect(forward.every((spawn) => spawn.x < 0 && spawn.z < 0)).toBe(true)
+    }),
+  )
+
   it.effect('builds two enclosed houses, foundations, doors and a safe road', () =>
     Effect.sync(() => {
       // eslint-disable-next-line no-magic-numbers -- Fixture height is the flat-plains surface.
@@ -120,6 +185,15 @@ describe('village layout and chunk integration', () => {
       // eslint-disable-next-line no-magic-numbers -- Region is the known real-terrain accepted fixture.
       const accepted = villageSiteForRegion(SEED, -39, -16, actualTerrain)
       expect(accepted).toStrictEqual(Option.some(SITE))
+      const actualSpawns = villageVillagerSpawnsForSite(SEED, SITE, actualTerrain)
+      for (const spawn of actualSpawns) {
+        // eslint-disable-next-line id-length, no-magic-numbers -- The actual house floor must support the spawn.
+        expect(villageBlockAt(SITE, spawn.x, spawn.y - 1, spawn.z, actualTerrain)).toBe(VILLAGE_BLOCK.TIMBER)
+        // eslint-disable-next-line id-length -- The actual spawn block must be clear.
+        expect(villageBlockAt(SITE, spawn.x, spawn.y, spawn.z, actualTerrain)).toBe(BLOCK.AIR)
+        // eslint-disable-next-line id-length, no-magic-numbers -- Actual terrain must leave headroom above the spawn.
+        expect(villageBlockAt(SITE, spawn.x, spawn.y + 1, spawn.z, actualTerrain)).toBe(BLOCK.AIR)
+      }
 
       // eslint-disable-next-line no-magic-numbers -- Chunk -385 is immediately left of the negative seam.
       const leftCoord = chunkCoord(-385, Math.floor(SITE.z / 16))
