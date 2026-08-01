@@ -31,6 +31,7 @@ export { CHUNK_FORMAT } from './domain/chunk-format'
 export * from './domain/chunk-store-state'
 export * from './domain/constants'
 export * from './domain/end-terrain'
+export * from './domain/end-portal'
 export * from './domain/kernel-vocabulary'
 export * from './domain/light'
 // `Dimension` is published from here, and that is a DECISION rather than a
