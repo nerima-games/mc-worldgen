@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome, FALLBACK_BIOME } from '../domain/biome'
-import { DEFAULT_TERRAIN_LEVELS } from '../domain/constants'
+import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome, FALLBACK_BIOME } from '../src/domain/biome'
+import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import {
   cellOf,
   shouldPlaceTree,
@@ -11,7 +11,7 @@ import {
   TREE_GRID_AREA,
   TREE_GRID_SIZE,
   TREE_MIN_SPACING,
-} from '../domain/tree-placement'
+} from '../src/domain/tree-placement'
 
 describe('classifyBiome', () => {
   it.effect('is total: every climate in the unit square maps to a biome', () =>

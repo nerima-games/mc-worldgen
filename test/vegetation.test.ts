@@ -21,10 +21,10 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOMES, BIOME_SURFACES, BLOCK, type BiomeType } from '../domain/biome'
-import { columnIndex, readBlock, type Chunk } from '../domain/chunk'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { generateChunkAt } from '../domain/terrain'
+import { BIOMES, BIOME_SURFACES, BLOCK, type BiomeType } from '../src/domain/biome'
+import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { generateChunkAt } from '../src/domain/terrain'
 import {
   GROUND_PLANT_DENSITY,
   PLANT,
@@ -34,7 +34,7 @@ import {
   groundPlantAt,
   plantRoll,
   shouldPlaceGroundPlant,
-} from '../domain/vegetation'
+} from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 
 const PLANT_ID_SET = new Set<number>(PLANT_IDS)

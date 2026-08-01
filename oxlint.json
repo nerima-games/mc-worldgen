@@ -3,14 +3,17 @@
   // oxlint is the ONLY lint/format configuration in this repository.
   // There is deliberately no prettier, no biome and no .editorconfig.
   //
-  // NOTE on the `Date.now()` ban (see README 現状 / scripts/check-dependency-whitelist.ts):
-  // oxlint 0.12 does not implement `no-restricted-syntax` or `no-restricted-properties`,
-  // and while `no-restricted-globals` is listed by `oxlint --rules` it is not implemented
-  // either (no checkmark). Verified empirically against oxlint 0.12.0: a file containing
-  // `Date.now()` produces 0 diagnostics under all three rules. The ban is therefore
-  // enforced by `pnpm check:deps` (scripts/check-dependency-whitelist.ts) instead.
-  // When oxlint gains `no-restricted-syntax`, move the ban here and delete the script's
-  // time-source section.
+  // NOTE on the `Date.now()` ban: oxlint 0.12 does not implement
+  // `no-restricted-syntax` or `no-restricted-properties`, and while
+  // `no-restricted-globals` is listed by `oxlint --rules` it is not implemented
+  // either (no checkmark). Verified empirically against oxlint 0.12.0: a file
+  // containing `Date.now()` produces 0 diagnostics under all three rules.
+  // `scripts/check-dependency-whitelist.ts`, which used to enforce this ban, was
+  // removed org-wide in favour of `no-restricted-imports` below
+  // (DEPENDENCY_POLICY.md §5); the org standard leaves a replacement
+  // time-source check to each repository's discretion rather than requiring
+  // one, so this repository currently has no active enforcement of the ban.
+  // When oxlint gains `no-restricted-syntax`, move the ban here.
   "env": {
     "es2022": true,
     "node": true
@@ -127,7 +130,7 @@
     "default-case-last": "warn",
     "no-empty-character-class": "warn",
     // Declared for intent and for the day oxlint implements it; inert in 0.12.
-    // The real enforcement lives in scripts/check-dependency-whitelist.ts.
+    // No script currently enforces this (see the Date.now() note above).
     "no-restricted-globals": ["warn", "name", "open", "close", "event"],
     "no-restricted-imports": [
       "warn",
@@ -135,6 +138,19 @@
         "name": "effect",
         "message": "Please use named imports from 'effect' package",
         "importNames": ["default"]
+      },
+      {
+        // mc-worldgen is Tier2 (DEPENDENCY_POLICY.md §1) and may depend only on
+        // mc-noise, mc-save, and the universally-importable mc-kernel. This
+        // covers every other @nerima-games/* package in the org, including the
+        // Tier2 siblings (mc-sim, mc-render, mc-playground-kit) and all of
+        // Tier3/Tier4 — Tier2 must not depend laterally or upward.
+        "patterns": [
+          {
+            "regex": "^@nerima-games/(mc-meshing|mc-physics|mc-audio|mc-sim|mc-render|mc-playground-kit|mx-gameplay|mx-redstone|mx-ui|mx-multiplayer|mc-compose|mc-dev-meta)(/.*)?$",
+            "message": "mc-worldgen (Tier2, DEPENDENCY_POLICY.md) may depend only on mc-noise, mc-save, and mc-kernel. Propose a graph change (DEPENDENCY_POLICY.md §6) before adding this import."
+          }
+        ]
       }
     ],
     "prefer-template": "warn",

@@ -61,7 +61,7 @@ import {
   worldX,
   worldZ,
   type ChunkCoord,
-} from '../index'
+} from '../src/index'
 import {
   checkGuards,
   checkWorkloads,

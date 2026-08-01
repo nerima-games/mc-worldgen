@@ -84,13 +84,13 @@
  */
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { BIOMES, BLOCK, type BiomeType } from '../domain/biome'
-import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../domain/carver'
-import { columnIndex, readBlock, type Chunk } from '../domain/chunk'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, SEA_LEVEL } from '../domain/constants'
-import { ORE_BLOCK } from '../domain/ore'
-import { generateChunkAt } from '../domain/terrain'
-import { PLANT } from '../domain/vegetation'
+import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
+import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../src/domain/carver'
+import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, SEA_LEVEL } from '../src/domain/constants'
+import { ORE_BLOCK } from '../src/domain/ore'
+import { generateChunkAt } from '../src/domain/terrain'
+import { PLANT } from '../src/domain/vegetation'
 
 /**
  * The seed every golden is taken at.

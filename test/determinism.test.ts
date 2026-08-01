@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { chunkCoord } from '../domain/kernel-vocabulary'
-import { CHUNK_VOLUME } from '../domain/constants'
-import { generateChunk, generateChunkAt, surfaceHeightAt } from '../domain/terrain'
+import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { CHUNK_VOLUME } from '../src/domain/constants'
+import { generateChunk, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
 
 /**
  * ---------------------------------------------------------------------------

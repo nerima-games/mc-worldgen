@@ -19,10 +19,10 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../application/chunk-store'
-import { BLOCK } from '../domain/biome'
-import { emptyBlocks, type Chunk } from '../domain/chunk'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
+import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
+import { BLOCK } from '../src/domain/biome'
+import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   computeChunkLight,
   emptyChunkLight,
@@ -34,8 +34,8 @@ import {
   unpackX,
   unpackY,
   unpackZ,
-} from '../domain/light'
-import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '../domain/kernel-vocabulary'
+} from '../src/domain/light'
+import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // Block ids kernel names and `domain/biome.ts`'s `BLOCK` does not.

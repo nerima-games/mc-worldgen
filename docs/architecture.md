@@ -74,21 +74,23 @@ graph BT
   style worldgen fill:#1b4332,color:#fff
 ```
 
-このグラフは `scripts/check-dependency-whitelist.ts` の `REPOSITORY_POLICY.dependencyGraph`
-に**そのまま**記述されており、CI で機械的に強制される。
-図とコードが食い違ったらコードが正である（図のほうを直すこと）。
+このグラフはこのリポジトリの `oxlint.json` の `no-restricted-imports`
+（DEPENDENCY_POLICY.md §5）が実効機構を担う。旧 `scripts/check-dependency-whitelist.ts`
+（16 リポジトリに逐語的コピーされていた `REPOSITORY_POLICY.dependencyGraph` 定数）は
+org 標準の移行に伴い廃止された。図とコードが食い違ったらコードが正である
+（図のほうを直すこと）。
 
 ### 強制されるルール
 
 | ルール | 内容 |
 | --- | --- |
-| ハード失敗 | 違反があれば CI は非ゼロ終了する。警告で済ませない |
+| ハード失敗 | 違反があれば CI は非ゼロ終了する。警告で済ませない（**現状の既知の限界**: `oxlint.json` の `no-restricted-imports` は 2026-08-01 時点でこのリポジトリが使う oxlint 1.76.0 では実際には発火しないことを確認済み。宣言的な意図表明として残しつつ、実効性は別途フォローアップが必要） |
 | 循環禁止 | 例外リスト（「co-evolution ペア」等）を設けない |
 | **推移閉包の禁止** | A→B、B→C のとき A は C を import できない。依存は直接依存のみが import 許可を意味する |
 | kernel は例外 | mc-kernel はどこからでも import 可（ただし `package.json` への記載は必要） |
 | 宣言と実体の一致 | import する `@nerima-games/*` は `package.json` に無ければ違反 |
 | kit は devDependency 専用 | `dependencies` に入れたら CI fail |
-| `Date.now()` 禁止 | 時刻は注入された Clock Port から取得する |
+| `Date.now()` 禁止 | 時刻は注入された Clock Port から取得する（現状、これを強制するスクリプトは無い。DEPENDENCY_POLICY.md/PACKAGE_STANDARD.md により org 標準としては要求されない） |
 
 ## 3. mc-worldgen の位置
 
@@ -187,8 +189,12 @@ kit は「ミニ世界 + カメラ + レンダラ + 入力を 1 秒で束ねる�
 実行時入力サービスを所有するのは **mc-render** であって kit ではない。
 
 kit を `dependencies` に入れると出荷ビルドから入力処理が消える。
-`scripts/check-dependency-whitelist.ts` が
-`dev-only-package-in-dependencies` として**必ず失敗**させる。
+旧 `scripts/check-dependency-whitelist.ts` はこれを
+`dev-only-package-in-dependencies` として**必ず失敗**させていた。この
+スクリプトは廃止済みで、現在は `oxlint.json` の `no-restricted-imports`
+（DEPENDENCY_POLICY.md §3）がこの役割を引き継ぐ設計だが、mc-worldgen は
+Tier2 のため kit（同じ Tier2）はそもそも自リポジトリの禁止パターンに
+含めている。
 
 **注意**: kit は mc-worldgen に依存している（`kit --> worldgen`）。
 つまり mc-worldgen が kit を使うと循環する。

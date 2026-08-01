@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
-import { CHUNK_FORMAT as DOMAIN_CHUNK_FORMAT } from '../domain/chunk-format'
-import * as worldgen from '../index'
+import { CHUNK_FORMAT as DOMAIN_CHUNK_FORMAT } from '../src/domain/chunk-format'
+import * as worldgen from '../src/index'
 
 describe('public API surface', () => {
   it('publishes the chunk persistence format from the package root', () => {

@@ -53,7 +53,7 @@ import {
   type Migration,
   type SaveEnvelope,
   type SaveFormat,
-} from '../domain/save-format-port'
+} from '../src/domain/save-format-port'
 
 /** A format whose encoded form differs from its decoded form, so a round trip can fail. */
 const ProbeSchema = Schema.Struct({ label: Schema.String, at: Schema.DateFromNumber })
@@ -286,7 +286,7 @@ describe('the mirror’s SURFACE is pinned, because that is what repoint day rep
     //
     // `isFromFuture` and `migrateToCurrent` are transcribed but NOT exported,
     // and their absence from this list is the assertion of that.
-    const module: Record<string, unknown> = await import('../domain/save-format-port')
+    const module: Record<string, unknown> = await import('../src/domain/save-format-port')
 
     expect(Object.keys(module).sort()).toStrictEqual([
       'FIRST_VERSION',

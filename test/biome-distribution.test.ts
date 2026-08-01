@@ -90,9 +90,9 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOMES, type BiomeType } from '../domain/biome'
-import { DEFAULT_TERRAIN_LEVELS } from '../domain/constants'
-import { biomeFor, surfaceHeightAt } from '../domain/terrain'
+import { BIOMES, type BiomeType } from '../src/domain/biome'
+import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
+import { biomeFor, surfaceHeightAt } from '../src/domain/terrain'
 
 /**
  * Wavelengths of the three fields biome selection reads, as written in

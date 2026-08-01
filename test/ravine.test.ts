@@ -33,8 +33,8 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK, type BiomeType } from '../domain/biome'
-import { columnIndex, readBlock } from '../domain/chunk'
+import { BLOCK, type BiomeType } from '../src/domain/biome'
+import { columnIndex, readBlock } from '../src/domain/chunk'
 import {
   BEDROCK_Y,
   blockIndex,
@@ -42,8 +42,8 @@ import {
   CHUNK_SIZE_XZ,
   DEFAULT_TERRAIN_LEVELS,
   SEA_LEVEL,
-} from '../domain/constants'
-import { chunkCoord } from '../domain/kernel-vocabulary'
+} from '../src/domain/constants'
+import { chunkCoord } from '../src/domain/kernel-vocabulary'
 import {
   carveRavines,
   clearGroundCover,
@@ -54,9 +54,9 @@ import {
   RAVINE_HALF_WIDTH,
   RAVINE_MAX_DEPTH,
   RAVINE_MIN_DEPTH,
-} from '../domain/ravine'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from '../domain/terrain'
-import { PLANT_IDS } from '../domain/vegetation'
+} from '../src/domain/ravine'
+import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { PLANT_IDS } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 
 /** The chunk the eleventh golden row pins: 205 of 256 columns carved. */

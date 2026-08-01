@@ -43,26 +43,26 @@
  * here that turns out to pin a real invariant belongs in `test/`, where it can
  * fail the build.
  */
-import type { BiomeType } from '../../domain/biome'
-import { BIOMES, BLOCK } from '../../domain/biome'
-import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../../domain/carver'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../../domain/constants'
-import { readBlock } from '../../domain/chunk'
+import type { BiomeType } from '../../src/domain/biome'
+import { BIOMES, BLOCK } from '../../src/domain/biome'
+import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../../src/domain/carver'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../../src/domain/constants'
+import { readBlock } from '../../src/domain/chunk'
 import {
   ravineFloorY,
   RAVINE_HALF_WIDTH,
   RAVINE_MAX_DEPTH,
   RAVINE_NOISE_SCALE,
-} from '../../domain/ravine'
+} from '../../src/domain/ravine'
 import {
   climateAt,
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
   MIN_SURFACE_Y,
   surfaceHeightAt,
-} from '../../domain/terrain'
-import { channelSeed, fbm2D } from '../../domain/seeded-random'
-import { TREE_CROWN_RADIUS, TREE_GRID_SIZE, TREE_MIN_SPACING } from '../../domain/tree-placement'
+} from '../../src/domain/terrain'
+import { channelSeed, fbm2D } from '../../src/domain/seeded-random'
+import { TREE_CROWN_RADIUS, TREE_GRID_SIZE, TREE_MIN_SPACING } from '../../src/domain/tree-placement'
 import { chunkFor, sampleColumn, type ChunkCache, type WorldParams } from './sampler'
 
 export type StatsOptions = {

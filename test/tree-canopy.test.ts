@@ -1,15 +1,15 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { generateChunkAt } from '../domain/terrain'
+import { BLOCK } from '../src/domain/biome'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { generateChunkAt } from '../src/domain/terrain'
 import {
   TREE_CELL_JITTER_ORIGIN,
   TREE_CELL_JITTER_SPAN,
   TREE_CROWN_RADIUS,
   TREE_GRID_SIZE,
   TREE_MIN_SPACING,
-} from '../domain/tree-placement'
+} from '../src/domain/tree-placement'
 
 /**
  * ---------------------------------------------------------------------------

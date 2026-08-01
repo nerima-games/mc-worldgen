@@ -49,23 +49,23 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOMES } from '../domain/biome'
+import { BIOMES } from '../src/domain/biome'
 import {
   CHUNK_BIOME_COUNT,
   CHUNK_FORMAT,
   CHUNK_FORMAT_NAME,
   type ChunkEncoded,
-} from '../domain/chunk-format'
-import { CHUNK_VOLUME } from '../domain/constants'
-import { chunkCoord } from '../domain/kernel-vocabulary'
+} from '../src/domain/chunk-format'
+import { CHUNK_VOLUME } from '../src/domain/constants'
+import { chunkCoord } from '../src/domain/kernel-vocabulary'
 import {
   decodeSave,
   encodeSave,
   saveEnvelope,
   validateMigrationChain,
   type SaveEnvelope,
-} from '../domain/save-format-port'
-import { generateChunk } from '../domain/terrain'
+} from '../src/domain/save-format-port'
+import { generateChunk } from '../src/domain/terrain'
 
 const SEED = 20260728
 
