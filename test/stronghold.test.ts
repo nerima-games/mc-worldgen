@@ -4,15 +4,18 @@ import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { detectCompletedEndPortal, endPortalCenterForStronghold } from '../src/domain/end-portal'
 import {
   STRONGHOLD_BLOCK,
   STRONGHOLD_CEILING_Y,
   STRONGHOLD_SHELL_HALF_EXTENT,
+  generateStrongholdPlan,
   strongholdBlockAt,
 } from '../src/domain/stronghold'
 import {
   STRONGHOLD_FLOOR_Y,
   nearestStrongholdSite,
+  locateStronghold,
   type StrongholdSite,
 } from '../src/domain/structure-siting'
 import { generateChunk } from '../src/domain/terrain'
@@ -89,6 +92,14 @@ describe('stronghold chunk generation', () => {
       const minChunkZ = Math.floor((site.z - STRONGHOLD_SHELL_HALF_EXTENT) / CHUNK_SIZE_XZ)
       const maxChunkZ = Math.floor((site.z + STRONGHOLD_SHELL_HALF_EXTENT) / CHUNK_SIZE_XZ)
       const chunks = new Map<string, ReturnType<typeof generateChunk>>()
+      const plan = generateStrongholdPlan(GOLDEN_SEED, site)
+      expect(plan).toBeDefined()
+      const plannedBlocks = new Map(
+        plan?.mutations.map((mutation) => [
+          `${String(mutation.x)},${String(mutation.y)},${String(mutation.z)}`,
+          mutation.block,
+        ]),
+      )
 
       for (let cx = minChunkX; cx <= maxChunkX; cx += 1) {
         for (let cz = minChunkZ; cz <= maxChunkZ; cz += 1) {
@@ -108,7 +119,7 @@ describe('stronghold chunk generation', () => {
           const lz = wz - cz * CHUNK_SIZE_XZ
           for (let y = STRONGHOLD_FLOOR_Y; y <= STRONGHOLD_CEILING_Y; y += 1) {
             expect(readBlock(chunk.blocks, blockIndex(lx, y, lz))).toBe(
-              strongholdBlockAt(site, wx, y, wz),
+              plannedBlocks.get(`${String(wx)},${String(y)},${String(wz)}`),
             )
           }
         }
@@ -135,4 +146,42 @@ describe('stronghold chunk generation', () => {
       expect(readBlock(bare.blocks, blockIndex(lx, STRONGHOLD_FLOOR_Y + 1, lz))).toBe(BLOCK.AIR)
     }),
   )
+})
+
+describe('stronghold plan', () => {
+  it.effect('is deterministic, unique, complete, and overworld-only', () => Effect.sync(() => {
+    const site = requiredSite()
+    const first = generateStrongholdPlan(GOLDEN_SEED, site)
+    const second = generateStrongholdPlan(GOLDEN_SEED, site)
+    expect(first).toEqual(second)
+    expect(first?.pieces.map((piece) => piece.kind)).toEqual(['portal-room', 'corridor', 'stair', 'library'])
+    expect(first?.frames).toHaveLength(12)
+    expect(new Set(first?.mutations.map((mutation) => `${mutation.x},${mutation.y},${mutation.z}`)).size).toBe(first?.mutations.length)
+    expect(first?.frames.every((frame) => frame.eye === (frame.block === STRONGHOLD_BLOCK.END_PORTAL_FRAME_FILLED))).toBe(true)
+    expect(generateStrongholdPlan(GOLDEN_SEED, site, 'end')).toBeUndefined()
+  }))
+
+  it.effect('locates multiple ordered candidates and changes with the seed', () => Effect.sync(() => {
+    const first = locateStronghold(GOLDEN_SEED, { x: 0, z: 0 }, 4)
+    const repeated = locateStronghold(GOLDEN_SEED, { x: 0, z: 0 }, 4)
+    const other = locateStronghold(GOLDEN_SEED + 1, { x: 0, z: 0 }, 4)
+    expect(first).toHaveLength(4)
+    expect(first).toEqual(repeated)
+    expect(other).not.toEqual(first)
+  }))
+
+  it.effect('publishes inward frame metadata accepted by the portal validator', () => Effect.sync(() => {
+    const site = requiredSite()
+    const plan = generateStrongholdPlan(GOLDEN_SEED, site)
+    const states = new Map(plan?.frames.map((frame) => [
+      `${frame.x},${frame.y},${frame.z}`,
+      { block: STRONGHOLD_BLOCK.END_PORTAL_FRAME_FILLED, facing: frame.facing },
+    ]))
+    const completed = detectCompletedEndPortal(
+      (x, y, z) => states.get(`${x},${y},${z}`),
+      'overworld',
+      endPortalCenterForStronghold(site),
+    )
+    expect(Option.isSome(completed)).toBe(true)
+  }))
 })

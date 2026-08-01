@@ -71,6 +71,32 @@ export type StrongholdSite = {
   readonly z: number
 }
 
+export type StrongholdOrigin = { readonly x: number; readonly z: number }
+
+/** Returns the nearest deterministic candidates, ordered by distance then coordinate. */
+export const locateStronghold = (
+  seed: number,
+  origin: StrongholdOrigin,
+  limit = 3,
+): ReadonlyArray<StrongholdSite> => {
+  const regionX = floorDiv(origin.x, STRONGHOLD_REGION_SIZE)
+  const regionZ = floorDiv(origin.z, STRONGHOLD_REGION_SIZE)
+  const sites: StrongholdSite[] = []
+  for (let dx = -STRONGHOLD_SEARCH_RADIUS; dx <= STRONGHOLD_SEARCH_RADIUS; dx += 1) {
+    for (let dz = -STRONGHOLD_SEARCH_RADIUS; dz <= STRONGHOLD_SEARCH_RADIUS; dz += 1) {
+      const candidate = strongholdSiteForRegion(seed, regionX + dx, regionZ + dz)
+      if (Option.isSome(candidate)) sites.push(candidate.value)
+    }
+  }
+  return sites
+    .sort((left, right) => {
+      const leftDistance = (left.x - origin.x) ** 2 + (left.z - origin.z) ** 2
+      const rightDistance = (right.x - origin.x) ** 2 + (right.z - origin.z) ** 2
+      return leftDistance - rightDistance || left.x - right.x || left.z - right.z
+    })
+    .slice(0, Math.max(0, limit))
+}
+
 export const VILLAGE_REGION_SIZE = 160
 export const VILLAGE_REGION_SPAWN_PERMILLE = 120
 export const VILLAGE_SITE_MARGIN = 32
