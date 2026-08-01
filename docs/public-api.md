@@ -636,3 +636,28 @@ packPosLevel = (x, y, z, lvl) => (x << 13) | (z << 9) | y | (lvl << 17)
 
 なお `no-bitwise` は mc-worldgen の `.oxlintrc.json` でのみ `off` にしてある。
 シード PRNG とこのライトパックの両方が bit 演算を必要とするためで、理由はそこに書いてある。
+
+---
+
+## 9. 自然構造プラン
+
+村、ruined Nether portal、End city / ship は、ロード済みチャンクの状態に依存しない
+immutable な `NaturalStructurePlan` として公開する。
+
+```typescript
+planVillageForRegion(seed, regionX, regionZ, sampleTerrain)
+planRuinedNetherPortalForRegion(seed, regionX, regionZ, sampleTerrain)
+planEndCityForRegion(seed, regionX, regionZ, sampleTerrain?)
+naturalStructureSliceForChunk(plan, chunkX, chunkZ)
+```
+
+各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
+バイオーム、起伏、headroom、外縁島の有無を検査する。不適合なら `Option.none()`、適合すれば
+固定された dimension、bounds、registry block ID の配置、semantic marker を持つ plan を返す。
+marker は loot table、villager spawn、shulker spawner、欠損 portal frame、End ship といった
+ブロック配列だけでは失われる意味を downstream へ渡す。
+
+`naturalStructureSliceForChunk` は plan をワールド座標のままチャンク単位へ分割する。
+隣接チャンクを読まず、plan も変更しないため、負座標、未ロードの隣接チャンク、任意のロード順で
+同じ結果になる。村 plan は Overworld chunk generator と同じサイト・レイアウトを使う。
+Nether / End で slice を chunk data と entity / loot subsystem へ適用する責務は consumer 側にある。

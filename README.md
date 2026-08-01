@@ -176,8 +176,11 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   **渓谷カーバー（`domain/ravine.ts`）** — 2 層の水ガードごと。
   帯幅 `RAVINE_HALF_WIDTH` は参照実装から転記する前に実測している
   （帯幅は分布についての主張なので可搬ではない。[docs/responsibility.md](./docs/responsibility.md) §1-6）
-- **未実装**: 村（**参照実装に出典が無い**）、自然生成 Nether portal、
-  End 構造物、チャンク永続化、ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
+- ✅ **自然構造プランは実装済み** — `domain/natural-structure.ts` が村、ruined Nether portal、
+  End city / ship をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
+  semantic marker をチャンク別に投影する。村は Overworld chunk generator と同じレイアウトを使う。
+- **未実装**: 自然構造プランの Nether / End chunk generator への適用、チャンク永続化、
+  ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
   チャンクフォーマット定義（mc-save が未 publish で**ブロック中**）。
   内訳と根拠は [docs/responsibility.md](./docs/responsibility.md) §1-1
 - **End 地形**: `generateEndChunk` が中央島、虚空リング、シード依存の外縁島を生成

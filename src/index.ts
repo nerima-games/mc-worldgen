@@ -34,6 +34,7 @@ export * from './domain/end-terrain'
 export * from './domain/end-portal'
 export * from './domain/kernel-vocabulary'
 export * from './domain/light'
+export * from './domain/natural-structure'
 // `Dimension` is published from here, and that is a DECISION rather than a
 // widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
 // deliberately kept it off this barrel so that no consumer could depend on the

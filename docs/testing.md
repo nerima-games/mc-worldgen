@@ -289,7 +289,8 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 正直に書いておく。
 
 - **山脈のシルエット・洞窟内部の眺め**（上記のとおり 3D ではないため）
-- **村・End 構造物・自然生成 Nether portal** — 要塞の石室は生成済み。渓谷・草花・鉱石・ライトグリッドも実装済み
+- **自然構造の描画** — 村・ruined Nether portal・End city / ship の immutable plan と
+  チャンク別投影は実装済みだが、このプレビューは plan を地形へオーバーレイしない
 - **ポータルは生成されたものではない** — 上記のとおりオーバーレイである。
   「この世界にポータルがある」ことは示していない。示しているのは**ルールの挙動**だけである
 - **チャンク境界をまたぐ樹冠** — `plantTree` は隣チャンクのバッファを持たない。
@@ -322,7 +323,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 4. **ワーカープールのパリティテストが green**
    — Worker の出力がメインスレッドとバイト一致すること。
    参照実装の `terrain-worker-pool.parity.property.test.ts`（124 LOC）の移植
-5. ~~カーバー（洞窟 + 渓谷）・植生・鉱石・要塞・ライトグリッド・`ChunkManager`~~ が実装済み（残る構造物は村・End・自然生成 Nether portal）
+5. ~~カーバー（洞窟 + 渓谷）・植生・鉱石・要塞・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship の自然構造プラン~~ が実装済み
 6. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
    （現在の `domain/seeded-random.ts` `domain/chunk.ts` `domain/biome.ts` の `BLOCK` は仮置き）
 7. バイオーム分布の統計テストが green ✅

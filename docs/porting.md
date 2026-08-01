@@ -134,7 +134,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | LOC | パス | 状態 |
 | ---: | --- | --- |
 | 174 | `packages/world/domain/terrain/stronghold.ts` | ✅ サイト決定 → `domain/structure-siting.ts`、13×13 石室生成 → `domain/stronghold.ts` |
-| — | **村** | ⬜ **参照実装に存在しない**。実測: `packages/world` の「village」4 箇所は全て作物のコメント + Mob 名。移植ではなく新規設計 |
+| — | **村** | ✅ 参照実装に存在しないため新規設計。`domain/village.ts` と `domain/natural-structure.ts` が生成・immutable plan を担当 |
 
 | LOC | パス |
 | ---: | --- |
