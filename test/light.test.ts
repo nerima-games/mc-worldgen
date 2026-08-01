@@ -6,11 +6,8 @@
  * before any of it was written. Three of them are checked here by name —
  * the nibble round trip, the `packPosLevel` round trip, and the boundary
  * behaviour — and the fourth (`removing a light source restores the levels that
- * existed before it`) is checked in the only form this cut can honestly claim:
- * the whole-chunk recompute reaches the right answer, which is the ORACLE the
- * two-queue incremental engine will later have to agree with. See
- * `domain/light.ts`'s header on why the incremental half is deliberately not
- * here yet.
+ * existed before it`) is checked both directly and by comparing every
+ * incremental edit with a complete multi-chunk recomputation.
  *
  * The store half of the file is about one property and it is the load-bearing
  * one: `application/chunk-store.ts` argues that the block write path belongs in
@@ -21,7 +18,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
-import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { emptyBlocks, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   computeChunkLight,
@@ -35,6 +32,7 @@ import {
   unpackX,
   unpackY,
   unpackZ,
+  updateChunkLights,
 } from '../src/domain/light'
 import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
 
@@ -529,6 +527,63 @@ describe('block light', () => {
       const lights = computeChunkLights(new Map([['right', right], ['left', left]]))
       expect(getLightAt(lights.get('right')!.block, blockIndex(0, y, 8))).toBe(13)
       expect(getLightAt(lights.get('right')!.block, blockIndex(1, y, 8))).toBe(12)
+    }),
+  )
+
+  it.effect('incremental edits match a full recompute across three resident chunks', () =>
+    Effect.sync(() => {
+      const left = sealedRoom(chunkCoord(-1, 0))
+      const centre = sealedRoom(chunkCoord(0, 0))
+      const right = sealedRoom(chunkCoord(1, 0))
+      const loaded = new Map([
+        ['left', left],
+        ['centre', centre],
+        ['right', right],
+      ])
+      const y = SURFACE_Y + 1
+      const roofY = SURFACE_Y + 2
+      let incremental = computeChunkLights(loaded)
+
+      const expectFullRecompute = (): void => {
+        const full = computeChunkLights(loaded)
+        for (const key of loaded.keys()) {
+          expect(incremental.get(key)?.sky).toStrictEqual(full.get(key)?.sky)
+          expect(incremental.get(key)?.block).toStrictEqual(full.get(key)?.block)
+        }
+      }
+
+      const edit = (
+        chunk: Chunk,
+        x: number,
+        editY: number,
+        z: number,
+        block: BlockId,
+      ): void => {
+        setBlockAt(chunk.blocks, x, editY, z, block)
+        incremental = updateChunkLights(loaded, incremental, [
+          { coord: chunk.coord, x, y: editY, z },
+        ])
+        expectFullRecompute()
+      }
+
+      edit(centre, 15, y, 8, TORCH)
+      expect(getLightAt(incremental.get('right')!.block, blockIndex(0, y, 8))).toBe(13)
+
+      edit(right, 0, y, 8, BLOCK.STONE)
+      expect(getLightAt(incremental.get('right')!.block, blockIndex(0, y, 8))).toBe(0)
+      edit(right, 0, y, 8, BLOCK.AIR)
+      expect(getLightAt(incremental.get('right')!.block, blockIndex(0, y, 8))).toBe(13)
+
+      edit(left, 15, y, 8, TORCH)
+      edit(centre, 15, y, 8, BLOCK.AIR)
+      expect(getLightAt(incremental.get('centre')!.block, blockIndex(0, y, 8))).toBe(13)
+      edit(left, 15, y, 8, BLOCK.AIR)
+      expect(getLightAt(incremental.get('centre')!.block, blockIndex(0, y, 8))).toBe(0)
+
+      edit(centre, 15, roofY, 8, BLOCK.AIR)
+      expect(getLightAt(incremental.get('right')!.sky, blockIndex(0, y, 8))).toBe(14)
+      edit(centre, 15, roofY, 8, BLOCK.STONE)
+      expect(getLightAt(incremental.get('right')!.sky, blockIndex(0, y, 8))).toBe(0)
     }),
   )
 })

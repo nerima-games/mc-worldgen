@@ -34,7 +34,7 @@
  */
 import { getBlockAt, setBlockAt, type Chunk } from './chunk'
 import { blockIndex, CHUNK_HEIGHT } from './constants'
-import { computeChunkLights, getLightAt, type ChunkLight } from './light'
+import { computeChunkLights, getLightAt, updateChunkLights, type ChunkLight } from './light'
 import {
   BlockId,
   chunkCoord,
@@ -261,31 +261,17 @@ export const emptyChunkStoreState: ChunkStoreState = {
 }
 
 /**
- * Forget one chunk's light. THE WHOLE OF INVALIDATION, and it is O(1).
+ * Forget one chunk's light when the cache is cold or incomplete.
  *
  * -------------------------------------------------------------------------
- * Lazy, not eager, and here is the number
+ * Cold-cache fallback
  * -------------------------------------------------------------------------
  *
- * The alternative is to relight on the spot inside `withBlockAt`. It was
- * rejected on a measurement rather than a preference: `computeChunkLight` reads
- * `CHUNK_VOLUME` = 65,536 cells twice and then walks the lit volume, and
- * mx-gameplay's `FALLING_BLOCK_MOVES_PER_TICK` is 32. Eager recompute would
- * therefore cost upwards of four million cell visits per tick to service a
- * column of falling sand — which is DN-GP-1's mistake exactly, the reference's
- * ~7M block reads per maintenance tick that plan.md §3.11 records as ~40% of the
- * main thread.
- *
- * Dropping the entry costs one `Map` delete. N writes to one chunk followed by
- * one light read cost ONE relight rather than N, and a chunk nobody asks about
- * is never lit at all — so a world being mined by a player who is not looking at
- * the sky pays nothing.
- *
- * What the caller pays instead is a LATENCY SPIKE on the first `getLight` after
- * a write: one whole-chunk relight, on the frame that asked. That is acceptable
- * because the only consumer today is a spawn search that runs on a cadence
- * (the reference's is every 0.3s) rather than per frame per cell, and it is the
- * exact cost the incremental two-queue engine in `./light`'s header removes.
+ * A complete warm cache is updated by `updateChunkLights` in `withBlockAt`.
+ * Until the first light read, or while chunk load/unload has made the cache
+ * partial, dropping entries preserves the lazy property: a world nobody asks
+ * about pays no lighting cost. The next read rebuilds one mutually consistent
+ * set with `computeChunkLights`.
  *
  * Returns the SAME map when there was nothing to forget, so a write to a chunk
  * whose light was never computed allocates nothing.
@@ -354,6 +340,9 @@ const withoutLights = (
   for (const key of keys) next.delete(key)
   return next
 }
+
+const hasCompleteLightCache = (state: ChunkStoreState): boolean =>
+  state.lights.size === state.loaded.size && [...state.loaded.keys()].every((key) => state.lights.has(key))
 
 /** Mark resident neighbours whose exposed boundary faces changed. */
 const noteLoadedNeighbours = (
@@ -490,6 +479,12 @@ export const withBlockAt = (
 
   setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
 
+  const lights = hasCompleteLightCache(state)
+    ? updateChunkLights(state.loaded, state.lights, [
+        { coord, x: local.lx, y: local.ly, z: local.lz },
+      ])
+    : undefined
+
   const lightKeys = [key]
   if (local.lx === 0) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx - 1, coord.cz)))
   if (local.lx === 15) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx + 1, coord.cz)))
@@ -500,19 +495,16 @@ export const withBlockAt = (
     { _tag: 'Written', previous, chunk: coord },
     {
       loaded: state.loaded,
-      // THE INVALIDATION `application/chunk-store.ts`'s HEADER IS AN ARGUMENT
-      // ABOUT. That header settles the whole block-write path in this repository
-      // partly on the grounds that 「a block write invalidates light」; a write
-      // that left the grid standing would make the sentence false and would hand
-      // the next `getLight` the brightness of a wall that has just been mined
-      // through.
+      // A complete cache is reconciled immediately by the local fixed-point
+      // queue. A cold or partial cache keeps the lazy invalidation path; the
+      // next read rebuilds every resident grid together, including seams.
       //
       // It hangs off the `Written` branch and not off the function, which is the
       // same rule the dirty channel follows two lines down: `Unchanged` re-places
       // the block that was already there, so the light it would recompute is the
       // light that is already cached. Invalidating there would relight a chunk
       // every tick for a fluid re-asserting its own level.
-      lights: withoutLights(state.lights, lightKeys),
+      lights: lights ?? withoutLights(state.lights, lightKeys),
       subscribers: noteChange(state.subscribers, key, 'changed'),
       nextSubscriberId: state.nextSubscriberId,
     },
