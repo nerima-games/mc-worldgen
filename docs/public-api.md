@@ -92,14 +92,22 @@ export type Chunk = {
 
 export const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions) => Chunk
 export const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => Chunk
-export const generateEndChunk: (seed: number, coord: ChunkCoord) => Chunk
-export const generateEndChunkAt: (seed: number, x: number, z: number) => Chunk
+export const generateEndTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
+export const generateEndChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
+export const generateEndChunkAt: (seed: number, x: number, z: number) => NaturalStructureChunk
 export const endSurfaceHeightAt: (seed: number, wx: number, wz: number) => number | undefined
+export const generateNetherTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
+export const generateNetherChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
+export const generateNetherChunkAt: (seed: number, x: number, z: number) => NaturalStructureChunk
+export const netherBlockAt: (seed: number, x: number, y: number, z: number) => BlockId
+export const netherStructureTerrainAt: (seed: number, x: number, z: number) => NetherStructureTerrainSample
 ```
 
 `domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
-End の3関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
-シード依存の外縁島を絶対ワールド座標から生成する。
+End の関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
+シード依存の外縁島を絶対ワールド座標から生成し、End city / ship を適用する。
+Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下の岩盤、溶岩海、
+ソウルサンドを生成して ruined portal を適用する。`*TerrainChunk` は構造物を適用しない基礎地形版である。
 
 参照実装も実質同期だった。`generateTerrainBlocks`
 （`packages/world/application/terrain-generation.ts:120`）は
@@ -389,6 +397,16 @@ mc-render は plan.md §2.1 に既にある `render → worldgen` エッジ経�
 ```typescript
 export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
 
+// 後方互換 API: Overworld を生成する
+export const generatedChunkSource: (seed: number, options?: GenerateOptions) => ChunkSource
+
+// ディメンションを明示して Overworld / Nether / End を生成する
+export const generatedDimensionChunkSource: (
+  seed: number,
+  dimension: Dimension,
+  options?: GenerateOptions,
+) => ChunkSource
+
 export type ChunkStoreApi = {
   // 常駐
   readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk>        // 無ければ ChunkSource で生成
@@ -410,6 +428,11 @@ export type ChunkStoreApi = {
   readonly reset: Effect.Effect<void>
 }
 ```
+
+`GeneratedDimensionChunkStoreLayer` と
+`PersistentGeneratedDimensionChunkStoreLayer` は、同じディメンション別ソースを使う
+インメモリ版・永続化版の Layer である。Nether と End のソースは、地形生成後に
+チャンク境界をまたぐ自然構造を適用したチャンクを返す。
 
 **読み書きはどちらも全域関数でエラーチャネルを持たない。**
 `StageRegistration.run` のエラーチャネルが `never` である（kernel の凍結チェックリスト問い 3）以上、
@@ -649,6 +672,8 @@ planVillageForRegion(seed, regionX, regionZ, sampleTerrain)
 planRuinedNetherPortalForRegion(seed, regionX, regionZ, sampleTerrain)
 planEndCityForRegion(seed, regionX, regionZ, sampleTerrain?)
 naturalStructureSliceForChunk(plan, chunkX, chunkZ)
+naturalStructurePlansForChunk(seed, dimension, coord, samplers?)
+applyNaturalStructurePlansToChunk(chunk, plans)
 ```
 
 各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
@@ -660,4 +685,6 @@ marker は loot table、villager spawn、shulker spawner、欠損 portal frame�
 `naturalStructureSliceForChunk` は plan をワールド座標のままチャンク単位へ分割する。
 隣接チャンクを読まず、plan も変更しないため、負座標、未ロードの隣接チャンク、任意のロード順で
 同じ結果になる。村 plan は Overworld chunk generator と同じサイト・レイアウトを使う。
-Nether / End で slice を chunk data と entity / loot subsystem へ適用する責務は consumer 側にある。
+`naturalStructurePlansForChunk` は対象チャンクに届く隣接 region の plan を安定順序で列挙・重複排除し、
+`applyNaturalStructurePlansToChunk` はブロックを書き込んで structure ID と由来付き marker を保持する。
+Nether / End generator は両者を適用済みであり、entity / loot subsystem は marker を消費する。

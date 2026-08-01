@@ -15,16 +15,17 @@
 | 決定論シード | `(seed, coords) → Chunk` の全域性 | ✅ |
 | バイオーム分類 | 気候 → バイオーム（ルールテーブル、first-match-wins） | ✅ 2 入力版 |
 | 地形生成 | 高さ場 → ブロック充填 → 水位 | ✅ |
+| 地形生成（Nether） | `nether-terrain.ts` が決定論的な 3D 密度場、上下の岩盤、溶岩海、ソウルサンドと構造物用の実地形 sampler を提供する | ✅ |
 | カーバー（洞窟） | **水域の床マージン検査つき**。`domain/carver.ts` の `carveCaves` | ✅ |
 | カーバー（渓谷） | ノイズ帯 + テーパー壁 + **2 層の水ガード**。`domain/ravine.ts` の `carveRavines`。装飾の**後**に走る（下記 §1-6） | ✅ 溶岩床を除く |
 | 植生（木） | 格子ジッター配置 | ✅ 配置ロジック |
 | 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダ。`domain/vegetation.ts` | ✅ |
 | 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石変種のみ |
 | 構造物（要塞） | サイト決定 `domain/structure-siting.ts` と 13×13 石室生成 `domain/stronghold.ts`。各チャンクが自分の断面を書き、境界をまたぐ | ✅ |
-| 構造物（ポータル） | 検出・点火用 `portal-frame.ts` に加え、`natural-structure.ts` が地形適合した ruined portal の immutable plan、欠損 frame marker、loot marker、チャンク別投影を提供する | ✅ plan（chunk generator への適用は未実装） |
+| 構造物（ポータル） | 検出・点火用 `portal-frame.ts` に加え、`natural-structure.ts` が ruined portal の immutable plan と marker を提供し、`nether-terrain.ts` が境界をまたぐ plan をチャンクへ適用する | ✅ plan + generator 適用 |
 | 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。`index.ts` には出していないので `api-lock.md` は動いていない（下記 §6-1） | 🟡 barrel 未公開 |
 | 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
-| 構造物（End） | 外縁島へ End city / ship を配置する immutable plan、shulker / loot marker、チャンク別投影を `natural-structure.ts` が提供する。gateway / crystal は対象外 | ✅ city / ship plan |
+| 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。gateway / crystal は対象外 | ✅ city / ship 生成 |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
 | ワーカープール Port | 注入の**継ぎ目**は `ChunkSource` にある。参照実装の**名前つき Port 型**は未定義（下記 §1-4） | 🟡 継ぎ目のみ |

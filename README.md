@@ -139,6 +139,7 @@ domain/
   tree-placement.ts   格子ジッター配置
   terrain.ts          generateChunk(seed, coords)
   end-terrain.ts      generateEndChunk(seed, coords)
+  nether-terrain.ts   generateNetherChunk(seed, coords)
 apps/
   preview-terrain/    内蔵地形プレビュー（dev アプリ。公開 API ではない）
 scripts/
@@ -176,14 +177,18 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   **渓谷カーバー（`domain/ravine.ts`）** — 2 層の水ガードごと。
   帯幅 `RAVINE_HALF_WIDTH` は参照実装から転記する前に実測している
   （帯幅は分布についての主張なので可搬ではない。[docs/responsibility.md](./docs/responsibility.md) §1-6）
-- ✅ **自然構造プランは実装済み** — `domain/natural-structure.ts` が村、ruined Nether portal、
+- ✅ **自然構造プランとチャンク適用は実装済み** — `domain/natural-structure.ts` が村、ruined Nether portal、
   End city / ship をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
-  semantic marker をチャンク別に投影する。村は Overworld chunk generator と同じレイアウトを使う。
-- **未実装**: 自然構造プランの Nether / End chunk generator への適用、チャンク永続化、
+  semantic marker をチャンク別に投影する。村は Overworld chunk generator と同じレイアウトを使い、
+  Nether / End generator は構造ブロックを書き込んで marker の由来を保持する。
+- **未実装**: チャンク永続化、
   ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
   チャンクフォーマット定義（mc-save が未 publish で**ブロック中**）。
   内訳と根拠は [docs/responsibility.md](./docs/responsibility.md) §1-1
-- **End 地形**: `generateEndChunk` が中央島、虚空リング、シード依存の外縁島を生成
+- **Nether 地形**: `generateNetherChunk` が決定論的な 3D 洞窟、上下の岩盤、溶岩海、
+  ソウルサンドを生成し、ruined portal を適用する
+- **End 地形**: `generateEndChunk` が中央島、虚空リング、シード依存の外縁島を生成し、
+  End city / ship を適用する
 - **バイオーム分類は 2 入力版のみ。** 参照実装は 6 入力（continentalness / erosion /
   pv / riverNoise を含む）で 13 バイオーム
 - **`domain/seeded-random.ts` は mc-noise の仮置き**、

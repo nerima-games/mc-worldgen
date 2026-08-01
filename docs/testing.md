@@ -323,7 +323,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 4. **ワーカープールのパリティテストが green**
    — Worker の出力がメインスレッドとバイト一致すること。
    参照実装の `terrain-worker-pool.parity.property.test.ts`（124 LOC）の移植
-5. ~~カーバー（洞窟 + 渓谷）・植生・鉱石・要塞・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship の自然構造プラン~~ が実装済み
+5. ~~カーバー（洞窟 + 渓谷）・植生・鉱石・要塞・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship の自然構造プランと Nether / End 生成器への適用~~ が実装済み
 6. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
    （現在の `domain/seeded-random.ts` `domain/chunk.ts` `domain/biome.ts` の `BLOCK` は仮置き）
 7. バイオーム分布の統計テストが green ✅

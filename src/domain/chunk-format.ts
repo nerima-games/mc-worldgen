@@ -76,13 +76,10 @@
  * Holding onto it is what `CHUNK_FORMAT` below does, and invariance is the
  * reason its two type parameters are handled in OPPOSITE directions:
  *
- *   `Chunk` (the A side) is PINNED by annotation. `CHUNK_SCHEMA` is declared
- *       `Schema.Schema<Chunk, ChunkEncoded>`, so if `domain/chunk.ts` gains a
- *       field, loses one, or renames one, this file stops compiling. Under
- *       invariance an annotation is a two-way assertion rather than an upper
- *       bound, which is exactly the strength wanted: a schema that decodes to
- *       MORE than `Chunk` is as wrong as one that decodes to less, because the
- *       extra field is one nothing writes and nothing reads.
+ *   `PersistableChunk` (the A side) is PINNED by annotation. It is `Chunk`
+ *       plus the optional natural-structure metadata accepted by generation.
+ *       Decoding materialises both metadata arrays, while encoding still
+ *       accepts terrain-only chunks produced by `generateChunk`.
  *
  *   `ChunkEncoded` (the I side) is DERIVED with `Schema.Schema.Encoded`. Hand
  *       writing it would be a transcription of the schema sitting beside it,
@@ -128,6 +125,10 @@ import { CHUNK_BIOMES } from './biome'
 import { type Chunk } from './chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
 import { ChunkAxis, type ChunkCoord } from './kernel-vocabulary'
+import {
+  type AppliedNaturalStructureMarker,
+  type NaturalStructureChunk,
+} from './natural-structure'
 import { defineFormat, FIRST_VERSION, type SaveFormat } from './save-format-port'
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
@@ -199,6 +200,46 @@ const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(
   ),
 )
 
+const NaturalStructureKindSchema = Schema.Literal('village', 'ruined-nether-portal', 'end-city')
+
+const NaturalStructureMarkerFields = {
+  x: Schema.Number,
+  y: Schema.Number,
+  z: Schema.Number,
+  structureId: Schema.String,
+  structureKind: NaturalStructureKindSchema,
+}
+
+/** Closed union of every semantic marker that generation can attach to a chunk. */
+const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructureMarker> = Schema.Union(
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    kind: Schema.Literal('loot-chest'),
+    lootTable: Schema.Literal('village', 'ruined-nether-portal', 'end-city', 'end-ship'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    kind: Schema.Literal('entity-spawn'),
+    entity: Schema.Literal('villager'),
+    profession: Schema.Literal('farmer', 'toolsmith'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    kind: Schema.Literal('spawner'),
+    entity: Schema.Literal('shulker'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    kind: Schema.Literal('portal-frame'),
+    axis: Schema.Literal('x', 'z'),
+    complete: Schema.Literal(false),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    kind: Schema.Literal('end-ship'),
+  }),
+)
+
 /**
  * `coord` is stored even though the storage KEY already carries it.
  *
@@ -213,23 +254,48 @@ const CHUNK_STRUCT = Schema.Struct({
   coord: ChunkCoordSchema,
   blocks: ChunkBlocksSchema,
   biomes: ChunkBiomesSchema,
+  naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
+  naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
+    default: () => [],
+  }),
+})
+
+/**
+ * Encoding also accepts terrain-only chunks. Decoding always materialises both
+ * metadata arrays through `CHUNK_STRUCT`'s defaults.
+ */
+type PersistableChunk = Chunk & Partial<Pick<NaturalStructureChunk, 'naturalStructureIds' | 'naturalStructureMarkers'>>
+
+const PersistableChunkSchema = Schema.declare(
+  (value: unknown): value is PersistableChunk => typeof value === 'object' && value !== null,
+)
+
+const ChunkSchema = Schema.transform(CHUNK_STRUCT, PersistableChunkSchema, {
+  decode: (chunk) => chunk,
+  encode: (chunk) => ({
+    coord: chunk.coord,
+    blocks: chunk.blocks,
+    biomes: chunk.biomes,
+    naturalStructureIds: chunk.naturalStructureIds ?? [],
+    naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+  }),
 })
 
 /**
  * The wire shape, DERIVED from the struct rather than transcribed beside it.
- * See this file's header on why only the `Chunk` side is annotated.
+ * See this file's header on why only the decoded side is annotated.
  */
 export type ChunkEncoded = Schema.Schema.Encoded<typeof CHUNK_STRUCT>
 
 /**
- * The annotation is the pin, and it points at `Chunk` ALONE.
+ * The annotation pins the accepted decoded domain to `PersistableChunk`.
  *
  * `ChunkEncoded` is read off `CHUNK_STRUCT` above, so naming it here asserts
  * nothing about the encoded side and cannot fail for a spelling reason. What it
- * does assert is the half with an independent definition: that this schema
- * decodes to `domain/chunk.ts`'s `Chunk` and to nothing wider or narrower.
+ * does assert is the half with an independent definition: every value remains
+ * a `Chunk`, with natural-structure metadata accepted when present.
  */
-export const CHUNK_SCHEMA: Schema.Schema<Chunk, ChunkEncoded> = CHUNK_STRUCT
+export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = ChunkSchema
 
 /**
  * Version 1, with an EMPTY migration chain, and `defineFormat` is what makes
@@ -243,7 +309,7 @@ export const CHUNK_SCHEMA: Schema.Schema<Chunk, ChunkEncoded> = CHUNK_STRUCT
  * pure function of the blocks, and a persisted derivative is a second source of
  * truth that can disagree with the first.
  */
-export const CHUNK_FORMAT: SaveFormat<Chunk, ChunkEncoded> = defineFormat({
+export const CHUNK_FORMAT: SaveFormat<PersistableChunk, ChunkEncoded> = defineFormat({
   name: CHUNK_FORMAT_NAME,
   version: FIRST_VERSION,
   schema: CHUNK_SCHEMA,

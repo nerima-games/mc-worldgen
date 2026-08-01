@@ -4,12 +4,16 @@ import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
 import { CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { emptyBlocks } from '../src/domain/chunk'
+import { chunkCoord } from '../src/domain/kernel-vocabulary'
 import {
+  applyNaturalStructurePlansToChunk,
   MAX_NATURAL_STRUCTURE_BLOCKS,
   MAX_NATURAL_STRUCTURE_MARKERS,
   NATURAL_STRUCTURE_BLOCK,
   NATURAL_STRUCTURE_GRID,
   type NaturalStructurePlan,
+  naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planEndCityForRegion,
   planRuinedNetherPortalForRegion,
@@ -195,6 +199,30 @@ describe('natural structure plans', () => {
       expect(plan.blocks.length).toBeLessThanOrEqual(MAX_NATURAL_STRUCTURE_BLOCKS)
       expect(plan.markers.length).toBeLessThanOrEqual(MAX_NATURAL_STRUCTURE_MARKERS)
       for (const placement of plan.blocks) expect(registered.has(placement.block)).toBe(true)
+    }
+  })
+
+  it('enumerates plans stably and applies each plan only once without mutating terrain', () => {
+    const plan = findPortal(666)
+    const coord = chunkCoord(Math.floor(plan.origin.x / CHUNK_SIZE_XZ), Math.floor(plan.origin.z / CHUNK_SIZE_XZ))
+    const plans = naturalStructurePlansForChunk(666, 'nether', coord, { nether: FLAT_NETHER })
+    const terrain = {
+      biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'NETHER' as const),
+      blocks: emptyBlocks(),
+      coord,
+    }
+    const before = terrain.blocks.slice()
+    const applied = applyNaturalStructurePlansToChunk(terrain, [...plans, ...plans])
+
+    expect(naturalStructurePlansForChunk(666, 'nether', coord, { nether: FLAT_NETHER })).toStrictEqual(plans)
+    expect(plans.some((candidate) => candidate.id === plan.id)).toBe(true)
+    expect(new Set(applied.naturalStructureIds).size).toBe(applied.naturalStructureIds.length)
+    expect(applied.naturalStructureIds).toContain(plan.id)
+    expect(terrain.blocks).toStrictEqual(before)
+    expect(applied.blocks).not.toBe(terrain.blocks)
+    for (const marker of applied.naturalStructureMarkers) {
+      expect(applied.naturalStructureIds).toContain(marker.structureId)
+      expect(marker.structureKind).toBe('ruined-nether-portal')
     }
   })
 })

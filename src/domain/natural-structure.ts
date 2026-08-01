@@ -2,6 +2,7 @@
 
 /** Deterministic, immutable plans for cross-chunk natural structures. */
 import { Option } from 'effect'
+import { setBlockAt, type Chunk } from './chunk'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
 import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain'
 import { BlockId } from './kernel-vocabulary'
@@ -84,11 +85,28 @@ export type NaturalStructureChunkSlice = {
   readonly markers: ReadonlyArray<NaturalStructureMarker>
 }
 
+export type AppliedNaturalStructureMarker = NaturalStructureMarker & {
+  readonly structureId: string
+  readonly structureKind: NaturalStructureKind
+}
+
+/** A normal chunk with generation-time semantic markers kept for downstream systems. */
+export type NaturalStructureChunk = Chunk & {
+  readonly naturalStructureIds: ReadonlyArray<string>
+  readonly naturalStructureMarkers: ReadonlyArray<AppliedNaturalStructureMarker>
+}
+
+export type NaturalStructureSamplers = {
+  readonly nether?: NetherStructureTerrainSampler
+  readonly end?: EndStructureTerrainSampler
+  readonly overworld?: VillageTerrainSampler
+}
+
 export type NetherStructureTerrainSample = {
   readonly surfaceY: number
   readonly ceilingY: number
 }
-export type NetherStructureTerrainSampler = (x: number, z: number) => NetherStructureTerrainSample
+export type NetherStructureTerrainSampler = (x: number, z: number) => NetherStructureTerrainSample | undefined
 export type EndStructureTerrainSampler = (x: number, z: number) => number | undefined
 
 type Candidate = NaturalStructureRegion
@@ -177,6 +195,80 @@ export const naturalStructureSliceForChunk = (
   )),
 })
 
+const plansInStableOrder = (plans: ReadonlyArray<NaturalStructurePlan>): ReadonlyArray<NaturalStructurePlan> =>
+  [...new Map(plans.map((plan) => [plan.id, plan])).values()].sort((left, right) => left.id.localeCompare(right.id))
+
+/**
+ * Enumerates every candidate region that can overlap a chunk. The one-region
+ * halo is wider than every current structure footprint and handles negative
+ * coordinates through floor division.
+ */
+export const naturalStructurePlansForChunk = (
+  seed: number,
+  dimension: Dimension,
+  coord: { readonly cx: number; readonly cz: number },
+  samplers: NaturalStructureSamplers = {},
+): ReadonlyArray<NaturalStructurePlan> => {
+  const kind: NaturalStructureKind = dimension === 'overworld'
+    ? 'village'
+    : dimension === 'nether' ? 'ruined-nether-portal' : 'end-city'
+  const grid = NATURAL_STRUCTURE_GRID[kind]
+  const minBlockX = coord.cx * CHUNK_SIZE_XZ
+  const minBlockZ = coord.cz * CHUNK_SIZE_XZ
+  const maxBlockX = minBlockX + CHUNK_SIZE_XZ - 1
+  const maxBlockZ = minBlockZ + CHUNK_SIZE_XZ - 1
+  const minRegionX = floorDiv(minBlockX, grid.spacing) - 1
+  const maxRegionX = floorDiv(maxBlockX, grid.spacing) + 1
+  const minRegionZ = floorDiv(minBlockZ, grid.spacing) - 1
+  const maxRegionZ = floorDiv(maxBlockZ, grid.spacing) + 1
+  const plans: Array<NaturalStructurePlan> = []
+
+  for (let regionX = minRegionX; regionX <= maxRegionX; regionX += 1) {
+    for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += 1) {
+      const option = dimension === 'overworld'
+        ? samplers.overworld === undefined ? Option.none() : planVillageForRegion(seed, regionX, regionZ, samplers.overworld)
+        : dimension === 'nether'
+          ? samplers.nether === undefined ? Option.none() : planRuinedNetherPortalForRegion(seed, regionX, regionZ, samplers.nether)
+          : planEndCityForRegion(seed, regionX, regionZ, samplers.end)
+      if (Option.isSome(option)) plans.push(option.value)
+    }
+  }
+  return Object.freeze(plansInStableOrder(plans))
+}
+
+/** Applies cross-chunk plan slices without mutating the terrain chunk or plans. */
+export const applyNaturalStructurePlansToChunk = (
+  chunk: Chunk,
+  plans: ReadonlyArray<NaturalStructurePlan>,
+): NaturalStructureChunk => {
+  const blocks = chunk.blocks.slice()
+  const ids: Array<string> = []
+  const markers: Array<AppliedNaturalStructureMarker> = []
+  for (const plan of plansInStableOrder(plans)) {
+    const slice = naturalStructureSliceForChunk(plan, chunk.coord.cx, chunk.coord.cz)
+    if (slice.blocks.length === 0 && slice.markers.length === 0) continue
+    ids.push(plan.id)
+    for (const placement of slice.blocks) {
+      setBlockAt(
+        blocks,
+        placement.x - chunk.coord.cx * CHUNK_SIZE_XZ,
+        placement.y,
+        placement.z - chunk.coord.cz * CHUNK_SIZE_XZ,
+        placement.block,
+      )
+    }
+    for (const marker of slice.markers) {
+      markers.push(Object.freeze({ ...marker, structureId: plan.id, structureKind: plan.kind }))
+    }
+  }
+  return {
+    ...chunk,
+    blocks,
+    naturalStructureIds: Object.freeze(ids),
+    naturalStructureMarkers: Object.freeze(markers),
+  }
+}
+
 /** Plans the same village layout used by the Overworld chunk generator. */
 export const planVillageForRegion = (
   seed: number,
@@ -213,14 +305,25 @@ export const planVillageForRegion = (
   ))
 }
 
-const portalTerrainFits = (candidate: Candidate, sample: NetherStructureTerrainSampler): Option.Option<number> => {
+const portalTerrainFits = (
+  candidate: Candidate,
+  sample: NetherStructureTerrainSampler,
+): Option.Option<number> => {
   const probes = [
     sample(candidate.x, candidate.z), sample(candidate.x - 3, candidate.z), sample(candidate.x + 3, candidate.z),
     sample(candidate.x, candidate.z - 3), sample(candidate.x, candidate.z + 3),
   ]
-  const surfaces = probes.map((probe) => probe.surfaceY)
+  const validProbes = probes.filter(
+    (probe): probe is NetherStructureTerrainSample => probe !== undefined,
+  )
+  if (validProbes.length !== probes.length) return Option.none()
+
+  const surfaces = validProbes.map((probe) => probe.surfaceY)
   const baseY = Math.max(...surfaces) + 1
-  if (Math.max(...surfaces) - Math.min(...surfaces) > 6 || probes.some((probe) => probe.ceilingY - baseY < 7)) {
+  if (
+    Math.max(...surfaces) - Math.min(...surfaces) > 6
+    || validProbes.some((probe) => probe.ceilingY - baseY < 7)
+  ) {
     return Option.none()
   }
   return Option.some(baseY)

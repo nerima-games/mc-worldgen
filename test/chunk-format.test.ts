@@ -48,7 +48,7 @@
  * worldgen-chunk-format-wire-shape.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
   CHUNK_BIOME_COUNT,
@@ -57,7 +57,9 @@ import {
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
+import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
 import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { planEndCityForRegion } from '../src/domain/natural-structure'
 import {
   decodeSave,
   encodeSave,
@@ -197,6 +199,46 @@ describe('the chunk format round-trips', () => {
     expect(FIXTURE.blocks.length).toBe(CHUNK_VOLUME)
     expect(FIXTURE.biomes.length).toBe(CHUNK_BIOME_COUNT)
   })
+
+  it.effect('CF-17: a legacy v1 payload without structure metadata decodes with empty arrays', () =>
+    Effect.gen(function* () {
+      const legacyPayload = {
+        coord: ENCODED.coord,
+        blocks: ENCODED.blocks,
+        biomes: ENCODED.biomes,
+      }
+      const restored = yield* decodeSave(
+        CHUNK_FORMAT,
+        saveEnvelope(CHUNK_FORMAT_NAME, 1, legacyPayload),
+      )
+
+      expect(restored.naturalStructureIds).toStrictEqual([])
+      expect(restored.naturalStructureMarkers).toStrictEqual([])
+    }),
+  )
+
+  it.effect('CF-18: an End city chunk preserves structure ids and every marker field', () =>
+    Effect.gen(function* () {
+      const seed = 1
+      const planOption = planEndCityForRegion(seed, -12, -7, (x, z) => endSurfaceHeightAt(seed, x, z))
+      if (Option.isNone(planOption)) throw new Error('expected the known End city candidate to fit real terrain')
+      const plan = planOption.value
+      const marker = plan.markers[0]
+      if (marker === undefined) throw new Error('expected the End city plan to contain markers')
+      const chunk = generateEndChunk(
+        seed,
+        chunkCoord(Math.floor(marker.x / 16), Math.floor(marker.z / 16)),
+      )
+
+      expect(chunk.naturalStructureIds).toContain(plan.id)
+      expect(chunk.naturalStructureMarkers.length).toBeGreaterThan(0)
+
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+
+      expect(restored).toStrictEqual(chunk)
+    }),
+  )
 })
 
 describe('a wrong-sized payload is refused rather than regenerated', () => {

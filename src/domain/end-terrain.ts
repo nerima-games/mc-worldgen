@@ -2,6 +2,11 @@
 import { columnIndex, emptyBlocks, worldX, worldZ, type Chunk } from './chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from './constants'
 import { BlockId, chunkCoord, type ChunkCoord } from './kernel-vocabulary'
+import {
+  applyNaturalStructurePlansToChunk,
+  naturalStructurePlansForChunk,
+  type NaturalStructureChunk,
+} from './natural-structure'
 import { channelSeed, fbm2D } from './seeded-random'
 
 export const END_STONE_BLOCK_ID = BlockId(86)
@@ -46,8 +51,8 @@ const endColumnAt = (seed: number, wx: number, wz: number): EndColumn | undefine
 export const endSurfaceHeightAt = (seed: number, wx: number, wz: number): number | undefined =>
   endColumnAt(seed, wx, wz)?.surfaceY
 
-/** Generate one End chunk using only absolute world coordinates. */
-export const generateEndChunk = (seed: number, coord: ChunkCoord): Chunk => {
+/** Generate one End terrain chunk using only absolute world coordinates. */
+export const generateEndTerrainChunk = (seed: number, coord: ChunkCoord): Chunk => {
   const blocks = emptyBlocks()
   const biomes = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'END' as const)
 
@@ -67,5 +72,12 @@ export const generateEndChunk = (seed: number, coord: ChunkCoord): Chunk => {
   return { coord, blocks, biomes }
 }
 
-export const generateEndChunkAt = (seed: number, cx: number, cz: number): Chunk =>
+/** Generate End terrain and apply every city or ship plan touching the chunk. */
+export const generateEndChunk = (seed: number, coord: ChunkCoord): NaturalStructureChunk =>
+  applyNaturalStructurePlansToChunk(
+    generateEndTerrainChunk(seed, coord),
+    naturalStructurePlansForChunk(seed, 'end', coord),
+  )
+
+export const generateEndChunkAt = (seed: number, cx: number, cz: number): NaturalStructureChunk =>
   generateEndChunk(seed, chunkCoord(cx, cz))

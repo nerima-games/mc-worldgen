@@ -76,7 +76,10 @@ import type { StoragePort } from '@nerima-games/mc-save'
 import { Context, Effect, Layer, Ref } from 'effect'
 import type { Chunk } from '../domain/chunk'
 import * as Store from '../domain/chunk-store-state'
+import { generateEndChunk } from '../domain/end-terrain'
 import type { BlockId, BlockPosition, ChunkCoord } from '../domain/kernel-vocabulary'
+import { generateNetherChunk } from '../domain/nether-terrain'
+import type { Dimension } from '../domain/nether-travel'
 import { generateChunk, type GenerateOptions } from '../domain/terrain'
 import {
   makeChunkPersistence,
@@ -106,6 +109,17 @@ export const generatedChunkSource =
   (seed: number, options: GenerateOptions = {}): ChunkSource =>
   (coord) =>
     Effect.sync(() => generateChunk(seed, coord, options))
+
+/** A deterministic source selected explicitly by dimension. */
+export const generatedDimensionChunkSource = (
+  seed: number,
+  dimension: Dimension,
+  options: GenerateOptions = {},
+): ChunkSource => {
+  if (dimension === 'overworld') return generatedChunkSource(seed, options)
+  if (dimension === 'nether') return (coord) => Effect.sync(() => generateNetherChunk(seed, coord))
+  return (coord) => Effect.sync(() => generateEndChunk(seed, coord))
+}
 
 /**
  * One reader's handle on the dirty channel.
@@ -355,6 +369,12 @@ export const GeneratedChunkStoreLayer = (
   options: GenerateOptions = {},
 ): Layer.Layer<ChunkStore> => ChunkStoreLayer(generatedChunkSource(seed, options))
 
+export const GeneratedDimensionChunkStoreLayer = (
+  seed: number,
+  dimension: Dimension,
+  options: GenerateOptions = {},
+): Layer.Layer<ChunkStore> => ChunkStoreLayer(generatedDimensionChunkSource(seed, dimension, options))
+
 export const PersistentChunkStoreLayer = (
   source: ChunkSource,
   context: ChunkPersistenceContext,
@@ -367,3 +387,17 @@ export const PersistentGeneratedChunkStoreLayer = (
   options: GenerateOptions = {},
 ): Layer.Layer<ChunkStore, never, StoragePort> =>
   PersistentChunkStoreLayer(generatedChunkSource(seed, options), context)
+
+export const PersistentGeneratedDimensionChunkStoreLayer = (
+  seed: number,
+  dimension: Dimension,
+  context: ChunkPersistenceContext,
+  options: GenerateOptions = {},
+): Layer.Layer<ChunkStore, never, StoragePort> => {
+  if (dimension !== context.dimension) {
+    throw new RangeError(
+      `Generated dimension "${dimension}" does not match persistence dimension "${context.dimension}"`,
+    )
+  }
+  return PersistentChunkStoreLayer(generatedDimensionChunkSource(seed, dimension, options), context)
+}
