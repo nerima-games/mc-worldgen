@@ -77,21 +77,25 @@
     "no-sync": "warn",
 
     // Style
-    "array-bracket-spacing": "warn",
-    "block-spacing": "warn",
-    "brace-style": ["warn", "1tbs", { "allowSingleLine": true }],
-    "camelcase": "warn",
-    "comma-dangle": ["warn", "always-multiline"],
-    "comma-spacing": "warn",
-    "comma-style": "warn",
-    "computed-property-spacing": "warn",
-    "eol-last": "warn",
-    "func-call-spacing": "warn",
-    "indent": "off",
-    "key-spacing": "warn",
-    "keyword-spacing": "warn",
-    "linebreak-style": ["warn", "unix"],
-    "lines-between-class-members": "warn",
+    // The following ESLint-style formatting rules previously listed here —
+    // array-bracket-spacing, block-spacing, brace-style, camelcase,
+    // comma-dangle, comma-spacing, comma-style, computed-property-spacing,
+    // eol-last, func-call-spacing, indent, key-spacing, keyword-spacing,
+    // linebreak-style, lines-between-class-members, no-mixed-spaces-and-tabs,
+    // no-new-object, no-tabs, no-trailing-spaces, no-whitespace-before-property,
+    // object-curly-spacing, one-var, operator-linebreak, padded-blocks,
+    // quote-props, semi-spacing, space-before-blocks, space-infix-ops,
+    // space-unary-ops, spaced-comment — do not exist as oxlint rules under
+    // oxlint 1.76.0. Verified empirically: once this file is actually loaded
+    // (see the `oxlint.json` -> `.oxlintrc.json` rename), `oxlint
+    // --print-config` fails outright with `Rule 'X' not found in plugin
+    // 'eslint'` for every one of them. They were carried over from an
+    // ESLint-era ruleset without ever being checked against oxlint's actual
+    // rule set, and the fact that they were dead code was masked by the
+    // separate `oxlint.json` filename bug that kept this whole file from
+    // ever loading. oxlint does not implement pure whitespace/formatting
+    // rules, and this repository intentionally runs no formatter (see file
+    // header), so there is no in-repo mechanism left to restore here.
     "no-array-method-this-argument": "warn",
     // OFF in mc-worldgen, unlike every other repository in the organisation.
     //
@@ -109,21 +113,6 @@
     // oxlint 0.12 has no per-path rule overrides, so this is the available
     // granularity. Revisit when it does.
     "no-bitwise": "off",
-    "no-mixed-spaces-and-tabs": "error",
-    "no-new-object": "warn",
-    "no-tabs": "error",
-    "no-trailing-spaces": "warn",
-    "no-whitespace-before-property": "warn",
-    "object-curly-spacing": ["warn", "always"],
-    "one-var": ["warn", "never"],
-    "operator-linebreak": "warn",
-    "padded-blocks": ["warn", "never"],
-    "quote-props": ["warn", "as-needed"],
-    "semi-spacing": "warn",
-    "space-before-blocks": "warn",
-    "space-infix-ops": "warn",
-    "space-unary-ops": "warn",
-    "spaced-comment": "warn",
 
     // Restriction
     "default-case": "warn",
@@ -135,11 +124,13 @@
     "no-restricted-imports": [
       "warn",
       {
-        "name": "effect",
-        "message": "Please use named imports from 'effect' package",
-        "importNames": ["default"]
-      },
-      {
+        "paths": [
+          {
+            "name": "effect",
+            "message": "Please use named imports from 'effect' package",
+            "importNames": ["default"]
+          }
+        ],
         // mc-worldgen is Tier2 (DEPENDENCY_POLICY.md §1) and may depend only on
         // mc-noise, mc-save, and the universally-importable mc-kernel. This
         // covers every other @nerima-games/* package in the org, including the
@@ -164,5 +155,5 @@
     "no-param-reassign": "off",
     "no-plusplus": "off"
   },
-  "ignore": ["node_modules/**", "coverage/**", "dist/**", ".git/**", "*.config.ts", "docs/**"]
+  "ignorePatterns": ["node_modules/**", "coverage/**", "dist/**", ".git/**", "*.config.ts", "docs/**"]
 }
