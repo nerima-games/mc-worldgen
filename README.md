@@ -181,9 +181,10 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   End city / ship をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
   semantic marker をチャンク別に投影する。村は Overworld chunk generator と同じレイアウトを使い、
   Nether / End generator は構造ブロックを書き込んで marker の由来を保持する。
-- **未実装**: チャンク永続化、
-  ワーカープール Port の**型**（継ぎ目 `ChunkSource` はある）、
-  チャンクフォーマット定義（mc-save が未 publish で**ブロック中**）。
+- **実装済み**: ワーカープール Port の型（`TerrainWorkerPoolPort`）と
+  `ChunkSource` adapter。実際の Worker/Pool 媒体はホストが注入する。
+  チャンク永続化は `PersistentChunkStoreLayer`、チャンクフォーマット定義は
+  `domain/chunk-format.ts` として実装済み。媒体への接続は `mc-save` 側の責務。
   内訳と根拠は [docs/responsibility.md](./docs/responsibility.md) §1-1
 - **Nether 地形**: `generateNetherChunk` が決定論的な 3D 洞窟、上下の岩盤、溶岩海、
   ソウルサンドを生成し、ruined portal を適用する

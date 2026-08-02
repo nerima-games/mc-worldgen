@@ -447,7 +447,7 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 | ✅ `handles negative coordinates, where floor-vs-truncate bugs live` | 負座標。`-1/16` は truncate だと 0 |
 | ✅ `agrees about the surface height of a column shared by two chunks` | 継ぎ目が出ない |
 | ✅ `surfaceHeightAt agrees with what generateChunk actually built` | 安いクエリと本体が乖離しない |
-| ⬜ `worker output is byte-identical to main-thread output` | **参照実装の最重要テストの移植**（`terrain-worker-pool.parity.property.test.ts`, 124 LOC） |
+| ✅ `worker output is byte-identical to main-thread output` | `test/terrain-worker-pool-port.test.ts`。Port adapter 経由でも同じ seed × coord の `Chunk` を返す |
 | ⬜ `a fixed seed × coord matrix hashes to the committed golden value` | ゴールデンハッシュ。参照実装には**存在しない** |
 
 実装は `test/determinism.test.ts`。

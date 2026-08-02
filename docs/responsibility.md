@@ -27,8 +27,8 @@
 | 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
 | 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。gateway / crystal は対象外 | ✅ city / ship 生成 |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
-| `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
-| ワーカープール Port | 注入の**継ぎ目**は `ChunkSource` にある。参照実装の**名前つき Port 型**は未定義（下記 §1-4） | 🟡 継ぎ目のみ |
+| `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
+| ワーカープール Port | `TerrainWorkerPoolPort` と `chunkSourceFromTerrainWorkerPool` を公開。Worker/Pool の媒体はホストが注入し、mc-worldgen は DOM/Worker を所有しない | ✅ 型 + adapter |
 | チャンクフォーマット定義 | `domain/chunk-format.ts`。`domain/save-format-port.ts`（mc-save ミラー）の `defineFormat` で定義。**「publish 待ち」は誤りだった**（下記 §1-5） | ✅ 定義のみ（媒体は未接続） |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
 
@@ -84,22 +84,22 @@ COAL と EMERALD の `peakY = 96` はこの天井の**上**にある。
 ⬜ のままだと「誰かがまだ手をつけていないだけ」に読めるので、
 状態を **⬜ 出典なし** に変えた。
 
-### 1-4. ワーカープール Port: 継ぎ目はあり、型が無い
+### 1-4. ワーカープール Port: 型と継ぎ目を分離する
 
 `ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>` が注入点で、
 `ChunkStoreLayer(source)` がそれを受け取る。plan.md §3.7 の
 「実装は利用側が注入」は**すでに満たされている**。
 
-無いのは参照実装の名前つき Port
-（`terrain-worker-pool-port.ts:35`、タグ
-`@minecraft/application/terrain/TerrainWorkerPoolPort`、
-`generateTerrain(coord, options): Effect<ChunkBlocks, TerrainGenerationError>`）である。
+`TerrainWorkerPoolPort` は `generateTerrain(coord)` だけを要求し、
+`chunkSourceFromTerrainWorkerPool` が既存の `ChunkSource` に変換する。
+DOM の `Worker` 型、キュー、キャンセル、通信エラーはこの Port に持ち込まない。
+それらはホストまたは `mc-render` の汎用 Worker Pool が所有する責務であり、
+ここで重複すると実行媒体と地形生成の責務が結合する。
 
-**これを足すと `api-lock.md` が動く。** タグ・エラー型・オプション型で
-最低 4 つの新規 export になり、plan.md §6 Step 3 の 4 週間時計が振り出しに戻る。
-継ぎ目が既に機能している以上、**それは publish 後に払うべき代金**であって
-今払う理由が無い。パリティテスト（`docs/public-api.md` §7）も
-Worker 実装が現れるまで書けない。
+Port の生成契約は既存 `ChunkSource` と同じ `Effect<Chunk>` に固定している。
+これにより `ChunkStoreLayer` のロード・永続化エラー契約を壊さず、同期 generator と
+Worker adapter を同じ注入点で交換できる。通信エラーを型付きで扱う必要が生じた場合は、
+Worker transport の `Result` を定義した上で、別の application boundary として追加する。
 
 ### 1-5. チャンクフォーマット定義は**ブロックされていなかった**
 

@@ -100,6 +100,8 @@ mc-worldgen では `tsconfig.base.json` の `lib` に `"DOM"` を入れないこ
 監査済みの実装状況。要塞石室・ライトグリッド・`ChunkStore` は実装済み。
 村・ruined Nether portal・End city / ship は決定論的な自然構造プラン、地形適合検査、
 semantic marker、チャンク別投影まで実装済み。Nether / End chunk generator は構造物を適用し、
-marker の由来も保持する。チャンク永続化は未実装。
+marker の由来も保持する。チャンク永続化は `PersistentChunkStoreLayer` として実装済み。
+ホストが `StoragePort` を提供して組み合わせる。ワーカープール Port は
+`TerrainWorkerPoolPort` として型・adapter を公開し、媒体接続はホストの責務とする。
 Nether の 3D 洞窟・岩盤・溶岩海と、End の中央島・虚空リング・外縁島は実装済み
 （[testing.md](./testing.md)）。

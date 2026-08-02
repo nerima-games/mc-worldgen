@@ -204,7 +204,7 @@ BEACH は隣接バイオームを要する後処理である
 （`packages/world/domain/density-function.ts:42-55`）がスプラインベースで決める（MC 1.18 方式）。
 バイオームは表面材質と装飾を決めるだけである。
 
-### `BiomeService`（未実装）
+### `BiomeService` は採用しない
 
 参照実装のタグは `@minecraft/application/BiomeService`
 （`packages/world/application/biome-service.ts:7`）、5 メソッド:
@@ -218,10 +218,9 @@ getBiomesAndPropertiesForChunk: (chunkX: number, chunkZ: number)
   => Effect.Effect<ReadonlyArray<{ biome: BiomeType; props: BiomeProperties }>>
 ```
 
-**ただしジェネレータが依存しているのはもっと狭い Port** である:
-`BiomeGeneratorPort`（`packages/world/domain/biome-generator-port.ts:4-11`、3 メソッド）。
-
-移植するならサービスではなく**この Port のほうを**移植すること。
+このリポジトリのジェネレータは参照実装の `BiomeService` を依存先にせず、
+`domain/biome.ts` の分類関数と、各ジェネレータが必要とする狭い値だけを直接使う。
+サービス互換の API を追加すると、mc-worldgen の責務をアプリケーション層へ戻すため採用しない。
 
 ---
 
@@ -499,10 +498,10 @@ mc-render が世界を 2 回メッシュすることになる。再同期が欲�
 
 | 未実装 | 理由 |
 | --- | --- |
-| 永続化（`unload` が保存しない） | mc-save が未消費（plan.md §6 Step 3）。ストレージ読み出しは `ChunkSource` の**前段に合成**され、`ChunkStoreApi` は変わらない |
+| ストレージ媒体への接続 | `PersistentChunkStoreLayer` は実装済み。ホストが `StoragePort` を注入して `ChunkStoreApi` に合成する。媒体実装と publish は mc-save / ホスト側の責務 |
 | `loadChunksAroundPlayer` / LRU 追い出し | 方針（描画距離、退避順）は呼び出し側のもの。`load` / `unload` / `loadedCoords` で外から書ける |
-| `Effect.makeSemaphore(4)` による生成の並行度制限 | 参照実装は `chunk-manager-service.ts:45` で掛けている。ワーカープール Port が入るときに一緒に入れる |
-| ライトグリッドの再伝播 | ライトグリッド自体が未実装（§8） |
+| `Effect.makeSemaphore(4)` による生成の並行度制限 | 実行媒体とキューの責務。`TerrainWorkerPoolPort` は 1 チャンク生成の契約だけを公開し、並行度はホストが制御する |
+| チャンク境界をまたぐライト再伝播 | 現在はチャンク単位の全再計算。増分の two-queue と隣接チャンクへの再伝播は未実装（§8） |
 | `dirtyVoxels` 粒度 | チャンク粒度で足りている。位置粒度の追跡は mx-gameplay の `FallingBlockQueue` が既に private に持っており、2 つは合成する |
 
 ### 6-6. 参照実装の `ChunkManagerService`
@@ -548,37 +547,31 @@ unloadChunk: (coord: ChunkCoord) => Effect.Effect<void, StorageError>
 
 ---
 
-## 7. 未実装: ワーカープール Port
+## 7. ワーカープール Port
 
-参照実装は `packages/worker/application/terrain-worker-pool-port.ts:35`（48 LOC）、
-タグ `@minecraft/application/terrain/TerrainWorkerPoolPort`、**1 メソッド**:
+`TerrainWorkerPoolPort` は `src/application/terrain-worker-pool-port.ts` で公開する
+型付きのアプリケーション境界で、**1 メソッド**を持つ:
 
 ```typescript
-generateTerrain: (
-  _coord: ChunkCoord,
-  _options: TerrainGenerationOptions,
-) => Effect.Effect<ChunkBlocks, TerrainGenerationError>
-
-// :30-35
-type TerrainGenerationOptions = Readonly<{
-  seaLevel: number; lakeLevel: number; seed: number
-  dimension?: 'overworld' | 'nether' | 'end'
-}>
-// :25-28
-TerrainGenerationError = ... { reason, chunk }
+generateTerrain: (coord: ChunkCoord) => Effect.Effect<Chunk>
 ```
 
-ヘッダコメント（`:5-14`）が意図を明記している:
 **アプリケーション層は「Worker か、プールか、同期実行か」を知ってはならない。**
 
-この禁欲は維持する。実装は利用側（mc-render がワーカープール実装を持つ）が注入する。
+`chunkSourceFromTerrainWorkerPool` がこの Port を既存の
+`ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>` に変換する。
+`ChunkStore` はこの adapter を同期生成、Worker、独自プールのいずれからも受け取れる。
 
-### パリティテストを忘れないこと
+この境界は維持する。DOM の `Worker` 型、キュー、キャンセル、通信エラー、並行度は
+Port に含めず、実装を注入するホストまたは `mc-render` 側が所有する。
 
-参照実装には `packages/worker/test/terrain-worker-pool.parity.property.test.ts`（124 LOC）があり、
-**Worker の出力がメインスレッドとバイト一致すること**を検証している。
+### パリティテスト
 
-これが無いと、Worker 経路だけで地形が変わるバグが本番でしか見つからない。
+`test/terrain-worker-pool-port.test.ts` で adapter 経由の座標転送と、
+同期生成との `Chunk` 完全一致を検証している。
+
+通信媒体固有の失敗型が必要になった場合は、既存の `ChunkSource` の失敗契約を壊さず、
+別の transport boundary として設計する。
 
 ---
 

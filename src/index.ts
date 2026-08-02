@@ -67,3 +67,4 @@ export * from './domain/village'
 // --- Application: Effect services -------------------------------------------
 export * from './application/chunk-store'
 export * from './application/chunk-persistence'
+export * from './application/terrain-worker-pool-port'
