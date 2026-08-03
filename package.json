@@ -58,7 +58,8 @@
   "dependencies": {
     "@nerima-games/mc-kernel": "0.2.8",
     "@nerima-games/mc-save": "0.1.0",
-    "effect": "^3.22.0"
+    "effect": "^3.22.0",
+    "@nerima-games/mc-noise": "workspace:*"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",

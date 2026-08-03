@@ -1,11 +1,11 @@
 # バージョニングと公開
 
-## 1. 現在: `0.1.0`、未公開
+## 1. 現在: `0.1.12`、未公開
 
 `package.json`:
 
 ```json
-"version": "0.1.0",
+"version": "0.1.12",
 "publishConfig": { "registry": "https://npm.pkg.github.com", "access": "restricted" }
 ```
 
@@ -29,12 +29,13 @@ kernel の些細な変更が 15 リポジトリの version bump を誘発する�
 代わりに `mc-dev-meta` workspace で `workspace:*` 解決を使い、
 モノレポと同等の DX で開発する。
 
-### 現時点で `dependencies` に `effect` しか無い理由
+### 依存を `workspace:*` で宣言する理由
 
-スケルトン段階では**兄弟リポジトリへの依存を意図的に持たない**。
+開発時は `mc-dev-meta` の workspace から兄弟パッケージを解決するため、`mc-noise` は `workspace:*` で宣言します。
 
 mc-worldgen はホワイトリスト上 `mc-noise` と `mc-save`（および普遍的な `mc-kernel`）を
-import してよいが、`package.json` にはどれも入っていない。理由:
+import します。`seeded-random.ts` は既存のローカルimportを維持する互換adapterであり、
+決定的ノイズとseed変換の実装本体は `mc-noise` にあります。
 
 - 何も publish されていないので `@nerima-games/*` はどれも解決できない
 - スケルトンには import すべき兄弟のコードがまだ無い
@@ -43,7 +44,7 @@ import してよいが、`package.json` にはどれも入っていない。理�
 
 | 仮置き | 本来の所属 |
 | --- | --- |
-| `domain/seeded-random.ts` | `mc-noise` |
+| `domain/seeded-random.ts` | `mc-noise` の互換adapter |
 | `domain/chunk.ts` の `Chunk` 型 | `mc-kernel` |
 | `domain/biome.ts` の `BLOCK` テーブル | `mc-kernel` |
 | チャンクフォーマット定義（未実装） | 定義は worldgen、機構は `mc-save` |
