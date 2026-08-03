@@ -2,7 +2,7 @@
  * Deterministic terrain-noise compatibility primitives.
  *
  * This module remains the worldgen boundary until the value-noise API from
- * mc-noise is published. Its output is part of the existing terrain golden
+ * mc-noise value-noise API is published. Its output is part of the existing terrain golden
  * contract and must not change as a side effect of dependency maintenance.
  */
 
