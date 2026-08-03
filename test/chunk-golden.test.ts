@@ -64,8 +64,8 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { BIOMES, BLOCK, type BiomeType } from '../domain/biome'
-import { columnIndex, readBlock, type Chunk } from '../domain/chunk'
+import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
+import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
 import {
   BEDROCK_Y,
   blockIndex,
@@ -75,10 +75,10 @@ import {
   LAKE_LEVEL,
   SEA_LEVEL,
   WATER_FLOOR_MARGIN,
-} from '../domain/constants'
-import { ORE_IDS } from '../domain/ore'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from '../domain/terrain'
-import { PLANT_IDS } from '../domain/vegetation'
+} from '../src/domain/constants'
+import { ORE_IDS } from '../src/domain/ore'
+import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { PLANT_IDS } from '../src/domain/vegetation'
 import {
   generateGoldenChunk,
   goldenEntry,

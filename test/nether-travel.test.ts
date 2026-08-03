@@ -41,20 +41,20 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { blockPosition, type BlockPosition } from '../domain/kernel-vocabulary'
+import { BLOCK } from '../src/domain/biome'
+import { blockPosition, type BlockPosition } from '../src/domain/kernel-vocabulary'
 import {
   NETHER_HORIZONTAL_RATIO,
   findNearestPortal,
   netherToOverworld,
   overworldToNether,
-} from '../domain/nether-link'
+} from '../src/domain/nether-link'
 import {
   PORTAL_SEARCH_RADIUS,
   resolveNetherTravel,
   type Dimension,
-} from '../domain/nether-travel'
-import { detectNetherPortal, type BlockAt } from '../domain/portal-frame'
+} from '../src/domain/nether-travel'
+import { detectNetherPortal, type BlockAt } from '../src/domain/portal-frame'
 
 const at = (x: number, y: number, z: number): BlockPosition => blockPosition(x, y, z)
 

@@ -98,7 +98,7 @@ Nix を使わない場合は Node.js 24 以上と pnpm 11（`corepack` 推奨）
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm typecheck` | `tsconfig.build.json`（出荷）、`tsconfig.test.json`（テスト+ツール）、`tsconfig.preview.json`（`apps/`）の 3 プロジェクト |
-| `pnpm lint` | oxlint（唯一の lint/format 設定）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`oxlint.json` は 5 カテゴリすべてと個別 66 ルールが `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
+| `pnpm lint` | oxlint（唯一の lint/format 設定）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`.oxlintrc.json` は 5 カテゴリすべてと個別ルールの大半が `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
 | `pnpm lint:fix` | oxlint の自動修正 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect`） |
 | `pnpm test:watch` | vitest watch |
@@ -148,7 +148,7 @@ docs/                             実装情報
 
 ### `no-bitwise` はこのリポジトリだけ off
 
-`oxlint.json` で `"no-bitwise": "off"` にしてある（他 15 リポジトリでは warn）。
+`.oxlintrc.json` で `"no-bitwise": "off"` にしてある（他 15 リポジトリでは warn）。
 理由はそこにコメントで書いてある: シード PRNG が 32bit 整数演算を必要とし、
 ライトグリッドが 4bit パックを必要とするためである。
 oxlint 0.12 にパス単位のルール上書きが無いので、この粒度が上限である。

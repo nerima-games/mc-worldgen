@@ -14,10 +14,10 @@
  *   - LOG and LEAVES must separate from GRASS, or "is the canopy a walkable
  *     slab" cannot be judged from above.
  */
-import type { BiomeType } from '../../domain/biome'
-import { BLOCK } from '../../domain/biome'
-import { ORE_BLOCK } from '../../domain/ore'
-import { PLANT } from '../../domain/vegetation'
+import type { BiomeType } from '../../src/domain/biome'
+import { BLOCK } from '../../src/domain/biome'
+import { ORE_BLOCK } from '../../src/domain/ore'
+import { PLANT } from '../../src/domain/vegetation'
 
 export type Rgb = readonly [number, number, number]
 

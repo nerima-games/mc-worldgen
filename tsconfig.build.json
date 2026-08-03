@@ -3,7 +3,7 @@
   // ever leaks into domain code this project fails, which is what keeps world
   // generation runnable inside a Web Worker as well as in Node.
   "extends": "./tsconfig.base.json",
-  "include": ["index.ts", "domain/**/*.ts", "application/**/*.ts"],
+  "include": ["src/index.ts", "src/domain/**/*.ts", "src/application/**/*.ts"],
   "exclude": [
     "node_modules",
     "coverage",

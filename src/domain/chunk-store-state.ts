@@ -346,6 +346,31 @@ const noteChange = (
   return next
 }
 
+const HORIZONTAL_NEIGHBOUR_OFFSETS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const
+
+/** Mark resident neighbours whose exposed boundary faces changed. */
+const noteLoadedNeighbours = (
+  subscribers: ReadonlyMap<SubscriberId, DirtySubscriberState>,
+  loaded: ReadonlyMap<ChunkKey, Chunk>,
+  coord: ChunkCoord,
+): ReadonlyMap<SubscriberId, DirtySubscriberState> => {
+  let next = subscribers
+
+  for (const [dcx, dcz] of HORIZONTAL_NEIGHBOUR_OFFSETS) {
+    const key = chunkKeyOf(chunkCoord(coord.cx + dcx, coord.cz + dcz))
+    if (loaded.has(key)) {
+      next = noteChange(next, key, 'changed')
+    }
+  }
+
+  return next
+}
+
 /**
  * Make a chunk resident, and tell everyone.
  *
@@ -358,6 +383,11 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
   const key = chunkKeyOf(chunk.coord)
   const loaded = new Map(state.loaded)
   loaded.set(key, chunk)
+  const subscribers = noteLoadedNeighbours(
+    noteChange(state.subscribers, key, 'changed'),
+    state.loaded,
+    chunk.coord,
+  )
 
   return {
     loaded,
@@ -367,7 +397,7 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
     // having to remember; leaving it would light a chunk from storage with the
     // grid of whatever used to be resident at that coordinate.
     lights: withoutLight(state.lights, key),
-    subscribers: noteChange(state.subscribers, key, 'changed'),
+    subscribers,
     nextSubscriberId: state.nextSubscriberId,
   }
 }
@@ -391,6 +421,11 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
 
   const loaded = new Map(state.loaded)
   loaded.delete(key)
+  const subscribers = noteLoadedNeighbours(
+    noteChange(state.subscribers, key, 'removed'),
+    loaded,
+    coord,
+  )
 
   return [
     true,
@@ -399,7 +434,7 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
       // Not merely invalidated — the chunk is gone, so a grid kept here would be
       // a leak keyed by a coordinate nothing can reach.
       lights: withoutLight(state.lights, key),
-      subscribers: noteChange(state.subscribers, key, 'removed'),
+      subscribers,
       nextSubscriberId: state.nextSubscriberId,
     },
   ]

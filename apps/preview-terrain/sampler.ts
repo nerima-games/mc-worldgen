@@ -24,17 +24,17 @@
  * property `test/determinism.test.ts` pins — so flipping between the map and
  * the slice at the same coordinate is a visual assertion of it.
  */
-import type { BiomeType } from '../../domain/biome'
-import { BLOCK } from '../../domain/biome'
-import type { CarveOptions } from '../../domain/carver'
-import type { Chunk } from '../../domain/chunk'
-import { readBlock } from '../../domain/chunk'
-import { chunkCoord } from '../../domain/kernel-vocabulary'
-import type { TerrainLevels } from '../../domain/constants'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../domain/constants'
-import { ravineDepthAt, ravineDistanceAt } from '../../domain/ravine'
-import { biomeFor, generateChunk, surfaceHeightAt } from '../../domain/terrain'
-import { shouldPlaceTree } from '../../domain/tree-placement'
+import type { BiomeType } from '../../src/domain/biome'
+import { BLOCK } from '../../src/domain/biome'
+import type { CarveOptions } from '../../src/domain/carver'
+import type { Chunk } from '../../src/domain/chunk'
+import { readBlock } from '../../src/domain/chunk'
+import { chunkCoord } from '../../src/domain/kernel-vocabulary'
+import type { TerrainLevels } from '../../src/domain/constants'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../src/domain/constants'
+import { ravineDepthAt, ravineDistanceAt } from '../../src/domain/ravine'
+import { biomeFor, generateChunk, surfaceHeightAt } from '../../src/domain/terrain'
+import { shouldPlaceTree } from '../../src/domain/tree-placement'
 
 export type WorldParams = {
   readonly seed: number

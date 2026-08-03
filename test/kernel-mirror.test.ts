@@ -17,8 +17,8 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { CHUNK_SIZE_XZ as CONSTANTS_CHUNK_SIZE_XZ } from '../domain/constants'
+import { BLOCK } from '../src/domain/biome'
+import { CHUNK_SIZE_XZ as CONSTANTS_CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   AIR_BLOCK_ID,
   BLOCK_ID_MAX,
@@ -41,9 +41,9 @@ import {
   type BlockPosition,
   type ChunkCoord,
   type LocalBlockCoord,
-} from '../domain/kernel-vocabulary'
-import { ORE_BLOCK } from '../domain/ore'
-import { PLANT } from '../domain/vegetation'
+} from '../src/domain/kernel-vocabulary'
+import { ORE_BLOCK } from '../src/domain/ore'
+import { PLANT } from '../src/domain/vegetation'
 
 describe('coordinate vocabulary matches mc-kernel/domain/coordinates.ts', () => {
   /** Kernel's `ChunkCoord`, restated from `mc-kernel/domain/coordinates.ts:87-90`. */

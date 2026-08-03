@@ -35,9 +35,9 @@
  * portal is how a corner rule that is too strict would look.
  */
 import { Option } from 'effect'
-import { BLOCK } from '../../domain/biome'
-import { blockPosition, type BlockPosition } from '../../domain/kernel-vocabulary'
-import { detectNetherPortal, generatePortalLayout, type BlockAt } from '../../domain/portal-frame'
+import { BLOCK } from '../../src/domain/biome'
+import { blockPosition, type BlockPosition } from '../../src/domain/kernel-vocabulary'
+import { detectNetherPortal, generatePortalLayout, type BlockAt } from '../../src/domain/portal-frame'
 
 export type PortalOverlay = {
   /** Bottom-left INTERIOR cell. What `detectNetherPortal` is asked about. */

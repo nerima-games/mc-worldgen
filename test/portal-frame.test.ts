@@ -27,8 +27,8 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
-import { BLOCK } from '../domain/biome'
-import { blockPosition, type BlockPosition } from '../domain/kernel-vocabulary'
+import { BLOCK } from '../src/domain/biome'
+import { blockPosition, type BlockPosition } from '../src/domain/kernel-vocabulary'
 import {
   detectNetherPortal,
   generatePortalLayout,
@@ -38,7 +38,7 @@ import {
   MIN_PORTAL_WIDTH,
   type BlockAt,
   type PortalAxis,
-} from '../domain/portal-frame'
+} from '../src/domain/portal-frame'
 
 const key = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 

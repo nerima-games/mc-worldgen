@@ -40,12 +40,12 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../application/chunk-store'
-import { BLOCK } from '../domain/biome'
-import { emptyBlocks, type Chunk } from '../domain/chunk'
-import type { ChunkDirtyBatch } from '../domain/chunk-store-state'
-import { blockIndex, CHUNK_SIZE_XZ } from '../domain/constants'
-import { blockPosition, chunkCoord, type BlockId, type BlockPosition } from '../domain/kernel-vocabulary'
+import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
+import { BLOCK } from '../src/domain/biome'
+import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import type { ChunkDirtyBatch } from '../src/domain/chunk-store-state'
+import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockPosition, chunkCoord, type BlockId, type BlockPosition } from '../src/domain/kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // The capability half, restated from mc-kernel/domain/block-registry.ts

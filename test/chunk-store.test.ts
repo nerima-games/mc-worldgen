@@ -18,12 +18,12 @@ import {
   ChunkStoreLayer,
   generatedChunkSource,
   type ChunkSource,
-} from '../application/chunk-store'
-import { BLOCK } from '../domain/biome'
-import { emptyBlocks, type Chunk } from '../domain/chunk'
-import { chunkKeyOf, chunkCoordOfKey, wasWritten } from '../domain/chunk-store-state'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../domain/constants'
-import { blockPosition, chunkCoord, type ChunkCoord } from '../domain/kernel-vocabulary'
+} from '../src/application/chunk-store'
+import { BLOCK } from '../src/domain/biome'
+import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { chunkKeyOf, chunkCoordOfKey, wasWritten } from '../src/domain/chunk-store-state'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
 // A deterministic world with no noise in it.
@@ -309,6 +309,28 @@ describe('the dirty channel', () => {
         // mc-render disposes the geometry; it must not also try to mesh it.
         expect(batch.changed).toStrictEqual([])
         expect(batch.removed).toStrictEqual([chunkCoord(0, 0)])
+      }),
+    ),
+  )
+
+  it.effect('remeshes a loaded horizontal neighbour when a boundary opens or closes', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.load(chunkCoord(0, 0))
+        const subscription = yield* store.subscribeDirty
+        yield* subscription.drain
+
+        yield* store.load(chunkCoord(1, 0))
+
+        const afterLoad = yield* subscription.drain
+        expect(afterLoad.changed.map(chunkKeyOf).sort()).toStrictEqual(['0,0', '1,0'])
+        expect(afterLoad.removed).toStrictEqual([])
+
+        yield* store.unload(chunkCoord(1, 0))
+
+        const afterUnload = yield* subscription.drain
+        expect(afterUnload.changed).toStrictEqual([chunkCoord(0, 0)])
+        expect(afterUnload.removed).toStrictEqual([chunkCoord(1, 0)])
       }),
     ),
   )
