@@ -30,8 +30,12 @@ export * from './domain/chunk'
 export { CHUNK_FORMAT } from './domain/chunk-format'
 export * from './domain/chunk-store-state'
 export * from './domain/constants'
+export * from './domain/end-terrain'
+export * from './domain/end-portal'
 export * from './domain/kernel-vocabulary'
 export * from './domain/light'
+export * from './domain/natural-structure'
+export * from './domain/nether-terrain'
 // `Dimension` is published from here, and that is a DECISION rather than a
 // widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
 // deliberately kept it off this barrel so that no consumer could depend on the
@@ -54,8 +58,13 @@ export * from './domain/light'
 export * from './domain/nether-travel'
 export * from './domain/portal-frame'
 export * from './domain/seeded-random'
+export * from './domain/structure-siting'
+export * from './domain/stronghold'
 export * from './domain/terrain'
 export * from './domain/tree-placement'
+export * from './domain/village'
 
 // --- Application: Effect services -------------------------------------------
 export * from './application/chunk-store'
+export * from './application/chunk-persistence'
+export * from './application/terrain-worker-pool-port'

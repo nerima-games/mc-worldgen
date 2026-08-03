@@ -13,10 +13,13 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
+import type { ChunkPersistenceError } from '../src/application/chunk-persistence'
 import {
   ChunkStore,
   ChunkStoreLayer,
   generatedChunkSource,
+  generatedDimensionChunkSource,
+  PersistentGeneratedDimensionChunkStoreLayer,
   type ChunkSource,
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
@@ -61,8 +64,44 @@ const flatSource: ChunkSource = (coord) => Effect.sync(() => flatChunk(coord, FL
 const flatWorld = ChunkStoreLayer(flatSource)
 
 /** Run an Effect against a fresh store. Each test gets its own — no singleton. */
-const withStore = <A>(body: (store: Effect.Effect.Success<typeof ChunkStore>) => Effect.Effect<A>) =>
+const withStore = <A>(
+  body: (store: Effect.Effect.Success<typeof ChunkStore>) => Effect.Effect<A, ChunkPersistenceError>,
+) =>
   Effect.flatMap(ChunkStore, body).pipe(Effect.provide(flatWorld))
+
+describe('generated chunk sources', () => {
+  it.effect('selects deterministic terrain by dimension without changing the legacy source', () =>
+    Effect.gen(function* () {
+      const coord = chunkCoord(0, 0)
+      const legacy = yield* generatedChunkSource(42)(coord)
+      const overworld = yield* generatedDimensionChunkSource(42, 'overworld')(coord)
+      const nether = yield* generatedDimensionChunkSource(42, 'nether')(coord)
+      const end = yield* generatedDimensionChunkSource(42, 'end')(coord)
+
+      expect(overworld).toStrictEqual(legacy)
+      expect(new Set(nether.biomes)).toStrictEqual(new Set(['NETHER']))
+      expect(new Set(end.biomes)).toStrictEqual(new Set(['END']))
+      expect(nether.blocks).not.toStrictEqual(end.blocks)
+    }),
+  )
+
+  it('rejects persistence under another dimension namespace', () => {
+    expect(() =>
+      PersistentGeneratedDimensionChunkStoreLayer(
+        42,
+        'nether',
+        { dimension: 'end', worldId: 'test-world' },
+      ),
+    ).toThrow(/does not match persistence dimension/u)
+    expect(() =>
+      PersistentGeneratedDimensionChunkStoreLayer(
+        42,
+        'nether',
+        { dimension: 'nether', worldId: 'test-world' },
+      ),
+    ).not.toThrow()
+  })
+})
 
 describe('residency', () => {
   it.effect('generates a chunk on first load and returns the same one after', () =>

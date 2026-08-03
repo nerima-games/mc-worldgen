@@ -25,9 +25,14 @@
  */
 import { BlockId } from './kernel-vocabulary'
 
-export const BIOMES =['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW'] as const
+export const BIOMES = ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW'] as const
 
 export type BiomeType = (typeof BIOMES)[number]
+
+/** Biomes that may be stored in a dimension-agnostic chunk. */
+export const CHUNK_BIOMES = [...BIOMES, 'NETHER', 'END'] as const
+
+export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
 /** Climate at a column. Both axes are normalised to [0, 1]. */
 export type ClimateSample = {

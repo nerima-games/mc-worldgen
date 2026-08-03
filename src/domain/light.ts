@@ -39,49 +39,28 @@
  * `./seeded-random` are the two reasons recorded there.
  *
  * ---------------------------------------------------------------------------
- * WHAT IS NOT HERE: INCREMENTAL PROPAGATION
+ * FULL RECOMPUTE AND INCREMENTAL PROPAGATION
  * ---------------------------------------------------------------------------
  *
- * The reference propagates INCREMENTALLY, with a remove-then-add two-queue BFS
- * (`sky-light-bfs.ts:40-41`, `block-light-bfs.ts:39-40`) so that placing one
- * torch relights a neighbourhood rather than a chunk. That is the right end
- * state and `docs/design-notes.md` DN-7 keeps its four oracle rows.
- *
- * This file computes a WHOLE CHUNK at a time, and the store calls it lazily.
- * The reason is not that incremental is hard — it is that the reference itself
- * gives up on it past `FULL_RECOMPUTE_THRESHOLD = 256` dirty voxels
- * (`light-engine-utils.ts:6`) and does exactly what this file does. So the
- * missing half is a fast path for small edits, not a missing capability, and
- * shipping the slow path first means the fast path arrives with an oracle it
- * must agree with rather than as the only implementation anyone can check.
- *
- * The cost of the choice is stated where it is paid — see `./chunk-store-state`
- * on invalidation, which is where the laziness lives and where the number is.
+ * `computeChunkLights` is the from-scratch oracle and the cold-cache path.
+ * `updateChunkLights` is the warm-cache path: it starts at changed voxels and
+ * repeatedly re-evaluates the local light equation, queueing face neighbours
+ * only when a value changes. The same fixed-point queue handles both increases
+ * and decreases, so removing a torch or placing a wall retracts stale light as
+ * naturally as adding a source spreads it. Horizontal neighbours wrap through
+ * resident chunk coordinates, making a seam no different from an interior
+ * face.
  *
  * ---------------------------------------------------------------------------
- * WHAT IS NOT HERE: PROPAGATION ACROSS A CHUNK BOUNDARY
+ * PROPAGATION ACROSS A CHUNK BOUNDARY
  * ---------------------------------------------------------------------------
  *
- * `computeChunkLight` sees ONE chunk. A torch one cell inside chunk A does not
- * light chunk B, and the reference solves this by reporting the touched faces as
- * `MutableBoundaryDirty {nx, px, nz, pz}` (`light-engine-model.ts:24-29`) so the
- * caller can relight the neighbour.
- *
- * THIS DIVERGENCE IS NOT IN THE CONSERVATIVE DIRECTION and that is why it is a
- * headed paragraph rather than a line. Block light near a chunk edge reads
- * DARKER than it should, and the rule that consumes it refuses to spawn a mob
- * above light 7 — so the failure mode is a hostile spawning inside the lit
- * border of a torch-lit room, on the far side of a chunk seam. Sky light is
- * unaffected: chunks are full-height columns, so a column's sky exposure is
- * entirely inside its own chunk, and only the sideways spread under an overhang
- * can cross a seam.
- *
- * Fixing it needs the neighbour chunks, which `ChunkStoreApi.neighbours`
- * already produces for exactly this class of problem (mc-meshing's boundary
- * faces). It is deliberately NOT done in this first cut because the seam is
- * where a two-queue incremental engine and a whole-chunk one differ most, and
- * building the boundary protocol against the implementation that is going to be
- * replaced would mean building it twice.
+ * `computeChunkLights` seeds every resident chunk before one world BFS. At a
+ * horizontal edge it looks up the adjacent resident chunk and continues there;
+ * an absent chunk is an opaque boundary. Seeding first makes the result
+ * independent of load and iteration order. `computeChunkLight` remains the
+ * single-chunk compatibility wrapper and therefore retains the old isolated
+ * boundary contract when called directly.
  */
 import { getBlockAt, type Chunk } from './chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
@@ -91,6 +70,7 @@ import {
   LIGHT_LEVEL_MAX,
   LIGHT_LEVEL_MIN,
   transmitsLight,
+  type ChunkCoord,
 } from './kernel-vocabulary'
 
 // ---------------------------------------------------------------------------
@@ -204,6 +184,13 @@ const NEIGHBOUR_OFFSETS: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, -1],
 ]
 
+type LightChunk = {
+  readonly chunk: Chunk
+  readonly light: ChunkLight
+}
+
+const coordKey = (cx: number, cz: number): string => `${String(cx)},${String(cz)}`
+
 /**
  * Spread every seeded cell outwards, one level dimmer per step.
  *
@@ -218,58 +205,6 @@ const NEIGHBOUR_OFFSETS: ReadonlyArray<readonly [number, number, number]> = [
  * the light arriving at it neither improves nor re-enqueues. Without it a room
  * with two torches would re-walk itself once per torch.
  */
-const propagate = (grid: Uint8Array, chunk: Chunk, queue: Array<number>): void => {
-  // An index rather than `shift()`: `Array.prototype.shift` is O(n) in the
-  // engines that matter, so draining a 60,000-entry queue with it is quadratic.
-  // The reference makes the same choice.
-  let head = 0
-
-  while (head < queue.length) {
-    const packed = queue[head] ?? 0
-    head += 1
-
-    const level = unpackLevel(packed)
-    if (level <= 1) {
-      // Nothing to give: a neighbour would receive 0, which is the value it
-      // already has. Stopping here rather than enqueueing the darkness is what
-      // keeps the queue proportional to the LIT volume.
-      continue
-    }
-
-    const x = unpackX(packed)
-    const y = unpackY(packed)
-    const z = unpackZ(packed)
-    const next = level - 1
-
-    for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
-      const nx = x + dx
-      const ny = y + dy
-      const nz = z + dz
-
-      // Out of THIS chunk. See the module header: the neighbour is not relit,
-      // and that gap has a name and a failure mode.
-      if (nx < 0 || nx >= CHUNK_SIZE_XZ || nz < 0 || nz >= CHUNK_SIZE_XZ) {
-        continue
-      }
-      if (ny < 0 || ny >= CHUNK_HEIGHT) {
-        continue
-      }
-
-      if (!transmitsLight(getBlockAt(chunk, nx, ny, nz))) {
-        continue
-      }
-
-      const voxel = blockIndex(nx, ny, nz)
-      if (getLightAt(grid, voxel) >= next) {
-        continue
-      }
-
-      setLightAt(grid, voxel, next)
-      queue.push(packPosLevel(nx, ny, nz, next))
-    }
-  }
-}
-
 /**
  * Sky light: full brightness from the top of the world down to the first block
  * that stops it, then spread sideways under the overhangs.
@@ -339,6 +274,292 @@ const seedBlockLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
   return queue
 }
 
+const propagateAcrossChunks = (
+  chunks: ReadonlyArray<LightChunk>,
+  chunksByCoord: ReadonlyMap<string, number>,
+  gridOf: (light: ChunkLight) => Uint8Array,
+  seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
+): void => {
+  const queueChunks: Array<number> = []
+  const queueCells: Array<number> = []
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+    const entry = chunks[chunkIndex]
+    if (entry === undefined) continue
+
+    for (const packed of seed(entry.chunk, gridOf(entry.light))) {
+      queueChunks.push(chunkIndex)
+      queueCells.push(packed)
+    }
+  }
+
+  let head = 0
+  while (head < queueCells.length) {
+    const packed = queueCells[head] ?? 0
+    const chunkIndex = queueChunks[head] ?? 0
+    head += 1
+
+    const level = unpackLevel(packed)
+    if (level <= 1) continue
+
+    const source = chunks[chunkIndex]
+    if (source === undefined) continue
+
+    const x = unpackX(packed)
+    const y = unpackY(packed)
+    const z = unpackZ(packed)
+    const next = level - 1
+
+    for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
+      let nx = x + dx
+      const ny = y + dy
+      let nz = z + dz
+      if (ny < 0 || ny >= CHUNK_HEIGHT) continue
+
+      let target = source
+      let targetIndex = chunkIndex
+      if (nx < 0 || nx >= CHUNK_SIZE_XZ || nz < 0 || nz >= CHUNK_SIZE_XZ) {
+        const dcx = nx < 0 ? -1 : nx >= CHUNK_SIZE_XZ ? 1 : 0
+        const dcz = nz < 0 ? -1 : nz >= CHUNK_SIZE_XZ ? 1 : 0
+        const adjacentIndex = chunksByCoord.get(
+          coordKey(source.chunk.coord.cx + dcx, source.chunk.coord.cz + dcz),
+        )
+        if (adjacentIndex === undefined) continue
+
+        const adjacent = chunks[adjacentIndex]
+        if (adjacent === undefined) continue
+        target = adjacent
+        targetIndex = adjacentIndex
+        nx = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+        nz = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+      }
+
+      if (!transmitsLight(getBlockAt(target.chunk, nx, ny, nz))) continue
+
+      const grid = gridOf(target.light)
+      const voxel = blockIndex(nx, ny, nz)
+      if (getLightAt(grid, voxel) >= next) continue
+
+      setLightAt(grid, voxel, next)
+      queueChunks.push(targetIndex)
+      queueCells.push(packPosLevel(nx, ny, nz, next))
+    }
+  }
+}
+
+/** Compute mutually consistent light grids for a set of resident chunks. */
+export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): ReadonlyMap<Key, ChunkLight> => {
+  const keys: Array<Key> = []
+  const chunks: Array<LightChunk> = []
+  const chunksByCoord = new Map<string, number>()
+
+  for (const [key, chunk] of loaded) {
+    keys.push(key)
+    chunks.push({ chunk, light: emptyChunkLight() })
+    chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), chunks.length - 1)
+  }
+
+  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)
+  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.block, seedBlockLight)
+
+  const result = new Map<Key, ChunkLight>()
+  for (let index = 0; index < chunks.length; index += 1) {
+    const key = keys[index]
+    const entry = chunks[index]
+    if (key !== undefined && entry !== undefined) result.set(key, entry.light)
+  }
+  return result
+}
+
+/** One block mutation whose cached light neighbourhood must reach a new fixed point. */
+export type ChunkLightChange = {
+  readonly coord: ChunkCoord
+  readonly x: number
+  readonly y: number
+  readonly z: number
+}
+
+type LightChannel = 'sky' | 'block'
+
+/**
+ * Incrementally reconcile complete cached grids after one or more block edits.
+ *
+ * The input grids are treated as immutable: only chunks whose light changes are
+ * cloned. An incomplete cache falls back to the full oracle, which keeps this
+ * function total and lets callers use one operation across cold and warm state.
+ */
+export const updateChunkLights = <Key extends string>(
+  loaded: ReadonlyMap<Key, Chunk>,
+  current: ReadonlyMap<Key, ChunkLight>,
+  changes: ReadonlyArray<ChunkLightChange>,
+): ReadonlyMap<Key, ChunkLight> => {
+  if (loaded.size !== current.size) return computeChunkLights(loaded)
+
+  const keys: Array<Key> = []
+  const chunks: Array<Chunk> = []
+  const lights: Array<ChunkLight> = []
+  const chunksByCoord = new Map<string, number>()
+
+  for (const [key, chunk] of loaded) {
+    const light = current.get(key)
+    if (light === undefined) return computeChunkLights(loaded)
+    keys.push(key)
+    chunks.push(chunk)
+    lights.push(light)
+    chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), chunks.length - 1)
+  }
+
+  if (changes.length === 0) return current
+
+  const result = new Map(current)
+  const cloned = new Set<number>()
+  const highestOpaqueByColumn = new Map<number, number>()
+
+  const cloneLight = (chunkIndex: number): ChunkLight | undefined => {
+    const existing = lights[chunkIndex]
+    const key = keys[chunkIndex]
+    if (existing === undefined || key === undefined) return undefined
+    if (cloned.has(chunkIndex)) return existing
+
+    const copy = { sky: existing.sky.slice(), block: existing.block.slice() }
+    lights[chunkIndex] = copy
+    result.set(key, copy)
+    cloned.add(chunkIndex)
+    return copy
+  }
+
+  const neighbourOf = (
+    chunkIndex: number,
+    x: number,
+    y: number,
+    z: number,
+    dx: number,
+    dy: number,
+    dz: number,
+  ): readonly [number, number, number, number] | undefined => {
+    const source = chunks[chunkIndex]
+    if (source === undefined) return undefined
+
+    let nx = x + dx
+    const ny = y + dy
+    let nz = z + dz
+    if (ny < 0 || ny >= CHUNK_HEIGHT) return undefined
+    if (nx >= 0 && nx < CHUNK_SIZE_XZ && nz >= 0 && nz < CHUNK_SIZE_XZ) {
+      return [chunkIndex, nx, ny, nz]
+    }
+
+    const dcx = nx < 0 ? -1 : nx >= CHUNK_SIZE_XZ ? 1 : 0
+    const dcz = nz < 0 ? -1 : nz >= CHUNK_SIZE_XZ ? 1 : 0
+    const adjacentIndex = chunksByCoord.get(coordKey(source.coord.cx + dcx, source.coord.cz + dcz))
+    if (adjacentIndex === undefined) return undefined
+    nx = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+    nz = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+    return [adjacentIndex, nx, ny, nz]
+  }
+
+  const isDirectSky = (chunkIndex: number, x: number, y: number, z: number): boolean => {
+    const column = chunkIndex * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ + x * CHUNK_SIZE_XZ + z
+    let highestOpaque = highestOpaqueByColumn.get(column)
+    if (highestOpaque === undefined) {
+      highestOpaque = -1
+      const chunk = chunks[chunkIndex]
+      if (chunk === undefined) return false
+      for (let scanY = CHUNK_HEIGHT - 1; scanY >= 0; scanY -= 1) {
+        if (!transmitsLight(getBlockAt(chunk, x, scanY, z))) {
+          highestOpaque = scanY
+          break
+        }
+      }
+      highestOpaqueByColumn.set(column, highestOpaque)
+    }
+    return y > highestOpaque
+  }
+
+  const runChannel = (channel: LightChannel): void => {
+    const queue: Array<number> = []
+    const pending = new Set<number>()
+    const enqueue = (chunkIndex: number, x: number, y: number, z: number): void => {
+      const id = chunkIndex * CHUNK_VOLUME + blockIndex(x, y, z)
+      if (pending.has(id)) return
+      pending.add(id)
+      queue.push(id)
+    }
+
+    for (const change of changes) {
+      const chunkIndex = chunksByCoord.get(coordKey(change.coord.cx, change.coord.cz))
+      if (
+        chunkIndex === undefined ||
+        !Number.isInteger(change.x) ||
+        change.x < 0 ||
+        change.x >= CHUNK_SIZE_XZ ||
+        !Number.isInteger(change.z) ||
+        change.z < 0 ||
+        change.z >= CHUNK_SIZE_XZ ||
+        !Number.isInteger(change.y) ||
+        change.y < 0 ||
+        change.y >= CHUNK_HEIGHT
+      ) {
+        continue
+      }
+      enqueue(chunkIndex, change.x, change.y, change.z)
+      for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
+        const neighbour = neighbourOf(chunkIndex, change.x, change.y, change.z, dx, dy, dz)
+        if (neighbour !== undefined) enqueue(...neighbour)
+      }
+    }
+
+    let head = 0
+    while (head < queue.length) {
+      const id = queue[head] ?? 0
+      head += 1
+      pending.delete(id)
+
+      const chunkIndex = Math.floor(id / CHUNK_VOLUME)
+      const voxel = id % CHUNK_VOLUME
+      const y = voxel % CHUNK_HEIGHT
+      const column = Math.floor(voxel / CHUNK_HEIGHT)
+      const z = column % CHUNK_SIZE_XZ
+      const x = Math.floor(column / CHUNK_SIZE_XZ)
+      const chunk = chunks[chunkIndex]
+      const light = lights[chunkIndex]
+      if (chunk === undefined || light === undefined) continue
+
+      const block = getBlockAt(chunk, x, y, z)
+      let next = LIGHT_LEVEL_MIN
+      if (channel === 'block') next = lightEmissionOfBlockId(block)
+      if (transmitsLight(block)) {
+        if (channel === 'sky' && isDirectSky(chunkIndex, x, y, z)) {
+          next = LIGHT_LEVEL_MAX
+        } else {
+          for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
+            const neighbour = neighbourOf(chunkIndex, x, y, z, dx, dy, dz)
+            if (neighbour === undefined) continue
+            const [nearChunkIndex, nx, ny, nz] = neighbour
+            const nearLight = lights[nearChunkIndex]
+            if (nearLight === undefined) continue
+            next = Math.max(next, getLightAt(nearLight[channel], blockIndex(nx, ny, nz)) - 1)
+          }
+        }
+      }
+
+      const existing = getLightAt(light[channel], voxel)
+      if (existing === next) continue
+      const writable = cloneLight(chunkIndex)
+      if (writable === undefined) continue
+      setLightAt(writable[channel], voxel, next)
+
+      for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
+        const neighbour = neighbourOf(chunkIndex, x, y, z, dx, dy, dz)
+        if (neighbour !== undefined) enqueue(...neighbour)
+      }
+    }
+  }
+
+  runChannel('sky')
+  runChannel('block')
+  return cloned.size === 0 ? current : result
+}
+
 /**
  * Light one whole chunk, from scratch.
  *
@@ -352,10 +573,6 @@ const seedBlockLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
  * volume is sky-lit) and a solid one is nearly free.
  */
 export const computeChunkLight = (chunk: Chunk): ChunkLight => {
-  const light = emptyChunkLight()
-
-  propagate(light.sky, chunk, seedSkyLight(chunk, light.sky))
-  propagate(light.block, chunk, seedBlockLight(chunk, light.block))
-
-  return light
+  const key = coordKey(chunk.coord.cx, chunk.coord.cz)
+  return computeChunkLights(new Map([[key, chunk]])).get(key) ?? emptyChunkLight()
 }

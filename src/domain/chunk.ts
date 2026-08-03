@@ -25,7 +25,7 @@
  * star re-export by silently dropping the name from the barrel. Import it from
  * `./kernel-vocabulary`, which is where it lives.
  */
-import { type BiomeType } from './biome'
+import { type ChunkBiomeType } from './biome'
 import { blockIndex, CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from './kernel-vocabulary'
 
@@ -34,7 +34,7 @@ export type Chunk = {
   /** Flat `Uint8Array` of `CHUNK_VOLUME` block ids. See `blockIndex`. */
   readonly blocks: Uint8Array
   /** One biome per column, indexed `lz * CHUNK_SIZE_XZ + lx`. */
-  readonly biomes: ReadonlyArray<BiomeType>
+  readonly biomes: ReadonlyArray<ChunkBiomeType>
 }
 
 export const emptyBlocks = (): Uint8Array => new Uint8Array(CHUNK_VOLUME)
@@ -59,7 +59,7 @@ export const setBlockAt = (blocks: Uint8Array, lx: number, y: number, lz: number
 
 export const columnIndex = (lx: number, lz: number): number => lz * CHUNK_SIZE_XZ + lx
 
-export const biomeAt = (chunk: Chunk, lx: number, lz: number): BiomeType =>
+export const biomeAt = (chunk: Chunk, lx: number, lz: number): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'
 
 /** World-space coordinates of a chunk-local column. */

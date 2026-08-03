@@ -87,14 +87,27 @@ export const chunkCoord: (x: number, z: number) => ChunkCoord
 export type Chunk = {
   readonly coord: ChunkCoord
   readonly blocks: Uint8Array                    // CHUNK_VOLUME 個のブロック id
-  readonly biomes: ReadonlyArray<BiomeType>      // 柱ごと。index = lz * 16 + lx
+  readonly biomes: ReadonlyArray<ChunkBiomeType> // 柱ごと。index = lz * 16 + lx
 }
 
 export const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions) => Chunk
 export const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => Chunk
+export const generateEndTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
+export const generateEndChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
+export const generateEndChunkAt: (seed: number, x: number, z: number) => NaturalStructureChunk
+export const endSurfaceHeightAt: (seed: number, wx: number, wz: number) => number | undefined
+export const generateNetherTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
+export const generateNetherChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
+export const generateNetherChunkAt: (seed: number, x: number, z: number) => NaturalStructureChunk
+export const netherBlockAt: (seed: number, x: number, y: number, z: number) => BlockId
+export const netherStructureTerrainAt: (seed: number, x: number, z: number) => NetherStructureTerrainSample
 ```
 
 `domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
+End の関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
+シード依存の外縁島を絶対ワールド座標から生成し、End city / ship を適用する。
+Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下の岩盤、溶岩海、
+ソウルサンドを生成して ruined portal を適用する。`*TerrainChunk` は構造物を適用しない基礎地形版である。
 
 参照実装も実質同期だった。`generateTerrainBlocks`
 （`packages/world/application/terrain-generation.ts:120`）は
@@ -138,6 +151,8 @@ x = 16 の倍数に継ぎ目が出ない。
 ```typescript
 export const BIOMES: readonly ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW']
 export type BiomeType = (typeof BIOMES)[number]
+export const CHUNK_BIOMES: readonly [...typeof BIOMES, 'END']
+export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
 export type ClimateSample = { readonly temperature: number; readonly humidity: number }
 export const classifyBiome: (climate: ClimateSample) => BiomeType
@@ -189,7 +204,7 @@ BEACH は隣接バイオームを要する後処理である
 （`packages/world/domain/density-function.ts:42-55`）がスプラインベースで決める（MC 1.18 方式）。
 バイオームは表面材質と装飾を決めるだけである。
 
-### `BiomeService`（未実装）
+### `BiomeService` は採用しない
 
 参照実装のタグは `@minecraft/application/BiomeService`
 （`packages/world/application/biome-service.ts:7`）、5 メソッド:
@@ -203,10 +218,9 @@ getBiomesAndPropertiesForChunk: (chunkX: number, chunkZ: number)
   => Effect.Effect<ReadonlyArray<{ biome: BiomeType; props: BiomeProperties }>>
 ```
 
-**ただしジェネレータが依存しているのはもっと狭い Port** である:
-`BiomeGeneratorPort`（`packages/world/domain/biome-generator-port.ts:4-11`、3 メソッド）。
-
-移植するならサービスではなく**この Port のほうを**移植すること。
+このリポジトリのジェネレータは参照実装の `BiomeService` を依存先にせず、
+`domain/biome.ts` の分類関数と、各ジェネレータが必要とする狭い値だけを直接使う。
+サービス互換の API を追加すると、mc-worldgen の責務をアプリケーション層へ戻すため採用しない。
 
 ---
 
@@ -382,6 +396,16 @@ mc-render は plan.md §2.1 に既にある `render → worldgen` エッジ経�
 ```typescript
 export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
 
+// 後方互換 API: Overworld を生成する
+export const generatedChunkSource: (seed: number, options?: GenerateOptions) => ChunkSource
+
+// ディメンションを明示して Overworld / Nether / End を生成する
+export const generatedDimensionChunkSource: (
+  seed: number,
+  dimension: Dimension,
+  options?: GenerateOptions,
+) => ChunkSource
+
 export type ChunkStoreApi = {
   // 常駐
   readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk>        // 無ければ ChunkSource で生成
@@ -403,6 +427,11 @@ export type ChunkStoreApi = {
   readonly reset: Effect.Effect<void>
 }
 ```
+
+`GeneratedDimensionChunkStoreLayer` と
+`PersistentGeneratedDimensionChunkStoreLayer` は、同じディメンション別ソースを使う
+インメモリ版・永続化版の Layer である。Nether と End のソースは、地形生成後に
+チャンク境界をまたぐ自然構造を適用したチャンクを返す。
 
 **読み書きはどちらも全域関数でエラーチャネルを持たない。**
 `StageRegistration.run` のエラーチャネルが `never` である（kernel の凍結チェックリスト問い 3）以上、
@@ -469,10 +498,10 @@ mc-render が世界を 2 回メッシュすることになる。再同期が欲�
 
 | 未実装 | 理由 |
 | --- | --- |
-| 永続化（`unload` が保存しない） | mc-save が未消費（plan.md §6 Step 3）。ストレージ読み出しは `ChunkSource` の**前段に合成**され、`ChunkStoreApi` は変わらない |
+| ストレージ媒体への接続 | `PersistentChunkStoreLayer` は実装済み。ホストが `StoragePort` を注入して `ChunkStoreApi` に合成する。媒体実装と publish は mc-save / ホスト側の責務 |
 | `loadChunksAroundPlayer` / LRU 追い出し | 方針（描画距離、退避順）は呼び出し側のもの。`load` / `unload` / `loadedCoords` で外から書ける |
-| `Effect.makeSemaphore(4)` による生成の並行度制限 | 参照実装は `chunk-manager-service.ts:45` で掛けている。ワーカープール Port が入るときに一緒に入れる |
-| ライトグリッドの再伝播 | ライトグリッド自体が未実装（§8） |
+| `Effect.makeSemaphore(4)` による生成の並行度制限 | 実行媒体とキューの責務。`TerrainWorkerPoolPort` は 1 チャンク生成の契約だけを公開し、並行度はホストが制御する |
+| チャンク境界をまたぐライト再伝播 | 現在はチャンク単位の全再計算。増分の two-queue と隣接チャンクへの再伝播は未実装（§8） |
 | `dirtyVoxels` 粒度 | チャンク粒度で足りている。位置粒度の追跡は mx-gameplay の `FallingBlockQueue` が既に private に持っており、2 つは合成する |
 
 ### 6-6. 参照実装の `ChunkManagerService`
@@ -518,37 +547,31 @@ unloadChunk: (coord: ChunkCoord) => Effect.Effect<void, StorageError>
 
 ---
 
-## 7. 未実装: ワーカープール Port
+## 7. ワーカープール Port
 
-参照実装は `packages/worker/application/terrain-worker-pool-port.ts:35`（48 LOC）、
-タグ `@minecraft/application/terrain/TerrainWorkerPoolPort`、**1 メソッド**:
+`TerrainWorkerPoolPort` は `src/application/terrain-worker-pool-port.ts` で公開する
+型付きのアプリケーション境界で、**1 メソッド**を持つ:
 
 ```typescript
-generateTerrain: (
-  _coord: ChunkCoord,
-  _options: TerrainGenerationOptions,
-) => Effect.Effect<ChunkBlocks, TerrainGenerationError>
-
-// :30-35
-type TerrainGenerationOptions = Readonly<{
-  seaLevel: number; lakeLevel: number; seed: number
-  dimension?: 'overworld' | 'nether' | 'end'
-}>
-// :25-28
-TerrainGenerationError = ... { reason, chunk }
+generateTerrain: (coord: ChunkCoord) => Effect.Effect<Chunk>
 ```
 
-ヘッダコメント（`:5-14`）が意図を明記している:
 **アプリケーション層は「Worker か、プールか、同期実行か」を知ってはならない。**
 
-この禁欲は維持する。実装は利用側（mc-render がワーカープール実装を持つ）が注入する。
+`chunkSourceFromTerrainWorkerPool` がこの Port を既存の
+`ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>` に変換する。
+`ChunkStore` はこの adapter を同期生成、Worker、独自プールのいずれからも受け取れる。
 
-### パリティテストを忘れないこと
+この境界は維持する。DOM の `Worker` 型、キュー、キャンセル、通信エラー、並行度は
+Port に含めず、実装を注入するホストまたは `mc-render` 側が所有する。
 
-参照実装には `packages/worker/test/terrain-worker-pool.parity.property.test.ts`（124 LOC）があり、
-**Worker の出力がメインスレッドとバイト一致すること**を検証している。
+### パリティテスト
 
-これが無いと、Worker 経路だけで地形が変わるバグが本番でしか見つからない。
+`test/terrain-worker-pool-port.test.ts` で adapter 経由の座標転送と、
+同期生成との `Chunk` 完全一致を検証している。
+
+通信媒体固有の失敗型が必要になった場合は、既存の `ChunkSource` の失敗契約を壊さず、
+別の transport boundary として設計する。
 
 ---
 
@@ -629,3 +652,32 @@ packPosLevel = (x, y, z, lvl) => (x << 13) | (z << 9) | y | (lvl << 17)
 
 なお `no-bitwise` は mc-worldgen の `.oxlintrc.json` でのみ `off` にしてある。
 シード PRNG とこのライトパックの両方が bit 演算を必要とするためで、理由はそこに書いてある。
+
+---
+
+## 9. 自然構造プラン
+
+村、ruined Nether portal、End city / ship は、ロード済みチャンクの状態に依存しない
+immutable な `NaturalStructurePlan` として公開する。
+
+```typescript
+planVillageForRegion(seed, regionX, regionZ, sampleTerrain)
+planRuinedNetherPortalForRegion(seed, regionX, regionZ, sampleTerrain)
+planEndCityForRegion(seed, regionX, regionZ, sampleTerrain?)
+naturalStructureSliceForChunk(plan, chunkX, chunkZ)
+naturalStructurePlansForChunk(seed, dimension, coord, samplers?)
+applyNaturalStructurePlansToChunk(chunk, plans)
+```
+
+各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
+バイオーム、起伏、headroom、外縁島の有無を検査する。不適合なら `Option.none()`、適合すれば
+固定された dimension、bounds、registry block ID の配置、semantic marker を持つ plan を返す。
+marker は loot table、villager spawn、shulker spawner、欠損 portal frame、End ship といった
+ブロック配列だけでは失われる意味を downstream へ渡す。
+
+`naturalStructureSliceForChunk` は plan をワールド座標のままチャンク単位へ分割する。
+隣接チャンクを読まず、plan も変更しないため、負座標、未ロードの隣接チャンク、任意のロード順で
+同じ結果になる。村 plan は Overworld chunk generator と同じサイト・レイアウトを使う。
+`naturalStructurePlansForChunk` は対象チャンクに届く隣接 region の plan を安定順序で列挙・重複排除し、
+`applyNaturalStructurePlansToChunk` はブロックを書き込んで structure ID と由来付き marker を保持する。
+Nether / End generator は両者を適用済みであり、entity / loot subsystem は marker を消費する。

@@ -1,73 +1,12 @@
 /**
- * Where structures go. NOT what they are made of.
+ * Where strongholds go. The block writer lives in `./stronghold.ts`.
  *
  * plan.md §3.7 gives this repository 「構造物（村/ポータル/End）」 and
  * `docs/responsibility.md` widens it to 村 / End / 要塞. This file closes the
- * SITING half of the stronghold and nothing else: it decides, for any world
+ * SITING half of the stronghold: it decides, for any world
  * coordinate, whether a stronghold stands there and where its nearest one is.
- * It writes no blocks and names no block ids.
- *
- * ---------------------------------------------------------------------------
- * WHY A SCAFFOLD AND NOT A GENERATOR, STATED PLAINLY
- * ---------------------------------------------------------------------------
- *
- * A structure generator is two separable things — 「is there one here」 and
- * 「what is in it」 — and the reference implementation separates them cleanly:
- * `stronghold.ts:33-42` is the siting rule, `:112-174` is the block writing.
- * The siting half is a pure function of coordinates, is 40 lines, and every
- * consumer of a stronghold needs it before any of them needs a wall. The block
- * half needs a room layout, four block ids this repository does not yet name,
- * and a decision about what happens where a room intersects a cave.
- *
- * So the siting half ships and the block half does not, and the boundary is
- * chosen so that what ships is USEFUL ON ITS OWN rather than being a stub:
- * `nearestStrongholdSite` is exactly what an eye of ender needs, and it is
- * complete. What is here works; what is not here is absent rather than
- * half-present. A generator that carved an empty room would be worse than this,
- * because a world would then contain something wrong instead of nothing.
- *
- * WHAT THE BLOCK HALF STILL NEEDS, so that the next person costs it rather than
- * discovers it:
- *
- *   1. FOUR BLOCK IDS. `cobblestone` (kernel 17) is already assigned;
- *      `end_stone` (86), `end_portal_frame` and `end_portal`
- *      (`mc-kernel/domain/block-registry.ts:1804-1824`) are assigned in kernel
- *      and not adopted here. Adopting them is the same cheap move
- *      `./ore.ts` and `./vegetation.ts` made — a local table, no barrel export,
- *      no `api-lock.md` diff.
- *   2. A CROSS-CHUNK WRITE PROTOCOL. A stronghold room is 13 blocks across and a
- *      chunk is 16, so a room straddles a chunk boundary roughly half the time.
- *      The reference solves this by having each chunk compute the slice of every
- *      nearby site that falls inside it (`strongholdBlockAt`), which is the
- *      right shape and is why siting has to be a pure coordinate function — the
- *      same property `./tree-placement.ts`'s header wants and does not have for
- *      canopies (`domain/terrain.ts`'s `plantTree` clips at the border).
- *   3. AN INTERSECTION RULE. `carveCaves` runs before decoration and a room at
- *      `STRONGHOLD_FLOOR_Y = 28` sits squarely in the cave band
- *      (`CAVE_FLOOR_Y = 6` .. `CAVE_CEILING_Y = 58`). Either the room is written
- *      after carving and wins, or the carver learns to avoid it. The reference
- *      writes after, which is a decision this file does not get to make.
- *
- * ---------------------------------------------------------------------------
- * THERE IS NO VILLAGE TO PORT, AND THAT IS A FINDING RATHER THAN AN EXCUSE
- * ---------------------------------------------------------------------------
- *
- * `docs/responsibility.md` lists 村 alongside End and 要塞, and `docs/porting.md`
- * §6 lists five reference files for 構造物 — nether-generator, portal-frame,
- * stronghold, nether-fortress, end-portal-frame. NO VILLAGE FILE IS AMONG THEM,
- * and it is not an omission in that list: measured over the whole of
- * `packages/world`, the string 「village」 occurs four times and every one is a
- * comment about CROP GROWTH (`crop-growth.ts:2`,
- * `crop-growth-service.ts:20`, `block-service.config.ts:175`) plus the mob names
- * `Villager` and `ZombieVillager` in `world-metadata-model.ts:59,68`.
- *
- * The reference implementation has no village generator. So 村 is not a port
- * that has not happened — it is CONTENT THIS ORGANISATION HAS NEVER WRITTEN, and
- * building one here would be design work (house schemas, a road graph, villager
- * spawning, biome-specific palettes) rather than the transcription every other
- * row in this repository is. That is a different kind of task with a different
- * kind of risk, and `docs/responsibility.md` now says so rather than carrying a
- * ⬜ that reads as 「somebody just has not got to it」.
+ * It writes no blocks and names no block ids; keeping siting pure lets every
+ * chunk write its own stronghold slice without cross-chunk mutation.
  *
  * ---------------------------------------------------------------------------
  * THE SEED, FOR THE THIRD TIME
@@ -86,6 +25,7 @@
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
 import { Option } from 'effect'
+import type { BiomeType } from './biome'
 import { channelSeed, latticeValue } from './seeded-random'
 
 /**
@@ -131,8 +71,130 @@ export type StrongholdSite = {
   readonly z: number
 }
 
+export type StrongholdOrigin = { readonly x: number; readonly z: number }
+
+/** Returns the nearest deterministic candidates, ordered by distance then coordinate. */
+export const locateStronghold = (
+  seed: number,
+  origin: StrongholdOrigin,
+  limit = 3,
+): ReadonlyArray<StrongholdSite> => {
+  const regionX = floorDiv(origin.x, STRONGHOLD_REGION_SIZE)
+  const regionZ = floorDiv(origin.z, STRONGHOLD_REGION_SIZE)
+  const sites: StrongholdSite[] = []
+  for (let dx = -STRONGHOLD_SEARCH_RADIUS; dx <= STRONGHOLD_SEARCH_RADIUS; dx += 1) {
+    for (let dz = -STRONGHOLD_SEARCH_RADIUS; dz <= STRONGHOLD_SEARCH_RADIUS; dz += 1) {
+      const candidate = strongholdSiteForRegion(seed, regionX + dx, regionZ + dz)
+      if (Option.isSome(candidate)) sites.push(candidate.value)
+    }
+  }
+  return sites
+    .sort((left, right) => {
+      const leftDistance = (left.x - origin.x) ** 2 + (left.z - origin.z) ** 2
+      const rightDistance = (right.x - origin.x) ** 2 + (right.z - origin.z) ** 2
+      return leftDistance - rightDistance || left.x - right.x || left.z - right.z
+    })
+    .slice(0, Math.max(0, limit))
+}
+
+export const VILLAGE_REGION_SIZE = 160
+export const VILLAGE_REGION_SPAWN_PERMILLE = 120
+export const VILLAGE_SITE_MARGIN = 32
+export const VILLAGE_HALF_EXTENT = 30
+const PERMILLE_SCALE = 1000
+const VILLAGE_MIN_DRY_CLEARANCE = 1
+const VILLAGE_MAX_HEIGHT_VARIATION = 6
+const CHUNK_SIZE = 16
+const CHUNK_MAX_LOCAL = 15
+const VILLAGE_SITE_MARGIN_SIDES = 2
+const REGION_STEP = 1
+
+export type VillageSite = {
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  readonly x: number
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  readonly z: number
+}
+
+export type VillageTerrainSample = {
+  readonly biome: BiomeType
+  readonly surfaceY: number
+  readonly seaLevel: number
+}
+
+// eslint-disable-next-line id-length -- x/z are canonical world axes.
+export type VillageTerrainSampler = (x: number, z: number) => VillageTerrainSample
+
 /** Euclidean floor division — correct for negative operands, as in `./kernel-vocabulary.ts`. */
 const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
+
+/** A sparse, seeded candidate accepted only when its complete footprint is dry, level plains. */
+// eslint-disable-next-line max-params, max-statements -- Public siting API mirrors other seeded region locators.
+export const villageSiteForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: VillageTerrainSampler,
+): Option.Option<VillageSite> => {
+  const roll = latticeValue(channelSeed(seed, 'village-present'), regionX, regionZ)
+  if (roll >= VILLAGE_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
+    return Option.none()
+  }
+
+  const span = VILLAGE_REGION_SIZE - VILLAGE_SITE_MARGIN * VILLAGE_SITE_MARGIN_SIDES
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  const x = regionX * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN +
+    Math.floor(latticeValue(channelSeed(seed, 'village-x'), regionX, regionZ) * span)
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  const z = regionZ * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN +
+    Math.floor(latticeValue(channelSeed(seed, 'village-z'), regionX, regionZ) * span)
+  const probes = [
+    sampleTerrain(x, z),
+    sampleTerrain(x - VILLAGE_HALF_EXTENT, z),
+    sampleTerrain(x + VILLAGE_HALF_EXTENT, z),
+    sampleTerrain(x, z - VILLAGE_HALF_EXTENT),
+    sampleTerrain(x, z + VILLAGE_HALF_EXTENT),
+  ]
+  if (probes.some((probe) => probe.biome !== 'PLAINS' || probe.surfaceY <= probe.seaLevel + VILLAGE_MIN_DRY_CLEARANCE)) {
+    return Option.none()
+  }
+
+  const heights = probes.map((probe) => probe.surfaceY)
+  if (Math.max(...heights) - Math.min(...heights) > VILLAGE_MAX_HEIGHT_VARIATION) {
+    return Option.none()
+  }
+  // eslint-disable-next-line id-length -- x/z are canonical world axes.
+  return Option.some({ x, z })
+}
+
+/** Finds all accepted village centres whose footprint can overlap this chunk. */
+// eslint-disable-next-line max-params, max-statements -- Public chunk query mirrors other structure writers.
+export const villageSitesNearChunk = (
+  seed: number,
+  chunkX: number,
+  chunkZ: number,
+  sampleTerrain: VillageTerrainSampler,
+): ReadonlyArray<VillageSite> => {
+  const minX = chunkX * CHUNK_SIZE - VILLAGE_HALF_EXTENT
+  const maxX = chunkX * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT
+  const minZ = chunkZ * CHUNK_SIZE - VILLAGE_HALF_EXTENT
+  const maxZ = chunkZ * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT
+  const sites: Array<VillageSite> = []
+
+  for (let regionX = floorDiv(minX, VILLAGE_REGION_SIZE); regionX <= floorDiv(maxX, VILLAGE_REGION_SIZE); regionX += REGION_STEP) {
+    for (let regionZ = floorDiv(minZ, VILLAGE_REGION_SIZE); regionZ <= floorDiv(maxZ, VILLAGE_REGION_SIZE); regionZ += REGION_STEP) {
+      const site = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
+      if (
+        Option.isSome(site) &&
+        site.value.x >= minX && site.value.x <= maxX &&
+        site.value.z >= minZ && site.value.z <= maxZ
+      ) {
+        sites.push(site.value)
+      }
+    }
+  }
+  return sites
+}
 
 /**
  * The site in one region, or nothing.

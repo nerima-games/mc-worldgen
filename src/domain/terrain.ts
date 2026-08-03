@@ -80,6 +80,8 @@ import { chunkCoord, type ChunkCoord } from './kernel-vocabulary'
 import { placeOres } from './ore'
 import { carveRavines } from './ravine'
 import { channelSeed, fbm2D } from './seeded-random'
+import { writeStrongholdBlocksForChunk } from './stronghold'
+import { writeVillageBlocksForChunk } from './village'
 import { shouldPlaceTree, TREE_CROWN_RADIUS } from './tree-placement'
 import {
   canPlaceGroundPlantAt,
@@ -385,6 +387,13 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options: Generate
   // (`generator.ts:141-142`). See the module header for why this is outside the
   // `decorate` block rather than at the end of it.
   carveRavines(blocks, seed, coord, surfaces, biomes)
+
+  // Structures run last so their shell, roads and interiors override carving and vegetation.
+  writeVillageBlocksForChunk(blocks, seed, coord, (wx, wz) => {
+    const surfaceY = surfaceHeightAt(seed, wx, wz)
+    return { biome: biomeFor(seed, wx, wz, surfaceY, levels), surfaceY, seaLevel: levels.seaLevel }
+  })
+  writeStrongholdBlocksForChunk(blocks, seed, coord)
 
   return { coord, blocks, biomes }
 }

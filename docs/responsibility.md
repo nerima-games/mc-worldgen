@@ -15,19 +15,20 @@
 | 決定論シード | `(seed, coords) → Chunk` の全域性 | ✅ |
 | バイオーム分類 | 気候 → バイオーム（ルールテーブル、first-match-wins） | ✅ 2 入力版 |
 | 地形生成 | 高さ場 → ブロック充填 → 水位 | ✅ |
+| 地形生成（Nether） | `nether-terrain.ts` が決定論的な 3D 密度場、上下の岩盤、溶岩海、ソウルサンドと構造物用の実地形 sampler を提供する | ✅ |
 | カーバー（洞窟） | **水域の床マージン検査つき**。`domain/carver.ts` の `carveCaves` | ✅ |
 | カーバー（渓谷） | ノイズ帯 + テーパー壁 + **2 層の水ガード**。`domain/ravine.ts` の `carveRavines`。装飾の**後**に走る（下記 §1-6） | ✅ 溶岩床を除く |
 | 植生（木） | 格子ジッター配置 | ✅ 配置ロジック |
 | 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダ。`domain/vegetation.ts` | ✅ |
 | 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石変種のみ |
-| 構造物（要塞） | **サイト決定のみ** `domain/structure-siting.ts`。ブロック生成器は無い | 🟡 配置決定のみ |
-| 構造物（ポータル） | 検出 `detectNetherPortal` と**生成 `generatePortalLayout`（`portal-frame.ts:296`）の両方**がある。無いのは `generateChunk` からの呼び出しで、世界に自然生成されるポータルはまだ 0 個（下記 §1-7） | 🟡 呼び出し元が無い |
+| 構造物（要塞） | サイト決定 `domain/structure-siting.ts` と 13×13 石室生成 `domain/stronghold.ts`。各チャンクが自分の断面を書き、境界をまたぐ | ✅ |
+| 構造物（ポータル） | 検出・点火用 `portal-frame.ts` に加え、`natural-structure.ts` が ruined portal の immutable plan と marker を提供し、`nether-terrain.ts` が境界をまたぐ plan をチャンクへ適用する | ✅ plan + generator 適用 |
 | 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。`index.ts` には出していないので `api-lock.md` は動いていない（下記 §6-1） | 🟡 barrel 未公開 |
-| 構造物（村） | **参照実装に存在しない**（下記 §1-3）。移植ではなく新規設計になる | ⬜ 出典なし |
-| 構造物（End） | End 次元も `end_*` ブロックも無い。§5 の規模判断のまま | ⬜ |
+| 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
+| 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。gateway / crystal は対象外 | ✅ city / ship 生成 |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
-| `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ 永続化を除く |
-| ワーカープール Port | 注入の**継ぎ目**は `ChunkSource` にある。参照実装の**名前つき Port 型**は未定義（下記 §1-4） | 🟡 継ぎ目のみ |
+| `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
+| ワーカープール Port | `TerrainWorkerPoolPort` と `chunkSourceFromTerrainWorkerPool` を公開。Worker/Pool の媒体はホストが注入し、mc-worldgen は DOM/Worker を所有しない | ✅ 型 + adapter |
 | チャンクフォーマット定義 | `domain/chunk-format.ts`。`domain/save-format-port.ts`（mc-save ミラー）の `defineFormat` で定義。**「publish 待ち」は誤りだった**（下記 §1-5） | ✅ 定義のみ（媒体は未接続） |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
 
@@ -42,7 +43,7 @@
 | カーバー（渓谷） | **REAL** → 今回実装 | `carver.ts` は `carveCaves` だけだった。`domain/ravine.ts` として移植（§1-6） |
 | 植生（草・花） | **REAL** → 今回実装 | `tree-placement.ts` は木であって地被ではなかった |
 | 鉱石 | **REAL** → 今回実装 | 「ore」は 10 ファイルに出るが**全て語彙**（`porting.md` の未移植行と `terrain.ts` のコメント）。配置コードは 0 行だった |
-| 構造物（村 / End / 要塞） | **REAL**、ただし村は種類が違う | 要塞はサイト決定を実装。村は §1-3 |
+| 構造物（村 / End / 要塞） | **REAL**、ただし村は種類が違う | 要塞はサイト決定と石室生成を実装。村は §1-3 |
 | チャンクフォーマット定義 | ~~**REAL、かつブロック中**~~ → **判定そのものが誤り**。7 回目の訂正 | §1-5 |
 
 **⬜ が「まだ誰も手をつけていない」を意味しない行が 2 つあった。**
@@ -83,22 +84,22 @@ COAL と EMERALD の `peakY = 96` はこの天井の**上**にある。
 ⬜ のままだと「誰かがまだ手をつけていないだけ」に読めるので、
 状態を **⬜ 出典なし** に変えた。
 
-### 1-4. ワーカープール Port: 継ぎ目はあり、型が無い
+### 1-4. ワーカープール Port: 型と継ぎ目を分離する
 
 `ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>` が注入点で、
 `ChunkStoreLayer(source)` がそれを受け取る。plan.md §3.7 の
 「実装は利用側が注入」は**すでに満たされている**。
 
-無いのは参照実装の名前つき Port
-（`terrain-worker-pool-port.ts:35`、タグ
-`@minecraft/application/terrain/TerrainWorkerPoolPort`、
-`generateTerrain(coord, options): Effect<ChunkBlocks, TerrainGenerationError>`）である。
+`TerrainWorkerPoolPort` は `generateTerrain(coord)` だけを要求し、
+`chunkSourceFromTerrainWorkerPool` が既存の `ChunkSource` に変換する。
+DOM の `Worker` 型、キュー、キャンセル、通信エラーはこの Port に持ち込まない。
+それらはホストまたは `mc-render` の汎用 Worker Pool が所有する責務であり、
+ここで重複すると実行媒体と地形生成の責務が結合する。
 
-**これを足すと `api-lock.md` が動く。** タグ・エラー型・オプション型で
-最低 4 つの新規 export になり、plan.md §6 Step 3 の 4 週間時計が振り出しに戻る。
-継ぎ目が既に機能している以上、**それは publish 後に払うべき代金**であって
-今払う理由が無い。パリティテスト（`docs/public-api.md` §7）も
-Worker 実装が現れるまで書けない。
+Port の生成契約は既存 `ChunkSource` と同じ `Effect<Chunk>` に固定している。
+これにより `ChunkStoreLayer` のロード・永続化エラー契約を壊さず、同期 generator と
+Worker adapter を同じ注入点で交換できる。通信エラーを型付きで扱う必要が生じた場合は、
+Worker transport の `Result` を定義した上で、別の application boundary として追加する。
 
 ### 1-5. チャンクフォーマット定義は**ブロックされていなかった**
 
@@ -373,7 +374,7 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 | `mc-save` への依存 | 同上。ただし**フォーマット定義は待っていない** — `domain/save-format-port.ts` がミラー（§1-5） | mc-save が消費可能になった時点。その日にミラーを削除して import を張り替える |
 | `mc-kernel` への依存 | 同上。`domain/chunk.ts` `domain/biome.ts` の `BLOCK` が仮置き | kernel が消費可能になった時点 |
 | ~~渓谷カーバー~~ | ~~パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後~~ | **完了**（`domain/ravine.ts`）。溶岩床は到達不能なので入れていない（§1-6）。木が宙に残る件だけが残り、理由つきでそのファイルに書いてある |
-| 構造物のブロック生成 | サイト決定は `domain/structure-siting.ts` で閉じた。残りはブロック 4 種の採用・チャンク跨ぎの書き込み規約・洞窟との交差規則 | そのファイルのヘッダに 3 項目として書いてある |
+| ~~要塞のブロック生成~~ | ~~サイト決定のみで、チャンク跨ぎと洞窟との交差規則が未決定~~ | **完了**（`domain/stronghold.ts`）。各チャンクが自分の断面を最終パスで書く |
 | deepslate 鉱石 7 種 | 置く先の deepslate 層が無い。層と鉱石は**同時に**入れないと、灰色の石の中から深層岩鉱石が出る | deepslate 層を足すとき |
 | ライトグリッド | ~~4bit パックの実装は `packages/block/domain/light.ts` から~~ | **完了**（`domain/light.ts`）。増分伝播とチャンク境界の 2 点だけが残り、両方そのファイルに理由つきで書いてある |
 | `ChunkStore` の永続化（`unload` が保存しない） | 永続化（mc-save）が要る | mc-save 消費開始後。ストレージ読み出しは `ChunkSource` の前段に合成され、`ChunkStoreApi` は変わらない |
@@ -430,7 +431,7 @@ plan.md §3.7 は本リポジトリに「構造物（村/**ポータル**/End）
 | `nether-link.ts` の `overworldToNether` / `netherToOverworld` | **ここ** | 8:1 の座標スケーリング。2 つの次元の**座標空間の関係**であって、入力も出力も座標しかない。`chunkCoordOfBlock` と同じ種類のもの → ✅ `domain/nether-link.ts` |
 | `nether-link.ts` の `findNearestPortal` | **ここ**（注記は生きている） | 候補配列を**引数で受ける**最近傍探索。`BlockAt` と同じ注入形。ただし「世界に存在するポータルの一覧」を**所有する**のが誰かは別問題で、それはまだ誰にも割り当てられていない → ✅ `domain/nether-link.ts`。**注記のほうは消費していない**: 候補は今も引数のままで、所有者は今も居ない（下記 §6-1） |
 | `nether-travel.ts` の `resolveNetherTravel` | ~~**mx-gameplay**~~ → **ここ**（下記 §6-1） | ~~`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す。plan.md §3.11 そのもの。上の 3 つを合成するだけなので、依存の向きも合っている~~ → ✅ `domain/nether-travel.ts` |
-| `end/end-portal-frame.ts` | **ここ**（未移植、意図的） | 形は `portal-frame.ts` と同型（注入された `BlockAt` の純粋ルール）なので境界の議論は同じ結論を出す。移植しなかったのは**規模の理由**である: End 次元も要塞生成器も `end_*` ブロックも本リポジトリにまだ無いので、生産者も消費者も無いルールを 1 本増やすことになる。構造物（End）に着手する時に一緒に来るのが正しい |
+| `end/end-portal-frame.ts` | **ここ**（未移植、意図的） | 形は `portal-frame.ts` と同型（注入された `BlockAt` の純粋ルール）なので境界の議論は同じ結論を出す。要塞の石室、`end_portal_frame` 語彙、End の基礎地形は実装したが、完成ポータル判定はまだ無い。構造物（End）に着手する時に一緒に来るのが正しい |
 
 ### 6-1. `resolveNetherTravel` の行を覆した。理由と、覆さなかったもの
 

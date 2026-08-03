@@ -48,8 +48,8 @@
  * worldgen-chunk-format-wire-shape.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { BIOMES } from '../src/domain/biome'
+import { Effect, Option } from 'effect'
+import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
   CHUNK_BIOME_COUNT,
   CHUNK_FORMAT,
@@ -57,7 +57,9 @@ import {
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
+import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
 import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { planEndCityForRegion } from '../src/domain/natural-structure'
 import {
   decodeSave,
   encodeSave,
@@ -197,6 +199,46 @@ describe('the chunk format round-trips', () => {
     expect(FIXTURE.blocks.length).toBe(CHUNK_VOLUME)
     expect(FIXTURE.biomes.length).toBe(CHUNK_BIOME_COUNT)
   })
+
+  it.effect('CF-17: a legacy v1 payload without structure metadata decodes with empty arrays', () =>
+    Effect.gen(function* () {
+      const legacyPayload = {
+        coord: ENCODED.coord,
+        blocks: ENCODED.blocks,
+        biomes: ENCODED.biomes,
+      }
+      const restored = yield* decodeSave(
+        CHUNK_FORMAT,
+        saveEnvelope(CHUNK_FORMAT_NAME, 1, legacyPayload),
+      )
+
+      expect(restored.naturalStructureIds).toStrictEqual([])
+      expect(restored.naturalStructureMarkers).toStrictEqual([])
+    }),
+  )
+
+  it.effect('CF-18: an End city chunk preserves structure ids and every marker field', () =>
+    Effect.gen(function* () {
+      const seed = 1
+      const planOption = planEndCityForRegion(seed, -12, -7, (x, z) => endSurfaceHeightAt(seed, x, z))
+      if (Option.isNone(planOption)) throw new Error('expected the known End city candidate to fit real terrain')
+      const plan = planOption.value
+      const marker = plan.markers[0]
+      if (marker === undefined) throw new Error('expected the End city plan to contain markers')
+      const chunk = generateEndChunk(
+        seed,
+        chunkCoord(Math.floor(marker.x / 16), Math.floor(marker.z / 16)),
+      )
+
+      expect(chunk.naturalStructureIds).toContain(plan.id)
+      expect(chunk.naturalStructureMarkers.length).toBeGreaterThan(0)
+
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+
+      expect(restored).toStrictEqual(chunk)
+    }),
+  )
 })
 
 describe('a wrong-sized payload is refused rather than regenerated', () => {
@@ -259,17 +301,19 @@ describe('the biome roster is a closed save format', () => {
     }),
   )
 
-  it('CF-9: every name in BIOMES is accepted, so the roster and the schema agree', () => {
+  it.effect('CF-9: every chunk biome is accepted by the schema', () =>
+    Effect.gen(function* () {
     // The other direction, and the one that would rot silently: a biome added
     // to `BIOMES` but not to the schema makes a freshly generated chunk
     // unsaveable. They are built from the same constant today; this fails if
     // anyone splits them.
-    const encodedNames = new Set(ENCODED.biomes as ReadonlyArray<string>)
-    expect(encodedNames.size).toBeGreaterThan(0)
-    for (const name of encodedNames) {
-      expect(BIOMES as ReadonlyArray<string>).toContain(name)
+    for (const name of CHUNK_BIOMES) {
+      const biomes = Array.from({ length: CHUNK_BIOME_COUNT }, () => name)
+      const outcome = yield* decodeOutcome(envelopeWith({ biomes }))
+      expect(outcome._tag, `${name} is missing from the chunk schema`).toBe('Accepted')
     }
-  })
+    }),
+  )
 })
 
 describe('an envelope that is not ours', () => {
