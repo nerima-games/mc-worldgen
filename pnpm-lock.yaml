@@ -11,6 +11,9 @@ importers:
       '@nerima-games/mc-kernel':
         specifier: 0.2.8
         version: 0.2.8
+      '@nerima-games/mc-noise':
+        specifier: workspace:*
+        version: link:../mc-noise
       '@nerima-games/mc-save':
         specifier: 0.1.0
         version: 0.1.0
