@@ -482,8 +482,8 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 
 | 項目 | 状態 | 理由 |
 | --- | --- | --- |
-| インクリメンタル伝播（remove-then-add 2 キュー） | ⬜ | 全チャンク再計算を **遅延**で行う。参照実装自身も `FULL_RECOMPUTE_THRESHOLD = 256` を超えると同じことをするので、欠けているのは小さな編集の高速路であって能力ではない。先に遅い方を出せば、速い方は「一致すべきオラクル」を持って着地する |
-| チャンク境界をまたぐ伝播（`MutableBoundaryDirty`） | ⬜ | **保守的な方向ではない**。継ぎ目の向こう側のブロック光が暗く読まれ、松明で照らした部屋の縁に hostile が湧きうる。`domain/light.ts` のヘッダが失敗モードごと記録している |
+| インクリメンタル伝播（固定点キュー） | ✅ | 完全なライトキャッシュへのブロック変更は `updateChunkLights` が増減を同じキューで再評価する。入力キャッシュが不完全な場合は常駐チャンク全体を再計算する |
+| チャンク境界をまたぐ伝播 | ✅ | `computeChunkLights` と `updateChunkLights` が常駐する水平隣接チャンクへ伝播する。不在チャンクは閉じた境界として扱う |
 | 葉・水の減衰 | ⬜ | kernel の `opacity` は 3 クラスを持つが減衰量を持たない。ここで数値を発明すると kernel のテーブルの列を二重所有することになる。kernel が `lightAttenuation` を生やしたら `transmitsLight` がその参照になる |
 | 永続化 | ⬜ | 参照実装もしていない（上記）。`defineFormat` を書くときに引き継ぐ判断 |
 
@@ -491,9 +491,9 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 | --- | --- |
 | ✅ `a light level survives a nibble pack/unpack round trip for every level 0..15` | 4bit パック |
 | ✅ `packPosLevel round-trips every coordinate in a chunk` | int32 パック |
-| ✅ `removing a light source restores the levels that existed before it` | 2 キュー方式の要点。全再計算がオラクル側を固定する |
-| ✅ `does not cross a chunk boundary, which is a KNOWN gap and not an accident` | 上の欠落を、黙って変わらないように固定してある |
-| ⬜ `cross-chunk propagation reports the correct boundary flags` | `MutableBoundaryDirty`。境界プロトコルは置き換え予定の実装に対して作らない |
+| ✅ `removing a light source restores the levels that existed before it` | 増減を同じ固定点キューで扱い、全再計算と一致する |
+| ✅ `propagates block light across a resident chunk boundary` | 常駐チャンク間のブロック光伝播 |
+| ✅ `incremental edits match a full recompute across three resident chunks` | 境界を含む増分更新が全再計算と一致する |
 
 ---
 

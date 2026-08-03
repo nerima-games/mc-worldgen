@@ -183,10 +183,10 @@ export type ChunkStoreApi = {
    * that this read is occasionally O(chunk) rather than O(1); the only consumer
    * today runs on a spawn cadence, which is why that is acceptable.
    *
-   * This is the query `application/chunk-store.ts`'s own header (argument 2)
-   * has assumed since it was written, and `docs/design-notes.md` DN-7 tracks the
-   * two pieces still missing behind it: cross-chunk propagation and the
-   * incremental two-queue engine.
+   * `computeChunkLights` solves all resident chunks together, including
+   * horizontal seams. A complete cache takes the incremental fixed-point path
+   * in `domain/light.ts`; a cold or partial cache uses the same resident-set
+   * oracle lazily.
    */
   readonly getLight: (position: BlockPosition) => Effect.Effect<Store.LightReading>
 

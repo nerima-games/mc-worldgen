@@ -501,7 +501,7 @@ mc-render が世界を 2 回メッシュすることになる。再同期が欲�
 | ストレージ媒体への接続 | `PersistentChunkStoreLayer` は実装済み。ホストが `StoragePort` を注入して `ChunkStoreApi` に合成する。媒体実装と publish は mc-save / ホスト側の責務 |
 | `loadChunksAroundPlayer` / LRU 追い出し | 方針（描画距離、退避順）は呼び出し側のもの。`load` / `unload` / `loadedCoords` で外から書ける |
 | `Effect.makeSemaphore(4)` による生成の並行度制限 | 実行媒体とキューの責務。`TerrainWorkerPoolPort` は 1 チャンク生成の契約だけを公開し、並行度はホストが制御する |
-| チャンク境界をまたぐライト再伝播 | 現在はチャンク単位の全再計算。増分の two-queue と隣接チャンクへの再伝播は未実装（§8） |
+| チャンク境界をまたぐライト再伝播 | `computeChunkLights` は常駐チャンク集合を一度に BFS し、完全なキャッシュへの変更は `updateChunkLights` が隣接チャンクを含む固定点まで再計算する。不在チャンクは閉じた境界として扱う |
 | `dirtyVoxels` 粒度 | チャンク粒度で足りている。位置粒度の追跡は mx-gameplay の `FallingBlockQueue` が既に private に持っており、2 つは合成する |
 
 ### 6-6. 参照実装の `ChunkManagerService`
@@ -597,11 +597,11 @@ mx-gameplay の hostile spawn は `NaN > 7` が `false` である以上、
 他人の `setBlock` 直後の陳腐化したグリッドを誰でも読めてしまう。
 `Ref` の内側に置けば、全ての読みが `getLight` を通り、陳腐化を解決できる唯一の場所を通る。
 
-再計算は **遅延**。`setBlock` は O(1) でキャッシュを捨てるだけで、
-次の `getLight` が一度だけチャンク全体を照らし直す。
-eager にすると `FALLING_BLOCK_MOVES_PER_TICK = 32` に対して毎ティック 400 万セル走査になり、
-plan.md §3.11 が記録している DN-GP-1 の失敗そのものになる。
-未実装の残りとその失敗モードは [design-notes.md](./design-notes.md) DN-7 の表にある。
+再計算経路はキャッシュの状態で分かれる。冷たいキャッシュや不完全なキャッシュでは、
+次の `getLight` が resident なチャンク集合をまとめて遅延計算する。一方、完全なキャッシュに対する
+`setBlock` は O(1) で捨てるのではなく、`updateChunkLights` の固定点キューを使って変更と隣接チャンクへの
+影響を即時に反映する。これにより、完全なキャッシュからの読み取りは O(1) のまま維持される。
+残る設計上の制約と失敗モードは [design-notes.md](./design-notes.md) DN-7 の表にある。
 
 以下は移植元の構造の記録である。
 
@@ -627,9 +627,11 @@ BFS 本体は `packages/world/domain`:
 | 33 | `light-engine-model.ts` | `DirtyVoxel`、`BoundaryDirty`、`AABBAccumulator` |
 | 30 | `light-engine-utils.ts` | キューのパック、AABB 追跡 |
 
-どちらの BFS も **remove-then-add の 2 キュー方式**である
+移植元の BFS は **remove-then-add の 2 キュー方式**である
 （`removalQueue` / `addQueue`、`sky-light-bfs.ts:40-41`、`block-light-bfs.ts:39-40`）。
-これがインクリメンタル光伝播の正しいアルゴリズムである。
+現行の `mc-worldgen` はこの参照モデルと結果を合わせつつ、`updateChunkLights` では再評価を繰り返す
+単一の固定点キューを採用している。値の除去と追加を同じキューで扱い、隣接チャンクを含めて安定するまで
+再評価することで、変更後の完全なライト状態を得る。
 
 キューは int32 1 個にパックされる（`light-engine-utils.ts:22-26`）:
 
