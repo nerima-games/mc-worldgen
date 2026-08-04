@@ -248,7 +248,7 @@ SURVEY 走査（8192×8192 を 16 ブロックおき、262,144 柱、5 シード
 | --- | --- | --- |
 | ジオメトリ生成（メッシング） | **mc-meshing** | チャンクデータを作るのはここ、面を作るのは meshing |
 | ライトの**適用**（描画） | **mc-render** | plan.md §7:「ライティング → worldgen（データ）+ render（適用）」 |
-| ノイズ関数そのもの | **mc-noise** | 現在の `domain/seeded-random.ts` は mc-noise 到着までの仮置き |
+| ノイズ関数そのもの | **mc-noise** | `domain/seeded-random.ts` は mc-noise の公開 value-noise API を再公開する worldgen の互換境界 |
 | 永続化の機構 | **mc-save** | worldgen は `defineFormat` で**フォーマットを定義するだけ** |
 | プレイヤー・エンティティの状態 | **mc-sim** | sim が worldgen に依存する。逆向きは循環 |
 | 「木を斧で切ると原木が落ちる」 | **mx-gameplay** | 動詞は体験モジュール（plan.md §2.3-1） |

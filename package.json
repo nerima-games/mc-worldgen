@@ -1,6 +1,6 @@
 {
   "name": "@nerima-games/mc-worldgen",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "type": "module",
   "description": "World generation for the nerima-games Minecraft-clone rebuild: biome classification, deterministic terrain, carvers, vegetation, structures, chunk lifecycle and the light grid. No renderer, ever.",
   "homepage": "https://github.com/nerima-games/mc-worldgen#readme",
@@ -56,10 +56,10 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
-    "@nerima-games/mc-kernel": "0.2.16",
+    "@nerima-games/mc-kernel": "0.2.17",
     "@nerima-games/mc-save": "0.2.2",
     "effect": "^3.22.0",
-    "@nerima-games/mc-noise": "workspace:*"
+    "@nerima-games/mc-noise": "0.2.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
