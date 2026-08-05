@@ -43,7 +43,7 @@ import {
   DEFAULT_TERRAIN_LEVELS,
   SEA_LEVEL,
 } from '../src/domain/constants'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
   carveRavines,
   clearGroundCover,

@@ -36,7 +36,7 @@
  */
 import { Option } from 'effect'
 import { BLOCK } from '../../src/domain/biome'
-import { blockPosition, type BlockPosition } from '../../src/domain/kernel-vocabulary'
+import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
 import { detectNetherPortal, generatePortalLayout, type BlockAt } from '../../src/domain/portal-frame'
 
 export type PortalOverlay = {

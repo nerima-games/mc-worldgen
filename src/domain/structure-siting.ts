@@ -125,7 +125,7 @@ export type VillageTerrainSample = {
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
 export type VillageTerrainSampler = (x: number, z: number) => VillageTerrainSample
 
-/** Euclidean floor division — correct for negative operands, as in `./kernel-vocabulary.ts`. */
+/** Euclidean floor division — correct for negative operands, as in `mc-kernel`. */
 const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
 
 /** A sparse, seeded candidate accepted only when its complete footprint is dry, level plains. */

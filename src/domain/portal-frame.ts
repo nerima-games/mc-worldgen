@@ -35,7 +35,7 @@
  *
  * because its `Position` is an entity's floating-point position, and an entity
  * standing at x = 3.7 is in the block at x = 3. Here the parameter is a
- * `BlockPosition`, which `./kernel-vocabulary` brands as a safe integer, so the
+ * `BlockPosition`, which `mc-kernel` brands as a safe integer, so the
  * flooring has nothing left to do and is gone. The only entity-shaped thing in
  * the reference's version of this rule was a cast applied to its argument.
  *
@@ -61,7 +61,7 @@
  */
 import { Option } from 'effect'
 import { BLOCK } from './biome'
-import { blockPosition, type BlockPosition } from './kernel-vocabulary'
+import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
 
 /**
  * Reads the block at an integer world coordinate.

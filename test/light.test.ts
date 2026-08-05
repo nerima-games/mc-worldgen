@@ -34,7 +34,7 @@ import {
   unpackZ,
   updateChunkLights,
 } from '../src/domain/light'
-import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
+import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 // ---------------------------------------------------------------------------
 // Block ids kernel names and `domain/biome.ts`'s `BLOCK` does not.
@@ -43,7 +43,7 @@ import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '../src/doma
 // repository's GENERATOR places. Torches and glowstone are placed by nobody
 // here — they arrive from a rule in another repository — so they are written as
 // the literals kernel's `BLOCK_REGISTRY` assigns, with the emission that makes
-// them worth testing. `domain/kernel-vocabulary.ts` transcribes the same rows,
+// them worth testing. `mc-kernel` transcribes the same rows,
 // and `test/kernel-mirror.test.ts` is what pins the transcription; naming them
 // again here would be a third copy.
 // ---------------------------------------------------------------------------
@@ -324,7 +324,7 @@ describe('block light', () => {
   /**
    * THE FOURTEEN EMITTERS THE MIRROR HAD LOST, measured through the light grid.
    *
-   * `domain/kernel-vocabulary.ts` carried three emitting rows while kernel had
+   * `mc-kernel` carried three emitting rows while kernel had
    * seventeen, so every other emitter fell through to `LIGHT_LEVEL_MIN` and this
    * pass seeded nothing for it. A redstone torch lit nothing; a nether portal
    * lit nothing. The transcription is fixed and pinned by

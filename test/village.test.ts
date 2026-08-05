@@ -6,7 +6,7 @@ import { BLOCK } from '../src/domain/biome'
 import { getBlockAt } from '../src/domain/chunk'
 // eslint-disable-next-line sort-imports -- Domain imports follow their dependency order.
 import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 // eslint-disable-next-line sort-imports -- Grouped siting types and values stay together.
 import {
   VILLAGE_REGION_SPAWN_PERMILLE,

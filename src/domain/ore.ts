@@ -193,7 +193,7 @@
 import { BLOCK } from './biome'
 import { readBlock } from './chunk'
 import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
-import { BlockId, type ChunkCoord } from './kernel-vocabulary'
+import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { channelSeed, mulberry32 } from './seeded-random'
 
 /**
@@ -203,7 +203,7 @@ import { channelSeed, mulberry32 } from './seeded-random'
  * Held outside `./biome.ts`'s `BLOCK` for the reason `./vegetation.ts` states:
  * `BLOCK` is in `api-lock.md` and this file is not re-exported by `index.ts`.
  *
- * All seven are ordinary opaque cubes in kernel, so `./kernel-vocabulary.ts`'s
+ * All seven are ordinary opaque cubes in kernel, so `mc-kernel`'s
  * opaque default already answers for them and `./light.ts` needs no change.
  * `redstone_ore` alone emits light 9 there (`block-registry.ts:1361-1363`); this
  * repository does not transcribe that column for these ids, so a wall of

@@ -1,7 +1,7 @@
 import { BLOCK } from './biome'
 import { setBlockAt, worldX, worldZ } from './chunk'
 import { CHUNK_SIZE_XZ } from './constants'
-import { BlockId, type ChunkCoord } from './kernel-vocabulary'
+import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import type { Dimension } from './nether-travel'
 import { channelSeed, latticeValue } from './seeded-random'
 import {

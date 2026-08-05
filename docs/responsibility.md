@@ -29,7 +29,7 @@
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
 | ワーカープール Port | `TerrainWorkerPoolPort` と `chunkSourceFromTerrainWorkerPool` を公開。Worker/Pool の媒体はホストが注入し、mc-worldgen は DOM/Worker を所有しない | ✅ 型 + adapter |
-| チャンクフォーマット定義 | `domain/chunk-format.ts`。`domain/save-format-port.ts`（mc-save ミラー）の `defineFormat` で定義。**「publish 待ち」は誤りだった**（下記 §1-5） | ✅ 定義のみ（媒体は未接続） |
+| チャンクフォーマット定義 | `domain/chunk-format.ts`。`mc-save`（mc-save ミラー）の `defineFormat` で定義。**「publish 待ち」は誤りだった**（下記 §1-5） | ✅ 定義のみ（媒体は未接続） |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
 
 ### 1-1. この表は 6 回間違えた。今回の訂正の内訳
@@ -106,7 +106,7 @@ Worker transport の `Result` を定義した上で、別の application boundar
 この節は以前こう書いていた:
 
 > mc-save の `defineFormat` は**実在する**（`mc-save/domain/format.ts:132`）。
-> import できない理由は `domain/kernel-vocabulary.ts` と同じで、
+> import できない理由は `mc-kernel` と同じで、
 > mc-save が未 publish（plan.md §6 Step 3）であり
 > `package.json#dependencies` に無いものを `pnpm check:deps` が拒否するからである。
 >
@@ -115,7 +115,7 @@ Worker transport の `Result` を定義した上で、別の application boundar
 **この段落は、事実は全て正しく、結論だけが逆である。**
 そして自分の結論を否定する材料を自分で挙げている。
 
-「理由は `domain/kernel-vocabulary.ts` と同じ」——`kernel-vocabulary.ts` は
+「理由は `mc-kernel` と同じ」——`mc-kernel` は
 **publish を待った file ではない。待つ必要を無くした file である。**
 本リポジトリはそれを 410 行書いて、`test/kernel-mirror.test.ts` で固定し、
 その上に `light.ts` も `terrain.ts` も載せている。
@@ -123,7 +123,7 @@ Worker transport の `Result` を定義した上で、別の application boundar
 
 | ミラー | 何を代理しているか | 持っているリポジトリ |
 | --- | --- | --- |
-| `domain/kernel-vocabulary.ts` | mc-kernel | mc-sim / mc-render / mc-playground-kit / mc-compose / **mc-worldgen** |
+| `mc-kernel` | mc-kernel | mc-sim / mc-render / mc-playground-kit / mc-compose / **mc-worldgen** |
 | `domain/frame-contract.ts` | mc-kernel | mx-gameplay / mx-redstone / mx-ui |
 | `domain/block-vocabulary.ts` | mc-kernel | mx-gameplay |
 | `domain/chunk-store-port.ts` | **mc-worldgen** | mx-gameplay |
@@ -152,7 +152,7 @@ which every repository may import).
 
 | file | 何 |
 | --- | --- |
-| `domain/save-format-port.ts` | mc-save の format 語彙のミラー。9 value + 3 type。`defineFormat` / `encodeSave` / `decodeSave` / `SaveFormat` / `Migration` / エンベロープ / 2 つのエラー型 |
+| `mc-save` | mc-save の format 語彙のミラー。9 value + 3 type。`defineFormat` / `encodeSave` / `decodeSave` / `SaveFormat` / `Migration` / エンベロープ / 2 つのエラー型 |
 | `domain/chunk-format.ts` | `CHUNK_FORMAT`。`Chunk` ⇄ 符号化形の v1 フォーマット |
 | `test/chunk-format.test.ts` | CF-1 〜 CF-16 |
 | `test/save-format-mirror.test.ts` | SF-1 〜 SF-17。ミラーの転記を両方向で固定 |
@@ -165,7 +165,7 @@ which every repository may import).
 （plan.md §6 Step 3 の 4 週間時計に触れていない）。
 
 **残っているのは媒体だけ**である。`StoragePort` / `saveTo` / `loadFrom` は
-意図的にミラーしていない（`save-format-port.ts` のヘッダに列挙してある）。
+意図的にミラーしていない（`mc-save` のヘッダに列挙してある）。
 `ChunkStore.unload` が保存を始める日に要るもので、それは §5 の最終行である。
 
 ### 1-6. 渓谷カーバー: 定数は 1 つだけ検算が要った
@@ -371,7 +371,7 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 | 省略したもの | 理由 | いつ入れるか |
 | --- | --- | --- |
 | `mc-noise` への依存 | 未 publish（plan.md §6 Step 0）。`domain/seeded-random.ts` が仮置き | mc-noise が消費可能になった時点 |
-| `mc-save` への依存 | 同上。ただし**フォーマット定義は待っていない** — `domain/save-format-port.ts` がミラー（§1-5） | mc-save が消費可能になった時点。その日にミラーを削除して import を張り替える |
+| `mc-save` への依存 | 同上。ただし**フォーマット定義は待っていない** — `mc-save` がミラー（§1-5） | mc-save が消費可能になった時点。その日にミラーを削除して import を張り替える |
 | `mc-kernel` への依存 | 同上。`domain/chunk.ts` `domain/biome.ts` の `BLOCK` が仮置き | kernel が消費可能になった時点 |
 | ~~渓谷カーバー~~ | ~~パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後~~ | **完了**（`domain/ravine.ts`）。溶岩床は到達不能なので入れていない（§1-6）。木が宙に残る件だけが残り、理由つきでそのファイルに書いてある |
 | ~~要塞のブロック生成~~ | ~~サイト決定のみで、チャンク跨ぎと洞窟との交差規則が未決定~~ | **完了**（`domain/stronghold.ts`）。各チャンクが自分の断面を最終パスで書く |
@@ -412,7 +412,7 @@ const x = Math.floor(ignition.x)   // portal-frame.ts:133-135
 ```
 
 で始まる。`Position` が**エンティティの浮動小数座標**だからである。
-本リポジトリの引数は `BlockPosition`（`kernel-vocabulary.ts` が安全整数にブランドしている）で、
+本リポジトリの引数は `BlockPosition`（`mc-kernel` が安全整数にブランドしている）で、
 この `Math.floor` は**することが無くなって消えた**。
 参照実装版のこのルールに含まれていた唯一のエンティティ的なものは、
 引数に掛けられたキャストだった。
@@ -473,7 +473,7 @@ plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動�
 
 - **`index.ts` には出していない。** `domain/nether-link.ts` も `domain/nether-travel.ts` も
   barrel に無いので `api-lock.md` は 156 entries のまま動いていない
-  （§1-5-b の `save-format-port.ts` / `chunk-format.ts` と同じ扱い）。
+  （§1-5-b の `mc-save` / `chunk-format.ts` と同じ扱い）。
   **repoint の日には export が要る** —— mx-gameplay がこれを使うには
   ミラーか import のどちらかが要り、どちらも barrel を経由する。
   それは §1-4 が「publish 後に払うべき代金」と呼んだものと同じ種類の判断であり、

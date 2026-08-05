@@ -163,7 +163,7 @@
  *   exact shape of the COAL `peakY = 96` error `./ore.ts` records, where a
  *   transcribed band sat above a ceiling the terrain could not reach.
  *
- *   Kernel already assigns lava id 11 and `./kernel-vocabulary.ts` already
+ *   Kernel already assigns lava id 11 and `mc-kernel` already
  *   mirrors it in both tables (`'fluid'`, emission 15), so the day this
  *   repository grows a deepslate stratum the branch costs one constant and no
  *   new mirror work. `../docs/porting.md` records it as owed.
@@ -205,7 +205,7 @@
 import { BLOCK, type BiomeType } from './biome'
 import { columnIndex, readBlock, worldX, worldZ } from './chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
-import type { ChunkCoord } from './kernel-vocabulary'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import { channelSeed, valueNoise2D } from './seeded-random'
 import { PLANT_IDS } from './vegetation'
 

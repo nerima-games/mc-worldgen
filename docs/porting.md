@@ -127,7 +127,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | サトウキビ / サボテン / スイレン / キノコ | 依存するバイオーム（SWAMP / JUNGLE / RIVER / FLOWER_FOREST）が本リポジトリの名簿に無いか、要求する土台を生成していない |
 | 昆布 / 海草 | 水中カラムの規則が要る。`plant-placement-ops.ts:32-52` の水クッション判定ごと |
 | deepslate 鉱石 7 種（kernel 57-63） | 置く先の deepslate 層が無い。`DEEPSLATE_CEILING = 16` は**石の事実**であって鉱石の事実ではない |
-| `redstone_ore` の `lightEmission: 9` | `domain/kernel-vocabulary.ts` の発光表は 3 行のまま。DN-7 の保守側なので出荷可。`test/kernel-mirror.test.ts` が明示的に記録している |
+| `redstone_ore` の `lightEmission: 9` | `mc-kernel` の発光表は 3 行のまま。DN-7 の保守側なので出荷可。`test/kernel-mirror.test.ts` が明示的に記録している |
 
 ## 6. 構造物
 

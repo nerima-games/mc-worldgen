@@ -71,7 +71,7 @@ import {
   LIGHT_LEVEL_MIN,
   transmitsLight,
   type ChunkCoord,
-} from './kernel-vocabulary'
+} from '@nerima-games/mc-kernel'
 
 // ---------------------------------------------------------------------------
 // Storage
