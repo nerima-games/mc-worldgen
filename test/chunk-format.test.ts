@@ -58,7 +58,7 @@ import {
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
 import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 import { planEndCityForRegion } from '../src/domain/natural-structure'
 import {
   decodeSave,
@@ -66,7 +66,7 @@ import {
   saveEnvelope,
   validateMigrationChain,
   type SaveEnvelope,
-} from '../src/domain/save-format-port'
+} from '@nerima-games/mc-save'
 import { generateChunk } from '../src/domain/terrain'
 
 const SEED = 20260728
@@ -74,7 +74,7 @@ const SEED = 20260728
 /**
  * One generated chunk, at a coordinate with a NEGATIVE component.
  *
- * Negative on purpose: `chunkCoord` normalises `-0` (`kernel-vocabulary.ts:153`)
+ * Negative on purpose: `chunkCoord` normalises `-0` (`mc-kernel:153`)
  * and a coordinate that only ever gets tested at the origin cannot show that the
  * sign survives base64's neighbours in the same struct.
  *

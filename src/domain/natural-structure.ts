@@ -5,7 +5,7 @@ import { Option } from 'effect'
 import { setBlockAt, type Chunk } from './chunk'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
 import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain'
-import { BlockId } from './kernel-vocabulary'
+import { BlockId } from '@nerima-games/mc-kernel'
 import type { Dimension } from './nether-travel'
 import { channelSeed, latticeValue } from './seeded-random'
 import {

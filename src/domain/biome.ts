@@ -23,7 +23,7 @@
  * continentalness, erosion, pv, riverNoise). This skeleton implements the
  * two-input stage only; docs/porting.md records the rest.
  */
-import { BlockId } from './kernel-vocabulary'
+import { BlockId } from '@nerima-games/mc-kernel'
 
 export const BIOMES = ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW'] as const
 

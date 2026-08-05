@@ -5,7 +5,7 @@ import { BLOCK_IDS } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
 import { CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks } from '../src/domain/chunk'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
   applyNaturalStructurePlansToChunk,
   MAX_NATURAL_STRUCTURE_BLOCKS,

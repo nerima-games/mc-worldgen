@@ -13,7 +13,7 @@ import {
   generateEndTerrainChunk,
 } from '../src/domain/end-terrain'
 import { planEndCityForRegion } from '../src/domain/natural-structure'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 
 describe('End terrain', () => {
   it('builds a solid central island and labels every column as END', () => {

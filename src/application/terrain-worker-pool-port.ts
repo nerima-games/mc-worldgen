@@ -8,7 +8,7 @@
  * free of DOM and Worker types preserves the package's worker-safe boundary.
  */
 import type { Chunk } from '../domain/chunk'
-import type { ChunkCoord } from '../domain/kernel-vocabulary'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import type { ChunkSource } from './chunk-store'
 import { Effect } from 'effect'
 

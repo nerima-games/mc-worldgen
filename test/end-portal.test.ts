@@ -11,7 +11,7 @@ import {
   detectCompletedEndPortal,
   endArrivalDescriptor,
 } from '../src/domain/end-portal'
-import { blockPosition } from '../src/domain/kernel-vocabulary'
+import { blockPosition } from '@nerima-games/mc-kernel'
 
 const center = blockPosition(100, 32, -200)
 const key = (x: number, y: number, z: number): string => `${x},${y},${z}`

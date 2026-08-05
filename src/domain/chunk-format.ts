@@ -101,7 +101,7 @@
  * are one nominal type to `tsc` and two unrelated refinements at runtime.
  *
  * `Schema.fromBrand` takes the EXISTING `Brand.Constructor` from
- * `./kernel-vocabulary` instead, so the refinement below is kernel's own and
+ * `mc-kernel` instead, so the refinement below is kernel's own and
  * there is only ever one of it.
  *
  * THE ARGUMENT IS STRUCTURAL, AND IT HAS TO BE, because today the two spellings
@@ -124,12 +124,12 @@ import { Schema } from 'effect'
 import { CHUNK_BIOMES } from './biome'
 import { type Chunk } from './chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
-import { ChunkAxis, type ChunkCoord } from './kernel-vocabulary'
+import { ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   type AppliedNaturalStructureMarker,
   type NaturalStructureChunk,
 } from './natural-structure'
-import { defineFormat, FIRST_VERSION, type SaveFormat } from './save-format-port'
+import { defineFormat, FIRST_VERSION, type SaveFormat } from '@nerima-games/mc-save'
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
 export const CHUNK_BIOME_COUNT = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
@@ -150,7 +150,7 @@ export const CHUNK_FORMAT_NAME = '@nerima-games/mc-worldgen/chunk'
  * `ChunkAxis`, refined by kernel's OWN constructor rather than a second one.
  *
  * See this file's header. `Schema.fromBrand(ChunkAxis)` reuses the
- * `Brand.refined` in `./kernel-vocabulary`; `Schema.brand('ChunkAxis')` would
+ * `Brand.refined` in `mc-kernel`; `Schema.brand('ChunkAxis')` would
  * declare a rival under the same key. The two predicates agree TODAY — the
  * header records the measurement and why that is not a reason to rely on it.
  */
@@ -189,7 +189,7 @@ const ChunkBlocksSchema = Schema.Uint8ArrayFromBase64.pipe(
  * existing save decodable; deleting or renaming one makes saves containing it
  * fail this schema, and THAT is the trigger for a v2 with a migration step
  * mapping the retired name onto its replacement. `Migration` in
- * `./save-format-port` exists for exactly this and runs on the raw payload
+ * `mc-save` exists for exactly this and runs on the raw payload
  * before any schema sees it.
  */
 const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(

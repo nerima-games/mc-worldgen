@@ -3,7 +3,7 @@ import { Effect, Option } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 import { detectCompletedEndPortal, endPortalCenterForStronghold } from '../src/domain/end-portal'
 import {
   STRONGHOLD_BLOCK,
