@@ -7,7 +7,7 @@ import {
   type StorageService,
 } from '@nerima-games/mc-save'
 import { Effect, Option } from 'effect'
-import { chunkSaveKey } from '../src/application/chunk-persistence'
+import { chunkSaveKey, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import { makePersistentChunkStore, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
@@ -15,7 +15,7 @@ import { CHUNK_FORMAT } from '../src/domain/chunk-format'
 import { blockIndex } from '../src/domain/constants'
 import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
-const context = { worldId: 'world/one', dimension: 'over/world' }
+const context: ChunkPersistenceContext = { worldId: 'world/one', dimension: 'overworld' }
 
 const generatedChunk = (coord: ChunkCoord): Chunk => ({
   coord,
@@ -29,11 +29,18 @@ const makeStoreWith = (storage: StorageService, chunkSource: ChunkSource = sourc
   makePersistentChunkStore(chunkSource, context).pipe(Effect.provideService(StoragePort, storage))
 
 describe('chunk persistence', () => {
-  it('builds stable keys without allowing component delimiter collisions', () => {
-    const coord = chunkCoord(-2, 7)
-    expect(chunkSaveKey({ worldId: 'a/b', dimension: 'c' }, coord)).toBe('chunk/a%2Fb/c/-2/7')
-    expect(chunkSaveKey({ worldId: 'a', dimension: 'b/c' }, coord)).toBe('chunk/a/b%2Fc/-2/7')
-  })
+    it('builds stable keys from typed world and dimension components', () => {
+      const coord = chunkCoord(-2, 7)
+      expect(chunkSaveKey({ worldId: 'a/b', dimension: 'overworld' }, coord)).toBe(
+        'chunk/a%2Fb/overworld/-2/7',
+      )
+      expect(chunkSaveKey({ worldId: 'a', dimension: 'nether' }, coord)).toBe(
+        'chunk/a/nether/-2/7',
+      )
+      expect(
+        chunkSaveKey({ worldId: 'a', dimension: 'overworld' }, coord),
+      ).not.toBe(chunkSaveKey({ worldId: 'a', dimension: 'nether' }, coord))
+    })
 
   it.effect('loads storage before invoking the generator', () =>
     Effect.gen(function* () {
