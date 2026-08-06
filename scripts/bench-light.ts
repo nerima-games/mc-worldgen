@@ -16,7 +16,7 @@ import {
   withChunk,
   type ChunkStoreState,
 } from '../src/domain/chunk-store-state'
-import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
+import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 const PLAINS = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const)
 const SURFACE_Y = 63

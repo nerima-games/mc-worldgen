@@ -10,7 +10,7 @@ import {
 import { Effect, Option } from 'effect'
 import type { Chunk } from '../domain/chunk'
 import { CHUNK_FORMAT } from '../domain/chunk-format'
-import type { ChunkCoord } from '../domain/kernel-vocabulary'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 
 export type ChunkPersistenceError = StorageError | SaveDecodeError | MigrationError
 

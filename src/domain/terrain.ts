@@ -76,7 +76,7 @@ import {
   DEFAULT_TERRAIN_LEVELS,
   type TerrainLevels,
 } from './constants'
-import { chunkCoord, type ChunkCoord } from './kernel-vocabulary'
+import { chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { placeOres } from './ore'
 import { carveRavines } from './ravine'
 import { channelSeed, fbm2D } from './seeded-random'

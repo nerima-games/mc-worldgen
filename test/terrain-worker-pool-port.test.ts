@@ -8,7 +8,7 @@ import {
   generatedChunkSource,
 } from '../src/index'
 // eslint-disable-next-line sort-imports -- Kernel coordinates follow the public API import.
-import { type ChunkCoord, chunkCoord } from '../src/domain/kernel-vocabulary'
+import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 
 const FORWARDING_SEED = 20260803
 // eslint-disable-next-line no-magic-numbers -- Negative and positive coordinates exercise forwarding.

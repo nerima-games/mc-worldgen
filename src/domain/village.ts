@@ -5,7 +5,7 @@ import { setBlockAt, worldX, worldZ } from './chunk'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
 // eslint-disable-next-line new-cap, sort-imports -- BlockId is the established branded-value constructor.
-import { BlockId, type ChunkCoord } from './kernel-vocabulary'
+import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   type VillageSite,
   type VillageTerrainSampler,

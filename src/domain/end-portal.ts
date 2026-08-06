@@ -2,7 +2,7 @@
 
 import { type Option, Option as OptionValue, Schema } from 'effect'
 import { BLOCK } from './biome'
-import { BlockAxis, type BlockPosition, blockPosition } from './kernel-vocabulary'
+import { BlockAxis, type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
 import type { Dimension } from './nether-travel'
 import { STRONGHOLD_BLOCK } from './stronghold'
 import { STRONGHOLD_FLOOR_Y } from './structure-siting'

@@ -13,7 +13,7 @@ import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { CHUNK_FORMAT } from '../src/domain/chunk-format'
 import { blockIndex } from '../src/domain/constants'
-import { blockPosition, chunkCoord, type ChunkCoord } from '../src/domain/kernel-vocabulary'
+import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 const context = { worldId: 'world/one', dimension: 'over/world' }
 

@@ -3,7 +3,7 @@
 /** Deterministic, absolute-coordinate terrain generation for the Nether. */
 import { columnIndex, emptyBlocks, worldX, worldZ, type Chunk } from './chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
-import { BlockId, chunkCoord, type ChunkCoord } from './kernel-vocabulary'
+import { BlockId, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,

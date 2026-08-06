@@ -99,7 +99,7 @@
 import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome'
 import { readBlock } from './chunk'
 import { blockIndex, CHUNK_HEIGHT } from './constants'
-import { BlockId } from './kernel-vocabulary'
+import { BlockId } from '@nerima-games/mc-kernel'
 import { channelSeed, latticeValue } from './seeded-random'
 
 /**
@@ -118,7 +118,7 @@ import { channelSeed, latticeValue } from './seeded-random'
  * re-exported from the barrel, so it costs nothing.
  *
  * Every one of the four is `opacity: 'transparentSolid'` in kernel, which
- * `./kernel-vocabulary.ts` already transcribes (ids 21, 22, 25, 26) — so
+ * `mc-kernel` already transcribes (ids 21, 22, 25, 26) — so
  * `./light.ts` treats them as light-transmitting the day they appear in a chunk,
  * with no further change. A flower does not cast a shadow.
  */

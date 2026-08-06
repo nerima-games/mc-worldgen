@@ -3,7 +3,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Option } from 'effect'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from '../src/domain/constants'
-import { chunkCoord } from '../src/domain/kernel-vocabulary'
+import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
   generateNetherChunk,
   generateNetherTerrainChunk,
