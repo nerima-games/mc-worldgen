@@ -563,10 +563,10 @@ describe('block light', () => {
         incremental = updateChunkLights(loaded, incremental, [
           { coord: chunk.coord, x, y: editY, z },
         ])
-        expectFullRecompute()
       }
 
       edit(centre, 15, y, 8, TORCH)
+      expectFullRecompute()
       expect(getLightAt(incremental.get('right')!.block, blockIndex(0, y, 8))).toBe(13)
 
       edit(right, 0, y, 8, BLOCK.STONE)
@@ -584,6 +584,7 @@ describe('block light', () => {
       expect(getLightAt(incremental.get('right')!.sky, blockIndex(0, y, 8))).toBe(14)
       edit(centre, 15, roofY, 8, BLOCK.STONE)
       expect(getLightAt(incremental.get('right')!.sky, blockIndex(0, y, 8))).toBe(0)
+      expectFullRecompute()
     }),
   )
 })

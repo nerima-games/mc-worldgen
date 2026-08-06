@@ -7,7 +7,7 @@ import {
   END_PORTAL_FRAME_OFFSETS,
   type EndPortalBlockAt,
   EndPortalCenterSchema,
-  type EndPortalFrameFacing,
+  type EndPortalFrameState,
   detectCompletedEndPortal,
   endArrivalDescriptor,
 } from '../src/domain/end-portal'
@@ -16,13 +16,13 @@ import { blockPosition } from '@nerima-games/mc-kernel'
 const center = blockPosition(100, 32, -200)
 const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
 
-const completedFrame = (): Map<string, { readonly block: number; readonly facing: EndPortalFrameFacing }> =>
+const completedFrame = (): Map<string, EndPortalFrameState> =>
   new Map(END_PORTAL_FRAME_OFFSETS.map(({ dx, dz, facing }) => [
     key(center.x + dx, center.y, center.z + dz),
     { block: END_PORTAL_BLOCK.FRAME_FILLED, facing },
   ]))
 
-const accessor = (blocks: ReadonlyMap<string, { readonly block: number; readonly facing: EndPortalFrameFacing }>): EndPortalBlockAt =>
+const accessor = (blocks: ReadonlyMap<string, EndPortalFrameState>): EndPortalBlockAt =>
   (x, y, z) => blocks.get(key(x, y, z))
 
 describe('detectCompletedEndPortal', () => {
