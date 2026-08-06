@@ -2,7 +2,7 @@
 
 import { type Option, Option as OptionValue, Schema } from 'effect'
 import { BLOCK } from './biome'
-import { BlockAxis, type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
+import { BlockAxis, BlockId, type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
 import type { Dimension } from './nether-travel'
 import { STRONGHOLD_BLOCK } from './stronghold'
 import { STRONGHOLD_FLOOR_Y } from './structure-siting'
@@ -10,7 +10,7 @@ import { STRONGHOLD_FLOOR_Y } from './structure-siting'
 export type EndPortalFrameFacing = 'north' | 'east' | 'south' | 'west'
 
 export type EndPortalFrameState = {
-  readonly block: number
+  readonly block: BlockId
   readonly facing: EndPortalFrameFacing
 }
 
@@ -18,7 +18,7 @@ export type EndPortalBlockAt = (x: number, y: number, z: number) => EndPortalFra
 
 export type EndPortalMutation = {
   readonly at: BlockPosition
-  readonly block: number
+  readonly block: BlockId
 }
 
 export type CompletedEndPortal = {
@@ -47,8 +47,8 @@ export const EndPortalCenterSchema: Schema.Schema<BlockPosition, {
 
 export const END_PORTAL_BLOCK = {
   FRAME_EMPTY: STRONGHOLD_BLOCK.END_PORTAL_FRAME,
-  FRAME_FILLED: 88,
-  PORTAL: 89,
+  FRAME_FILLED: BlockId(88),
+  PORTAL: BlockId(89),
 } as const
 
 type FrameOffset = {
