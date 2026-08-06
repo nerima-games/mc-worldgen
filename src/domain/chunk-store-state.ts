@@ -341,8 +341,13 @@ const withoutLights = (
   return next
 }
 
-const hasCompleteLightCache = (state: ChunkStoreState): boolean =>
-  state.lights.size === state.loaded.size && [...state.loaded.keys()].every((key) => state.lights.has(key))
+const hasCompleteLightCache = (state: ChunkStoreState): boolean => {
+  if (state.lights.size !== state.loaded.size) return false
+  for (const key of state.loaded.keys()) {
+    if (!state.lights.has(key)) return false
+  }
+  return true
+}
 
 /** Mark resident neighbours whose exposed boundary faces changed. */
 const noteLoadedNeighbours = (
