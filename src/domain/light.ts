@@ -428,7 +428,7 @@ export const updateChunkLights = <Key extends string>(
     return copy
   }
 
-  const neighbourOf = (
+  const neighbourIdOf = (
     chunkIndex: number,
     x: number,
     y: number,
@@ -436,7 +436,7 @@ export const updateChunkLights = <Key extends string>(
     dx: number,
     dy: number,
     dz: number,
-  ): readonly [number, number, number, number] | undefined => {
+  ): number | undefined => {
     const source = chunks[chunkIndex]
     if (source === undefined) return undefined
 
@@ -445,7 +445,7 @@ export const updateChunkLights = <Key extends string>(
     let nz = z + dz
     if (ny < 0 || ny >= CHUNK_HEIGHT) return undefined
     if (nx >= 0 && nx < CHUNK_SIZE_XZ && nz >= 0 && nz < CHUNK_SIZE_XZ) {
-      return [chunkIndex, nx, ny, nz]
+      return chunkIndex * CHUNK_VOLUME + blockIndex(nx, ny, nz)
     }
 
     const dcx = nx < 0 ? -1 : nx >= CHUNK_SIZE_XZ ? 1 : 0
@@ -454,7 +454,7 @@ export const updateChunkLights = <Key extends string>(
     if (adjacentIndex === undefined) return undefined
     nx = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
     nz = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
-    return [adjacentIndex, nx, ny, nz]
+    return adjacentIndex * CHUNK_VOLUME + blockIndex(nx, ny, nz)
   }
 
   const isDirectSky = (chunkIndex: number, x: number, y: number, z: number): boolean => {
@@ -478,8 +478,7 @@ export const updateChunkLights = <Key extends string>(
   const runChannel = (channel: LightChannel): void => {
     const queue: Array<number> = []
     const pending = new Set<number>()
-    const enqueue = (chunkIndex: number, x: number, y: number, z: number): void => {
-      const id = chunkIndex * CHUNK_VOLUME + blockIndex(x, y, z)
+    const enqueueId = (id: number): void => {
       if (pending.has(id)) return
       pending.add(id)
       queue.push(id)
@@ -501,10 +500,10 @@ export const updateChunkLights = <Key extends string>(
       ) {
         continue
       }
-      enqueue(chunkIndex, change.x, change.y, change.z)
+      enqueueId(chunkIndex * CHUNK_VOLUME + blockIndex(change.x, change.y, change.z))
       for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
-        const neighbour = neighbourOf(chunkIndex, change.x, change.y, change.z, dx, dy, dz)
-        if (neighbour !== undefined) enqueue(...neighbour)
+        const neighbourId = neighbourIdOf(chunkIndex, change.x, change.y, change.z, dx, dy, dz)
+        if (neighbourId !== undefined) enqueueId(neighbourId)
       }
     }
 
@@ -532,12 +531,12 @@ export const updateChunkLights = <Key extends string>(
           next = LIGHT_LEVEL_MAX
         } else {
           for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
-            const neighbour = neighbourOf(chunkIndex, x, y, z, dx, dy, dz)
-            if (neighbour === undefined) continue
-            const [nearChunkIndex, nx, ny, nz] = neighbour
+            const neighbourId = neighbourIdOf(chunkIndex, x, y, z, dx, dy, dz)
+            if (neighbourId === undefined) continue
+            const nearChunkIndex = Math.floor(neighbourId / CHUNK_VOLUME)
             const nearLight = lights[nearChunkIndex]
             if (nearLight === undefined) continue
-            next = Math.max(next, getLightAt(nearLight[channel], blockIndex(nx, ny, nz)) - 1)
+            next = Math.max(next, getLightAt(nearLight[channel], neighbourId % CHUNK_VOLUME) - 1)
           }
         }
       }
@@ -549,8 +548,8 @@ export const updateChunkLights = <Key extends string>(
       setLightAt(writable[channel], voxel, next)
 
       for (const [dx, dy, dz] of NEIGHBOUR_OFFSETS) {
-        const neighbour = neighbourOf(chunkIndex, x, y, z, dx, dy, dz)
-        if (neighbour !== undefined) enqueue(...neighbour)
+        const neighbourId = neighbourIdOf(chunkIndex, x, y, z, dx, dy, dz)
+        if (neighbourId !== undefined) enqueueId(neighbourId)
       }
     }
   }
