@@ -1,5 +1,5 @@
 /** Deterministic terrain generation for the End dimension. */
-import { columnIndex, emptyBlocks, worldX, worldZ, type Chunk } from './chunk'
+import { emptyBlocks, worldX, worldZ, type Chunk } from './chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from './constants'
 import { BlockId, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
@@ -54,7 +54,7 @@ export const endSurfaceHeightAt = (seed: number, wx: number, wz: number): number
 /** Generate one End terrain chunk using only absolute world coordinates. */
 export const generateEndTerrainChunk = (seed: number, coord: ChunkCoord): Chunk => {
   const blocks = emptyBlocks()
-  const biomes = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'END' as const)
+  const biomes = Array.from<'END'>({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }).fill('END')
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -65,7 +65,6 @@ export const generateEndTerrainChunk = (seed: number, coord: ChunkCoord): Chunk 
       for (let y = column.bottomY; y <= column.surfaceY; y += 1) {
         blocks[blockIndex(lx, y, lz)] = END_STONE_BLOCK_ID
       }
-      biomes[columnIndex(lx, lz)] = 'END'
     }
   }
 

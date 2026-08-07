@@ -1,7 +1,7 @@
 /* oxlint-disable id-length, max-statements, no-magic-numbers, no-ternary, no-undefined, sort-imports */
 
 /** Deterministic, absolute-coordinate terrain generation for the Nether. */
-import { columnIndex, emptyBlocks, worldX, worldZ, type Chunk } from './chunk'
+import { emptyBlocks, worldX, worldZ, type Chunk } from './chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
 import { BlockId, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
@@ -100,13 +100,12 @@ export const netherStructureTerrainAt = (
 /** Generates Nether terrain without natural structures. */
 export const generateNetherTerrainChunk = (seed: number, coord: ChunkCoord): Chunk => {
   const blocks = emptyBlocks()
-  const biomes = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'NETHER' as const)
+  const biomes = Array.from<'NETHER'>({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }).fill('NETHER')
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
       const x = worldX(coord, lx)
       const z = worldZ(coord, lz)
       for (let y = 0; y < CHUNK_HEIGHT; y += 1) blocks[blockIndex(lx, y, lz)] = netherBlockAt(seed, x, y, z)
-      biomes[columnIndex(lx, lz)] = 'NETHER'
     }
   }
   return { biomes, blocks, coord }
