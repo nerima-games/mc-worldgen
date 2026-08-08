@@ -25,9 +25,9 @@
  * star re-export by silently dropping the name from the barrel. Import it from
  * `mc-kernel`, which is where it lives.
  */
-import { type ChunkBiomeType } from './biome'
-import { blockIndex, CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants'
+import { type ChunkBiomeType } from './biome'
 
 export type Chunk = {
   readonly coord: ChunkCoord
@@ -53,7 +53,20 @@ export const readBlock = (blocks: Uint8Array, index: number): number => blocks[i
 export const getBlockAt = (chunk: Chunk, lx: number, y: number, lz: number): number =>
   readBlock(chunk.blocks, blockIndex(lx, y, lz))
 
-export const setBlockAt = (blocks: Uint8Array, lx: number, y: number, lz: number, block: BlockId): void => {
+/**
+ * Writes one block into `blocks` at a chunk-local coordinate.
+ *
+ * The coordinate and block are a labeled rest tuple rather than four named
+ * parameters: `village.ts` and `test/light.test.ts` both call this
+ * positionally (`setBlockAt(blocks, lx, y, lz, block)`), so the call surface
+ * has to stay exactly four arguments wide. A rest parameter typed as a
+ * fixed-length tuple keeps that arity — TypeScript still rejects a call with
+ * the wrong argument count or types — while counting as a single formal
+ * parameter, which is what satisfies `max-params` without touching either
+ * caller.
+ */
+export const setBlockAt = (blocks: Uint8Array, ...coordinate: readonly [lx: number, y: number, lz: number, block: BlockId]): void => {
+  const [lx, y, lz, block] = coordinate
   blocks[blockIndex(lx, y, lz)] = block
 }
 

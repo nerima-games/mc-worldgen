@@ -1,3 +1,4 @@
+import { Effect, Option } from 'effect'
 import {
   type MigrationError,
   type SaveDecodeError,
@@ -7,10 +8,9 @@ import {
   decodeSave,
   encodeSave,
 } from '@nerima-games/mc-save'
-import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import { Effect, Option } from 'effect'
-import type { Chunk } from '../domain/chunk'
 import { CHUNK_FORMAT } from '../domain/chunk-format'
+import type { Chunk } from '../domain/chunk'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import type { Dimension } from '../domain/nether-travel'
 
 export type ChunkPersistenceError = StorageError | SaveDecodeError | MigrationError

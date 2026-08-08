@@ -96,11 +96,11 @@
  * generator whose only customer is a DESERT surface would be one more thing to
  * keep honest for no visible gain. `docs/porting.md` records them as owed.
  */
+import { BEDROCK_Y, CHUNK_HEIGHT, blockIndex } from './constants'
 import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome'
-import { readBlock } from './chunk'
-import { blockIndex, CHUNK_HEIGHT } from './constants'
-import { BlockId } from '@nerima-games/mc-kernel'
 import { channelSeed, latticeValue } from './seeded-random'
+import { BlockId } from '@nerima-games/mc-kernel'
+import { readBlock } from './chunk'
 
 /**
  * The plant ids, transcribed from `mc-kernel/domain/block-registry.ts`.
@@ -122,15 +122,20 @@ import { channelSeed, latticeValue } from './seeded-random'
  * `./light.ts` treats them as light-transmitting the day they appear in a chunk,
  * with no further change. A flower does not cast a shadow.
  */
+/** `block-registry.ts:869-871`. */
+const DANDELION_KERNEL_ID = 21
+/** `block-registry.ts:969-971`. */
+const FERN_KERNEL_ID = 26
+/** `block-registry.ts:889-891`. */
+const POPPY_KERNEL_ID = 22
+/** `block-registry.ts:949-951`. */
+const TALL_GRASS_KERNEL_ID = 25
+
 export const PLANT = {
-  /** `block-registry.ts:869-871`. */
-  DANDELION: BlockId(21),
-  /** `block-registry.ts:889-891`. */
-  POPPY: BlockId(22),
-  /** `block-registry.ts:949-951`. */
-  TALL_GRASS: BlockId(25),
-  /** `block-registry.ts:969-971`. */
-  FERN: BlockId(26),
+  DANDELION: BlockId(DANDELION_KERNEL_ID),
+  FERN: BlockId(FERN_KERNEL_ID),
+  POPPY: BlockId(POPPY_KERNEL_ID),
+  TALL_GRASS: BlockId(TALL_GRASS_KERNEL_ID),
 } as const
 
 /** Every id this module can write. Used by the goldens and by `test/vegetation.test.ts`. */
@@ -151,19 +156,19 @@ export const PLANT_IDS: ReadonlyArray<number> = Object.values(PLANT)
  * `./biome.ts` makes for its rule table.
  */
 export const GROUND_PLANT_DENSITY: Record<BiomeType, number> = {
+  BEACH: 0.02,
   DESERT: 0,
-  PLAINS: 0.22,
-  FOREST: 0.14,
   FLOWER_FOREST: 0.42,
-  OCEAN: 0,
+  FOREST: 0.14,
+  JUNGLE: 0.18,
   MOUNTAINS: 0,
+  OCEAN: 0,
+  PLAINS: 0.22,
+  RIVER: 0,
+  SAVANNA: 0.08,
   SNOW: 0,
   SWAMP: 0.1,
-  JUNGLE: 0.18,
-  BEACH: 0.02,
-  RIVER: 0,
   TAIGA: 0.12,
-  SAVANNA: 0.08,
 }
 
 /** The two decorrelated draws. Strings rather than numeric salts — see the header. */
@@ -188,6 +193,12 @@ export const plantRoll = (seed: number, wx: number, wz: number, channel: string)
  * at 0 or at the top of the world has nowhere to put the plant, and rejecting it
  * here keeps `canPlaceGroundPlantAt` from having to reason about the buffer edge.
  */
+/** Density below which a biome grows no ground plants at all. */
+const NO_GROUND_PLANT_DENSITY = 0
+
+/** Offset converting `CHUNK_HEIGHT` (a count) into the topmost valid Y index. */
+const TOP_Y_INDEX_OFFSET = 1
+
 export const shouldPlaceGroundPlant = (input: {
   readonly seed: number
   readonly worldX: number
@@ -197,66 +208,73 @@ export const shouldPlaceGroundPlant = (input: {
 }): boolean => {
   const density = GROUND_PLANT_DENSITY[input.biome]
 
-  if (density <= 0 || input.surfaceY <= 0 || input.surfaceY >= CHUNK_HEIGHT - 1) {
+  if (
+    density <= NO_GROUND_PLANT_DENSITY ||
+    input.surfaceY <= BEDROCK_Y ||
+    input.surfaceY >= CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET
+  ) {
     return false
   }
 
   return plantRoll(input.seed, input.worldX, input.worldZ, PLACEMENT_CHANNEL) < density
 }
 
+/** One cumulative-probability boundary: below `threshold`, `plant` grows. */
+type VariantThreshold = readonly [threshold: number, plant: BlockId]
+
+const TAIGA_FERN_THRESHOLD = 0.65
+const JUNGLE_FERN_THRESHOLD = 0.55
+const FOREST_DANDELION_THRESHOLD = 0.12
+const FOREST_POPPY_THRESHOLD = 0.2
+const FOREST_FERN_THRESHOLD = 0.55
+const FLOWER_FOREST_DANDELION_THRESHOLD = 0.4
+const FLOWER_FOREST_POPPY_THRESHOLD = 0.75
+const SWAMP_FERN_THRESHOLD = 0.4
+const PLAINS_SAVANNA_DANDELION_THRESHOLD = 0.12
+const PLAINS_SAVANNA_POPPY_THRESHOLD = 0.22
+
+/** PLAINS and SAVANNA share one table — the reference tests both with one branch. */
+const PLAINS_SAVANNA_VARIANT_TABLE: ReadonlyArray<VariantThreshold> = [
+  [PLAINS_SAVANNA_DANDELION_THRESHOLD, PLANT.DANDELION],
+  [PLAINS_SAVANNA_POPPY_THRESHOLD, PLANT.POPPY],
+]
+
 /**
- * Which plant grows here.
- *
- * Thresholds transcribed from `selectGroundPlantBlockIndex`
- * (`plant-placement-rules.ts:99-121`).
+ * Cumulative first-match-wins thresholds per biome, transcribed from
+ * `selectGroundPlantBlockIndex` (`plant-placement-rules.ts:99-121`).
  *
  * The ordering is first-match-wins on one draw, which is what makes the
  * proportions add up: FOREST is 12% dandelion, 8% poppy, 35% fern and 45% tall
- * grass, and the cumulative form is how the reference states it.
+ * grass, and the cumulative form is how the reference states it. A biome
+ * absent here (or whose table is exhausted without a match) falls through to
+ * `PLANT.TALL_GRASS` in `groundPlantAt`.
  */
+const GROUND_PLANT_VARIANT_TABLE: Partial<Record<BiomeType, ReadonlyArray<VariantThreshold>>> = {
+  FLOWER_FOREST: [
+    [FLOWER_FOREST_DANDELION_THRESHOLD, PLANT.DANDELION],
+    [FLOWER_FOREST_POPPY_THRESHOLD, PLANT.POPPY],
+  ],
+  FOREST: [
+    [FOREST_DANDELION_THRESHOLD, PLANT.DANDELION],
+    [FOREST_POPPY_THRESHOLD, PLANT.POPPY],
+    [FOREST_FERN_THRESHOLD, PLANT.FERN],
+  ],
+  JUNGLE: [[JUNGLE_FERN_THRESHOLD, PLANT.FERN]],
+  PLAINS: PLAINS_SAVANNA_VARIANT_TABLE,
+  SAVANNA: PLAINS_SAVANNA_VARIANT_TABLE,
+  SWAMP: [[SWAMP_FERN_THRESHOLD, PLANT.FERN]],
+  TAIGA: [[TAIGA_FERN_THRESHOLD, PLANT.FERN]],
+}
+
+/** Which plant grows here. See `GROUND_PLANT_VARIANT_TABLE` for the thresholds. */
 export const groundPlantAt = (seed: number, wx: number, wz: number, biome: BiomeType): BlockId => {
   const variant = plantRoll(seed, wx, wz, VARIANT_CHANNEL)
+  const table = GROUND_PLANT_VARIANT_TABLE[biome] ?? []
 
-  if (biome === 'TAIGA') {
-    return variant < 0.65 ? PLANT.FERN : PLANT.TALL_GRASS
-  }
-
-  if (biome === 'JUNGLE') {
-    return variant < 0.55 ? PLANT.FERN : PLANT.TALL_GRASS
-  }
-
-  if (biome === 'FOREST') {
-    if (variant < 0.12) {
-      return PLANT.DANDELION
+  for (const [threshold, plant] of table) {
+    if (variant < threshold) {
+      return plant
     }
-    if (variant < 0.2) {
-      return PLANT.POPPY
-    }
-    return variant < 0.55 ? PLANT.FERN : PLANT.TALL_GRASS
-  }
-
-  if (biome === 'FLOWER_FOREST') {
-    if (variant < 0.4) {
-      return PLANT.DANDELION
-    }
-    if (variant < 0.75) {
-      return PLANT.POPPY
-    }
-    return PLANT.TALL_GRASS
-  }
-
-  if (biome === 'SWAMP') {
-    return variant < 0.4 ? PLANT.FERN : PLANT.TALL_GRASS
-  }
-
-  if (biome === 'PLAINS' || biome === 'SAVANNA') {
-    if (variant < 0.12) {
-      return PLANT.DANDELION
-    }
-    if (variant < 0.22) {
-      return PLANT.POPPY
-    }
-    return PLANT.TALL_GRASS
   }
 
   return PLANT.TALL_GRASS
@@ -274,12 +292,15 @@ export const groundPlantAt = (seed: number, wx: number, wz: number, biome: Biome
  * carver runs before decoration: a column whose top block was carved out from
  * underneath is no longer soil, and asking the buffer is how that is noticed.
  */
+/** Vertical offset from a surface cell to the cell directly above it. */
+const ABOVE_SURFACE_OFFSET = 1
+
 export const canPlaceGroundPlantAt = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean => {
   const support = readBlock(blocks, blockIndex(lx, surfaceY, lz))
 
   return (
     (support === BLOCK.GRASS || support === BLOCK.DIRT) &&
-    readBlock(blocks, blockIndex(lx, surfaceY + 1, lz)) === BLOCK.AIR
+    readBlock(blocks, blockIndex(lx, surfaceY + ABOVE_SURFACE_OFFSET, lz)) === BLOCK.AIR
   )
 }
 
@@ -289,8 +310,8 @@ export const canPlaceGroundPlantAt = (blocks: Uint8Array, lx: number, surfaceY: 
  * against the realised block counts, so the two cannot drift.
  */
 export const biomeCanGrowGroundPlants = (biome: BiomeType): boolean => {
-  const top = BIOME_SURFACES[biome].top
-  return GROUND_PLANT_DENSITY[biome] > 0 && (top === BLOCK.GRASS || top === BLOCK.DIRT)
+  const { top } = BIOME_SURFACES[biome]
+  return GROUND_PLANT_DENSITY[biome] > NO_GROUND_PLANT_DENSITY && (top === BLOCK.GRASS || top === BLOCK.DIRT)
 }
 
 /**
@@ -301,6 +322,10 @@ export const biomeCanGrowGroundPlants = (biome: BiomeType): boolean => {
  * (`plant-placement-model.ts:41`) applies to sugar cane and cactus, which are
  * stacks and are not ported — see the header.
  */
-export const plantGroundCover = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number, plant: BlockId): void => {
-  blocks[blockIndex(lx, surfaceY + 1, lz)] = plant
+export const plantGroundCover = (
+  blocks: Uint8Array,
+  column: { readonly lx: number; readonly surfaceY: number; readonly lz: number },
+  plant: BlockId,
+): void => {
+  blocks[blockIndex(column.lx, column.surfaceY + ABOVE_SURFACE_OFFSET, column.lz)] = plant
 }

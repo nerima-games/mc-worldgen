@@ -89,10 +89,10 @@
  * runs over one world plan the same portal — the same reasoning
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
-import { Option } from 'effect'
-import { type BlockPosition } from '@nerima-games/mc-kernel'
+import { type PortalAxis, type PortalLayout, generatePortalLayout } from './portal-frame'
 import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link'
-import { generatePortalLayout, type PortalAxis, type PortalLayout } from './portal-frame'
+import { type BlockPosition } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 
 /**
  * Which world a cell is in.
@@ -186,25 +186,35 @@ export type PortalTravelPlan = {
  * silently reuse a portal in the world being left, and no type here would stop
  * it. Naming the hazard is the most this file can do about it.
  */
+/** Which dimension a portal at `playerPos` in `from` leads to, and where it lets out before reuse search. */
+const scaledTravelTarget = (
+  from: Dimension,
+  playerPos: BlockPosition,
+): { readonly toDimension: Dimension; readonly destination: BlockPosition } => {
+  if (from === 'overworld') {
+    return { destination: overworldToNether(playerPos), toDimension: 'nether' }
+  }
+  return { destination: netherToOverworld(playerPos), toDimension: 'overworld' }
+}
+
 export const resolveNetherTravel = (
   from: Dimension,
   playerPos: BlockPosition,
   knownPortals: ReadonlyArray<BlockPosition>,
   searchRadius: number = PORTAL_SEARCH_RADIUS,
 ): PortalTravelPlan => {
-  const toDimension: Dimension = from === 'overworld' ? 'nether' : 'overworld'
-  const destination = from === 'overworld' ? overworldToNether(playerPos) : netherToOverworld(playerPos)
+  const { toDimension, destination } = scaledTravelTarget(from, playerPos)
   const nearest = Option.getOrNull(findNearestPortal(knownPortals, destination, searchRadius))
 
   if (nearest !== null) {
-    return { toDimension, destination: nearest, portalToCreate: Option.none() }
+    return { destination: nearest, portalToCreate: Option.none(), toDimension }
   }
 
   return {
-    toDimension,
     destination,
     portalToCreate: Option.some(
       generatePortalLayout(destination, DEFAULT_PORTAL_AXIS, DEFAULT_PORTAL_WIDTH, DEFAULT_PORTAL_HEIGHT),
     ),
+    toDimension,
   }
 }

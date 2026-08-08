@@ -37,24 +37,24 @@ export * from './domain/light'
 export * from './domain/natural-structure'
 export * from './domain/nether-terrain'
 // `Dimension` is published from here, and that is a DECISION rather than a
-// widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
-// deliberately kept it off this barrel so that no consumer could depend on the
-// spelling while its owner was undecided. The owner is now decided and it is
-// this repository, so the reason for withholding it has expired — and the
-// withholding had become the blocker: mc-sim cannot record which dimension a
-// player is in without a name for one, and a name mirrored from a module no
-// barrel exports cannot be repointed. `resolveNetherTravel` comes with it for
-// the same reason, so that mx-gameplay has something to mirror.
+// Widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
+// Deliberately kept it off this barrel so that no consumer could depend on the
+// Spelling while its owner was undecided. The owner is now decided and it is
+// This repository, so the reason for withholding it has expired — and the
+// Withholding had become the blocker: mc-sim cannot record which dimension a
+// Player is in without a name for one, and a name mirrored from a module no
+// Barrel exports cannot be repointed. `resolveNetherTravel` comes with it for
+// The same reason, so that mx-gameplay has something to mirror.
 //
 // WHERE TO REOPEN THIS. The argument that put the word here rather than in
-// mc-kernel is that this repository owns every rule that READS the union, and
-// that mc-kernel had no `Dimension` of its own — a candidate rather than an
-// incumbent, which is a weaker claim than the one that makes it the owner of
+// Mc-kernel is that this repository owns every rule that READS the union, and
+// That mc-kernel had no `Dimension` of its own — a candidate rather than an
+// Incumbent, which is a weaker claim than the one that makes it the owner of
 // `BlockType`. If a consumer ever needs `Dimension` WITHOUT needing
-// mc-worldgen, that argument stops holding and the word should move to
-// mc-kernel. This comment is the place to reopen it; the mirrors in mc-sim and
-// mx-gameplay are transcriptions, so moving it is a repoint rather than a
-// rewrite.
+// Mc-worldgen, that argument stops holding and the word should move to
+// Mc-kernel. This comment is the place to reopen it; the mirrors in mc-sim and
+// Mx-gameplay are transcriptions, so moving it is a repoint rather than a
+// Rewrite.
 export * from './domain/nether-travel'
 export * from './domain/portal-frame'
 export * from './domain/seeded-random'

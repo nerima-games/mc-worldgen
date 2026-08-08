@@ -59,11 +59,11 @@
  * lake bed. A regression test that cannot demonstrate the regression is only
  * asserting that today's code does what today's code does.
  */
-import { BLOCK } from './biome'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from './constants'
-import { readBlock, worldX, worldZ } from './chunk'
-import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants'
 import { channelSeed, valueNoise2D } from './seeded-random'
+import { readBlock, worldX, worldZ } from './chunk'
+import { BLOCK } from './biome'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
 export const CAVE_FLOOR_Y = 6
@@ -71,6 +71,30 @@ export const CAVE_CEILING_Y = 58
 
 /** Above this noise value a column is carved. Higher = fewer caves. */
 export const CAVE_THRESHOLD = 0.62
+
+/** Sentinel meaning "this column holds no water" — see `computeWaterFloorYs`. */
+const NO_WATER_FLOOR = -1
+
+/** Single-block iteration step for the per-voxel scans below. */
+const AXIS_STEP = 1
+
+/** Converts a block count (`CHUNK_HEIGHT`) into the highest valid Y index. */
+const TOP_Y_INDEX_OFFSET = 1
+
+/**
+ * Extra vertical headroom scanned above the margin-padded ceiling, so a water
+ * body whose bed sits just above that padding is still detected.
+ */
+const WATER_FLOOR_SCAN_HEADROOM = 16
+
+/** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
+const CAVE_NOISE_WAVELENGTH_BLOCKS = 24
+
+/** A single noise cycle, used to turn the wavelength above into the frequency `valueNoise2D` expects. */
+const NOISE_FREQUENCY_NUMERATOR = 1
+
+/** Scales how much a cave's half-height grows per unit the density exceeds `CAVE_THRESHOLD` by. */
+const CAVE_HEIGHT_DENSITY_SCALE = 40
 
 export type CarveOptions = {
   /**
@@ -90,12 +114,12 @@ export type CarveOptions = {
  * `const scanTop = CAVE_CEILING + CAVE_WATER_FLOOR_MARGIN`.
  */
 export const computeWaterFloorYs = (blocks: Uint8Array, margin: number): Int16Array => {
-  const floors = new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(-1)
-  const scanTop = Math.min(CHUNK_HEIGHT - 1, CAVE_CEILING_Y + margin + 16)
+  const floors = new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(NO_WATER_FLOOR)
+  const scanTop = Math.min(CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET, CAVE_CEILING_Y + margin + WATER_FLOOR_SCAN_HEADROOM)
 
-  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      for (let y = 0; y <= scanTop; y += 1) {
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
+      for (let y = 0; y <= scanTop; y += AXIS_STEP) {
         if (readBlock(blocks, blockIndex(lx, y, lz)) === BLOCK.WATER) {
           floors[lz * CHUNK_SIZE_XZ + lx] = y
           break
@@ -105,6 +129,77 @@ export const computeWaterFloorYs = (blocks: Uint8Array, margin: number): Int16Ar
   }
 
   return floors
+}
+
+/** Whether `y` sits in the solid shell this file's header keeps under a water body. */
+const isWithinWaterFloorShell = (y: number, waterFloorY: number, margin: number): boolean =>
+  waterFloorY !== NO_WATER_FLOOR && y >= waterFloorY - margin && y < waterFloorY
+
+/** Clears one voxel, unless it is one of the blocks a cave must never remove. */
+const carveVoxelIfClearable = (blocks: Uint8Array, index: number): void => {
+  const current = readBlock(blocks, index)
+
+  if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
+    return
+  }
+
+  blocks[index] = BLOCK.AIR
+}
+
+type CarveContext = {
+  readonly blocks: Uint8Array
+  readonly margin: number
+  readonly caveSeed: number
+  readonly coord: ChunkCoord
+}
+
+type CaveBand = {
+  readonly from: number
+  readonly to: number
+}
+
+/** The vertical [from, to] band a cave occupies at this density. Taller where the field is stronger. */
+const caveBandForDensity = (density: number): CaveBand => {
+  const halfHeight = Math.floor((density - CAVE_THRESHOLD) * CAVE_HEIGHT_DENSITY_SCALE)
+  const centre = Math.floor(CAVE_FLOOR_Y + (CAVE_CEILING_Y - CAVE_FLOOR_Y) * density)
+
+  return {
+    from: Math.max(CAVE_FLOOR_Y, centre - halfHeight),
+    to: Math.min(CAVE_CEILING_Y, centre + halfHeight),
+  }
+}
+
+/**
+ * Carve one column, from its noise-derived cave band down to the
+ * water-floor-shell guard on each voxel.
+ *
+ * ────────────────────────────────────────────────────────────────
+ * THE GUARD. Leave a solid shell under any water body, or the bed
+ * is carved away and the player gets a floating water sheet over an
+ * unlit void. Do not replace this with a biome test — a lake in a
+ * PLAINS basin is submerged and is not an OCEAN.
+ * ────────────────────────────────────────────────────────────────
+ */
+const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz: number): void => {
+  const { blocks, margin, caveSeed, coord } = context
+  const density = valueNoise2D(
+    caveSeed,
+    worldX(coord, lx),
+    worldZ(coord, lz),
+    NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_WAVELENGTH_BLOCKS,
+  )
+
+  if (density <= CAVE_THRESHOLD) {
+    return
+  }
+
+  const { from, to } = caveBandForDensity(density)
+
+  for (let y = from; y <= to; y += AXIS_STEP) {
+    if (!isWithinWaterFloorShell(y, waterFloorY, margin)) {
+      carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
+    }
+  }
 }
 
 /**
@@ -126,42 +221,13 @@ export const carveCaves = (
   const margin = options.waterFloorMargin ?? WATER_FLOOR_MARGIN
   const waterFloors = computeWaterFloorYs(blocks, margin)
   const caveSeed = channelSeed(seed, 'caves')
+  const context: CarveContext = { blocks, caveSeed, coord, margin }
 
-  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      const waterFloorY = waterFloors[lz * CHUNK_SIZE_XZ + lx] ?? -1
-      const density = valueNoise2D(caveSeed, worldX(coord, lx), worldZ(coord, lz), 1 / 24)
-
-      if (density <= CAVE_THRESHOLD) {
-        continue
-      }
-
-      // Taller caves where the field is stronger, so the band is not a slab.
-      const halfHeight = Math.floor((density - CAVE_THRESHOLD) * 40)
-      const centre = Math.floor(CAVE_FLOOR_Y + (CAVE_CEILING_Y - CAVE_FLOOR_Y) * density)
-      const from = Math.max(CAVE_FLOOR_Y, centre - halfHeight)
-      const to = Math.min(CAVE_CEILING_Y, centre + halfHeight)
-
-      for (let y = from; y <= to; y += 1) {
-        // ────────────────────────────────────────────────────────────────
-        // THE GUARD. Leave a solid shell under any water body, or the bed
-        // is carved away and the player gets a floating water sheet over an
-        // unlit void. Do not replace this with a biome test — a lake in a
-        // PLAINS basin is submerged and is not an OCEAN.
-        // ────────────────────────────────────────────────────────────────
-        if (waterFloorY >= 0 && y >= waterFloorY - margin && y < waterFloorY) {
-          continue
-        }
-
-        const index = blockIndex(lx, y, lz)
-        const current = readBlock(blocks, index)
-
-        if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
-          continue
-        }
-
-        blocks[index] = BLOCK.AIR
-      }
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
+      // Asserted, not defaulted with `?? NO_WATER_FLOOR`. `waterFloors` has length `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ` (`computeWaterFloorYs` above), and for lx, lz drawn from `[0, CHUNK_SIZE_XZ)` the index `lz * CHUNK_SIZE_XZ + lx` reaches exactly `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ - 1` at its maximum — always a valid, defined element. A `?? fallback` here would be an untested, unreachable branch rather than real defensive code. `noUncheckedIndexedAccess` still types the read as possibly `undefined`, hence the assertion.
+      const waterFloorY = waterFloors[lz * CHUNK_SIZE_XZ + lx]!
+      carveColumn(context, waterFloorY, lx, lz)
     }
   }
 }

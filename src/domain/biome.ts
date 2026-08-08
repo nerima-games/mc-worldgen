@@ -21,7 +21,6 @@
  * `biome-classifier.ts`: temperature, humidity, continentalness, erosion, pv,
  * riverNoise) and applies the height and river refinements separately.
  */
-import { BlockId } from '@nerima-games/mc-kernel'
 import {
   HUM_DRY,
   HUM_JUNGLE,
@@ -35,6 +34,7 @@ import {
   TEMP_HOT,
   TEMP_JUNGLE,
 } from './biome-classifier.config'
+import { BlockId } from '@nerima-games/mc-kernel'
 
 export const BIOMES = [
   'PLAINS',
@@ -140,35 +140,55 @@ export type BiomeSurface = {
  * frame whose interior is not AIR, so the rule never names the lit block, and an
  * id in this table that nothing reads is an id nobody notices going stale.
  */
+/**
+ * The raw `mc-kernel` `BLOCK_REGISTRY` ids named above, kept as their own
+ * table so the id itself carries the kernel block name rather than sitting as
+ * an unnamed literal inside the `BlockId(...)` calls below.
+ */
+const KERNEL_BLOCK_ID = {
+  AIR: 0,
+  BEDROCK: 1,
+  DIRT: 3,
+  GRASS_BLOCK: 4,
+  GRAVEL: 8,
+  OAK_LEAVES: 10,
+  OAK_LOG: 9,
+  OBSIDIAN: 40,
+  SAND: 5,
+  SNOW: 7,
+  STONE: 2,
+  WATER: 6,
+} as const
+
 export const BLOCK = {
-  AIR: BlockId(0),
-  BEDROCK: BlockId(1),
-  STONE: BlockId(2),
-  DIRT: BlockId(3),
-  GRASS: BlockId(4),
-  SAND: BlockId(5),
-  WATER: BlockId(6),
-  SNOW: BlockId(7),
-  GRAVEL: BlockId(8),
-  LOG: BlockId(9),
-  LEAVES: BlockId(10),
-  OBSIDIAN: BlockId(40),
+  AIR: BlockId(KERNEL_BLOCK_ID.AIR),
+  BEDROCK: BlockId(KERNEL_BLOCK_ID.BEDROCK),
+  DIRT: BlockId(KERNEL_BLOCK_ID.DIRT),
+  GRASS: BlockId(KERNEL_BLOCK_ID.GRASS_BLOCK),
+  GRAVEL: BlockId(KERNEL_BLOCK_ID.GRAVEL),
+  LEAVES: BlockId(KERNEL_BLOCK_ID.OAK_LEAVES),
+  LOG: BlockId(KERNEL_BLOCK_ID.OAK_LOG),
+  OBSIDIAN: BlockId(KERNEL_BLOCK_ID.OBSIDIAN),
+  SAND: BlockId(KERNEL_BLOCK_ID.SAND),
+  SNOW: BlockId(KERNEL_BLOCK_ID.SNOW),
+  STONE: BlockId(KERNEL_BLOCK_ID.STONE),
+  WATER: BlockId(KERNEL_BLOCK_ID.WATER),
 } as const
 
 export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {
-  PLAINS: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  DESERT: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  FOREST: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  FLOWER_FOREST: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  OCEAN: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  MOUNTAINS: { top: BLOCK.STONE, filler: BLOCK.STONE, underwaterTop: BLOCK.STONE },
-  SNOW: { top: BLOCK.SNOW, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  SWAMP: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  JUNGLE: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  BEACH: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  RIVER: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  TAIGA: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  SAVANNA: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  BEACH: { filler: BLOCK.SAND, top: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  DESERT: { filler: BLOCK.SAND, top: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  FLOWER_FOREST: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
+  FOREST: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
+  JUNGLE: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
+  MOUNTAINS: { filler: BLOCK.STONE, top: BLOCK.STONE, underwaterTop: BLOCK.STONE },
+  OCEAN: { filler: BLOCK.SAND, top: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  PLAINS: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
+  RIVER: { filler: BLOCK.SAND, top: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  SAVANNA: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
+  SNOW: { filler: BLOCK.DIRT, top: BLOCK.SNOW, underwaterTop: BLOCK.GRAVEL },
+  SWAMP: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
+  TAIGA: { filler: BLOCK.DIRT, top: BLOCK.GRASS, underwaterTop: BLOCK.GRAVEL },
 }
 
 /**
@@ -194,17 +214,17 @@ export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {
  * See `domain/tree-placement.ts`.
  */
 export const BIOME_TREE_DENSITY: Record<BiomeType, number> = {
-  PLAINS: 0.006,
+  BEACH: 0,
   DESERT: 0,
-  FOREST: 0.012,
   FLOWER_FOREST: 0.012,
-  OCEAN: 0,
+  FOREST: 0.012,
+  JUNGLE: 0.012,
   MOUNTAINS: 0,
+  OCEAN: 0,
+  PLAINS: 0.006,
+  RIVER: 0,
+  SAVANNA: 0.008,
   SNOW: 0.004,
   SWAMP: 0.012,
-  JUNGLE: 0.012,
-  BEACH: 0,
-  RIVER: 0,
   TAIGA: 0.009,
-  SAVANNA: 0.008,
 }

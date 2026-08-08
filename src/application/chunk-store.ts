@@ -72,21 +72,21 @@
  * sources, because a second world load inherited the first world's fibers and
  * refs and deadlocked. Every read-modify-write is one `Ref.modify`.
  */
-import type { StoragePort } from '@nerima-games/mc-save'
-import { Context, Effect, Layer, Ref } from 'effect'
-import type { Chunk } from '../domain/chunk'
 import * as Store from '../domain/chunk-store-state'
-import { generateEndChunk } from '../domain/end-terrain'
 import type { BlockId, BlockPosition, ChunkCoord } from '@nerima-games/mc-kernel'
-import { generateNetherChunk } from '../domain/nether-terrain'
-import type { Dimension } from '../domain/nether-travel'
-import { generateChunk, type GenerateOptions } from '../domain/terrain'
 import {
-  makeChunkPersistence,
   type ChunkPersistence,
   type ChunkPersistenceContext,
   type ChunkPersistenceError,
+  makeChunkPersistence,
 } from './chunk-persistence'
+import { Context, Effect, Layer, Option, Ref } from 'effect'
+import { type GenerateOptions, generateChunk } from '../domain/terrain'
+import type { Chunk } from '../domain/chunk'
+import type { Dimension } from '../domain/nether-travel'
+import type { StoragePort } from '@nerima-games/mc-save'
+import { generateEndChunk } from '../domain/end-terrain'
+import { generateNetherChunk } from '../domain/nether-terrain'
 
 /**
  * Where a chunk comes from when it is not resident.
@@ -116,8 +116,8 @@ export const generatedDimensionChunkSource = (
   dimension: Dimension,
   options: GenerateOptions = {},
 ): ChunkSource => {
-  if (dimension === 'overworld') return generatedChunkSource(seed, options)
-  if (dimension === 'nether') return (coord) => Effect.sync(() => generateNetherChunk(seed, coord))
+  if (dimension === 'overworld') {return generatedChunkSource(seed, options)}
+  if (dimension === 'nether') {return (coord) => Effect.sync(() => generateNetherChunk(seed, coord))}
   return (coord) => Effect.sync(() => generateEndChunk(seed, coord))
 }
 
@@ -229,6 +229,29 @@ export class ChunkStore extends Context.Tag('@nerima-games/mc-worldgen/ChunkStor
   ChunkStoreApi
 >() {}
 
+/**
+ * The chunk at `coord`: from storage if `persistence` has it, generated
+ * through `source` otherwise. `persistence` itself is optional — the
+ * in-memory-only store has none.
+ */
+const loadOrGenerate = (
+  source: ChunkSource,
+  persistence: ChunkPersistence | undefined,
+  coord: ChunkCoord,
+): Effect.Effect<Chunk, ChunkPersistenceError> =>
+  Effect.gen(function* loadFromPersistenceOrSource() {
+    if (!persistence) {
+      return yield* source(coord)
+    }
+
+    const stored = yield* persistence.load(coord)
+    if (Option.isSome(stored)) {
+      return stored.value
+    }
+
+    return yield* source(coord)
+  })
+
 const chunksEqual = (left: Chunk, right: Chunk): boolean =>
   left.coord.cx === right.coord.cx &&
   left.coord.cz === right.coord.cz &&
@@ -250,57 +273,83 @@ const makeChunkStoreInternal = (
 
     const subscribe: Effect.Effect<ChunkDirtySubscription> = Effect.map(
       Ref.modify(state, (current) => Store.subscribed(current)),
-      (id) => ({ id, drain: drainFor(id), unsubscribe: unsubscribeFor(id) }),
+      (id) => ({ drain: drainFor(id), id, unsubscribe: unsubscribeFor(id) }),
     )
 
     return {
+      getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current, position)),
+
+      // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss
+      // Computes the chunk's grids and has to publish them, or the next reader
+      // Recomputes them; splitting that into a get and a set is the TOCTOU shape
+      // This whole module avoids. `Store.lightAt` returns the state it was given
+      // When the entry was already there, so the hot path writes back what it
+      // Read.
+      getLight: (position) => Ref.modify(state, (current) => Store.lightAt(current, position)),
+
+      isLoaded: (coord) => Effect.map(Ref.get(state), (current) => Boolean(Store.residentChunk(current, coord))),
+
       load: (coord) =>
-        Effect.gen(function* () {
+        Effect.gen(function* load() {
           const resident = Store.residentChunk(yield* Ref.get(state), coord)
-          if (resident !== undefined) {
+          if (resident) {
             return resident
           }
 
-          const stored = persistence === undefined ? undefined : yield* persistence.load(coord)
-          const generated = stored !== undefined && stored._tag === 'Some' ? stored.value : yield* source(coord)
+          const generated = yield* loadOrGenerate(source, persistence, coord)
 
           // Re-check inside the modify. Generation is an Effect and may suspend,
-          // so another fiber can have loaded this coordinate meanwhile; the
-          // first one to land wins and the loser's buffer is discarded. Handing
-          // out two live views of one chunk would let two writers each see only
-          // their own edits.
+          // So another fiber can have loaded this coordinate meanwhile; the
+          // First one to land wins and the loser's buffer is discarded. Handing
+          // Out two live views of one chunk would let two writers each see only
+          // Their own edits.
           return yield* Ref.modify(state, (current) => {
             const raced = Store.residentChunk(current, coord)
-            return raced === undefined
-              ? ([generated, Store.withChunk(current, generated)] as const)
-              : ([raced, current] as const)
+            if (raced) {
+              return [raced, current] as const
+            }
+            return [generated, Store.withChunk(current, generated)] as const
           })
         }),
-
-      peek: (coord) => Effect.map(Ref.get(state), (current) => Store.residentChunk(current, coord)),
-
-      snapshot: (coord) =>
-        Effect.map(Ref.get(state), (current) => {
-          const chunk = Store.residentChunk(current, coord)
-          return chunk === undefined ? undefined : Store.chunkSnapshotOf(chunk)
-        }),
-
-      isLoaded: (coord) =>
-        Effect.map(Ref.get(state), (current) => Store.residentChunk(current, coord) !== undefined),
 
       loadedCoords: Effect.map(Ref.get(state), Store.residentCoords),
 
       neighbours: (coord) => Effect.map(Ref.get(state), (current) => Store.neighboursOf(current, coord)),
 
+      peek: (coord) => Effect.map(Ref.get(state), (current) => Store.residentChunk(current, coord)),
+
+      reset: Ref.update(state, (current) =>
+        Store.residentCoords(current).reduce<Store.ChunkStoreState>((accumulated, coord) => {
+          const [, nextState] = Store.withoutChunk(accumulated, coord)
+          return nextState
+        }, current),
+      ),
+
+      setBlock: (position, block) =>
+        Ref.modify(state, (current) => Store.withBlockAt(current, position, block)),
+
+      snapshot: (coord) =>
+        Effect.map(Ref.get(state), (current) => {
+          const chunk = Store.residentChunk(current, coord)
+          if (chunk) {
+            return Store.chunkSnapshotOf(chunk)
+          }
+          return
+        }),
+
+      subscribeDirty: subscribe,
+
+      subscribeDirtyScoped: Effect.acquireRelease(subscribe, (subscription) => subscription.unsubscribe),
+
       unload: (coord) => {
-        if (persistence === undefined) {
+        if (!persistence) {
           return Ref.modify(state, (current) => Store.withoutChunk(current, coord))
         }
 
         const saveUntilCurrent = (): Effect.Effect<boolean, ChunkPersistenceError> =>
-          Effect.gen(function* () {
+          Effect.gen(function* attemptSave() {
             const resident = Store.residentChunk(yield* Ref.get(state), coord)
-            if (resident === undefined) {
+            if (!resident) {
               return false
             }
 
@@ -309,39 +358,20 @@ const makeChunkStoreInternal = (
 
             const removed = yield* Ref.modify(state, (current) => {
               const latest = Store.residentChunk(current, coord)
-              return latest !== undefined && chunksEqual(latest, snapshot)
-                ? Store.withoutChunk(current, coord)
-                : ([false, current] as const)
+              if (latest && chunksEqual(latest, snapshot)) {
+                return Store.withoutChunk(current, coord)
+              }
+              return [false, current] as const
             })
-            return removed ? true : yield* saveUntilCurrent()
+
+            if (removed) {
+              return true
+            }
+            return yield* saveUntilCurrent()
           })
 
         return saveUntilCurrent()
       },
-
-      getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current, position)),
-
-      setBlock: (position, block) =>
-        Ref.modify(state, (current) => Store.withBlockAt(current, position, block)),
-
-      // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss
-      // computes the chunk's grids and has to publish them, or the next reader
-      // recomputes them; splitting that into a get and a set is the TOCTOU shape
-      // this whole module avoids. `Store.lightAt` returns the state it was given
-      // when the entry was already there, so the hot path writes back what it
-      // read.
-      getLight: (position) => Ref.modify(state, (current) => Store.lightAt(current, position)),
-
-      subscribeDirty: subscribe,
-
-      subscribeDirtyScoped: Effect.acquireRelease(subscribe, (subscription) => subscription.unsubscribe),
-
-      reset: Ref.update(state, (current) =>
-        Store.residentCoords(current).reduce<Store.ChunkStoreState>(
-          (accumulated, coord) => Store.withoutChunk(accumulated, coord)[1],
-          current,
-        ),
-      ),
     }
   })
 

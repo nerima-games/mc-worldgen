@@ -1,26 +1,37 @@
-import { BLOCK } from './biome'
-import { setBlockAt, worldX, worldZ } from './chunk'
-import { CHUNK_SIZE_XZ } from './constants'
 import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import type { Dimension } from './nether-travel'
-import { channelSeed, latticeValue } from './seeded-random'
 import {
   STRONGHOLD_FLOOR_Y,
-  strongholdSitesNearChunk,
   type StrongholdSite,
+  strongholdSitesNearChunk,
 } from './structure-siting'
+import { channelSeed, latticeValue } from './seeded-random'
+import { setBlockAt, worldX, worldZ } from './chunk'
+import { BLOCK } from './biome'
+import { CHUNK_SIZE_XZ } from './constants'
+import type { Dimension } from './nether-travel'
+
+const STRONGHOLD_WALL_THICKNESS = 1
+const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1
+/** The step size for every unit voxel-walk loop in this file. */
+const STRONGHOLD_UNIT_STEP = 1
 
 export const STRONGHOLD_ROOM_HALF = 5
 export const STRONGHOLD_ROOM_AIR_HEIGHT = 5
-export const STRONGHOLD_SHELL_HALF_EXTENT = STRONGHOLD_ROOM_HALF + 1
-export const STRONGHOLD_CEILING_Y = STRONGHOLD_FLOOR_Y + STRONGHOLD_ROOM_AIR_HEIGHT + 1
+export const STRONGHOLD_SHELL_HALF_EXTENT = STRONGHOLD_ROOM_HALF + STRONGHOLD_WALL_THICKNESS
+export const STRONGHOLD_CEILING_Y = STRONGHOLD_FLOOR_Y + STRONGHOLD_ROOM_AIR_HEIGHT + STRONGHOLD_WALL_THICKNESS
+
+const STRONGHOLD_COBBLESTONE_ID = 17
+const STRONGHOLD_END_PORTAL_FRAME_ID = 87
+const STRONGHOLD_END_PORTAL_FRAME_FILLED_ID = 88
+const STRONGHOLD_LAVA_ID = 11
+const STRONGHOLD_PLANKS_ID = 12
 
 export const STRONGHOLD_BLOCK = {
-  COBBLESTONE: BlockId(17),
-  PLANKS: BlockId(12),
-  LAVA: BlockId(11),
-  END_PORTAL_FRAME: BlockId(87),
-  END_PORTAL_FRAME_FILLED: BlockId(88),
+  COBBLESTONE: BlockId(STRONGHOLD_COBBLESTONE_ID),
+  END_PORTAL_FRAME: BlockId(STRONGHOLD_END_PORTAL_FRAME_ID),
+  END_PORTAL_FRAME_FILLED: BlockId(STRONGHOLD_END_PORTAL_FRAME_FILLED_ID),
+  LAVA: BlockId(STRONGHOLD_LAVA_ID),
+  PLANKS: BlockId(STRONGHOLD_PLANKS_ID),
 } as const
 
 export type StrongholdPieceKind = 'portal-room' | 'corridor' | 'stair' | 'library'
@@ -34,44 +45,207 @@ export type StrongholdPlan = {
   readonly frames: ReadonlyArray<StrongholdFrame>
 }
 
+const STRONGHOLD_FRAME_CENTER_OFFSET = 0
+const STRONGHOLD_FRAME_NEAR_OFFSET = 1
+const STRONGHOLD_FRAME_FAR_OFFSET = 2
+
 const FRAME_OFFSETS = [
-  [-1, -2, 'south'], [0, -2, 'south'], [1, -2, 'south'], [2, -1, 'west'], [2, 0, 'west'], [2, 1, 'west'],
-  [1, 2, 'north'], [0, 2, 'north'], [-1, 2, 'north'], [-2, 1, 'east'], [-2, 0, 'east'], [-2, -1, 'east'],
+  [-STRONGHOLD_FRAME_NEAR_OFFSET, -STRONGHOLD_FRAME_FAR_OFFSET, 'south'],
+  [STRONGHOLD_FRAME_CENTER_OFFSET, -STRONGHOLD_FRAME_FAR_OFFSET, 'south'],
+  [STRONGHOLD_FRAME_NEAR_OFFSET, -STRONGHOLD_FRAME_FAR_OFFSET, 'south'],
+  [STRONGHOLD_FRAME_FAR_OFFSET, -STRONGHOLD_FRAME_NEAR_OFFSET, 'west'],
+  [STRONGHOLD_FRAME_FAR_OFFSET, STRONGHOLD_FRAME_CENTER_OFFSET, 'west'],
+  [STRONGHOLD_FRAME_FAR_OFFSET, STRONGHOLD_FRAME_NEAR_OFFSET, 'west'],
+  [STRONGHOLD_FRAME_NEAR_OFFSET, STRONGHOLD_FRAME_FAR_OFFSET, 'north'],
+  [STRONGHOLD_FRAME_CENTER_OFFSET, STRONGHOLD_FRAME_FAR_OFFSET, 'north'],
+  [-STRONGHOLD_FRAME_NEAR_OFFSET, STRONGHOLD_FRAME_FAR_OFFSET, 'north'],
+  [-STRONGHOLD_FRAME_FAR_OFFSET, STRONGHOLD_FRAME_NEAR_OFFSET, 'east'],
+  [-STRONGHOLD_FRAME_FAR_OFFSET, STRONGHOLD_FRAME_CENTER_OFFSET, 'east'],
+  [-STRONGHOLD_FRAME_FAR_OFFSET, -STRONGHOLD_FRAME_NEAR_OFFSET, 'east'],
 ] as const
 export const STRONGHOLD_PLAN_HALF_EXTENT = 30
 
-/** Builds one complete plan before chunks select their slices; coordinate keys prevent duplicate writes. */
-export const generateStrongholdPlan = (seed: number, site: StrongholdSite, dimension: Dimension = 'overworld'): StrongholdPlan | undefined => {
-  if (dimension !== 'overworld') return undefined
-  const mutations = new Map<string, StrongholdMutation>()
-  const put = (x: number, y: number, z: number, block: BlockId): void => { mutations.set(`${x},${y},${z}`, { x, y, z, block }) }
-  const room = (minX: number, maxX: number, minZ: number, maxZ: number, floor: number, ceiling: number, wall = STRONGHOLD_BLOCK.COBBLESTONE): void => {
-    for (let x = minX; x <= maxX; x += 1) for (let z = minZ; z <= maxZ; z += 1) for (let y = floor; y <= ceiling; y += 1) {
-      put(x, y, z, y === floor || y === ceiling || x === minX || x === maxX || z === minZ || z === maxZ ? wall : BLOCK.AIR)
+const STRONGHOLD_CORRIDOR_END_X = 21
+const STRONGHOLD_CORRIDOR_HALF_WIDTH = 2
+const STRONGHOLD_CORRIDOR_CEILING_HEIGHT = 4
+
+const STRONGHOLD_LIBRARY_START_X = 20
+const STRONGHOLD_LIBRARY_END_X = 30
+const STRONGHOLD_LIBRARY_HALF_WIDTH = 7
+const STRONGHOLD_LIBRARY_FLOOR_OFFSET = 2
+const STRONGHOLD_LIBRARY_CEILING_OFFSET = 8
+
+const STRONGHOLD_STAIRCASE_STEPS = 8
+const STRONGHOLD_STAIRCASE_START_X = 13
+const STRONGHOLD_STAIRCASE_STEPS_PER_RISE = 4
+const STRONGHOLD_STAIRCASE_HALF_WIDTH = 1
+
+const STRONGHOLD_LIBRARY_PILLAR_START_X = 22
+const STRONGHOLD_LIBRARY_PILLAR_END_X = 28
+const STRONGHOLD_LIBRARY_PILLAR_SPACING = 2
+const STRONGHOLD_LIBRARY_PILLAR_HALF_DEPTH = 5
+const STRONGHOLD_LIBRARY_PILLAR_DEPTH_STEP = 10
+const STRONGHOLD_LIBRARY_PILLAR_BASE_OFFSET = 3
+const STRONGHOLD_LIBRARY_PILLAR_TOP_OFFSET = 6
+
+const STRONGHOLD_LAVA_TRAP_OFFSET_X = 4
+const STRONGHOLD_LAVA_TRAP_HALF_WIDTH = 2
+
+const STRONGHOLD_PORTAL_EYE_CHANCE = 0.1
+
+const CHUNK_ORIGIN_LOCAL = 0
+
+type StrongholdRoomBounds = {
+  readonly ceiling: number
+  readonly floor: number
+  readonly maxX: number
+  readonly maxZ: number
+  readonly minX: number
+  readonly minZ: number
+}
+
+const putStrongholdMutation = (mutations: Map<string, StrongholdMutation>, mutation: StrongholdMutation): void => {
+  mutations.set(`${mutation.x},${mutation.y},${mutation.z}`, mutation)
+}
+
+/** Fills one hollow box: floor, ceiling and walls get `wall`; the interior gets air. */
+const carveRoomBlocks = (
+  mutations: Map<string, StrongholdMutation>,
+  bounds: StrongholdRoomBounds,
+  wall: BlockId = STRONGHOLD_BLOCK.COBBLESTONE,
+): void => {
+  for (let x = bounds.minX; x <= bounds.maxX; x += STRONGHOLD_UNIT_STEP) {
+    for (let z = bounds.minZ; z <= bounds.maxZ; z += STRONGHOLD_UNIT_STEP) {
+      for (let y = bounds.floor; y <= bounds.ceiling; y += STRONGHOLD_UNIT_STEP) {
+        const onShell =
+          y === bounds.floor || y === bounds.ceiling || x === bounds.minX || x === bounds.maxX || z === bounds.minZ || z === bounds.maxZ
+        let block: BlockId = BLOCK.AIR
+        if (onShell) {block = wall}
+        putStrongholdMutation(mutations, { block, x, y, z })
+      }
     }
   }
-  room(site.x - 6, site.x + 6, site.z - 6, site.z + 6, STRONGHOLD_FLOOR_Y, STRONGHOLD_CEILING_Y)
-  room(site.x + 6, site.x + 21, site.z - 2, site.z + 2, STRONGHOLD_FLOOR_Y, STRONGHOLD_FLOOR_Y + 4)
-  room(site.x + 20, site.x + 30, site.z - 7, site.z + 7, STRONGHOLD_FLOOR_Y + 2, STRONGHOLD_FLOOR_Y + 8, STRONGHOLD_BLOCK.PLANKS)
-  for (let step = 0; step <= 8; step += 1) {
-    const x = site.x + 13 + step
-    const floor = STRONGHOLD_FLOOR_Y + Math.floor(step / 4)
-    for (let z = site.z - 1; z <= site.z + 1; z += 1) put(x, floor, z, STRONGHOLD_BLOCK.COBBLESTONE)
+}
+
+/** The portal room, the corridor leading off it, and the library at the far end. */
+const carveStrongholdRooms = (mutations: Map<string, StrongholdMutation>, site: StrongholdSite): void => {
+  carveRoomBlocks(mutations, {
+    ceiling: STRONGHOLD_CEILING_Y,
+    floor: STRONGHOLD_FLOOR_Y,
+    maxX: site.x + STRONGHOLD_SHELL_HALF_EXTENT,
+    maxZ: site.z + STRONGHOLD_SHELL_HALF_EXTENT,
+    minX: site.x - STRONGHOLD_SHELL_HALF_EXTENT,
+    minZ: site.z - STRONGHOLD_SHELL_HALF_EXTENT,
+  })
+  carveRoomBlocks(mutations, {
+    ceiling: STRONGHOLD_FLOOR_Y + STRONGHOLD_CORRIDOR_CEILING_HEIGHT,
+    floor: STRONGHOLD_FLOOR_Y,
+    maxX: site.x + STRONGHOLD_CORRIDOR_END_X,
+    maxZ: site.z + STRONGHOLD_CORRIDOR_HALF_WIDTH,
+    minX: site.x + STRONGHOLD_SHELL_HALF_EXTENT,
+    minZ: site.z - STRONGHOLD_CORRIDOR_HALF_WIDTH,
+  })
+  carveRoomBlocks(
+    mutations,
+    {
+      ceiling: STRONGHOLD_FLOOR_Y + STRONGHOLD_LIBRARY_CEILING_OFFSET,
+      floor: STRONGHOLD_FLOOR_Y + STRONGHOLD_LIBRARY_FLOOR_OFFSET,
+      maxX: site.x + STRONGHOLD_LIBRARY_END_X,
+      maxZ: site.z + STRONGHOLD_LIBRARY_HALF_WIDTH,
+      minX: site.x + STRONGHOLD_LIBRARY_START_X,
+      minZ: site.z - STRONGHOLD_LIBRARY_HALF_WIDTH,
+    },
+    STRONGHOLD_BLOCK.PLANKS,
+  )
+}
+
+/** The stepped floor connecting the portal room to the library. */
+const carveStrongholdStaircase = (mutations: Map<string, StrongholdMutation>, site: StrongholdSite): void => {
+  for (let step = 0; step <= STRONGHOLD_STAIRCASE_STEPS; step += STRONGHOLD_UNIT_STEP) {
+    const x = site.x + STRONGHOLD_STAIRCASE_START_X + step
+    const floor = STRONGHOLD_FLOOR_Y + Math.floor(step / STRONGHOLD_STAIRCASE_STEPS_PER_RISE)
+    for (let z = site.z - STRONGHOLD_STAIRCASE_HALF_WIDTH; z <= site.z + STRONGHOLD_STAIRCASE_HALF_WIDTH; z += STRONGHOLD_UNIT_STEP) {
+      putStrongholdMutation(mutations, { block: STRONGHOLD_BLOCK.COBBLESTONE, x, y: floor, z })
+    }
   }
-  for (let x = site.x + 22; x <= site.x + 28; x += 2) for (let z = site.z - 5; z <= site.z + 5; z += 10) {
-    for (let y = STRONGHOLD_FLOOR_Y + 3; y <= STRONGHOLD_FLOOR_Y + 6; y += 1) put(x, y, z, STRONGHOLD_BLOCK.COBBLESTONE)
+}
+
+/** The library's interior support columns. */
+const carveStrongholdLibraryPillars = (mutations: Map<string, StrongholdMutation>, site: StrongholdSite): void => {
+  for (let x = site.x + STRONGHOLD_LIBRARY_PILLAR_START_X; x <= site.x + STRONGHOLD_LIBRARY_PILLAR_END_X; x += STRONGHOLD_LIBRARY_PILLAR_SPACING) {
+    for (
+      let z = site.z - STRONGHOLD_LIBRARY_PILLAR_HALF_DEPTH;
+      z <= site.z + STRONGHOLD_LIBRARY_PILLAR_HALF_DEPTH;
+      z += STRONGHOLD_LIBRARY_PILLAR_DEPTH_STEP
+    ) {
+      for (
+        let y = STRONGHOLD_FLOOR_Y + STRONGHOLD_LIBRARY_PILLAR_BASE_OFFSET;
+        y <= STRONGHOLD_FLOOR_Y + STRONGHOLD_LIBRARY_PILLAR_TOP_OFFSET;
+        y += STRONGHOLD_UNIT_STEP
+      ) {
+        putStrongholdMutation(mutations, { block: STRONGHOLD_BLOCK.COBBLESTONE, x, y, z })
+      }
+    }
   }
-  for (const dx of [-4, 4]) for (let dz = -2; dz <= 2; dz += 1) {
-    put(site.x + dx, STRONGHOLD_FLOOR_Y + 1, site.z + dz, STRONGHOLD_BLOCK.LAVA)
+}
+
+/** The two lava flanks either side of the portal room. */
+const placeStrongholdLavaTraps = (mutations: Map<string, StrongholdMutation>, site: StrongholdSite): void => {
+  for (const dx of [-STRONGHOLD_LAVA_TRAP_OFFSET_X, STRONGHOLD_LAVA_TRAP_OFFSET_X]) {
+    for (let dz = -STRONGHOLD_LAVA_TRAP_HALF_WIDTH; dz <= STRONGHOLD_LAVA_TRAP_HALF_WIDTH; dz += STRONGHOLD_UNIT_STEP) {
+      putStrongholdMutation(mutations, {
+        block: STRONGHOLD_BLOCK.LAVA,
+        x: site.x + dx,
+        y: STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET,
+        z: site.z + dz,
+      })
+    }
   }
-  const frames: StrongholdFrame[] = FRAME_OFFSETS.map(([dx, dz, facing], index) => {
-    const eye = latticeValue(channelSeed(seed, `stronghold-eye-${index}`), site.x, site.z) < 0.1
-    const frame = { x: site.x + dx, y: STRONGHOLD_FLOOR_Y + 1, z: site.z + dz, block: eye ? STRONGHOLD_BLOCK.END_PORTAL_FRAME_FILLED : STRONGHOLD_BLOCK.END_PORTAL_FRAME, facing, eye }
-    put(frame.x, frame.y, frame.z, frame.block)
+}
+
+/** The ring of 12 end-portal-frame blocks, each independently lit or unlit. */
+const buildStrongholdFrames = (
+  mutations: Map<string, StrongholdMutation>,
+  seed: number,
+  site: StrongholdSite,
+): ReadonlyArray<StrongholdFrame> =>
+  FRAME_OFFSETS.map(([dx, dz, facing], index) => {
+    const eye = latticeValue(channelSeed(seed, `stronghold-eye-${index}`), site.x, site.z) < STRONGHOLD_PORTAL_EYE_CHANCE
+    let block: BlockId = STRONGHOLD_BLOCK.END_PORTAL_FRAME
+    if (eye) {block = STRONGHOLD_BLOCK.END_PORTAL_FRAME_FILLED}
+    const frame: StrongholdFrame = {
+      block,
+      eye,
+      facing,
+      x: site.x + dx,
+      y: STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET,
+      z: site.z + dz,
+    }
+    putStrongholdMutation(mutations, frame)
     return frame
   })
-  return { dimension, site, pieces: [{ kind: 'portal-room' }, { kind: 'corridor' }, { kind: 'stair' }, { kind: 'library' }], mutations: [...mutations.values()], frames }
+
+/** Builds one complete plan before chunks select their slices; coordinate keys prevent duplicate writes. */
+export const generateStrongholdPlan = (seed: number, site: StrongholdSite, dimension: Dimension = 'overworld'): StrongholdPlan | undefined => {
+  if (dimension !== 'overworld') {return}
+  const mutations = new Map<string, StrongholdMutation>()
+  carveStrongholdRooms(mutations, site)
+  carveStrongholdStaircase(mutations, site)
+  carveStrongholdLibraryPillars(mutations, site)
+  placeStrongholdLavaTraps(mutations, site)
+  const frames = buildStrongholdFrames(mutations, seed, site)
+  return {
+    dimension,
+    frames,
+    mutations: [...mutations.values()],
+    pieces: [{ kind: 'portal-room' }, { kind: 'corridor' }, { kind: 'stair' }, { kind: 'library' }],
+    site,
+  }
 }
+
+const isStrongholdFrameCell = (dx: number, dz: number): boolean =>
+  (dz === STRONGHOLD_FRAME_FAR_OFFSET && dx <= STRONGHOLD_FRAME_NEAR_OFFSET) ||
+  (dx === STRONGHOLD_FRAME_FAR_OFFSET && dz <= STRONGHOLD_FRAME_NEAR_OFFSET)
 
 /** Returns the stronghold block at a world position, or undefined outside its room. */
 export const strongholdBlockAt = (
@@ -83,10 +257,9 @@ export const strongholdBlockAt = (
   const dx = Math.abs(wx - site.x)
   const dz = Math.abs(wz - site.z)
 
-  if (dx > STRONGHOLD_SHELL_HALF_EXTENT || dz > STRONGHOLD_SHELL_HALF_EXTENT) {
-    return undefined
+  if (dx > STRONGHOLD_SHELL_HALF_EXTENT || dz > STRONGHOLD_SHELL_HALF_EXTENT || y < STRONGHOLD_FLOOR_Y || y > STRONGHOLD_CEILING_Y) {
+    return
   }
-  if (y < STRONGHOLD_FLOOR_Y || y > STRONGHOLD_CEILING_Y) return undefined
 
   if (
     y === STRONGHOLD_FLOOR_Y ||
@@ -97,10 +270,7 @@ export const strongholdBlockAt = (
     return STRONGHOLD_BLOCK.COBBLESTONE
   }
 
-  if (
-    y === STRONGHOLD_FLOOR_Y + 1 &&
-    ((dz === 2 && dx <= 1) || (dx === 2 && dz <= 1))
-  ) {
+  if (y === STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET && isStrongholdFrameCell(dx, dz)) {
     return STRONGHOLD_BLOCK.END_PORTAL_FRAME
   }
 
@@ -122,11 +292,14 @@ export const writeStrongholdBlocksForChunk = (
 
   for (const site of sites) {
     const plan = generateStrongholdPlan(seed, site)
-    if (plan === undefined) continue
-    for (const mutation of plan.mutations) {
-      const lx = mutation.x - worldX(coord, 0)
-      const lz = mutation.z - worldZ(coord, 0)
-      if (lx >= 0 && lx < CHUNK_SIZE_XZ && lz >= 0 && lz < CHUNK_SIZE_XZ) setBlockAt(blocks, lx, mutation.y, lz, mutation.block)
+    if (plan) {
+      for (const mutation of plan.mutations) {
+        const lx = mutation.x - worldX(coord, CHUNK_ORIGIN_LOCAL)
+        const lz = mutation.z - worldZ(coord, CHUNK_ORIGIN_LOCAL)
+        if (lx >= CHUNK_ORIGIN_LOCAL && lx < CHUNK_SIZE_XZ && lz >= CHUNK_ORIGIN_LOCAL && lz < CHUNK_SIZE_XZ) {
+          setBlockAt(blocks, lx, mutation.y, lz, mutation.block)
+        }
+      }
     }
   }
 }
