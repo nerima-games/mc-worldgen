@@ -1,16 +1,15 @@
 /**
  * Biome classification: climate → biome.
  *
- * PRE-AUDIT FIRST CUT (叩き台). The roster below is a representative subset of
- * the reference implementation's 13 biomes
- * (`packages/world/domain/biome.ts:4`), enough to exercise the classifier and
- * the surface rules. The full roster arrives with the structures that need it.
+ * The roster and direct climate rules mirror the reference implementation's
+ * 13 biomes (`packages/world/domain/biome.ts:4`). The six-input climate
+ * boundary used by terrain generation lives in `biome-classifier.ts`.
  *
  * ---------------------------------------------------------------------------
  * Rule table, not a nest of `if`s
  * ---------------------------------------------------------------------------
  *
- * The reference drove its two-input classifier from a declarative,
+ * The reference drives its two-input classifier from a declarative,
  * first-match-wins table (`CLASSIFY_BIOME_RULES`,
  * `packages/world/domain/biome-classifier.ts:44-79`) with a `PLAINS` fallback
  * (`:86`). That shape is kept: it makes the rules enumerable, so "which climates
@@ -18,14 +17,40 @@
  * data instead of by tracing branches — and it is what lets
  * `test/biome.test.ts` sweep the whole climate square.
  *
- * The reference's *full* classifier takes six inputs, not two
- * (`ClimateSample`, `biome-classifier.ts:16-23`: temperature, humidity,
- * continentalness, erosion, pv, riverNoise). This skeleton implements the
- * two-input stage only; docs/porting.md records the rest.
+ * The terrain boundary takes six inputs (`ClimateSample`,
+ * `biome-classifier.ts`: temperature, humidity, continentalness, erosion, pv,
+ * riverNoise) and applies the height and river refinements separately.
  */
 import { BlockId } from '@nerima-games/mc-kernel'
+import {
+  HUM_DRY,
+  HUM_JUNGLE,
+  HUM_MOUNTAINS,
+  HUM_SAVANNA_MIN,
+  HUM_TAIGA,
+  HUM_VERY_DRY,
+  HUM_VERY_WET,
+  HUM_WET,
+  TEMP_COLD,
+  TEMP_HOT,
+  TEMP_JUNGLE,
+} from './biome-classifier.config'
 
-export const BIOMES = ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW'] as const
+export const BIOMES = [
+  'PLAINS',
+  'DESERT',
+  'FOREST',
+  'FLOWER_FOREST',
+  'OCEAN',
+  'MOUNTAINS',
+  'SNOW',
+  'SWAMP',
+  'JUNGLE',
+  'BEACH',
+  'RIVER',
+  'TAIGA',
+  'SAVANNA',
+] as const
 
 export type BiomeType = (typeof BIOMES)[number]
 
@@ -34,35 +59,33 @@ export const CHUNK_BIOMES = [...BIOMES, 'NETHER', 'END'] as const
 
 export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
-/** Climate at a column. Both axes are normalised to [0, 1]. */
-export type ClimateSample = {
-  readonly temperature: number
-  readonly humidity: number
-}
-
 type BiomeRule = {
   readonly biome: BiomeType
-  readonly when: (climate: ClimateSample) => boolean
+  readonly when: (temperature: number, humidity: number) => boolean
 }
 
-/**
- * First match wins. Order is therefore meaningful and the cold rules come
- * first: temperature dominates humidity, because a wet freezing region is snow
- * before it is anything else.
- */
 const BIOME_RULES: ReadonlyArray<BiomeRule> = [
-  { biome: 'SNOW', when: ({ temperature }) => temperature < 0.2 },
-  { biome: 'TAIGA', when: ({ temperature }) => temperature < 0.35 },
-  { biome: 'DESERT', when: ({ temperature, humidity }) => temperature > 0.75 && humidity < 0.3 },
-  { biome: 'SAVANNA', when: ({ temperature, humidity }) => temperature > 0.65 && humidity < 0.5 },
-  { biome: 'FOREST', when: ({ humidity }) => humidity > 0.55 },
+  { biome: 'SNOW', when: (temperature, humidity) => humidity < HUM_VERY_DRY && temperature < TEMP_COLD },
+  { biome: 'DESERT', when: (temperature, humidity) => humidity < HUM_VERY_DRY && temperature >= TEMP_COLD },
+  { biome: 'JUNGLE', when: (temperature, humidity) => humidity > HUM_JUNGLE && temperature > TEMP_JUNGLE },
+  { biome: 'TAIGA', when: (temperature, humidity) => humidity > HUM_VERY_WET && temperature < TEMP_COLD && humidity > HUM_TAIGA },
+  { biome: 'SWAMP', when: (temperature, humidity) => humidity > HUM_VERY_WET && temperature > TEMP_HOT },
+  { biome: 'FOREST', when: (_temperature, humidity) => humidity > HUM_VERY_WET },
+  { biome: 'TAIGA', when: (temperature, humidity) => temperature < TEMP_COLD && humidity > HUM_TAIGA },
+  { biome: 'MOUNTAINS', when: (temperature, humidity) => temperature < TEMP_COLD && humidity > HUM_MOUNTAINS },
+  { biome: 'SNOW', when: (_temperature) => _temperature < TEMP_COLD },
+  { biome: 'JUNGLE', when: (temperature, humidity) => temperature > TEMP_HOT && humidity > HUM_WET },
+  { biome: 'SAVANNA', when: (temperature, humidity) => temperature > TEMP_HOT && humidity > HUM_SAVANNA_MIN },
+  { biome: 'DESERT', when: (_temperature) => _temperature > TEMP_HOT },
+  { biome: 'PLAINS', when: (_temperature, humidity) => humidity < HUM_DRY },
+  { biome: 'FOREST', when: (_temperature, humidity) => humidity > HUM_WET },
 ]
 
 /** The fallback, matching the reference's `'PLAINS'` default (`biome-classifier.ts:86`). */
 export const FALLBACK_BIOME: BiomeType = 'PLAINS'
 
-export const classifyBiome = (climate: ClimateSample): BiomeType =>
-  BIOME_RULES.find((rule) => rule.when(climate))?.biome ?? FALLBACK_BIOME
+export const classifyBiome = (temperature: number, humidity: number): BiomeType =>
+  BIOME_RULES.find((rule) => rule.when(temperature, humidity))?.biome ?? FALLBACK_BIOME
 
 /**
  * Surface materials for a biome.
@@ -133,14 +156,19 @@ export const BLOCK = {
 } as const
 
 export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {
-  OCEAN: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  BEACH: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  DESERT: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
-  SAVANNA: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
   PLAINS: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  DESERT: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
   FOREST: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
-  TAIGA: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  FLOWER_FOREST: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  OCEAN: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  MOUNTAINS: { top: BLOCK.STONE, filler: BLOCK.STONE, underwaterTop: BLOCK.STONE },
   SNOW: { top: BLOCK.SNOW, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  SWAMP: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  JUNGLE: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  BEACH: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  RIVER: { top: BLOCK.SAND, filler: BLOCK.SAND, underwaterTop: BLOCK.SAND },
+  TAIGA: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
+  SAVANNA: { top: BLOCK.GRASS, filler: BLOCK.DIRT, underwaterTop: BLOCK.GRAVEL },
 }
 
 /**
@@ -166,12 +194,17 @@ export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {
  * See `domain/tree-placement.ts`.
  */
 export const BIOME_TREE_DENSITY: Record<BiomeType, number> = {
-  OCEAN: 0,
-  BEACH: 0,
-  DESERT: 0,
-  SAVANNA: 0.008,
   PLAINS: 0.006,
+  DESERT: 0,
   FOREST: 0.012,
-  TAIGA: 0.009,
+  FLOWER_FOREST: 0.012,
+  OCEAN: 0,
+  MOUNTAINS: 0,
   SNOW: 0.004,
+  SWAMP: 0.012,
+  JUNGLE: 0.012,
+  BEACH: 0,
+  RIVER: 0,
+  TAIGA: 0.009,
+  SAVANNA: 0.008,
 }

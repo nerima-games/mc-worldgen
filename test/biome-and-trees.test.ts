@@ -20,29 +20,29 @@ describe('classifyBiome', () => {
 
       for (let t = 0; t <= 1.0001; t += 0.05) {
         for (let h = 0; h <= 1.0001; h += 0.05) {
-          expect(roster.has(classifyBiome({ temperature: t, humidity: h }))).toBe(true)
+          expect(roster.has(classifyBiome(t, h))).toBe(true)
         }
       }
     }),
   )
 
-  it.effect('lets temperature dominate: a wet freezing region is snow, not forest', () =>
+  it.effect('classifies cold extremes and wet cold climates separately', () =>
     Effect.sync(() => {
-      expect(classifyBiome({ temperature: 0.05, humidity: 0.95 })).toBe('SNOW')
-      expect(classifyBiome({ temperature: 0.3, humidity: 0.95 })).toBe('TAIGA')
+      expect(classifyBiome(0.05, 0.1)).toBe('SNOW')
+      expect(classifyBiome(0.2, 0.95)).toBe('TAIGA')
     }),
   )
 
   it.effect('produces desert only when hot AND dry', () =>
     Effect.sync(() => {
-      expect(classifyBiome({ temperature: 0.9, humidity: 0.1 })).toBe('DESERT')
-      expect(classifyBiome({ temperature: 0.9, humidity: 0.9 })).toBe('FOREST')
+      expect(classifyBiome(0.9, 0.1)).toBe('DESERT')
+      expect(classifyBiome(0.9, 0.9)).toBe('JUNGLE')
     }),
   )
 
   it.effect('falls back to plains for the temperate middle', () =>
     Effect.sync(() => {
-      expect(classifyBiome({ temperature: 0.5, humidity: 0.5 })).toBe(FALLBACK_BIOME)
+      expect(classifyBiome(0.5, 0.5)).toBe(FALLBACK_BIOME)
     }),
   )
 

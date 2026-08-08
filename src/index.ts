@@ -25,6 +25,7 @@
 
 // --- Domain: pure values and transitions -----------------------------------
 export * from './domain/biome'
+export * from './domain/biome-classifier'
 export * from './domain/carver'
 export * from './domain/chunk'
 export { CHUNK_FORMAT } from './domain/chunk-format'
