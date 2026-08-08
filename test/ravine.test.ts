@@ -59,8 +59,8 @@ import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrai
 import { PLANT_IDS } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 
-/** The chunk the eleventh golden row pins: 205 of 256 columns carved. */
-const RAVINE_CHUNK = { cx: 21, cz: 11 } as const
+/** The chunk the sixteenth golden row pins: 166 ravine-band columns, 127 below sea. */
+const RAVINE_CHUNK = { cx: 21, cz: 12 } as const
 
 const bandColumns = (seed: number, cx: number, cz: number): ReadonlyArray<readonly [number, number]> => {
   const found: Array<readonly [number, number]> = []
@@ -450,7 +450,7 @@ describe('the pass order', () => {
    * This is the invariant `test/chunk-golden.test.ts` I-4 is for water, applied
    * to the other thing this generator leaves standing. It is checked over the
    * ravine chunk and its eight neighbours rather than the golden matrix, for the
-   * reason the eleventh golden row exists: none of the other ten has a ravine in
+   * reason the sixteenth golden row exists: none of the other fifteen has a ravine in
    * it, so the matrix would satisfy this by having nothing to test.
    */
   it.effect('R-7b: no generated column carries a floating plant', () =>
@@ -545,16 +545,16 @@ describe('the pass order', () => {
 
 describe('what the pass does to a real chunk', () => {
   /**
-   * R-9. The eleventh golden row's justification, re-derived rather than
-   * transcribed. `scripts/golden-fixture.ts` claims (21, 11) carries 205 carved
-   * columns and that no other golden chunk carries any; a literal in a comment
+   * R-9. The sixteenth golden row's justification, re-derived rather than
+   * transcribed. `scripts/golden-fixture.ts` claims (21, 12) carries 166 ravine-band
+   * columns and 127 below sea, and that no other golden chunk carries any; a literal in a comment
    * is a claim that decays, so it is recomputed here.
    *
    * IT READS `GOLDEN_SPECS` RATHER THAN A LIST OF COORDINATES, and the first
-   * draft did not — it hard-coded the other ten. Mutation found the hole:
-   * repointing the eleventh spec at (8, -8), a chunk with no ravine in it, left
+   * draft did not — it hard-coded the other fifteen. Mutation found the hole:
+   * repointing the ravine spec at the decorated forest fixture, a chunk with no ravine in it, left
    * this test and the whole golden suite green. The digest comparison could not
-   * see it either, because `committed.entries.find` then matches the NINTH row's
+   * see it either, because `committed.entries.find` then matches the FOURTEENTH row's
    * coordinate and its digest agrees perfectly.
    *
    * So the matrix's own rule is what is asserted: exactly one spec is on the
@@ -596,7 +596,7 @@ describe('what the pass does to a real chunk', () => {
       for (const [cx, cz] of [
         [RAVINE_CHUNK.cx, RAVINE_CHUNK.cz],
         [5, 7],
-        [8, -8],
+        [5, -12],
         [1, 0],
         [4, 9],
       ] as const) {
@@ -626,7 +626,7 @@ describe('what the pass does to a real chunk', () => {
    * R-11. Determinism, narrowed to this pass. `test/determinism.test.ts` covers
    * `generateChunk` as a whole, but a carver that read a clock or a global RNG
    * would still be caught only if the chunk it was tested on happened to be on
-   * the band — which, per R-9, nine of the ten golden chunks are not.
+   * the band — which, per R-9, fifteen of the sixteen golden chunks are not.
    */
   it.effect('R-11: the ravine chunk regenerates byte-identically', () =>
     Effect.sync(() => {

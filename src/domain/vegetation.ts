@@ -41,7 +41,7 @@
  *
  * For trees that is nearly harmless in this repository, and it was checked
  * rather than assumed: `treeCellCandidate` is seedless too, but the gates around
- * it are not, so chunk (8, -8) carries 3 trunks at seed 20260726, 1 at seed 4242
+ * it are not, so chunk (5, -12) carries 3 trunks at seed 20260726, 1 at seed 4242
  * and 0 at seed 1. The lattice is shared; the trees are not.
  *
  * Ground cover does not get that protection, and the reason is the density. At
@@ -140,10 +140,9 @@ export const PLANT_IDS: ReadonlyArray<number> = Object.values(PLANT)
  * Per-column probability that a ground plant is attempted.
  *
  * Transcribed from `GROUND_PLANT_DENSITY_BY_BIOME`
- * (`plant-placement-model.ts:66-75`), restricted to this repository's eight
- * biomes. The reference's table is a `Partial<Record<...>>` whose absent rows
- * read as 0, and its SWAMP / JUNGLE / FLOWER_FOREST rows name biomes
- * `./biome.ts` does not have.
+ * (`plant-placement-model.ts:66-75`). The reference's table is a
+ * `Partial<Record<...>>` whose absent rows read as 0; this repository writes
+ * those zeroes explicitly because its table is total.
  *
  * OCEAN, DESERT and SNOW are absent there and therefore zero here. The zeroes
  * are written out rather than left to a `?? 0` because this repository uses a
@@ -152,14 +151,19 @@ export const PLANT_IDS: ReadonlyArray<number> = Object.values(PLANT)
  * `./biome.ts` makes for its rule table.
  */
 export const GROUND_PLANT_DENSITY: Record<BiomeType, number> = {
-  OCEAN: 0,
-  BEACH: 0.02,
   DESERT: 0,
-  SAVANNA: 0.08,
   PLAINS: 0.22,
   FOREST: 0.14,
-  TAIGA: 0.12,
+  FLOWER_FOREST: 0.42,
+  OCEAN: 0,
+  MOUNTAINS: 0,
   SNOW: 0,
+  SWAMP: 0.1,
+  JUNGLE: 0.18,
+  BEACH: 0.02,
+  RIVER: 0,
+  TAIGA: 0.12,
+  SAVANNA: 0.08,
 }
 
 /** The two decorrelated draws. Strings rather than numeric salts — see the header. */
@@ -204,8 +208,7 @@ export const shouldPlaceGroundPlant = (input: {
  * Which plant grows here.
  *
  * Thresholds transcribed from `selectGroundPlantBlockIndex`
- * (`plant-placement-rules.ts:99-121`), minus the JUNGLE, FLOWER_FOREST and SWAMP
- * branches, whose biomes do not exist in this roster.
+ * (`plant-placement-rules.ts:99-121`).
  *
  * The ordering is first-match-wins on one draw, which is what makes the
  * proportions add up: FOREST is 12% dandelion, 8% poppy, 35% fern and 45% tall
@@ -218,6 +221,10 @@ export const groundPlantAt = (seed: number, wx: number, wz: number, biome: Biome
     return variant < 0.65 ? PLANT.FERN : PLANT.TALL_GRASS
   }
 
+  if (biome === 'JUNGLE') {
+    return variant < 0.55 ? PLANT.FERN : PLANT.TALL_GRASS
+  }
+
   if (biome === 'FOREST') {
     if (variant < 0.12) {
       return PLANT.DANDELION
@@ -226,6 +233,20 @@ export const groundPlantAt = (seed: number, wx: number, wz: number, biome: Biome
       return PLANT.POPPY
     }
     return variant < 0.55 ? PLANT.FERN : PLANT.TALL_GRASS
+  }
+
+  if (biome === 'FLOWER_FOREST') {
+    if (variant < 0.4) {
+      return PLANT.DANDELION
+    }
+    if (variant < 0.75) {
+      return PLANT.POPPY
+    }
+    return PLANT.TALL_GRASS
+  }
+
+  if (biome === 'SWAMP') {
+    return variant < 0.4 ? PLANT.FERN : PLANT.TALL_GRASS
   }
 
   if (biome === 'PLAINS' || biome === 'SAVANNA') {

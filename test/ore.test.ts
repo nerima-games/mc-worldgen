@@ -21,9 +21,9 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BLOCK } from '../src/domain/biome'
+import { BIOME_SURFACES, BLOCK } from '../src/domain/biome'
 import { readBlock, worldX, worldZ, type Chunk } from '../src/domain/chunk'
-import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
   MAX_SEED_ATTEMPTS,
@@ -38,7 +38,7 @@ import {
   type OreConfig,
 } from '../src/domain/ore'
 import { mulberry32 } from '../src/domain/seeded-random'
-import { MAX_SURFACE_Y, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, MAX_SURFACE_Y, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 
 const ORE_ID_SET = new Set<number>(ORE_IDS)
@@ -352,9 +352,15 @@ describe('what backs the ore half of the golden move', () => {
       for (const chunk of chunks) {
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            // The top of this column's stone, from the shaper alone. `fillColumn`
-            // fills STONE up to `surfaceY - FILLER_DEPTH`, exclusive.
-            const stoneTop = surfaceHeightAt(GOLDEN_SEED, worldX(chunk.coord, lx), worldZ(chunk.coord, lz)) - 5
+            const wx = worldX(chunk.coord, lx)
+            const wz = worldZ(chunk.coord, lz)
+            const surfaceY = surfaceHeightAt(GOLDEN_SEED, wx, wz)
+            const surface = BIOME_SURFACES[biomeFor(GOLDEN_SEED, wx, wz, surfaceY, DEFAULT_TERRAIN_LEVELS)]
+            const stoneTop = surface.top === BLOCK.STONE
+              ? surfaceY
+              : surface.filler === BLOCK.STONE
+                ? surfaceY - 1
+                : surfaceY - 5
 
             for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
               if (!ORE_ID_SET.has(readBlock(chunk.blocks, blockIndex(lx, y, lz)))) {

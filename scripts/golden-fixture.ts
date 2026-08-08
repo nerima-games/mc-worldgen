@@ -46,7 +46,7 @@
  *      file, each naming the digest field it backs.
  *
  * ---------------------------------------------------------------------------
- * How the eight coordinates were chosen
+ * How the thirteen coordinates were chosen
  * ---------------------------------------------------------------------------
  *
  * One chunk per biome: for each member of `BIOMES`, the chunk NEAREST THE
@@ -58,23 +58,23 @@
  * the first biome measurement in this repository looked at 384 x 384 blocks,
  * saw no DESERT and no SNOW, and concluded they were unreachable. Both are
  * real, and both live far enough out that a 3 x 3 matrix at the origin cannot
- * contain them — DESERT's nearest solid chunk is (33, 48) and SNOW's is
- * (22, -60), against a world where they are 0.1% and 0.8% of columns. A golden
+ * contain them — DESERT's nearest solid chunk is (11, 3) and SNOW's is
+ * (0, 0), against a world where they are 0.1% and 0.8% of columns. A golden
  * set that omits them cannot notice the day they stop generating.
  *
- * The ninth entry re-generates the FOREST chunk with `decorate: false`. Without
+ * The fourteenth entry re-generates the FOREST chunk with `decorate: false`. Without
  * it every digest here is taken through the decoration pass, and the tree
  * placer could be deleted outright while a decorated-only matrix still
  * disagreed in exactly the way it would for any other change. With it the two
  * FOREST rows differ ONLY by vegetation, so the diff localises.
  *
- * The tenth was added because the first nine made an invariant VACUOUS — see
+ * The fifteenth was added because the first fourteen made an invariant VACUOUS — see
  * its own comment below. That is the more useful half of this file's history:
  * the matrix was chosen by a rule, the rule was reasonable, and it still
  * produced a set on which "the carver's water-floor guard works" was true by
  * there being nothing for the guard to do.
  *
- * THE ELEVENTH WAS ADDED FOR THE SAME REASON, ONE FEATURE LATER, which is what
+ * THE SIXTEENTH WAS ADDED FOR THE SAME REASON, ONE FEATURE LATER, which is what
  * makes the pattern worth naming rather than treating as bad luck twice. The
  * ravine carver landed and every digest here was byte-identical, because a
  * ravine is a thin curve at a 250-block wavelength and no chunk chosen by
@@ -107,7 +107,7 @@ export type GoldenSpec = {
   readonly biome: BiomeType
   readonly cx: number
   readonly cz: number
-  /** False generates without the vegetation pass. Only the ninth row sets it. */
+  /** False generates without the vegetation pass. Only the fourteenth row sets it. */
   readonly decorate: boolean
   /** Why this row is in the matrix. A golden nobody can justify is a golden nobody dares change. */
   readonly why: string
@@ -125,13 +125,24 @@ export type GoldenSpec = {
 export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
   { biome: 'OCEAN', cx: 5, cz: 7, decorate: true, why: 'nearest all-OCEAN chunk' },
   { biome: 'BEACH', cx: 3, cz: 5, decorate: true, why: 'nearest all-BEACH chunk' },
-  { biome: 'DESERT', cx: 33, cz: 48, decorate: true, why: 'nearest all-DESERT chunk; 0.1% of the world' },
-  { biome: 'SAVANNA', cx: 13, cz: -1, decorate: true, why: 'nearest all-SAVANNA chunk' },
-  { biome: 'PLAINS', cx: -1, cz: -2, decorate: true, why: 'nearest all-PLAINS chunk' },
-  { biome: 'FOREST', cx: 8, cz: -8, decorate: true, why: 'nearest all-FOREST chunk' },
-  { biome: 'TAIGA', cx: 1, cz: 0, decorate: true, why: 'nearest all-TAIGA chunk; carries a 4,193-block cave' },
-  { biome: 'SNOW', cx: 22, cz: -60, decorate: true, why: 'nearest all-SNOW chunk; 0.8% of the world' },
-  { biome: 'FOREST', cx: 8, cz: -8, decorate: false, why: 'the FOREST chunk without the vegetation pass' },
+  { biome: 'DESERT', cx: 11, cz: 3, decorate: true, why: 'nearest all-DESERT chunk' },
+  { biome: 'SAVANNA', cx: 11, cz: -1, decorate: true, why: 'nearest all-SAVANNA chunk' },
+  { biome: 'PLAINS', cx: -6, cz: -6, decorate: true, why: 'nearest all-PLAINS chunk' },
+  { biome: 'FOREST', cx: -8, cz: 8, decorate: true, why: 'nearest all-FOREST chunk' },
+  {
+    biome: 'TAIGA',
+    cx: -9,
+    cz: 0,
+    decorate: true,
+    why: 'nearest all-TAIGA chunk outside the ravine fixture band',
+  },
+  { biome: 'SNOW', cx: 0, cz: 0, decorate: true, why: 'nearest all-SNOW chunk' },
+  { biome: 'FLOWER_FOREST', cx: 4, cz: -16, decorate: true, why: 'nearest all-FLOWER_FOREST chunk' },
+  { biome: 'MOUNTAINS', cx: -4, cz: -1, decorate: true, why: 'nearest all-MOUNTAINS chunk' },
+  { biome: 'SWAMP', cx: -28, cz: -52, decorate: true, why: 'all-SWAMP chunk outside the ravine fixture' },
+  { biome: 'JUNGLE', cx: -10, cz: 8, decorate: true, why: 'nearest all-JUNGLE chunk' },
+  { biome: 'RIVER', cx: -14, cz: -1, decorate: true, why: 'nearest all-RIVER chunk' },
+  { biome: 'FOREST', cx: -8, cz: 8, decorate: false, why: 'the FOREST chunk without the vegetation pass' },
   {
     biome: 'OCEAN',
     cx: 4,
@@ -140,44 +151,25 @@ export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
     // ADDED AFTER A VACUOUS PASS, and the vacancy is documented behaviour rather
     // than bad luck: docs/testing.md §4-b F-4 records that at this seed, near
     // the origin, `--no-guard` changes nothing at all, because no cave comes
-    // within three blocks of a lake bed. The first eight rows were all like
+    // within three blocks of a lake bed. The first thirteen rows were all like
     // that, so I-4 ("the shell under water is solid") held by there being
     // nothing to carve — it scored a perfect result on a generator with the
     // guard deleted, which is exactly what deleting the guard was tried and
     // confirmed to do.
     //
     // (4, 9) is the strongest counterexample inside 40 chunks of the origin:
-    // 229 of its 256 columns lose their water-floor shell when the margin is
-    // set to 0, and 0 do with the guard on. `test/chunk-golden.test.ts` I-4 now
-    // asserts BOTH halves against this chunk, which is the `test/carver.test.ts`
-    // rule — reproduce the bug, do not merely assert its absence.
+    // `test/chunk-golden.test.ts` asserts both guarded and unguarded outcomes.
     why: 'the water-floor guard actually bites here: 229 columns break without it',
   },
   {
-    biome: 'FOREST',
+    biome: 'JUNGLE',
     cx: 21,
-    cz: 11,
+    cz: 12,
     decorate: true,
-    // THE ELEVENTH ROW EXISTS FOR THE SAME REASON THE TENTH DOES, and the
-    // measurement that forced it was taken before a line of it was written: the
-    // ravine carver landed, every digest above was byte-identical, and the whole
-    // suite passed. Not because the pass does nothing — it carves 0.9-2.1% of
-    // the world — but because the ravine band is a thin curve at a 250-block
-    // wavelength and NONE of the first ten chunks intersects one. Zero band
-    // columns out of 2,560.
-    //
-    // That is docs/testing.md §4-b F-4 again, one feature later. A matrix chosen
-    // by "nearest all-X chunk" is a matrix chosen without reference to any
-    // feature that is rare and spatially structured, so it will keep missing
-    // them, and each miss looks exactly like a pass that works.
-    //
-    // (21, 11) is the strongest ravine chunk inside 40 chunks of the origin
-    // that is still single-biome: 205 of its 256 columns are carved, up to
-    // 4,135 cells, and its `topBlockY` floor is 39 against a shaper minimum of
-    // 38. FOREST rather than the marginally closer PLAINS candidates because a
-    // ravine that cuts a decorated chunk exercises the interaction the pass
-    // order is FOR — see `ravineCutColumns` below and `test/ravine.test.ts`.
-    why: 'the only golden chunk a ravine reaches: 205 of 256 columns carved',
+    // This is the dedicated ravine fixture. It is single-biome and stays
+    // separate from the nearest-biome matrix so the feature cannot disappear
+    // without changing a committed digest.
+    why: 'the only golden chunk a ravine reaches: 166 band columns and 127 below sea',
   },
 ]
 
@@ -206,7 +198,7 @@ export const BLOCK_NAMES: ReadonlyArray<readonly [string, number]> = [
 export type GoldenSummary = {
   /** Every id in `BLOCK_NAMES` — terrain, ore and plant — including the zeroes, which is how the unreachable `GRAVEL` of docs/design-notes.md DN-11 was found. */
   readonly blockCounts: Readonly<Record<string, number>>
-  /** Every one of the eight biomes, including the zeroes. */
+  /** Every one of the thirteen biomes, including the zeroes. */
   readonly biomeCounts: Readonly<Record<string, number>>
   /** Y of the topmost water block, min and max over water columns. Null when the chunk is dry. */
   readonly waterSurfaceY: { readonly min: number; readonly max: number } | null
@@ -243,11 +235,11 @@ export type GoldenSummary = {
    * non-AIR — at `SEA_LEVEL`. A dry column therefore has its top at
    * `SEA_LEVEL` or above, and `carveCaves` cannot lower it because
    * `CAVE_CEILING_Y` is 58. Only a ravine can put the top of a column below
-   * sea level. It reads 0 on all ten pre-ravine rows and 114 on the eleventh.
+   * sea level. It reads 0 on all fifteen pre-ravine rows and 127 on the sixteenth.
    *
    * It UNDERCOUNTS, deliberately and by a knowable amount: a shallow cut on
    * high ground can leave the floor above sea level, so this is the number of
-   * columns cut BELOW SEA LEVEL and not the number of columns carved (205 for
+   * columns cut BELOW SEA LEVEL and not the number of ravine-band columns (166 for
    * that chunk). A drift detector does not need to be a census.
    */
   readonly ravineCutColumns: number

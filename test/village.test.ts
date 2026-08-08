@@ -24,7 +24,7 @@ import {
 
 const SEED = 20260726
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed accepted site is a deterministic integration fixture.
-const SITE = { x: -6142, z: -2509 }
+const SITE = { x: -3312, z: 1082 }
 // eslint-disable-next-line no-magic-numbers -- Flat fixture models dry buildable plains.
 const flatPlains: VillageTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
@@ -103,26 +103,26 @@ describe('village layout and chunk integration', () => {
       const spawns = villageVillagerSpawnsForSite(SEED, SITE, flatPlains)
       expect(spawns).toStrictEqual([
         {
-          id: 'village:20260726:-6142:-2509:house:0',
+          id: 'village:20260726:-3312:1082:house:0',
           profession: 'farmer',
           villageSite: SITE,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          x: -6156,
+          x: -3326,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
           y: 72,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          z: -2519,
+          z: 1072,
         },
         {
-          id: 'village:20260726:-6142:-2509:house:1',
+          id: 'village:20260726:-3312:1082:house:1',
           profession: 'toolsmith',
           villageSite: SITE,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          x: -6128,
+          x: -3298,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
           y: 72,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          z: -2499,
+          z: 1092,
         },
       ])
       expect(villageVillagerSpawnsForSite(SEED, SITE, flatPlains)).toStrictEqual(spawns)
@@ -153,8 +153,8 @@ describe('village layout and chunk integration', () => {
       expect(new Set(forward.map(({ id }) => id)).size).toBe(expected.length)
       expect(forward.map(({ id }) => id).sort()).toStrictEqual(expected.map(({ id }) => id).sort())
       expect(reverse.map(({ id }) => id).sort()).toStrictEqual(forward.map(({ id }) => id).sort())
-      // eslint-disable-next-line id-length, no-magic-numbers -- Negative x/z exercise floor division across chunk boundaries.
-      expect(forward.every((spawn) => spawn.x < 0 && spawn.z < 0)).toBe(true)
+      // eslint-disable-next-line id-length, no-magic-numbers -- Negative x and positive z exercise floor division across chunk boundaries.
+      expect(forward.every((spawn) => spawn.x < 0 && spawn.z > 0)).toBe(true)
     }),
   )
 
@@ -183,7 +183,7 @@ describe('village layout and chunk integration', () => {
     // eslint-disable-next-line max-statements -- Integration checks both seam chunks in both request orders.
     Effect.sync(() => {
       // eslint-disable-next-line no-magic-numbers -- Region is the known real-terrain accepted fixture.
-      const accepted = villageSiteForRegion(SEED, -39, -16, actualTerrain)
+      const accepted = villageSiteForRegion(SEED, -21, 6, actualTerrain)
       expect(accepted).toStrictEqual(Option.some(SITE))
       const actualSpawns = villageVillagerSpawnsForSite(SEED, SITE, actualTerrain)
       for (const spawn of actualSpawns) {
@@ -195,10 +195,11 @@ describe('village layout and chunk integration', () => {
         expect(villageBlockAt(SITE, spawn.x, spawn.y + 1, spawn.z, actualTerrain)).toBe(BLOCK.AIR)
       }
 
-      // eslint-disable-next-line no-magic-numbers -- Chunk -385 is immediately left of the negative seam.
-      const leftCoord = chunkCoord(-385, Math.floor(SITE.z / 16))
-      // eslint-disable-next-line no-magic-numbers -- Chunk -384 is immediately right of the negative seam.
-      const rightCoord = chunkCoord(-384, Math.floor(SITE.z / 16))
+      const leftChunkX = Math.floor(SITE.x / CHUNK_SIZE_XZ)
+      const rightChunkX = leftChunkX + 1
+      const seamChunkZ = Math.floor(SITE.z / CHUNK_SIZE_XZ)
+      const leftCoord = chunkCoord(leftChunkX, seamChunkZ)
+      const rightCoord = chunkCoord(rightChunkX, seamChunkZ)
       const leftFirst = generateChunk(SEED, leftCoord)
       const rightSecond = generateChunk(SEED, rightCoord)
       const rightFirst = generateChunk(SEED, rightCoord)
@@ -206,16 +207,12 @@ describe('village layout and chunk integration', () => {
       expect(leftFirst.blocks).toStrictEqual(leftSecond.blocks)
       expect(rightFirst.blocks).toStrictEqual(rightSecond.blocks)
 
-      // eslint-disable-next-line no-magic-numbers -- Last world column left of the seam.
-      const leftX = -6145
-      // eslint-disable-next-line no-magic-numbers -- First world column right of the seam.
-      const rightX = -6144
+      const leftX = leftChunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1
+      const rightX = rightChunkX * CHUNK_SIZE_XZ
       const leftY = surfaceHeightAt(SEED, leftX, SITE.z)
       const rightY = surfaceHeightAt(SEED, rightX, SITE.z)
-      // eslint-disable-next-line no-magic-numbers -- Local column 15 is the left chunk edge.
-      expect(getBlockAt(leftFirst, 15, leftY, SITE.z - leftCoord.cz * 16)).toBe(VILLAGE_BLOCK.ROAD)
-      // eslint-disable-next-line no-magic-numbers -- Local column zero is the right chunk edge.
-      expect(getBlockAt(rightFirst, 0, rightY, SITE.z - rightCoord.cz * 16)).toBe(VILLAGE_BLOCK.ROAD)
+      expect(getBlockAt(leftFirst, CHUNK_SIZE_XZ - 1, leftY, SITE.z - leftCoord.cz * CHUNK_SIZE_XZ)).toBe(VILLAGE_BLOCK.ROAD)
+      expect(getBlockAt(rightFirst, 0, rightY, SITE.z - rightCoord.cz * CHUNK_SIZE_XZ)).toBe(VILLAGE_BLOCK.ROAD)
     }),
   )
 })

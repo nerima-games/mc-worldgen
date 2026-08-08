@@ -40,7 +40,7 @@
  *
  * Two generation passes arrived after this list and brought their own backing
  * with them, in their own files rather than here, because both needed a survey
- * wider than the ten golden chunks:
+ * wider than the sixteen golden chunks:
  *
  *   ore           <- `test/ore.test.ts` O-1 .. O-5. O-2 is the conclusive one
  *                   (a vein replaces STONE and nothing else, on a buffer whose
@@ -234,7 +234,7 @@ describe('the golden matrix', () => {
   )
 
   /**
-   * The ninth row earns its place only if it differs from the sixth in exactly
+   * The fourteenth row earns its place only if it differs from the sixth in exactly
    * one respect. If decoration ever leaked into the base pass — a tree that
    * displaced a stone block, say — this is what would catch it.
    *
@@ -247,8 +247,8 @@ describe('the golden matrix', () => {
    */
   it.effect('isolates the decoration pass: the two FOREST rows differ only in vegetation', () =>
     Effect.sync(() => {
-      const decorated = generateChunkAt(GOLDEN_SEED, 8, -8, { decorate: true })
-      const bare = generateChunkAt(GOLDEN_SEED, 8, -8, { decorate: false })
+      const decorated = generateChunkAt(GOLDEN_SEED, 5, -12, { decorate: true })
+      const bare = generateChunkAt(GOLDEN_SEED, 5, -12, { decorate: false })
 
       const changed: Array<number> = []
       for (let index = 0; index < decorated.blocks.length; index += 1) {
@@ -419,9 +419,9 @@ describe('what backs the block digest', () => {
    * (`waterFloorMargin ?? 0`). docs/testing.md §4-b F-4 explains why: at this
    * seed near the origin no cave comes within three blocks of a lake bed, so
    * there was nothing for the guard to do and nothing for its absence to break.
-   * The eight biome chunks all sit in that region.
+   * The nearest-biome chunks all sit in that region.
    *
-   * The fix is the `test/carver.test.ts` rule — REPRODUCE THE BUG. The tenth
+   * The fix is the `test/carver.test.ts` rule — REPRODUCE THE BUG. The fifteenth
    * golden row, (4, 9), is a chunk where the guard demonstrably bites, and both
    * halves are asserted below: solid with the guard, hollow without it. The
    * second half is what makes the first half evidence.

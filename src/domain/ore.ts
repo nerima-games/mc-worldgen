@@ -111,7 +111,9 @@
  *
  * EMERALD NEEDS ONE MORE SENTENCE, because its 96 was not arbitrary there
  * either: emerald is a MOUNTAINS ore, and its band is high because that is where
- * mountains are. `./biome.ts`'s roster has no MOUNTAINS. So emerald's band here
+ * mountains are. The local biome roster includes MOUNTAINS, but generated
+ * surface material remains the contract that decides whether a column can hold ore.
+ * The band here
  * is LOCAL rather than transcribed — the reference's justification does not
  * survive the port at all, and 64 is chosen for the same reason coal's is, not
  * because it is a rescaling of 96. It stays the rarest ore in the table

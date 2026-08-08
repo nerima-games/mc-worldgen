@@ -55,9 +55,14 @@
 import {
   BIOME_SURFACES,
   BLOCK,
-  classifyBiome,
   type BiomeType,
 } from './biome'
+import {
+  classifyBiomeFromClimate,
+  peaksAndValleysFromWeirdness,
+  type ClimateSample,
+} from './biome-classifier'
+import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config'
 import { carveCaves, type CarveOptions } from './carver'
 import {
   biomeAt,
@@ -79,7 +84,7 @@ import {
 import { chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { placeOres } from './ore'
 import { carveRavines } from './ravine'
-import { channelSeed, fbm2D } from './seeded-random'
+import { channelSeed, fbm2D, valueNoise2D } from './seeded-random'
 import { writeStrongholdBlocksForChunk } from './stronghold'
 import { writeVillageBlocksForChunk } from './village'
 import { shouldPlaceTree, TREE_CROWN_RADIUS } from './tree-placement'
@@ -192,32 +197,56 @@ export type GenerateOptions = {
  * It must agree exactly with what `generateChunk` produces — `test/terrain.test.ts`
  * pins that.
  */
-export const surfaceHeightAt = (seed: number, wx: number, wz: number): number => {
-  const continentalness = fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
+const continentalnessAt = (seed: number, wx: number, wz: number): number =>
+  fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
     octaves: 4,
     frequency: 1 / 180,
     persistence: 0.5,
   })
 
-  return Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
-}
+const surfaceHeightFromContinentalness = (continentalness: number): number =>
+  Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
 
-export const climateAt = (
+export const surfaceHeightAt = (seed: number, wx: number, wz: number): number =>
+  surfaceHeightFromContinentalness(continentalnessAt(seed, wx, wz))
+
+const climateAtWithContinentalness = (
   seed: number,
   wx: number,
   wz: number,
-): { readonly temperature: number; readonly humidity: number } => ({
-  temperature: fbm2D(channelSeed(seed, 'temperature'), wx, wz, {
-    octaves: 3,
+  continentalness: number = 2 * continentalnessAt(seed, wx, wz) - 1,
+): ClimateSample => {
+  const temperature = fbm2D(channelSeed(seed, 'temperature'), wx, wz, {
+    octaves: 2,
     frequency: 1 / 320,
     persistence: 0.5,
-  }),
-  humidity: fbm2D(channelSeed(seed, 'humidity'), wx, wz, {
-    octaves: 3,
+  })
+  const humidity = fbm2D(channelSeed(seed, 'humidity'), wx, wz, {
+    octaves: 2,
     frequency: 1 / 280,
     persistence: 0.5,
-  }),
-})
+  })
+  const erosion = 2 * valueNoise2D(channelSeed(seed, 'erosion'), wx, wz, 1 / 220) - 1
+  const weirdness = 2 * valueNoise2D(channelSeed(seed, 'weirdness'), wx, wz, 1 / 160) - 1
+  const riverNoise = valueNoise2D(
+    channelSeed(seed, 'river'),
+    wx * RIVER_NOISE_SCALE + RIVER_WORLD_OFFSET,
+    wz * RIVER_NOISE_SCALE + RIVER_WORLD_OFFSET,
+    1,
+  )
+
+  return {
+    temperature,
+    humidity,
+    continentalness,
+    erosion,
+    pv: peaksAndValleysFromWeirdness(weirdness),
+    riverNoise,
+  }
+}
+
+export const climateAt = (seed: number, wx: number, wz: number): ClimateSample =>
+  climateAtWithContinentalness(seed, wx, wz)
 
 /**
  * Biome for a column, after the submerged and shoreline overrides.
@@ -227,12 +256,13 @@ export const climateAt = (
  * says. The reference applies its OCEAN override the same way, downstream of
  * `classifyBiome` (`biome-classifier.ts:113`).
  */
-export const biomeFor = (
+const biomeForWithContinentalness = (
   seed: number,
   wx: number,
   wz: number,
   surfaceY: number,
   levels: TerrainLevels,
+  continentalness: number,
 ): BiomeType => {
   if (surfaceY < levels.seaLevel - 2) {
     return 'OCEAN'
@@ -240,8 +270,16 @@ export const biomeFor = (
   if (surfaceY <= levels.seaLevel + 1) {
     return 'BEACH'
   }
-  return classifyBiome(climateAt(seed, wx, wz))
+  return classifyBiomeFromClimate(climateAtWithContinentalness(seed, wx, wz, 2 * continentalness - 1))
 }
+
+export const biomeFor = (
+  seed: number,
+  wx: number,
+  wz: number,
+  surfaceY: number,
+  levels: TerrainLevels,
+): BiomeType => biomeForWithContinentalness(seed, wx, wz, surfaceY, levels, continentalnessAt(seed, wx, wz))
 
 const fillColumn = (
   blocks: Uint8Array,
@@ -323,8 +361,9 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options: Generate
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
       const wx = worldX(coord, lx)
       const wz = worldZ(coord, lz)
-      const surfaceY = surfaceHeightAt(seed, wx, wz)
-      const biome = biomeFor(seed, wx, wz, surfaceY, levels)
+      const continentalness = continentalnessAt(seed, wx, wz)
+      const surfaceY = surfaceHeightFromContinentalness(continentalness)
+      const biome = biomeForWithContinentalness(seed, wx, wz, surfaceY, levels, continentalness)
 
       biomes[columnIndex(lx, lz)] = biome
       surfaces[columnIndex(lx, lz)] = surfaceY

@@ -47,6 +47,9 @@ const SEED = 20260726
 /** Side of the stitched square, in chunks. 8 × 8 = 128 × 128 blocks. */
 const CHUNK_SPAN = 8
 
+/** A forest-rich fixture region, kept away from the origin's sparse transition area. */
+const CHUNK_ORIGIN = { cx: -16, cz: 8 } as const
+
 /** Trunk height in `plantTree`, so the trunk block count converts to a tree count. */
 const TRUNK_HEIGHT = 5
 
@@ -73,17 +76,21 @@ const at = (region: Region, x: number, z: number, y: number): number =>
   region.blocks[(x * region.width + z) * CHUNK_HEIGHT + y] ?? 0
 
 /** Generate a square of chunks and stitch them into one contiguous block field. */
-const stitch = (seed: number, chunkSpan: number): Region => {
+const stitch = (
+  seed: number,
+  chunkSpan: number,
+  origin: Readonly<{ cx: number; cz: number }> = { cx: 0, cz: 0 },
+): Region => {
   const width = chunkSpan * CHUNK_SIZE_XZ
   const blocks = new Uint8Array(width * width * CHUNK_HEIGHT)
 
-  for (let cx = 0; cx < chunkSpan; cx += 1) {
-    for (let cz = 0; cz < chunkSpan; cz += 1) {
+  for (let cx = origin.cx; cx < origin.cx + chunkSpan; cx += 1) {
+    for (let cz = origin.cz; cz < origin.cz + chunkSpan; cz += 1) {
       const chunk = generateChunkAt(seed, cx, cz)
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-          const x = cx * CHUNK_SIZE_XZ + lx
-          const z = cz * CHUNK_SIZE_XZ + lz
+          const x = (cx - origin.cx) * CHUNK_SIZE_XZ + lx
+          const z = (cz - origin.cz) * CHUNK_SIZE_XZ + lz
           for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
             blocks[(x * width + z) * CHUNK_HEIGHT + y] = chunk.blocks[blockIndex(lx, y, lz)] ?? 0
           }
@@ -160,14 +167,14 @@ const countBlock = (region: Region, block: number): number => {
   return count
 }
 
-const region = stitch(SEED, CHUNK_SPAN)
+const region = stitch(SEED, CHUNK_SPAN, CHUNK_ORIGIN)
 const trees = countBlock(region, BLOCK.LOG) / TRUNK_HEIGHT
 const leaves = countBlock(region, BLOCK.LEAVES)
 
 describe('the canopy in generated block data', () => {
   /**
-   * The fixture must not be empty, and it must not be thin. 78 trees over 64
-   * chunks is enough overlap opportunity that the old code produced a 78-block
+   * The fixture must not be empty, and it must not be thin. A forest-rich 8x8
+   * region is enough overlap opportunity that the old code produced a dense
    * slab in a SINGLE chunk of this same region.
    */
   it.effect('has enough trees for the sweep below to mean something', () =>

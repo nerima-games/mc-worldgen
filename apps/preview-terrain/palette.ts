@@ -33,6 +33,11 @@ export const BIOME_COLOR: Record<BiomeType, Rgb> = {
   SAVANNA: [168, 176, 96],
   PLAINS: [124, 179, 66],
   FOREST: [46, 107, 46],
+  FLOWER_FOREST: [186, 112, 148],
+  JUNGLE: [28, 137, 73],
+  MOUNTAINS: [128, 128, 140],
+  RIVER: [57, 137, 196],
+  SWAMP: [74, 105, 72],
   TAIGA: [74, 124, 89],
   SNOW: [232, 238, 242],
 }
@@ -137,6 +142,11 @@ export const BIOME_GLYPH: Record<BiomeType, string> = {
   SAVANNA: 'v',
   PLAINS: 'p',
   FOREST: 'f',
+  FLOWER_FOREST: 'l',
+  JUNGLE: 'j',
+  MOUNTAINS: 'm',
+  RIVER: 'r',
+  SWAMP: 'w',
   TAIGA: 't',
   SNOW: 's',
 }
