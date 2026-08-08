@@ -12,19 +12,23 @@
  *      reconcile "mesh it" with "dispose it".
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer } from 'effect'
-import type { ChunkPersistenceError } from '../src/application/chunk-persistence'
+import { Deferred, Effect, Fiber, Layer } from 'effect'
+import { makeInMemoryStorage, StoragePort } from '@nerima-games/mc-save'
+import type { ChunkPersistenceContext, ChunkPersistenceError } from '../src/application/chunk-persistence'
 import {
   ChunkStore,
   ChunkStoreLayer,
+  GeneratedChunkStoreLayer,
+  GeneratedDimensionChunkStoreLayer,
+  PersistentGeneratedChunkStoreLayer,
+  PersistentGeneratedDimensionChunkStoreLayer,
   generatedChunkSource,
   generatedDimensionChunkSource,
-  PersistentGeneratedDimensionChunkStoreLayer,
   type ChunkSource,
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
-import { chunkKeyOf, chunkCoordOfKey, wasWritten } from '../src/domain/chunk-store-state'
+import { chunkKeyOf, chunkCoordOfKey, wasWritten, type ChunkKey } from '../src/domain/chunk-store-state'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
@@ -85,6 +89,67 @@ describe('generated chunk sources', () => {
     }),
   )
 
+  it.effect('GeneratedChunkStoreLayer wires the deterministic generator into a store', () =>
+    Effect.gen(function* () {
+      const viaLayer = yield* Effect.provide(ChunkStore, GeneratedChunkStoreLayer(1234))
+      const viaManualComposition = yield* Effect.provide(ChunkStore, ChunkStoreLayer(generatedChunkSource(1234)))
+
+      const coord = chunkCoord(2, -3)
+      const fromLayer = yield* viaLayer.load(coord)
+      const fromManualComposition = yield* viaManualComposition.load(coord)
+
+      // The convenience Layer is not a second code path: the same seed must
+      // generate byte-identical terrain through either route.
+      expect(fromLayer.blocks).toStrictEqual(fromManualComposition.blocks)
+      expect(fromLayer.biomes).toStrictEqual(fromManualComposition.biomes)
+    }),
+  )
+
+  it.effect('GeneratedDimensionChunkStoreLayer selects terrain by dimension through the Layer', () =>
+    Effect.gen(function* () {
+      const netherStore = yield* Effect.provide(ChunkStore, GeneratedDimensionChunkStoreLayer(7, 'nether'))
+      const endStore = yield* Effect.provide(ChunkStore, GeneratedDimensionChunkStoreLayer(7, 'end'))
+
+      const nether = yield* netherStore.load(chunkCoord(0, 0))
+      const end = yield* endStore.load(chunkCoord(0, 0))
+
+      expect(new Set(nether.biomes)).toStrictEqual(new Set(['NETHER']))
+      expect(new Set(end.biomes)).toStrictEqual(new Set(['END']))
+    }),
+  )
+
+  it.effect('PersistentGeneratedChunkStoreLayer persists generated terrain across an unload/reload', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const context: ChunkPersistenceContext = { dimension: 'overworld', worldId: 'layer-test' }
+      const coord = chunkCoord(5, 5)
+
+      const provideStore = (): Layer.Layer<ChunkStore> =>
+        PersistentGeneratedChunkStoreLayer(999, context).pipe(Layer.provide(Layer.succeed(StoragePort, storage)))
+
+      // `coord` is chunk (5, 5), so the write must land inside its own
+      // world-coordinate range — (0, 10, 0) is a different, unloaded chunk
+      // and `setBlock` would silently no-op there (`ChunkNotLoaded`).
+      const writePosition = blockPosition(coord.cx * CHUNK_SIZE_XZ, 10, coord.cz * CHUNK_SIZE_XZ)
+
+      const first = yield* Effect.provide(ChunkStore, provideStore())
+      yield* first.load(coord)
+      const outcome = yield* first.setBlock(writePosition, BLOCK.SAND)
+      expect(outcome._tag, 'the write missed its own chunk').toBe('Written')
+      // A detached copy, taken before unload, to compare the round trip
+      // against something that cannot change out from under this test via
+      // the live-view aliasing `aliasing is stated, not hidden` documents.
+      const beforeUnload = yield* first.snapshot(coord)
+      yield* first.unload(coord)
+
+      const second = yield* Effect.provide(ChunkStore, provideStore())
+      const restored = yield* second.load(coord)
+
+      expect(restored.blocks).toStrictEqual(beforeUnload?.blocks)
+      expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+    }),
+  )
+
   it('rejects persistence under another dimension namespace', () => {
     expect(() =>
       PersistentGeneratedDimensionChunkStoreLayer(
@@ -129,6 +194,71 @@ describe('residency', () => {
         expect(yield* store.isLoaded(chunkCoord(5, 5))).toBe(false)
       }),
     ),
+  )
+
+  it.effect('snapshot of a non-resident coordinate is undefined, not a generated chunk', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        expect(yield* store.snapshot(chunkCoord(6, 6))).toBeUndefined()
+        expect(yield* store.isLoaded(chunkCoord(6, 6))).toBe(false)
+      }),
+    ),
+  )
+
+  /**
+   * `load`'s own doc comment states the property: "another fiber can have
+   * loaded this coordinate meanwhile; the first one to land wins and the
+   * loser's buffer is discarded. Handing out two live views of one chunk
+   * would let two writers each see only their own edits." This constructs
+   * that race deterministically rather than hoping concurrent scheduling
+   * happens to produce it.
+   *
+   * The losing fiber is held at `source` (not at the final `Ref.modify`)
+   * with a `Deferred`, so the winner is guaranteed to finish first and write
+   * state before the loser's own `Ref.modify` runs — that ordering, not
+   * timing, is what makes the loser see `raced !== undefined`.
+   */
+  it.effect('a losing concurrent load discards its own buffer and returns the winner\'s', () =>
+    Effect.gen(function* () {
+      const coord = chunkCoord(2, 2)
+      const enteredSource = yield* Deferred.make<void>()
+      const proceed = yield* Deferred.make<void>()
+      let generateCount = 0
+
+      const racySource: ChunkSource = (c) =>
+        Effect.gen(function* () {
+          generateCount += 1
+          const isFirstCaller = generateCount === 1
+          if (isFirstCaller) {
+            // The loser: signals it has reached this point (so the parent's
+            // wait below is exact rather than a guess about scheduling), then
+            // blocks — before it ever reaches its own `Ref.modify` — until
+            // the winner has already written state.
+            yield* Deferred.succeed(enteredSource, undefined)
+            yield* Deferred.await(proceed)
+          }
+          return { biomes: [], blocks: emptyBlocks(), coord: c }
+        })
+
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(racySource))
+
+      const losingFiber = yield* Effect.fork(store.load(coord))
+      // Deterministic, not timing-dependent: waits exactly until the loser
+      // has entered `source` and parked, so `generateCount` is guaranteed to
+      // be 1 before the winner's own call to `source` runs.
+      yield* Deferred.await(enteredSource)
+
+      const winner = yield* store.load(coord)
+      yield* Deferred.succeed(proceed, undefined)
+      const loser = yield* Fiber.join(losingFiber)
+
+      expect(generateCount).toBe(2)
+      // Reference identity, not structural equality: if the loser did not
+      // check `raced` and just inserted its own generated buffer, `loser`
+      // would be a DIFFERENT object holding a different chunk from `winner`.
+      expect(loser).toBe(winner)
+      expect(yield* store.load(coord)).toBe(winner)
+    }),
   )
 
   it.effect('unload reports whether anything was resident', () =>
@@ -502,6 +632,17 @@ describe('chunk keys', () => {
         expect(chunkCoordOfKey(chunkKeyOf(coord))).toStrictEqual(coord)
       }
       expect(chunkKeyOf(chunkCoord(-0, -0))).toBe('0,0')
+    }),
+  )
+
+  it.effect('falls back to the origin for the half of a key that this module never produces missing', () =>
+    Effect.sync(() => {
+      // `chunkKeyOf` always emits two comma-separated halves, so the only way
+      // to reach this fallback is a key this module did not produce — the
+      // exact case the header calls out and only a cast (never `chunkKeyOf`
+      // itself) can construct.
+      expect(chunkCoordOfKey('' as ChunkKey)).toStrictEqual(chunkCoord(0, 0))
+      expect(chunkCoordOfKey('7' as ChunkKey)).toStrictEqual(chunkCoord(7, 0))
     }),
   )
 })

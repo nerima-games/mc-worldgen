@@ -267,6 +267,35 @@ describe('the variant table', () => {
       expect(taiga[PLANT.POPPY] ?? 0).toBe(0)
     }),
   )
+
+  /**
+   * `groundPlantAt` is callable with ANY biome, not only the ones
+   * `shouldPlaceGroundPlant` would let through first — nothing in its type
+   * gates it on density. The six biomes with `GROUND_PLANT_DENSITY` 0 have no
+   * row in the threshold table at all, so this is the fallback branch:
+   * `GROUND_PLANT_VARIANT_TABLE[biome] ?? []` yields an empty table, the
+   * first-match-wins loop finds nothing to match, and the function falls
+   * through to `PLANT.TALL_GRASS` — the same value the reference's
+   * `selectGroundPlantBlockIndex` defaults to for an unlisted biome.
+   */
+  it.effect('a biome with no threshold row always falls through to TALL_GRASS', () =>
+    Effect.sync(() => {
+      const zeroTableBiomes = (['OCEAN', 'DESERT', 'MOUNTAINS', 'SNOW', 'RIVER', 'BEACH'] as const).filter(
+        (biome) => GROUND_PLANT_DENSITY[biome] === 0,
+      )
+      expect(zeroTableBiomes.length, 'no zero-density biomes left to exercise the fallback').toBeGreaterThan(0)
+
+      for (const biome of zeroTableBiomes) {
+        for (const [wx, wz] of [
+          [0, 0],
+          [17, -33],
+          [-1234, 5678],
+        ] as const) {
+          expect(groundPlantAt(GOLDEN_SEED, wx, wz, biome)).toBe(PLANT.TALL_GRASS)
+        }
+      }
+    }),
+  )
 })
 
 describe('the support rule', () => {

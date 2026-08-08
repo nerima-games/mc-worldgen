@@ -3,7 +3,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
-import { CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks } from '../src/domain/chunk'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
@@ -224,5 +224,75 @@ describe('natural structure plans', () => {
       expect(applied.naturalStructureIds).toContain(marker.structureId)
       expect(marker.structureKind).toBe('ruined-nether-portal')
     }
+  })
+
+  it('drives the Overworld path through naturalStructurePlansForChunk directly, since no generator wires it up yet', () => {
+    // `terrain.ts` never calls `naturalStructurePlansForChunk` with
+    // `dimension: 'overworld'` — villages are only reachable today through
+    // `planVillageForRegion` directly, which every other test in this file
+    // uses. This function's `dimension === 'overworld'` path (both in
+    // `naturalStructureKindFor` and in `planForRegion`) is real, exported,
+    // documented behaviour for whichever caller wires up the Overworld next,
+    // so it is exercised here rather than left for that future caller to
+    // discover broken.
+    const seed = 0x1234
+    const village = findVillage(seed)
+    const coord = chunkCoord(
+      Math.floor(village.origin.x / CHUNK_SIZE_XZ),
+      Math.floor(village.origin.z / CHUNK_SIZE_XZ),
+    )
+
+    const plans = naturalStructurePlansForChunk(seed, 'overworld', coord, { overworld: FLAT_PLAINS })
+
+    expect(plans.some((plan) => plan.id === village.id)).toBe(true)
+  })
+
+  it('answers no plans for a dimension whose sampler was not supplied, rather than throwing', () => {
+    // `NaturalStructureSamplers`' fields are all optional and `samplers`
+    // itself defaults to `{}`, so a caller asking about a dimension it has no
+    // terrain sampler for is a real, typed call shape — not a caller error —
+    // for both `overworld` and `nether` (the two dimensions `planForRegion`
+    // explicitly guards; `end` instead defaults its sampler parameter, which
+    // is why it needs no equivalent case here).
+    const coord = chunkCoord(0, 0)
+
+    expect(naturalStructurePlansForChunk(1, 'overworld', coord)).toStrictEqual([])
+    expect(naturalStructurePlansForChunk(1, 'nether', coord)).toStrictEqual([])
+  })
+
+  it('drops the slice of a structure that a pathological sampler pushes below the world', () => {
+    // `addBlock`'s `y < 0` guard is not reachable through this repository's
+    // OWN Nether terrain (`netherStructureTerrainAt` never reports a
+    // `surfaceY` at or below `NETHER_LAVA_LEVEL`), but `sampleTerrain` is a
+    // caller-supplied function with no such lower bound in its type — this is
+    // the guard that keeps a hostile one doing so from writing a block at a
+    // negative index instead of the plan simply omitting it.
+    const seed = 777
+    const portal = findPortal(seed)
+    const belowWorld = (): { readonly ceilingY: number; readonly surfaceY: number } => ({ ceilingY: 96, surfaceY: -1 })
+
+    const planOption = planRuinedNetherPortalForRegion(seed, portal.region.x, portal.region.z, belowWorld)
+    const plan = unwrap(planOption)
+
+    expect(plan.blocks.length).toBeGreaterThan(0)
+    expect(plan.blocks.every((block) => block.y >= 0)).toBe(true)
+  })
+
+  it('drops the slice of a structure that a pathological sampler pushes above the world', () => {
+    // The `y >= CHUNK_HEIGHT` side of the same guard, reached through an End
+    // city whose sampler reports a surface near the top of the world — the
+    // tower and ship both climb well above `baseY`, so a high enough surface
+    // pushes part of the structure past `CHUNK_HEIGHT` while the candidate
+    // siting itself (which only depends on distance from the origin) still
+    // succeeds.
+    const seed = 888
+    const endCity = findEndCity(seed)
+    const nearWorldTop = (): number => CHUNK_HEIGHT - 6
+
+    const planOption = planEndCityForRegion(seed, endCity.region.x, endCity.region.z, nearWorldTop)
+    const plan = unwrap(planOption)
+
+    expect(plan.blocks.length).toBeGreaterThan(0)
+    expect(plan.blocks.every((block) => block.y < CHUNK_HEIGHT)).toBe(true)
   })
 })

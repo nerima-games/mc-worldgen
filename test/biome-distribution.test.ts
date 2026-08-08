@@ -92,7 +92,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BIOMES, type BiomeType } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { biomeFor, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, climateAt, surfaceHeightAt } from '../src/domain/terrain'
 
 /**
  * Wavelengths of the three fields biome selection reads, as written in
@@ -374,6 +374,53 @@ describe('the height overrides agree with the heights', () => {
 
       expect(inShorelineBand).toBeGreaterThan(0)
       expect(beach).toBe(inShorelineBand)
+    }),
+  )
+})
+
+/**
+ * `climateAt` is `docs/public-api.md`'s documented entry point for a column's
+ * raw climate sample, used by nothing else in this survey (`biomeFor` goes
+ * through the internal `climateAtWithContinentalness` on its own path), so it
+ * needs its own direct coverage rather than riding along on `biomeFor`'s.
+ */
+describe('climateAt, the public climate query', () => {
+  it.effect('is deterministic: the same (seed, wx, wz) always answers identically', () =>
+    Effect.sync(() => {
+      const first = climateAt(SEED, 100, 200)
+      const second = climateAt(SEED, 100, 200)
+      expect(second).toStrictEqual(first)
+    }),
+  )
+
+  it.effect('keeps every field in the range its noise primitive guarantees', () =>
+    Effect.sync(() => {
+      // `fbm2D` averages `valueNoise2D` octaves, itself a bilinear
+      // interpolation of `latticeValue` outputs in `[0, 1)`, so temperature,
+      // humidity and the unscaled `riverNoise` stay in `[0, 1)`.
+      // `continentalness` and `erosion` go through `toBipolar` (`value * 2 -
+      // 1`), so they land in `[-1, 1)`.
+      const sample = climateAt(SEED, -4096, 3072)
+
+      expect(sample.temperature).toBeGreaterThanOrEqual(0)
+      expect(sample.temperature).toBeLessThan(1)
+      expect(sample.humidity).toBeGreaterThanOrEqual(0)
+      expect(sample.humidity).toBeLessThan(1)
+      expect(sample.riverNoise).toBeGreaterThanOrEqual(0)
+      expect(sample.riverNoise).toBeLessThan(1)
+      expect(sample.continentalness).toBeGreaterThanOrEqual(-1)
+      expect(sample.continentalness).toBeLessThan(1)
+      expect(sample.erosion).toBeGreaterThanOrEqual(-1)
+      expect(sample.erosion).toBeLessThan(1)
+      expect(Number.isFinite(sample.pv)).toBe(true)
+    }),
+  )
+
+  it.effect('actually samples position-dependent noise rather than a constant', () =>
+    Effect.sync(() => {
+      const here = climateAt(SEED, 0, 0)
+      const farAway = climateAt(SEED, 6000, -6000)
+      expect(farAway).not.toStrictEqual(here)
     }),
   )
 })

@@ -19,6 +19,7 @@ import {
   STRONGHOLD_REGION_SIZE,
   STRONGHOLD_REGION_SPAWN_PERMILLE,
   STRONGHOLD_SITE_MARGIN,
+  locateStronghold,
   nearestStrongholdSite,
   strongholdSiteForRegion,
   strongholdSitesNearChunk,
@@ -229,6 +230,137 @@ describe('the nearest-site query', () => {
           expect(Math.hypot(dx, dz)).toBeLessThan(STRONGHOLD_REGION_SIZE * 3)
         }
       }
+    }),
+  )
+})
+
+describe('the ranked list — locateStronghold', () => {
+  /**
+   * The sort's tie-break, forced rather than hoped for.
+   *
+   * `locateStronghold` orders candidates by squared distance, then by `x`, then
+   * by `z`. An origin chosen at random essentially never ties two real sites'
+   * distances (they are continuous-valued and independent), so the tie-break
+   * arms have never fired — this constructs one deliberately instead of
+   * leaving it to chance.
+   *
+   * The construction is exact rather than approximate: for any two points A
+   * and B, EVERY point on their perpendicular bisector is equidistant from
+   * both, and the bisector's own midpoint is the simplest one to compute. IEEE
+   * 754 squaring is exact under sign flip (`(-y) ** 2 === y ** 2` bit for
+   * bit), so `(A.x - mid.x) ** 2 === (B.x - mid.x) ** 2` holds precisely, not
+   * approximately — the tie is real, not a floating-point coincidence.
+   */
+  it.effect('breaks an exact distance tie by x, then by z, deterministically', () =>
+    Effect.sync(() => {
+      // Two real sites from different regions, found rather than invented —
+      // this is a tie between two candidates `locateStronghold` would
+      // actually produce, not two points the comparator was never meant to
+      // see.
+      const sites: Array<{ x: number; z: number }> = []
+      for (let regionX = 0; regionX < 12 && sites.length < 2; regionX += 1) {
+        const candidate = strongholdSiteForRegion(GOLDEN_SEED, regionX, 0)
+        if (Option.isSome(candidate)) {
+          sites.push(candidate.value)
+        }
+      }
+      const [a, b] = sites
+      expect(sites, 'need two real stronghold sites to construct a tie').toHaveLength(2)
+      if (a === undefined || b === undefined) {
+        return
+      }
+      expect(a.x, 'the two sites must differ in x for this to be a meaningful x tie-break').not.toBe(b.x)
+
+      // The exact midpoint: equidistant from `a` and `b` by construction.
+      const origin = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }
+      const leftDistance = (a.x - origin.x) ** 2 + (a.z - origin.z) ** 2
+      const rightDistance = (b.x - origin.x) ** 2 + (b.z - origin.z) ** 2
+      expect(leftDistance, 'the midpoint construction did not produce an exact tie').toBe(rightDistance)
+
+      const results = locateStronghold(GOLDEN_SEED, origin, 40)
+      const indexA = results.findIndex((site) => site.x === a.x && site.z === a.z)
+      const indexB = results.findIndex((site) => site.x === b.x && site.z === b.z)
+      expect(indexA, 'site a is missing from the ranked list').toBeGreaterThanOrEqual(0)
+      expect(indexB, 'site b is missing from the ranked list').toBeGreaterThanOrEqual(0)
+
+      // Tied on distance, so the lower x must sort first — the branch that
+      // was never exercised before this test.
+      const lowerXIndex = a.x < b.x ? indexA : indexB
+      const higherXIndex = a.x < b.x ? indexB : indexA
+      expect(lowerXIndex).toBeLessThan(higherXIndex)
+    }),
+  )
+
+  /**
+   * The SECOND arm of the tie-break, which needs a rarer coincidence: two
+   * sites whose `x` also ties, so the comparator falls all the way through
+   * to `z`. Two sites sharing a `regionX` but differing in `regionZ` draw
+   * `offsetX` from independent hash channels, so an exact `x` match is a
+   * genuine coincidence — searched for across many region columns rather
+   * than manufactured by editing a site's coordinates, which would test the
+   * comparator against a pair `locateStronghold` could never actually
+   * produce.
+   *
+   * The search window per column is kept narrow (`regionZ` 0-7) so that any
+   * pair found is close enough together for one `origin` to have both
+   * within `STRONGHOLD_SEARCH_RADIUS` — a coincidence found far apart would
+   * be real but untestable through the public search.
+   */
+  it.effect('breaks a distance-AND-x tie by z', () =>
+    Effect.sync(() => {
+      // A matching `offsetX` is common (over a thousand pairs turn up within
+      // just the first 30 region columns), but most pairs land many regions
+      // apart in `z`. Only a pair close enough together for one `origin` to
+      // reach both through the real `STRONGHOLD_SEARCH_RADIUS` is useful
+      // here, so the search keeps looking past the first match until it
+      // finds one within reach.
+      const MAX_USABLE_REGION_GAP = 8
+      let duplicate: readonly [{ x: number; z: number }, { x: number; z: number }] | undefined
+
+      for (let regionX = 0; regionX < 60 && duplicate === undefined; regionX += 1) {
+        const byOffsetX = new Map<number, { readonly site: { x: number; z: number }; readonly regionZ: number }>()
+        for (let regionZ = 0; regionZ < 500; regionZ += 1) {
+          const candidate = strongholdSiteForRegion(GOLDEN_SEED, regionX, regionZ)
+          if (Option.isNone(candidate)) {
+            continue
+          }
+          const offsetX = candidate.value.x - regionX * STRONGHOLD_REGION_SIZE
+          const existing = byOffsetX.get(offsetX)
+          if (existing !== undefined && Math.abs(existing.regionZ - regionZ) <= MAX_USABLE_REGION_GAP) {
+            duplicate = [existing.site, candidate.value]
+            break
+          }
+          if (existing === undefined) {
+            byOffsetX.set(offsetX, { regionZ, site: candidate.value })
+          }
+        }
+      }
+
+      expect(duplicate, 'no two nearby sites in the swept region columns shared an x — widen the sweep').toBeDefined()
+      if (duplicate === undefined) {
+        return
+      }
+      const [a, b] = duplicate
+      expect(a.x).toBe(b.x)
+      expect(a.z, 'the two sites must differ in z for this to be a meaningful z tie-break').not.toBe(b.z)
+
+      // `a.x === b.x` already ties the x term for any `origin.x`, so only
+      // `origin.z` needs choosing — the exact midpoint of `a.z`/`b.z`.
+      const origin = { x: a.x, z: (a.z + b.z) / 2 }
+      const leftDistance = (a.x - origin.x) ** 2 + (a.z - origin.z) ** 2
+      const rightDistance = (b.x - origin.x) ** 2 + (b.z - origin.z) ** 2
+      expect(leftDistance, 'the construction did not produce an exact distance tie').toBe(rightDistance)
+
+      const results = locateStronghold(GOLDEN_SEED, origin, 80)
+      const indexA = results.findIndex((site) => site.x === a.x && site.z === a.z)
+      const indexB = results.findIndex((site) => site.x === b.x && site.z === b.z)
+      expect(indexA, 'site a is missing from the ranked list').toBeGreaterThanOrEqual(0)
+      expect(indexB, 'site b is missing from the ranked list').toBeGreaterThanOrEqual(0)
+
+      // Tied on distance AND x, so the lower z must sort first.
+      const lowerZIndex = a.z < b.z ? indexA : indexB
+      const higherZIndex = a.z < b.z ? indexB : indexA
+      expect(lowerZIndex).toBeLessThan(higherZIndex)
     }),
   )
 })

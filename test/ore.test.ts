@@ -130,7 +130,7 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: num
         if (readBlock(chunk.blocks, blockIndex(seedX, seedY, seedZ)) !== BLOCK.STONE) {
           continue
         }
-        placed += growVein(chunk.blocks, seedX, seedY, seedZ, veinSize, ore, yMin, yMax, next)
+        placed += growVein({ blocks: chunk.blocks, next, ore, seedX, seedY, seedZ, targetSize: veinSize, yMax, yMin })
         break
       }
     }
@@ -271,7 +271,17 @@ describe('vein growth', () => {
       expect(readBlock(blocks, blockIndex(8, 21, 8))).toBe(BLOCK.STONE)
 
       const before = Uint8Array.from(blocks)
-      const placed = growVein(blocks, 8, 21, 8, 400, ORE_BLOCK.COAL, 1, 39, mulberry32(12345))
+      const placed = growVein({
+        blocks,
+        next: mulberry32(12345),
+        ore: ORE_BLOCK.COAL,
+        seedX: 8,
+        seedY: 21,
+        seedZ: 8,
+        targetSize: 400,
+        yMax: 39,
+        yMin: 1,
+      })
 
       expect(placed).toBeGreaterThan(0)
 
@@ -293,7 +303,17 @@ describe('vein growth', () => {
   it.effect('respects the vertical band it is given, at both ends', () =>
     Effect.sync(() => {
       const blocks = new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(BLOCK.STONE)
-      growVein(blocks, 8, 30, 8, 2000, ORE_BLOCK.IRON, 25, 35, mulberry32(999))
+      growVein({
+        blocks,
+        next: mulberry32(999),
+        ore: ORE_BLOCK.IRON,
+        seedX: 8,
+        seedY: 30,
+        seedZ: 8,
+        targetSize: 2000,
+        yMax: 35,
+        yMin: 25,
+      })
 
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -331,6 +351,29 @@ describe('vein growth', () => {
       const modal = [...histogram.entries()].sort((a, b) => b[1] - a[1])[0]
       expect(modal?.[0]).toBe(config.peakY)
       expect(histogram.get(config.peakY) ?? 0).toBeGreaterThan((histogram.get(config.maxY) ?? 0) * 2)
+    }),
+  )
+
+  /**
+   * A zero-span band (`yMin === yMax`) is not hypothetical: it is what
+   * `placeOres` would hand `sampleOreY` for any ore whose config were ever
+   * tuned to a single-block band, or whatever floor/ceiling clamping produces
+   * at the edges of `CHUNK_HEIGHT`. The triangular inverse-CDF divides by
+   * `span`, so without this guard a zero-span band would draw `NaN` instead
+   * of the only Y the band actually contains.
+   */
+  it.effect('returns the band floor without dividing by zero when the band has no span', () =>
+    Effect.sync(() => {
+      const config = ORE_CONFIGS.find((candidate) => candidate.name === 'DIAMOND')
+      expect(config).toBeDefined()
+      if (config === undefined) {
+        return
+      }
+
+      const next = mulberry32(7)
+      for (let draw = 0; draw < 50; draw += 1) {
+        expect(sampleOreY(config, 40, 40, next)).toBe(40)
+      }
     }),
   )
 })

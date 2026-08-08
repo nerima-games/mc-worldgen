@@ -146,6 +146,24 @@ describe('the 4-bit light grid', () => {
     }),
   )
 
+  it.effect('reads dark and writes silently past a shorter-than-expected grid', () =>
+    Effect.sync(() => {
+      // `noUncheckedIndexedAccess` makes every packed-byte read `number |
+      // undefined`, and the module header calls the fallback dark rather than
+      // `undefined`. That fallback only differs from the on-grid path when the
+      // grid itself is smaller than the caller expects — a truncated save
+      // file, for instance — which nothing else in this suite exercises,
+      // because every other test builds its grid through `emptyChunkLight`.
+      const truncated = new Uint8Array(0)
+
+      expect(getLightAt(truncated, 5)).toBe(0)
+      expect(() => setLightAt(truncated, 5, 12)).not.toThrow()
+      // TypedArray writes past the end are a documented JS no-op, so the
+      // grid is still exactly as empty as it started.
+      expect(truncated.length).toBe(0)
+    }),
+  )
+
   it.effect('packPosLevel round-trips every coordinate in a chunk', () =>
     Effect.sync(() => {
       // DN-7's second oracle row. Every (x, z) in the chunk against the four
@@ -590,6 +608,129 @@ describe('block light', () => {
 })
 
 // ---------------------------------------------------------------------------
+// updateChunkLights's own total-function contract — inputs the physics tests
+// above never produce: a cache missing a key, a cache sized differently from
+// `loaded`, an empty edit list, a change with no real voxel behind it, and an
+// edit that sits exactly on the world's Y boundary.
+// ---------------------------------------------------------------------------
+
+describe('updateChunkLights edge inputs', () => {
+  it.effect('falls back to a full recompute when the cache is missing a key loaded has', () =>
+    Effect.sync(() => {
+      // `loaded` and the stale cache are the SAME size (both 2), so the size
+      // check alone cannot catch this — the cache has to be walked key by key
+      // to discover 'b' has no light at all, which is `registerCurrentChunk`'s
+      // own reason to exist rather than being folded into the size check.
+      const a = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const b = flatChunk(chunkCoord(5, 5), SURFACE_Y)
+      const loaded = new Map([['a', a], ['b', b]])
+      const stale = computeChunkLights(new Map([['a', a], ['stray', b]]))
+
+      const result = updateChunkLights(loaded, stale, [{ coord: a.coord, x: 0, y: SURFACE_Y + 1, z: 0 }])
+      const full = computeChunkLights(loaded)
+
+      expect([...result.keys()].sort()).toStrictEqual(['a', 'b'])
+      expect(result.get('a')?.sky).toStrictEqual(full.get('a')?.sky)
+      expect(result.get('b')?.sky).toStrictEqual(full.get('b')?.sky)
+    }),
+  )
+
+  it.effect('falls back to a full recompute when the cache and loaded are different sizes', () =>
+    Effect.sync(() => {
+      const a = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const b = flatChunk(chunkCoord(5, 5), SURFACE_Y)
+      const loaded = new Map([['a', a]])
+      const stale = computeChunkLights(new Map([['a', a], ['b', b]]))
+
+      const result = updateChunkLights(loaded, stale, [{ coord: a.coord, x: 0, y: SURFACE_Y + 1, z: 0 }])
+      const full = computeChunkLights(loaded)
+
+      expect([...result.keys()]).toStrictEqual(['a'])
+      expect(result.get('a')?.sky).toStrictEqual(full.get('a')?.sky)
+    }),
+  )
+
+  it.effect('an empty change list answers the SAME cache, not an equal copy of it', () =>
+    Effect.sync(() => {
+      const loaded = new Map([['only', flatChunk(chunkCoord(0, 0), SURFACE_Y)]])
+      const current = computeChunkLights(loaded)
+
+      expect(updateChunkLights(loaded, current, [])).toBe(current)
+    }),
+  )
+
+  it.effect('a change with no real voxel behind it is dropped rather than forcing a clone', () =>
+    Effect.sync(() => {
+      // Neither change resolves to a voxel — one names an (x, z) outside a
+      // chunk's 0..15 range, the other names a chunk coordinate nothing
+      // loaded — so the incremental queue starts and ends empty, and
+      // `finalizeUpdate` hands back the SAME map rather than a copy nothing
+      // actually wrote into.
+      const loaded = new Map([['only', flatChunk(chunkCoord(0, 0), SURFACE_Y)]])
+      const current = computeChunkLights(loaded)
+
+      const result = updateChunkLights(loaded, current, [
+        { coord: chunkCoord(0, 0), x: CHUNK_SIZE_XZ, y: SURFACE_Y, z: 0 },
+        { coord: chunkCoord(99, 99), x: 0, y: SURFACE_Y, z: 0 },
+      ])
+
+      expect(result).toBe(current)
+    }),
+  )
+
+  it.effect('an edit at the very bottom of the world does not look past y = 0 for a neighbour', () =>
+    Effect.sync(() => {
+      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const loaded = new Map([['only', chunk]])
+      const current = computeChunkLights(loaded)
+
+      const result = updateChunkLights(loaded, current, [{ coord: chunk.coord, x: 4, y: 0, z: 4 }])
+      const full = computeChunkLights(loaded)
+
+      // Bedrock at y = 0 is opaque either way; the claim is that asking about
+      // its downward neighbour does not walk off the bottom of the grid, and
+      // that the answer still matches a full recompute.
+      expect(getLightAt(result.get('only')!.sky, blockIndex(4, 0, 4))).toBe(0)
+      expect(result.get('only')?.sky).toStrictEqual(full.get('only')?.sky)
+    }),
+  )
+
+  it.effect('an edit at the very top of the world does not look past the last y for a neighbour', () =>
+    Effect.sync(() => {
+      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const loaded = new Map([['only', chunk]])
+      const current = computeChunkLights(loaded)
+
+      const result = updateChunkLights(loaded, current, [
+        { coord: chunk.coord, x: 4, y: CHUNK_HEIGHT - 1, z: 4 },
+      ])
+      const full = computeChunkLights(loaded)
+
+      expect(getLightAt(result.get('only')!.sky, blockIndex(4, CHUNK_HEIGHT - 1, 4))).toBe(15)
+      expect(result.get('only')?.sky).toStrictEqual(full.get('only')?.sky)
+    }),
+  )
+
+  it.effect('an incremental sky change in a column with no opaque block anywhere reads as fully open', () =>
+    Effect.sync(() => {
+      // Every other test's columns have at least a bedrock floor, so the
+      // column scan always finds a stop. A void chunk — nothing placed at all —
+      // is the one shape where the scan runs all the way to the bottom with
+      // nothing to find, and that is real: `application/chunk-store.ts` can
+      // hand an unloaded neighbour's fallback source an empty chunk, and this
+      // is the column that produces.
+      const empty: Chunk = { coord: chunkCoord(0, 0), blocks: emptyBlocks(), biomes: PLAINS_BIOMES }
+      const loaded = new Map([['only', empty]])
+      const current = computeChunkLights(loaded)
+
+      const result = updateChunkLights(loaded, current, [{ coord: empty.coord, x: 4, y: 100, z: 4 }])
+
+      expect(getLightAt(result.get('only')!.sky, blockIndex(4, 100, 4))).toBe(15)
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
 // The store query, and the invalidation the store's header is an argument about
 // ---------------------------------------------------------------------------
 
@@ -705,6 +846,28 @@ describe('ChunkStore.getLight', () => {
       yield* store.setBlock(blockPosition(16, ROOM_Y, 8), BLOCK.AIR)
       expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
+      })
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+  )
+
+  it.effect('relights both sides of a Z boundary write too, not only the X boundary above', () =>
+    Effect.gen(function* () {
+      // The X-boundary test above only ever writes at chunk-local `lx === 15`.
+      // `affectedLightKeys` has an independent check for `lz === 15`, and
+      // nothing else in this suite writes on that edge — this is the seam the
+      // X test cannot stand in for.
+      const store = yield* ChunkStore
+      yield* store.load(chunkCoord(0, 1))
+      yield* store.load(chunkCoord(0, 0))
+      yield* store.setBlock(blockPosition(8, ROOM_Y, 15), TORCH)
+
+      expect(yield* store.getLight(blockPosition(8, ROOM_Y, 16))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 13,
+      })
+
+      yield* store.setBlock(blockPosition(8, ROOM_Y, 16), BLOCK.STONE)
+      expect(yield* store.getLight(blockPosition(8, ROOM_Y, 16))).toStrictEqual({
+        _tag: 'Light', sky: 0, block: 0,
       })
     }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
   )
