@@ -1,3 +1,4 @@
+import { Effect, Option } from 'effect'
 import {
   type MigrationError,
   type SaveDecodeError,
@@ -7,10 +8,10 @@ import {
   decodeSave,
   encodeSave,
 } from '@nerima-games/mc-save'
-import { Effect, Option } from 'effect'
-import type { Chunk } from '../domain/chunk'
 import { CHUNK_FORMAT } from '../domain/chunk-format'
+import type { Chunk } from '../domain/chunk'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import type { Dimension } from '../domain/nether-travel'
 
 export type ChunkPersistenceError = StorageError | SaveDecodeError | MigrationError
 
@@ -21,7 +22,7 @@ export type ChunkPersistence = {
 
 export type ChunkPersistenceContext = {
   readonly worldId: string
-  readonly dimension: string
+  readonly dimension: Dimension
 }
 
 /** A stable, collision-free key for a chunk within a world and dimension. */

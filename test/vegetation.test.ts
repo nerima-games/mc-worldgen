@@ -41,7 +41,7 @@ const PLANT_ID_SET = new Set<number>(PLANT_IDS)
 
 /** One single-biome chunk per biome, from the golden matrix's own selection rule. */
 const CHUNK_FOR_BIOME: ReadonlyMap<BiomeType, { readonly cx: number; readonly cz: number }> = new Map(
-  GOLDEN_SPECS.filter((spec) => spec.decorate).map((spec) => [spec.biome, { cx: spec.cx, cz: spec.cz }] as const),
+  GOLDEN_SPECS.slice(0, BIOMES.length).map((spec) => [spec.biome, { cx: spec.cx, cz: spec.cz }] as const),
 )
 
 const chunkFor = (biome: BiomeType): Chunk => {
@@ -162,14 +162,19 @@ describe('the placement roll', () => {
    * transcription test.
    */
   const REFERENCE_DENSITY: Readonly<Record<BiomeType, number>> = {
-    OCEAN: 0,
-    BEACH: 0.02,
     DESERT: 0,
-    SAVANNA: 0.08,
     PLAINS: 0.22,
     FOREST: 0.14,
-    TAIGA: 0.12,
+    FLOWER_FOREST: 0.42,
+    OCEAN: 0,
+    MOUNTAINS: 0,
     SNOW: 0,
+    SWAMP: 0.1,
+    JUNGLE: 0.18,
+    BEACH: 0.02,
+    RIVER: 0,
+    TAIGA: 0.12,
+    SAVANNA: 0.08,
   }
 
   it.effect('transcribes the reference’s densities exactly', () =>
@@ -260,6 +265,35 @@ describe('the variant table', () => {
       // Taiga has no flowers in the reference's table.
       expect(taiga[PLANT.DANDELION] ?? 0).toBe(0)
       expect(taiga[PLANT.POPPY] ?? 0).toBe(0)
+    }),
+  )
+
+  /**
+   * `groundPlantAt` is callable with ANY biome, not only the ones
+   * `shouldPlaceGroundPlant` would let through first — nothing in its type
+   * gates it on density. The six biomes with `GROUND_PLANT_DENSITY` 0 have no
+   * row in the threshold table at all, so this is the fallback branch:
+   * `GROUND_PLANT_VARIANT_TABLE[biome] ?? []` yields an empty table, the
+   * first-match-wins loop finds nothing to match, and the function falls
+   * through to `PLANT.TALL_GRASS` — the same value the reference's
+   * `selectGroundPlantBlockIndex` defaults to for an unlisted biome.
+   */
+  it.effect('a biome with no threshold row always falls through to TALL_GRASS', () =>
+    Effect.sync(() => {
+      const zeroTableBiomes = (['OCEAN', 'DESERT', 'MOUNTAINS', 'SNOW', 'RIVER', 'BEACH'] as const).filter(
+        (biome) => GROUND_PLANT_DENSITY[biome] === 0,
+      )
+      expect(zeroTableBiomes.length, 'no zero-density biomes left to exercise the fallback').toBeGreaterThan(0)
+
+      for (const biome of zeroTableBiomes) {
+        for (const [wx, wz] of [
+          [0, 0],
+          [17, -33],
+          [-1234, 5678],
+        ] as const) {
+          expect(groundPlantAt(GOLDEN_SEED, wx, wz, biome)).toBe(PLANT.TALL_GRASS)
+        }
+      }
     }),
   )
 })
@@ -375,14 +409,22 @@ describe('what backs the vegetation half of the golden move', () => {
    * `BIOME_SURFACES` ever gives BEACH a dirt patch, this fails and the header
    * gets corrected instead of quietly becoming false.
    */
-  it.effect('V-3: exactly the biomes whose surface is soil grow anything, and it is the four expected', () =>
+  it.effect('V-3: exactly the biomes whose surface is soil grow anything, and it is the seven expected', () =>
     Effect.sync(() => {
       const growing = decoratedChunks.filter(({ chunk }) => countPlants(chunk) > 0).map(({ biome }) => biome)
 
-      expect([...growing].sort()).toStrictEqual(['FOREST', 'PLAINS', 'SAVANNA', 'TAIGA'])
+      expect([...growing].sort()).toStrictEqual([
+        'FLOWER_FOREST',
+        'FOREST',
+        'JUNGLE',
+        'PLAINS',
+        'SAVANNA',
+        'SWAMP',
+        'TAIGA',
+      ])
 
       // And the derived predicate agrees with the realised terrain, in both
-      // directions, for all eight biomes.
+      // directions, for all thirteen biomes.
       for (const { biome, chunk } of decoratedChunks) {
         expect(biomeCanGrowGroundPlants(biome), `${biome} predicate disagrees with its chunk`).toBe(
           countPlants(chunk) > 0,
@@ -415,12 +457,12 @@ describe('what backs the vegetation half of the golden move', () => {
   )
 
   /**
-   * V-5 SURVEYS A BLOCK OF CHUNKS RATHER THAN THE EIGHT BIOME ROWS, because the
-   * eight rows do not contain enough trees for the claim to be testable. FOREST
-   * (8, -8) carries three, and a collision needs a tree column whose plant roll
+   * V-5 SURVEYS A BLOCK OF CHUNKS RATHER THAN THE THIRTEEN BIOME ROWS, because
+   * the rows do not contain enough trees for the claim to be testable. FOREST
+   * (5, -12) carries three, and a collision needs a tree column whose plant roll
    * also passes — at 0.14 that is 0.4 expected events across the whole matrix.
    * Measured: weakening `canPlaceGroundPlantAt`'s air check so that a plant may
-   * overwrite a trunk left this test GREEN on the eight rows. (The support-rule
+   * overwrite a trunk left this test GREEN on the rows. (The support-rule
    * unit test above catches that mutation, which is why it is a weakness here
    * and not a hole in the suite.)
    *

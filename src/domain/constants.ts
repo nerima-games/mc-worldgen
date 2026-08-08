@@ -98,8 +98,8 @@ export type TerrainLevels = {
 }
 
 export const DEFAULT_TERRAIN_LEVELS: TerrainLevels = {
-  seaLevel: SEA_LEVEL,
   lakeLevel: LAKE_LEVEL,
+  seaLevel: SEA_LEVEL,
 }
 
 /** Lowest solid layer. Nothing is ever carved or replaced below this. */

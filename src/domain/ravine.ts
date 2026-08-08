@@ -203,10 +203,10 @@
  *   `../docs/design-notes.md` DN-8 carries the owed row.
  */
 import { BLOCK, type BiomeType } from './biome'
-import { columnIndex, readBlock, worldX, worldZ } from './chunk'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
-import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
 import { channelSeed, valueNoise2D } from './seeded-random'
+import { columnIndex, readBlock, worldX, worldZ } from './chunk'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import { PLANT_IDS } from './vegetation'
 
 /** Frequency of the ravine field. `ravine-carver.ts:10`; a 250-block wavelength. */
@@ -232,6 +232,24 @@ export const RAVINE_MIN_DEPTH = 3
 
 /** No ravine floor is ever below this. `ravine-carver.ts:53`. */
 export const RAVINE_FLOOR_Y = 6
+
+/** Depth returned for a column the band does not reach at all. */
+const RAVINE_NOT_CARVED_DEPTH = 0
+
+/** The taper multiplier at the exact centre of the band, before falloff. */
+const RAVINE_TAPER_FULL = 1
+
+/** Exponent of the quadratic falloff from the band centre to its edges. */
+const RAVINE_TAPER_FALLOFF_EXPONENT = 2
+
+/** Surface height substituted when a column has no recorded surface. */
+const FALLBACK_SURFACE_Y = 0
+
+/** Vertical offset from a surface cell to the cell directly above it. */
+const ABOVE_SURFACE_OFFSET = 1
+
+/** Offset converting `CHUNK_HEIGHT` (a count) into the topmost valid Y index. */
+const TOP_Y_INDEX_OFFSET = 1
 
 /**
  * Which layers of the water guard run.
@@ -278,13 +296,17 @@ export const ravineDistanceAt = (seed: number, wx: number, wz: number): number =
  */
 export const ravineDepthAt = (distance: number): number => {
   if (distance >= RAVINE_HALF_WIDTH) {
-    return 0
+    return RAVINE_NOT_CARVED_DEPTH
   }
 
-  const taper = 1 - (distance / RAVINE_HALF_WIDTH) ** 2
+  const taper = RAVINE_TAPER_FULL - (distance / RAVINE_HALF_WIDTH) ** RAVINE_TAPER_FALLOFF_EXPONENT
   const depth = Math.round(RAVINE_MAX_DEPTH * taper)
 
-  return depth < RAVINE_MIN_DEPTH ? 0 : depth
+  if (depth < RAVINE_MIN_DEPTH) {
+    return RAVINE_NOT_CARVED_DEPTH
+  }
+
+  return depth
 }
 
 /** Floor of the cut for a column, clamped to `RAVINE_FLOOR_Y`. `ravine-carver.ts:53`. */
@@ -300,20 +322,29 @@ export const ravineFloorY = (surfaceY: number, depth: number): number =>
  * block layer refuses, and a port that carried only the first would look
  * correct on every ocean and fail on every lake.
  */
-export const ravineWaterGuardLayer = (
-  blocks: Uint8Array,
-  lx: number,
-  surfaceY: number,
-  lz: number,
-  biome: BiomeType,
-  guard: RavineWaterGuard,
-): 'biome' | 'blocks' | null => {
+export type RavineWaterGuardInput = {
+  readonly biome: BiomeType
+  readonly blocks: Uint8Array
+  readonly guard: RavineWaterGuard
+  readonly lx: number
+  readonly lz: number
+  readonly surfaceY: number
+}
+
+export const ravineWaterGuardLayer = ({
+  biome,
+  blocks,
+  guard,
+  lx,
+  lz,
+  surfaceY,
+}: RavineWaterGuardInput): 'biome' | 'blocks' | null => {
   if (guard === 'none') {
     return null
   }
 
   // Layer 1, `ravine-carver.ts:42`. The reference also names RIVER; this
-  // repository's `./biome.ts` roster has no RIVER, so OCEAN is the whole of it.
+  // Repository's `./biome.ts` roster has no RIVER, so OCEAN is the whole of it.
   if (biome === 'OCEAN') {
     return 'biome'
   }
@@ -324,8 +355,8 @@ export const ravineWaterGuardLayer = (
 
   // Layer 2, `ravine-carver.ts:46`, and the one that is actually load-bearing.
   // A lake in a PLAINS basin is submerged and is not an OCEAN, so only a probe
-  // of the real blocks can see it.
-  const above = surfaceY + 1
+  // Of the real blocks can see it.
+  const above = surfaceY + ABOVE_SURFACE_OFFSET
   if (above < CHUNK_HEIGHT && readBlock(blocks, blockIndex(lx, above, lz)) === BLOCK.WATER) {
     return 'blocks'
   }
@@ -342,7 +373,7 @@ export const ravineWaterGuardLayer = (
  * module header on why a trunk cannot be removed without a mechanism.
  */
 export const clearGroundCover = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean => {
-  const above = surfaceY + 1
+  const above = surfaceY + ABOVE_SURFACE_OFFSET
   if (above >= CHUNK_HEIGHT) {
     return false
   }
@@ -354,6 +385,76 @@ export const clearGroundCover = (blocks: Uint8Array, lx: number, surfaceY: numbe
 
   blocks[index] = BLOCK.AIR
   return true
+}
+
+/** Everything `resolveRavineCut` needs about the chunk being carved. */
+type RavineCarveContext = {
+  readonly biomes: ReadonlyArray<BiomeType>
+  readonly blocks: Uint8Array
+  readonly coord: ChunkCoord
+  readonly guard: RavineWaterGuard
+  readonly seed: number
+  readonly surfaces: Int16Array
+}
+
+/** The chunk `carveRavines` mutates and reads to decide where to cut — everything `RavineCarveContext` needs except the water guard, which comes from `RavineOptions`. */
+export type RavineTarget = Omit<RavineCarveContext, 'guard'>
+
+/** Where one column's cut stops, once it has cleared the water guard. */
+type RavineCut = {
+  readonly floorY: number
+  readonly surfaceY: number
+}
+
+/**
+ * Resolves whether column `(lx, lz)` should be carved, and to what floor.
+ *
+ * Returns `null` when the ravine field does not reach this column at all
+ * (`ravineDepthAt` is `RAVINE_NOT_CARVED_DEPTH`), or when the water guard
+ * refuses it — see `ravineWaterGuardLayer` and DN-2 in the module header.
+ */
+const resolveRavineCut = (
+  { biomes, blocks, coord, guard, seed, surfaces }: RavineCarveContext,
+  lx: number,
+  lz: number,
+): RavineCut | null => {
+  const column = columnIndex(lx, lz)
+  const distance = ravineDistanceAt(seed, worldX(coord, lx), worldZ(coord, lz))
+  const depth = ravineDepthAt(distance)
+
+  if (depth === RAVINE_NOT_CARVED_DEPTH) {
+    return null
+  }
+
+  const surfaceY = surfaces[column] ?? FALLBACK_SURFACE_Y
+  const biome = biomes[column] ?? 'PLAINS'
+
+  if (ravineWaterGuardLayer({ biome, blocks, guard, lx, lz, surfaceY }) !== null) {
+    return null
+  }
+
+  return { floorY: ravineFloorY(surfaceY, depth), surfaceY }
+}
+
+/**
+ * Carves one column down to `cut.floorY`, then removes any loose ground cover
+ * left standing over the fresh canyon. Mutates `blocks` in place.
+ */
+const applyRavineCut = (blocks: Uint8Array, lx: number, lz: number, cut: RavineCut): void => {
+  for (let y = Math.min(cut.surfaceY, CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET); y > cut.floorY; y--) {
+    const index = blockIndex(lx, y, lz)
+    // Defensive and currently unreachable — `floorY` is at least
+    // `RAVINE_FLOOR_Y` = 6 and `BEDROCK_Y` is 0, so the loop never descends
+    // To the floor slab. Kept because the reference keeps it (`:56`) and
+    // Because the day it earns its place is the day someone lowers
+    // `RAVINE_FLOOR_Y`, which is exactly the day nobody would think to add
+    // It. `./ore.ts` records `ORE_MIN_Y_FLOOR` under the same heading.
+    if (readBlock(blocks, index) !== BLOCK.BEDROCK) {
+      blocks[index] = BLOCK.AIR
+    }
+  }
+
+  clearGroundCover(blocks, lx, cut.surfaceY, lz)
 }
 
 /**
@@ -374,58 +475,24 @@ export const clearGroundCover = (blocks: Uint8Array, lx: number, surfaceY: numbe
  * (`:31`, `:64`): a carver that silently stops carving is indistinguishable
  * from a world with no ravines in it, and the preview and the tests both need
  * to be able to tell those apart.
+ *
+ * Per-column work is split into `resolveRavineCut` (does this column carve,
+ * and how deep?) and `applyRavineCut` (do it), so that THE GUARD — both
+ * layers, per ../docs/design-notes.md DN-2 — stays next to the depth check it
+ * gates rather than buried in the write loop.
  */
-export const carveRavines = (
-  blocks: Uint8Array,
-  seed: number,
-  coord: ChunkCoord,
-  surfaces: Int16Array,
-  biomes: ReadonlyArray<BiomeType>,
-  options: RavineOptions = {},
-): number => {
-  const guard = options.waterGuard ?? 'both'
+export const carveRavines = (target: RavineTarget, options: RavineOptions = {}): number => {
+  const context: RavineCarveContext = { ...target, guard: options.waterGuard ?? 'both' }
   let carvedColumns = 0
 
-  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      const column = columnIndex(lx, lz)
-      const distance = ravineDistanceAt(seed, worldX(coord, lx), worldZ(coord, lz))
-      const depth = ravineDepthAt(distance)
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx++) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz++) {
+      const cut = resolveRavineCut(context, lx, lz)
 
-      if (depth === 0) {
-        continue
+      if (cut !== null) {
+        applyRavineCut(context.blocks, lx, lz, cut)
+        carvedColumns++
       }
-
-      const surfaceY = surfaces[column] ?? 0
-      const biome = biomes[column] ?? 'PLAINS'
-
-      // ────────────────────────────────────────────────────────────────
-      // THE GUARD. Both layers, per ../docs/design-notes.md DN-2. The biome
-      // test alone is the version that carved lake beds out from under
-      // PLAINS lakes and left the water hanging over an unlit shaft.
-      // ────────────────────────────────────────────────────────────────
-      if (ravineWaterGuardLayer(blocks, lx, surfaceY, lz, biome, guard) !== null) {
-        continue
-      }
-
-      const floorY = ravineFloorY(surfaceY, depth)
-
-      for (let y = Math.min(surfaceY, CHUNK_HEIGHT - 1); y > floorY; y -= 1) {
-        const index = blockIndex(lx, y, lz)
-        // Defensive and currently unreachable — `floorY` is at least
-        // `RAVINE_FLOOR_Y` = 6 and `BEDROCK_Y` is 0, so the loop never descends
-        // to the floor slab. Kept because the reference keeps it (`:56`) and
-        // because the day it earns its place is the day someone lowers
-        // `RAVINE_FLOOR_Y`, which is exactly the day nobody would think to add
-        // it. `./ore.ts` records `ORE_MIN_Y_FLOOR` under the same heading.
-        if (readBlock(blocks, index) === BLOCK.BEDROCK) {
-          continue
-        }
-        blocks[index] = BLOCK.AIR
-      }
-
-      clearGroundCover(blocks, lx, surfaceY, lz)
-      carvedColumns += 1
     }
   }
 

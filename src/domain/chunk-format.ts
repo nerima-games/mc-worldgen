@@ -120,16 +120,16 @@
  * under a brand key that claims they are the same type. Reusing the constructor
  * means there is no second predicate to drift.
  */
-import { Schema } from 'effect'
-import { CHUNK_BIOMES } from './biome'
-import { type Chunk } from './chunk'
-import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
-import { ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   type AppliedNaturalStructureMarker,
   type NaturalStructureChunk,
 } from './natural-structure'
-import { defineFormat, FIRST_VERSION, type SaveFormat } from '@nerima-games/mc-save'
+import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
+import { ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
+import { CHUNK_BIOMES } from './biome'
+import { type Chunk } from './chunk'
+import { Schema } from 'effect'
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
 export const CHUNK_BIOME_COUNT = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
@@ -169,11 +169,12 @@ const ChunkCoordSchema: Schema.Schema<ChunkCoord, { readonly cx: number; readonl
  * size is not an error anywhere, it is a world with the bottom missing.
  */
 const ChunkBlocksSchema = Schema.Uint8ArrayFromBase64.pipe(
-  Schema.filter((blocks) =>
-    blocks.length === CHUNK_VOLUME
-      ? undefined
-      : `expected ${String(CHUNK_VOLUME)} block bytes, received ${String(blocks.length)}`,
-  ),
+  Schema.filter((blocks) => {
+    if (blocks.length === CHUNK_VOLUME) {
+      return
+    }
+    return `expected ${String(CHUNK_VOLUME)} block bytes, received ${String(blocks.length)}`
+  }),
 )
 
 /**
@@ -193,21 +194,22 @@ const ChunkBlocksSchema = Schema.Uint8ArrayFromBase64.pipe(
  * before any schema sees it.
  */
 const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(
-  Schema.filter((biomes) =>
-    biomes.length === CHUNK_BIOME_COUNT
-      ? undefined
-      : `expected ${String(CHUNK_BIOME_COUNT)} biome columns, received ${String(biomes.length)}`,
-  ),
+  Schema.filter((biomes) => {
+    if (biomes.length === CHUNK_BIOME_COUNT) {
+      return
+    }
+    return `expected ${String(CHUNK_BIOME_COUNT)} biome columns, received ${String(biomes.length)}`
+  }),
 )
 
 const NaturalStructureKindSchema = Schema.Literal('village', 'ruined-nether-portal', 'end-city')
 
 const NaturalStructureMarkerFields = {
+  structureId: Schema.String,
+  structureKind: NaturalStructureKindSchema,
   x: Schema.Number,
   y: Schema.Number,
   z: Schema.Number,
-  structureId: Schema.String,
-  structureKind: NaturalStructureKindSchema,
 }
 
 /** Closed union of every semantic marker that generation can attach to a chunk. */
@@ -219,20 +221,20 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    kind: Schema.Literal('entity-spawn'),
     entity: Schema.Literal('villager'),
+    kind: Schema.Literal('entity-spawn'),
     profession: Schema.Literal('farmer', 'toolsmith'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    kind: Schema.Literal('spawner'),
     entity: Schema.Literal('shulker'),
+    kind: Schema.Literal('spawner'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    kind: Schema.Literal('portal-frame'),
     axis: Schema.Literal('x', 'z'),
     complete: Schema.Literal(false),
+    kind: Schema.Literal('portal-frame'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
@@ -251,9 +253,9 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
  * save buys a check that the block buffer cannot perform on itself.
  */
 const CHUNK_STRUCT = Schema.Struct({
-  coord: ChunkCoordSchema,
-  blocks: ChunkBlocksSchema,
   biomes: ChunkBiomesSchema,
+  blocks: ChunkBlocksSchema,
+  coord: ChunkCoordSchema,
   naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
   naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
     default: () => [],
@@ -273,9 +275,9 @@ const PersistableChunkSchema = Schema.declare(
 const ChunkSchema = Schema.transform(CHUNK_STRUCT, PersistableChunkSchema, {
   decode: (chunk) => chunk,
   encode: (chunk) => ({
-    coord: chunk.coord,
-    blocks: chunk.blocks,
     biomes: chunk.biomes,
+    blocks: chunk.blocks,
+    coord: chunk.coord,
     naturalStructureIds: chunk.naturalStructureIds ?? [],
     naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
   }),
@@ -311,6 +313,6 @@ export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = Chunk
  */
 export const CHUNK_FORMAT: SaveFormat<PersistableChunk, ChunkEncoded> = defineFormat({
   name: CHUNK_FORMAT_NAME,
-  version: FIRST_VERSION,
   schema: CHUNK_SCHEMA,
+  version: FIRST_VERSION,
 })

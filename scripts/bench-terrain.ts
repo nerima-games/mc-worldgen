@@ -362,7 +362,7 @@ const main = async (): Promise<number> => {
       name: 'sample/climateAt-per-chunk-columns',
       msPerUnit: measure(climateOnly, options(40, 80)),
       unit: 'chunk',
-      detail: `${String(COLUMNS_PER_CHUNK)} columns x 2 channels x 3 octaves`,
+      detail: `${String(COLUMNS_PER_CHUNK)} columns x 2 two-octave fields + 1 four-octave field + 3 single-sample axes`,
     },
     {
       name: 'generateChunk/no-decorate',

@@ -59,9 +59,9 @@
  * an overlay on top, and mx-gameplay reads a `ChunkStore` that has been written
  * to. A rule that named one of those sources would be usable from only that one.
  */
-import { Option } from 'effect'
+import { type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
 import { BLOCK } from './biome'
-import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 
 /**
  * Reads the block at an integer world coordinate.
@@ -144,101 +144,219 @@ export const MAX_PORTAL_WIDTH = 21
 export const MIN_PORTAL_HEIGHT = 3
 export const MAX_PORTAL_HEIGHT = 21
 
+/** A cell within the plane being probed: `h` runs along the axis, `y` is vertical. */
+type PlanePoint = {
+  readonly h: number
+  readonly y: number
+}
+
+/** The width/height of a measured or generated interior. */
+type PortalExtent = {
+  readonly height: number
+  readonly width: number
+}
+
+/**
+ * The plane and axis-mapping every probe in one detection/generation pass
+ * shares. Bundled so `probe`, `countAir` and `detectInPlane` stay well under
+ * `max-params` instead of threading `blockAt`/`axis`/`fixed` through each call.
+ */
+type PlaneContext = {
+  readonly axis: PortalAxis
+  readonly blockAt: BlockAt
+  readonly fixed: number
+}
+
+/** Callers pass `MAX_PORTAL_* + OVER_SIZED_MARGIN` so an over-sized run is measurable as over-sized. */
+const OVER_SIZED_MARGIN = 1
+/** `countAir` returns a count; subtracting this converts it to a zero-based offset. */
+const COUNT_TO_OFFSET = 1
+/** The ring drawn by `collectRing`/`ringIsObsidian` sits this many cells outside the interior. */
+const RING_MARGIN = 1
+
+/** Walk one cell down, from `(h0, y0)`. */
+const STEP_DOWN: PlanePoint = { h: 0, y: -1 }
+/** Walk one cell toward decreasing `h`. */
+const STEP_LEFT: PlanePoint = { h: -1, y: 0 }
+/** Walk one cell toward increasing `h`. */
+const STEP_RIGHT: PlanePoint = { h: 1, y: 0 }
+/** Walk one cell up. */
+const STEP_UP: PlanePoint = { h: 0, y: 1 }
+
 /**
  * Reads one cell of the plane without allocating.
  *
- * `(h, y)` are in-plane coordinates: `h` runs along `axis` and `fixed` is the
- * constant coordinate on the other horizontal axis. The reference built a
- * `PlaneMap` closure returning a `Position` object per probe
- * (`portal-frame.ts:44-52`); the two-line branch here is the same mapping with
- * the object removed, for the reason in `BlockAt`'s comment.
+ * The reference built a `PlaneMap` closure returning a `Position` object per
+ * probe (`portal-frame.ts:44-52`); the branch here is the same mapping with the
+ * object removed, for the reason in `BlockAt`'s comment.
  */
-const probe = (blockAt: BlockAt, axis: PortalAxis, fixed: number, h: number, y: number): number =>
-  axis === 'x' ? blockAt(h, y, fixed) : blockAt(fixed, y, h)
-
-/** The same mapping, materialised. Called once per cell of the RESULT. */
-const positionAt = (axis: PortalAxis, fixed: number, h: number, y: number): BlockPosition =>
-  axis === 'x' ? blockPosition(h, y, fixed) : blockPosition(fixed, y, h)
-
-/**
- * Counts consecutive AIR cells from `(h0, y0)` inclusive, stepping `(dh, dy)`.
- *
- * Capped at `max` so that an unbounded region of air terminates the walk — see
- * the TERMINATION note on `MAX_PORTAL_WIDTH`. Callers pass `MAX + 1` so that an
- * over-sized run is measurable as over-sized rather than clamping to the legal
- * maximum and being accepted.
- */
-const countAir = (
-  blockAt: BlockAt,
-  axis: PortalAxis,
-  fixed: number,
-  h0: number,
-  y0: number,
-  dh: number,
-  dy: number,
-  max: number,
-): number => {
-  let n = 0
-  while (n < max) {
-    if (probe(blockAt, axis, fixed, h0 + dh * n, y0 + dy * n) !== BLOCK.AIR) break
-    n += 1
+const probe = (context: PlaneContext, h: number, y: number): number => {
+  if (context.axis === 'x') {
+    return context.blockAt(h, y, context.fixed)
   }
-  return n
+  return context.blockAt(context.fixed, y, h)
 }
 
-/** Resolves a frame in one plane, anchored at an interior AIR cell `(h0, y0)`. */
-const detectInPlane = (
-  blockAt: BlockAt,
+/** The same mapping, materialised. Called once per cell of the RESULT. */
+const positionAt = (axis: PortalAxis, fixed: number, h: number, y: number): BlockPosition => {
+  if (axis === 'x') {
+    return blockPosition(h, y, fixed)
+  }
+  return blockPosition(fixed, y, h)
+}
+
+/**
+ * Counts consecutive AIR cells from `start` inclusive, stepping by `step`.
+ *
+ * Capped at `max` so that an unbounded region of air terminates the walk — see
+ * the TERMINATION note on `MAX_PORTAL_WIDTH`.
+ */
+const countAir = (context: PlaneContext, start: PlanePoint, step: PlanePoint, max: number): number => {
+  let count = 0
+  while (count < max) {
+    if (probe(context, start.h + step.h * count, start.y + step.y * count) !== BLOCK.AIR) {
+      break
+    }
+    count++
+  }
+  return count
+}
+
+/** Walks from an interior AIR cell to the bottom-left interior corner. */
+const findBottomLeftCorner = (context: PlaneContext, h0: number, y0: number): PlanePoint => {
+  // The caller has already established that the anchor itself is AIR, so both
+  // Counts are at least 1 and the `- COUNT_TO_OFFSET` cannot push the corner
+  // Past the anchor.
+  const bottomY =
+    y0 - (countAir(context, { h: h0, y: y0 }, STEP_DOWN, MAX_PORTAL_HEIGHT + OVER_SIZED_MARGIN) - COUNT_TO_OFFSET)
+  const leftH =
+    h0 - (countAir(context, { h: h0, y: bottomY }, STEP_LEFT, MAX_PORTAL_WIDTH + OVER_SIZED_MARGIN) - COUNT_TO_OFFSET)
+
+  return { h: leftH, y: bottomY }
+}
+
+/** Measures the interior from its bottom-left corner, one past the maximum in each axis. */
+const measureInterior = (context: PlaneContext, corner: PlanePoint): PortalExtent => {
+  const width = countAir(context, corner, STEP_RIGHT, MAX_PORTAL_WIDTH + OVER_SIZED_MARGIN)
+  const height = countAir(context, corner, STEP_UP, MAX_PORTAL_HEIGHT + OVER_SIZED_MARGIN)
+
+  return { height, width }
+}
+
+const isValidPortalSize = (width: number, height: number): boolean =>
+  width >= MIN_PORTAL_WIDTH &&
+  width <= MAX_PORTAL_WIDTH &&
+  height >= MIN_PORTAL_HEIGHT &&
+  height <= MAX_PORTAL_HEIGHT
+
+/**
+ * All positions in the `extent`-sized rectangle from `corner`. Shared by
+ * detection's interior sweep and `generatePortalLayout`'s interior collection.
+ */
+const collectRectangle = (
   axis: PortalAxis,
   fixed: number,
-  h0: number,
-  y0: number,
-): Option.Option<PortalFrame> => {
-  // Walk to the bottom-left interior corner. The caller has already established
-  // that the anchor itself is AIR, so both counts are at least 1 and the `- 1`
-  // cannot push the corner past the anchor.
-  const bottomY = y0 - (countAir(blockAt, axis, fixed, h0, y0, 0, -1, MAX_PORTAL_HEIGHT + 1) - 1)
-  const leftH = h0 - (countAir(blockAt, axis, fixed, h0, bottomY, -1, 0, MAX_PORTAL_WIDTH + 1) - 1)
+  corner: PlanePoint,
+  extent: PortalExtent,
+): BlockPosition[] => {
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
+  const cells: BlockPosition[] = []
+  for (let h = cornerH; h < cornerH + width; h++) {
+    for (let y = cornerY; y < cornerY + height; y++) {
+      cells.push(positionAt(axis, fixed, h, y))
+    }
+  }
+  return cells
+}
 
-  // Measure the interior from that corner, one past the maximum in each axis.
-  const width = countAir(blockAt, axis, fixed, leftH, bottomY, 1, 0, MAX_PORTAL_WIDTH + 1)
-  const height = countAir(blockAt, axis, fixed, leftH, bottomY, 0, 1, MAX_PORTAL_HEIGHT + 1)
+/**
+ * The bounding rectangle one cell larger than `extent` on every side, minus its
+ * inside. A cell is on the ring exactly when it sits on the outer row or
+ * column. Shared by detection's obsidian sweep and `generatePortalLayout`.
+ */
+const collectRing = (axis: PortalAxis, fixed: number, corner: PlanePoint, extent: PortalExtent): BlockPosition[] => {
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
+  const cells: BlockPosition[] = []
+  for (let h = cornerH - RING_MARGIN; h <= cornerH + width; h++) {
+    for (let y = cornerY - RING_MARGIN; y <= cornerY + height; y++) {
+      if (h === cornerH - RING_MARGIN || h === cornerH + width || y === cornerY - RING_MARGIN || y === cornerY + height) {
+        cells.push(positionAt(axis, fixed, h, y))
+      }
+    }
+  }
+  return cells
+}
 
-  if (width < MIN_PORTAL_WIDTH) return Option.none()
-  if (width > MAX_PORTAL_WIDTH) return Option.none()
-  if (height < MIN_PORTAL_HEIGHT) return Option.none()
-  if (height > MAX_PORTAL_HEIGHT) return Option.none()
+/**
+ * Sweeps the full interior rectangle, not just the bottom row and left column
+ * `measureInterior` checked — an L-shaped cavity passes both measurements and
+ * is not a portal.
+ */
+const interiorIsClear = (context: PlaneContext, corner: PlanePoint, extent: PortalExtent): boolean => {
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
+  for (let h = cornerH; h < cornerH + width; h++) {
+    for (let y = cornerY; y < cornerY + height; y++) {
+      if (probe(context, h, y) !== BLOCK.AIR) {
+        return false
+      }
+    }
+  }
+  return true
+}
 
-  // The bottom row and left column were measured; the rest of the rectangle was
-  // not. An L-shaped cavity passes both measurements and is not a portal, so the
-  // interior is swept in full.
-  for (let h = leftH; h < leftH + width; h++) {
-    for (let y = bottomY; y < bottomY + height; y++) {
-      if (probe(blockAt, axis, fixed, h, y) !== BLOCK.AIR) return Option.none()
+/**
+ * The obsidian ring, corners EXCLUDED. Requiring corners would reject the
+ * four-cornerless portal that vanilla accepts and that players actually build
+ * to save obsidian; `generatePortalLayout` still fills them in, because
+ * building a corner is free and detecting one is a rule.
+ */
+const ringIsObsidian = (context: PlaneContext, corner: PlanePoint, extent: PortalExtent): boolean => {
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
+
+  for (let h = cornerH; h < cornerH + width; h++) {
+    if (probe(context, h, cornerY - RING_MARGIN) !== BLOCK.OBSIDIAN || probe(context, h, cornerY + height) !== BLOCK.OBSIDIAN) {
+      return false
     }
   }
 
-  // The obsidian ring, corners EXCLUDED. Requiring corners would reject the
-  // four-cornerless portal that vanilla accepts and that players actually build
-  // to save obsidian; `generatePortalLayout` below still fills them in, because
-  // building a corner is free and detecting one is a rule.
-  for (let h = leftH; h < leftH + width; h++) {
-    if (probe(blockAt, axis, fixed, h, bottomY - 1) !== BLOCK.OBSIDIAN) return Option.none()
-    if (probe(blockAt, axis, fixed, h, bottomY + height) !== BLOCK.OBSIDIAN) return Option.none()
-  }
-  for (let y = bottomY; y < bottomY + height; y++) {
-    if (probe(blockAt, axis, fixed, leftH - 1, y) !== BLOCK.OBSIDIAN) return Option.none()
-    if (probe(blockAt, axis, fixed, leftH + width, y) !== BLOCK.OBSIDIAN) return Option.none()
-  }
-
-  const interior: BlockPosition[] = []
-  for (let h = leftH; h < leftH + width; h++) {
-    for (let y = bottomY; y < bottomY + height; y++) {
-      interior.push(positionAt(axis, fixed, h, y))
+  for (let y = cornerY; y < cornerY + height; y++) {
+    if (probe(context, cornerH - RING_MARGIN, y) !== BLOCK.OBSIDIAN || probe(context, cornerH + width, y) !== BLOCK.OBSIDIAN) {
+      return false
     }
   }
 
-  return Option.some({ axis, width, height, interior })
+  return true
+}
+
+/**
+ * Resolves a frame in one plane, anchored at an interior AIR cell `(h0, y0)`.
+ *
+ * Per-step work is split into `findBottomLeftCorner`, `measureInterior`,
+ * `isValidPortalSize`, `interiorIsClear` and `ringIsObsidian` so this function
+ * itself reads as the five-step algorithm the original doc comment described.
+ */
+const detectInPlane = (context: PlaneContext, h0: number, y0: number): Option.Option<PortalFrame> => {
+  const corner = findBottomLeftCorner(context, h0, y0)
+  const extent = measureInterior(context, corner)
+
+  if (!isValidPortalSize(extent.width, extent.height)) {
+    return Option.none()
+  }
+
+  if (!interiorIsClear(context, corner, extent)) {
+    return Option.none()
+  }
+
+  if (!ringIsObsidian(context, corner, extent)) {
+    return Option.none()
+  }
+
+  const interior = collectRectangle(context.axis, context.fixed, corner, extent)
+  return Option.some({ axis: context.axis, height: extent.height, interior, width: extent.width })
 }
 
 /**
@@ -261,9 +379,13 @@ const detectInPlane = (
  * be lit — and is why this rule does not need to name the portal block at all.
  */
 export const detectNetherPortal = (blockAt: BlockAt, ignition: BlockPosition): Option.Option<PortalFrame> => {
-  if (blockAt(ignition.x, ignition.y, ignition.z) !== BLOCK.AIR) return Option.none()
-  return Option.orElse(detectInPlane(blockAt, 'x', ignition.z, ignition.x, ignition.y), () =>
-    detectInPlane(blockAt, 'z', ignition.x, ignition.z, ignition.y),
+  if (blockAt(ignition.x, ignition.y, ignition.z) !== BLOCK.AIR) {
+    return Option.none()
+  }
+
+  return Option.orElse(
+    detectInPlane({ axis: 'x', blockAt, fixed: ignition.z }, ignition.x, ignition.y),
+    () => detectInPlane({ axis: 'z', blockAt, fixed: ignition.x }, ignition.z, ignition.y),
   )
 }
 
@@ -273,6 +395,14 @@ export type PortalLayout = {
   readonly frame: ReadonlyArray<BlockPosition>
   /** The interior cells, which stay AIR until something lights them. */
   readonly interior: ReadonlyArray<BlockPosition>
+}
+
+/** Resolves the in-plane origin (`fixed` axis value and bottom-left corner) for a placement. */
+const resolveOrigin = (axis: PortalAxis, origin: BlockPosition): { readonly corner: PlanePoint; readonly fixed: number } => {
+  if (axis === 'x') {
+    return { corner: { h: origin.x, y: origin.y }, fixed: origin.z }
+  }
+  return { corner: { h: origin.z, y: origin.y }, fixed: origin.x }
 }
 
 /**
@@ -299,27 +429,11 @@ export const generatePortalLayout = (
   width: number,
   height: number,
 ): PortalLayout => {
-  const fixed = axis === 'x' ? origin.z : origin.x
-  const leftH = axis === 'x' ? origin.x : origin.z
-  const bottomY = origin.y
+  const { corner, fixed } = resolveOrigin(axis, origin)
+  const extent: PortalExtent = { height, width }
 
-  const interior: BlockPosition[] = []
-  for (let h = leftH; h < leftH + width; h++) {
-    for (let y = bottomY; y < bottomY + height; y++) {
-      interior.push(positionAt(axis, fixed, h, y))
-    }
+  return {
+    frame: collectRing(axis, fixed, corner, extent),
+    interior: collectRectangle(axis, fixed, corner, extent),
   }
-
-  // The bounding rectangle one cell larger on every side, minus its inside. A
-  // cell is on the ring exactly when it sits on the outer row or column.
-  const frame: BlockPosition[] = []
-  for (let h = leftH - 1; h <= leftH + width; h++) {
-    for (let y = bottomY - 1; y <= bottomY + height; y++) {
-      if (h === leftH - 1 || h === leftH + width || y === bottomY - 1 || y === bottomY + height) {
-        frame.push(positionAt(axis, fixed, h, y))
-      }
-    }
-  }
-
-  return { frame, interior }
 }

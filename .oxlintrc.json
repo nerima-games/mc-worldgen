@@ -97,6 +97,61 @@
     // rules, and this repository intentionally runs no formatter (see file
     // header), so there is no in-repo mechanism left to restore here.
     "no-array-method-this-argument": "warn",
+    // `BlockId(...)`/`SaveKey(...)`/`NoiseSeed(...)` are `effect` `Brand.refined`
+    // constructors and `Schema.Struct/Union/Array/Literal(...)`/`Context.Tag(...)`
+    // are Effect's own schema/service-tag builder API — all called as plain
+    // functions per the Effect ecosystem convention (see the
+    // `consistent-type-definitions` note above), never with `new`, and the
+    // Schema/Context names are third-party exports this repository cannot
+    // rename. `ChunkStoreLayer`/`PersistentChunkStoreLayer` are this file's
+    // own Effect `Layer` factories, named per that same convention. Verified
+    // empirically (oxlint 1.76.0, matching the mc-noise precedent):
+    // `capIsNewExceptions` matches a member expression's rightmost segment
+    // (`Schema.Struct` matches on `"Struct"`) as well as a bare identifier, so
+    // this is a scoped rule option, not a suppression — every other
+    // capitalized call in src/ still warns.
+    "new-cap": [
+      "warn",
+      {
+        "capIsNewExceptions": [
+          "Array",
+          "BlockId",
+          "ChunkStoreLayer",
+          "Literal",
+          "NoiseSeed",
+          "PersistentChunkStoreLayer",
+          "SaveKey",
+          "Struct",
+          "Tag",
+          "Union"
+        ]
+      }
+    ],
+    // Verified empirically (oxlint 1.76.0) against every id-length violation
+    // in src/: this domain's block/world coordinate vocabulary — x/y/z
+    // (spatial coordinates; the public block-position and portal-frame APIs
+    // use these names, so renaming them would be a breaking change, not a
+    // style fix), h (block height/Y-axis in portal-frame probing and
+    // stronghold staircase loops), and a/b (the two endpoints of a
+    // pairwise BlockPosition comparison, matching the `distanceSquared(a, b)`
+    // convention). Any other single-character identifier in src/ still warns.
+    "id-length": ["warn", { "exceptions": ["a", "b", "h", "x", "y", "z"] }],
+    // Verified against src/: 25 of 39 violations were exactly 4 parameters —
+    // this domain's terrain/portal/light functions naturally take a
+    // seed/source plus 2-3 coordinates, not a struct pretending to be one.
+    // Every function above 4 params was refactored to bundle its extra
+    // parameters into an options object, down to one deliberate exception:
+    // `biomeFor` (src/domain/terrain.ts) is pinned at exactly 5 positional
+    // parameters `(seed, wx, wz, surfaceY, levels)` by docs/public-api.md's
+    // documented public surface, and is called positionally from
+    // apps/preview-terrain/sampler.ts and five test files — bundling its
+    // params would be a breaking public-API change out of scope for a lint
+    // fix. Its own internal work was already extracted into a freely-
+    // refactored helper (`biomeForWithContinentalness`) that takes an options
+    // object, so this bump only widens the outer, contractually-fixed
+    // signature. A function needing a 6th parameter still warns and is fixed
+    // in source.
+    "max-params": ["warn", { "max": 5 }],
     // OFF in mc-worldgen, unlike every other repository in the organisation.
     //
     // Two things here are bit-level by nature and cannot be written otherwise:
@@ -155,5 +210,102 @@
     "no-param-reassign": "off",
     "no-plusplus": "off"
   },
+  // Scoped strictness (org policy decided 2026-08-08, first applied in
+  // mc-noise/.oxlintrc.json commit 47d080a "chore: scope lint strictness to
+  // production sources"): src/ (the shipped library) is fully strict — every
+  // category default and every rule above stays "warn"/"error" there, and a
+  // violation must be fixed in source, never suppressed. test/**, scripts/**
+  // and apps/** (dev-only preview/bench tooling, never shipped, never
+  // imported by src/) are relaxed below. Each directory's rule list was
+  // built by running `oxlint <dir>` against this repository's actual code
+  // and including only the rules that actually fired there, not a blanket
+  // "non-src is exempt" policy — the same discipline as the mc-noise
+  // precedent:
+  //  - no-magic-numbers, id-length, sort-keys, sort-imports,
+  //    capitalized-comments, max-params, max-statements: terse,
+  //    table-driven, high-arity fixture/reporting style normal for tests,
+  //    benchmarks and preview tooling, not a real defect.
+  //  - no-console: scripts/** benchmark output and apps/preview-terrain
+  //    stats printing are each script's entire purpose.
+  //  - no-ternary, no-nested-ternary, no-undefined, no-continue, new-cap,
+  //    func-names, no-underscore-dangle, curly, prefer-destructuring,
+  //    no-duplicate-imports, init-declarations, complexity,
+  //    no-useless-concat, prefer-template, no-void: fire on ordinary
+  //    CLI-reporting/fixture-setup code in these directories (verified per
+  //    directory below), not on src/.
+  // Verified empirically (oxlint 1.76.0, matching mc-noise's note): `files`
+  // glob-matches relative to this config file and layers on top of the base
+  // `rules` block above rather than replacing it — `no-eval` and the
+  // `no-restricted-imports` Tier2 dependency rule still apply inside these
+  // directories too.
+  "overrides": [
+    {
+      "files": ["test/**"],
+      "rules": {
+        "no-magic-numbers": "off",
+        "capitalized-comments": "off",
+        "id-length": "off",
+        "sort-imports": "off",
+        "sort-keys": "off",
+        "func-names": "off",
+        "max-statements": "off",
+        "new-cap": "off",
+        "no-continue": "off",
+        "no-underscore-dangle": "off",
+        "no-undefined": "off",
+        "curly": "off",
+        "no-ternary": "off",
+        "prefer-destructuring": "off",
+        "max-params": "off",
+        "no-void": "off",
+        "no-nested-ternary": "off",
+        "no-duplicate-imports": "off",
+        "init-declarations": "off"
+      }
+    },
+    {
+      "files": ["scripts/**"],
+      "rules": {
+        "no-magic-numbers": "off",
+        "no-console": "off",
+        "sort-keys": "off",
+        "sort-imports": "off",
+        "no-undefined": "off",
+        "no-ternary": "off",
+        "capitalized-comments": "off",
+        "id-length": "off",
+        "prefer-destructuring": "off",
+        "max-statements": "off",
+        "max-params": "off",
+        "no-continue": "off",
+        "curly": "off",
+        "prefer-template": "off",
+        "no-underscore-dangle": "off",
+        "no-nested-ternary": "off",
+        "new-cap": "off"
+      }
+    },
+    {
+      "files": ["apps/**"],
+      "rules": {
+        "no-magic-numbers": "off",
+        "capitalized-comments": "off",
+        "no-ternary": "off",
+        "sort-imports": "off",
+        "id-length": "off",
+        "no-undefined": "off",
+        "sort-keys": "off",
+        "max-statements": "off",
+        "no-continue": "off",
+        "max-params": "off",
+        "no-duplicate-imports": "off",
+        "prefer-destructuring": "off",
+        "init-declarations": "off",
+        "curly": "off",
+        "complexity": "off",
+        "no-useless-concat": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["node_modules/**", "coverage/**", "dist/**", ".git/**", "*.config.ts", "docs/**"]
 }

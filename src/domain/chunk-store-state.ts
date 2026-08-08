@@ -32,17 +32,18 @@
  * are replaced wholesale on every transition, so the atomicity argument above
  * still holds for everything the `Ref` actually guards.
  */
-import { getBlockAt, setBlockAt, type Chunk } from './chunk'
-import { blockIndex, CHUNK_HEIGHT } from './constants'
-import { computeChunkLights, getLightAt, updateChunkLights, type ChunkLight } from './light'
 import {
   BlockId,
+  type BlockPosition,
+  type ChunkCoord,
+  type LocalBlockCoord,
   chunkCoord,
   chunkCoordOfBlock,
   localCoordOfBlock,
-  type BlockPosition,
-  type ChunkCoord,
 } from '@nerima-games/mc-kernel'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
+import { type Chunk, getBlockAt, setBlockAt } from './chunk'
+import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light'
 
 // ---------------------------------------------------------------------------
 // Keys
@@ -61,6 +62,9 @@ export type ChunkKey = string & { readonly _tag: 'ChunkKey' }
 
 export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => `${coord.cx},${coord.cz}` as ChunkKey
 
+/** What an unparseable half of a `ChunkKey` falls back to; see `chunkCoordOfKey`. */
+const FALLBACK_CHUNK_ORIGIN = 0
+
 /**
  * Inverse of `chunkKeyOf`. Total: a key this module did not produce yields
  * `chunkCoord(0, 0)` rather than failing, because the only way to obtain a
@@ -69,7 +73,20 @@ export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => `${coord.cx},${coord.
  */
 export const chunkCoordOfKey = (key: ChunkKey): ChunkCoord => {
   const [cx, cz] = key.split(',')
-  return chunkCoord(Number(cx ?? 0), Number(cz ?? 0))
+  /**
+   * PROVABLY DEAD (the `cx ?? FALLBACK_CHUNK_ORIGIN` fallback only):
+   * `String.prototype.split` always returns a non-empty array — `''.split(',')`
+   * is `['']`, not `[]` — so destructuring index 0 into `cx` can never be
+   * `undefined`. Only `cz` (index 1) can be, when `key` has no comma at all;
+   * that half is real and reachable — see `test/chunk-store.test.ts`'s "falls
+   * back to the origin" case — which is why only `cx`'s half is ignored here
+   * rather than the whole line.
+   */
+  return chunkCoord(
+    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+    Number(cx ?? FALLBACK_CHUNK_ORIGIN) /* v8 ignore next */,
+    Number(cz ?? FALLBACK_CHUNK_ORIGIN),
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -126,10 +143,13 @@ export const WRITE_CHUNK_NOT_LOADED: BlockWriteOutcome = { _tag: 'ChunkNotLoaded
 export const WRITE_OUT_OF_WORLD: BlockWriteOutcome = { _tag: 'OutOfWorld' }
 
 /** Convenience for the common "did anything actually change" question. */
-export const wasWritten = (outcome: BlockWriteOutcome): boolean => outcome._tag === 'Written'
+export const wasWritten = (outcome: BlockWriteOutcome): boolean => outcome['_tag'] === 'Written'
+
+/** The lowest Y a chunk column represents. */
+const WORLD_MIN_Y = 0
 
 /** Is this Y inside the world column a chunk represents? */
-export const isWorldY = (y: number): boolean => Number.isInteger(y) && y >= 0 && y < CHUNK_HEIGHT
+export const isWorldY = (y: number): boolean => Number.isInteger(y) && y >= WORLD_MIN_Y && y < CHUNK_HEIGHT
 
 // ---------------------------------------------------------------------------
 // Light
@@ -163,7 +183,7 @@ export type LightReading =
 export const LIGHT_CHUNK_NOT_LOADED: LightReading = { _tag: 'ChunkNotLoaded' }
 export const LIGHT_OUT_OF_WORLD: LightReading = { _tag: 'OutOfWorld' }
 
-export const lightReading = (sky: number, block: number): LightReading => ({ _tag: 'Light', sky, block })
+export const lightReading = (sky: number, block: number): LightReading => ({ _tag: 'Light', block, sky })
 
 // ---------------------------------------------------------------------------
 // The dirty channel
@@ -254,10 +274,10 @@ export type ChunkStoreState = {
 }
 
 export const emptyChunkStoreState: ChunkStoreState = {
-  loaded: new Map(),
   lights: new Map(),
-  subscribers: new Map(),
+  loaded: new Map(),
   nextSubscriberId: 0,
+  subscribers: new Map(),
 }
 
 /**
@@ -292,6 +312,28 @@ export const emptyChunkStoreState: ChunkStoreState = {
  * (both edges are cycles), so a design in which the store CALLS its consumers
  * is not available to it.
  */
+/** One subscriber's pending sets after one chunk is noted `changed` or `removed`. */
+const nextDirtySubscriberState = (
+  state: DirtySubscriberState,
+  key: ChunkKey,
+  kind: 'changed' | 'removed',
+): DirtySubscriberState => {
+  const changed = new Set(state.changed)
+  const removed = new Set(state.removed)
+
+  if (kind === 'changed') {
+    // A chunk that comes back after being unloaded is a change, not a
+    // Removal — and it must not be reported as both.
+    removed.delete(key)
+    changed.add(key)
+  } else {
+    changed.delete(key)
+    removed.add(key)
+  }
+
+  return { changed, removed }
+}
+
 const noteChange = (
   subscribers: ReadonlyMap<SubscriberId, DirtySubscriberState>,
   key: ChunkKey,
@@ -300,30 +342,22 @@ const noteChange = (
   const next = new Map<SubscriberId, DirtySubscriberState>()
 
   for (const [id, state] of subscribers) {
-    const changed = new Set(state.changed)
-    const removed = new Set(state.removed)
-
-    if (kind === 'changed') {
-      // A chunk that comes back after being unloaded is a change, not a
-      // removal — and it must not be reported as both.
-      removed.delete(key)
-      changed.add(key)
-    } else {
-      changed.delete(key)
-      removed.add(key)
-    }
-
-    next.set(id, { changed, removed })
+    next.set(id, nextDirtySubscriberState(state, key, kind))
   }
 
   return next
 }
 
+/** The step of one chunk-grid cell; the value shared by every horizontal-neighbour offset below. */
+const NEIGHBOUR_OFFSET_STEP = 1
+/** No displacement along an axis, for the offset pairs below that only move on one axis. */
+const NEIGHBOUR_OFFSET_NONE = 0
+
 const HORIZONTAL_NEIGHBOUR_OFFSETS = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
+  [NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
+  [-NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
+  [NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP],
+  [NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP],
 ] as const
 
 const lightKeysAround = (coord: ChunkCoord): ReadonlyArray<ChunkKey> => [
@@ -335,14 +369,33 @@ const withoutLights = (
   lights: ReadonlyMap<ChunkKey, ChunkLight>,
   keys: ReadonlyArray<ChunkKey>,
 ): ReadonlyMap<ChunkKey, ChunkLight> => {
-  if (!keys.some((key) => lights.has(key))) return lights
+  if (!keys.some((key) => lights.has(key))) {return lights}
   const next = new Map(lights)
-  for (const key of keys) next.delete(key)
+  for (const key of keys) {next.delete(key)}
   return next
 }
 
-const hasCompleteLightCache = (state: ChunkStoreState): boolean =>
-  state.lights.size === state.loaded.size && [...state.loaded.keys()].every((key) => state.lights.has(key))
+const hasCompleteLightCache = (state: ChunkStoreState): boolean => {
+  if (state.lights.size !== state.loaded.size) {return false}
+  /**
+   * PROVABLY DEAD (the `return false` below): `state.lights` is a subset of
+   * `state.loaded`'s key set by construction throughout this module —
+   * `withChunk` and `withoutChunk` only ever REMOVE keys from `lights` (via
+   * `withoutLights`), never add one that is not already in `loaded`, and
+   * `computeChunkLights`/`updateChunkLights` (in `light.ts`) only ever
+   * populate entries for chunks already in the `loaded` map they are given.
+   * A finite subset with the SAME cardinality as the set it is a subset of is
+   * that set — so once the size check above has passed, every `loaded` key is
+   * already known to be in `lights`, and this loop can only ever complete and
+   * fall through to `return true`.
+   */
+  for (const key of state.loaded.keys()) {
+    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+    /* v8 ignore next */
+    if (!state.lights.has(key)) {return false}
+  }
+  return true
+}
 
 /** Mark resident neighbours whose exposed boundary faces changed. */
 const noteLoadedNeighbours = (
@@ -381,15 +434,15 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
   )
 
   return {
-    loaded,
     // A REPLACED chunk is a different world in the same place, so its cached
-    // light describes blocks that are gone. Dropping it here is what makes the
-    // reload path (storage, or a regenerated chunk) safe without the caller
-    // having to remember; leaving it would light a chunk from storage with the
-    // grid of whatever used to be resident at that coordinate.
+    // Light describes blocks that are gone. Dropping it here is what makes the
+    // Reload path (storage, or a regenerated chunk) safe without the caller
+    // Having to remember; leaving it would light a chunk from storage with the
+    // Grid of whatever used to be resident at that coordinate.
     lights: withoutLights(state.lights, lightKeysAround(chunk.coord)),
-    subscribers,
+    loaded,
     nextSubscriberId: state.nextSubscriberId,
+    subscribers,
   }
 }
 
@@ -421,14 +474,34 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
   return [
     true,
     {
-      loaded,
       // Not merely invalidated — the chunk is gone, so a grid kept here would be
-      // a leak keyed by a coordinate nothing can reach.
+      // A leak keyed by a coordinate nothing can reach.
       lights: withoutLights(state.lights, lightKeysAround(coord)),
-      subscribers,
+      loaded,
       nextSubscriberId: state.nextSubscriberId,
+      subscribers,
     },
   ]
+}
+
+/** One block position resolved to its resident chunk, or absent when nothing is loaded there. */
+type LoadedChunkTarget = {
+  readonly chunk: Chunk
+  readonly coord: ChunkCoord
+  readonly key: ChunkKey
+  readonly local: LocalBlockCoord
+}
+
+const resolveLoadedChunk = (state: ChunkStoreState, position: BlockPosition): LoadedChunkTarget | undefined => {
+  const coord = chunkCoordOfBlock(position)
+  const key = chunkKeyOf(coord)
+  const chunk = state.loaded.get(key)
+
+  if (!chunk) {
+    return
+  }
+
+  return { chunk, coord, key, local: localCoordOfBlock(position) }
 }
 
 /** Read one block. Never fails, never generates. */
@@ -437,13 +510,79 @@ export const blockAt = (state: ChunkStoreState, position: BlockPosition): BlockR
     return OUT_OF_WORLD
   }
 
-  const chunk = state.loaded.get(chunkKeyOf(chunkCoordOfBlock(position)))
-  if (chunk === undefined) {
+  const target = resolveLoadedChunk(state, position)
+  if (!target) {
     return CHUNK_NOT_LOADED
   }
 
-  const local = localCoordOfBlock(position)
-  return blockReading(BlockId(getBlockAt(chunk, local.lx, local.ly, local.lz)))
+  return blockReading(BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz)))
+}
+
+/** The width of one chunk-local axis index step, for converting a size into its highest index. */
+const CHUNK_LOCAL_INDEX_STEP = 1
+
+/** The edge of a chunk-local axis nearest the origin, and the far edge, in local coordinates. */
+const CHUNK_LOCAL_MIN_XZ = 0
+const CHUNK_LOCAL_MAX_XZ = CHUNK_SIZE_XZ - CHUNK_LOCAL_INDEX_STEP
+
+/** Every chunk whose cached light needs dropping after a write at `local` within `coord`. */
+const affectedLightKeys = (coord: ChunkCoord, local: LocalBlockCoord): ReadonlyArray<ChunkKey> => {
+  const keys = [chunkKeyOf(coord)]
+  if (local.lx === CHUNK_LOCAL_MIN_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx - NEIGHBOUR_OFFSET_STEP, coord.cz)))}
+  if (local.lx === CHUNK_LOCAL_MAX_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx + NEIGHBOUR_OFFSET_STEP, coord.cz)))}
+  if (local.lz === CHUNK_LOCAL_MIN_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz - NEIGHBOUR_OFFSET_STEP)))}
+  if (local.lz === CHUNK_LOCAL_MAX_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz + NEIGHBOUR_OFFSET_STEP)))}
+  return keys
+}
+
+/**
+ * A complete cache is reconciled immediately by the local fixed-point queue. A
+ * cold or partial cache keeps the lazy invalidation path; the next read
+ * rebuilds every resident grid together, including seams.
+ *
+ * Called only from the `Written` branch of `applyBlockWrite`, which is the
+ * same rule the dirty channel follows: `Unchanged` re-places the block that
+ * was already there, so the light it would recompute is the light that is
+ * already cached. Invalidating there would relight a chunk every tick for a
+ * fluid re-asserting its own level.
+ */
+const relightAfterBlockChange = (
+  state: ChunkStoreState,
+  coord: ChunkCoord,
+  local: LocalBlockCoord,
+): ReadonlyMap<ChunkKey, ChunkLight> => {
+  if (hasCompleteLightCache(state)) {
+    return updateChunkLights(state.loaded, state.lights, [
+      { coord, x: local.lx, y: local.ly, z: local.lz },
+    ])
+  }
+  return withoutLights(state.lights, affectedLightKeys(coord, local))
+}
+
+/** The write itself, once `target` is known to be resident. */
+const applyBlockWrite = (
+  state: ChunkStoreState,
+  target: LoadedChunkTarget,
+  block: BlockId,
+): readonly [BlockWriteOutcome, ChunkStoreState] => {
+  const { chunk, coord, key, local } = target
+  const previous = BlockId(getBlockAt(chunk, local.lx, local.ly, local.lz))
+
+  if (previous === block) {
+    return [{ _tag: 'Unchanged', previous }, state]
+  }
+
+  setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
+
+  return [
+    { _tag: 'Written', chunk: coord, previous },
+    {
+      lights: relightAfterBlockChange(state, coord, local),
+      loaded: state.loaded,
+      nextSubscriberId: state.nextSubscriberId,
+      subscribers: noteChange(state.subscribers, key, 'changed'),
+    },
+  ]
 }
 
 /**
@@ -462,53 +601,12 @@ export const withBlockAt = (
     return [WRITE_OUT_OF_WORLD, state]
   }
 
-  const coord = chunkCoordOfBlock(position)
-  const key = chunkKeyOf(coord)
-  const chunk = state.loaded.get(key)
-
-  if (chunk === undefined) {
+  const target = resolveLoadedChunk(state, position)
+  if (!target) {
     return [WRITE_CHUNK_NOT_LOADED, state]
   }
 
-  const local = localCoordOfBlock(position)
-  const previous = BlockId(getBlockAt(chunk, local.lx, local.ly, local.lz))
-
-  if (previous === block) {
-    return [{ _tag: 'Unchanged', previous }, state]
-  }
-
-  setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
-
-  const lights = hasCompleteLightCache(state)
-    ? updateChunkLights(state.loaded, state.lights, [
-        { coord, x: local.lx, y: local.ly, z: local.lz },
-      ])
-    : undefined
-
-  const lightKeys = [key]
-  if (local.lx === 0) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx - 1, coord.cz)))
-  if (local.lx === 15) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx + 1, coord.cz)))
-  if (local.lz === 0) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz - 1)))
-  if (local.lz === 15) lightKeys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz + 1)))
-
-  return [
-    { _tag: 'Written', previous, chunk: coord },
-    {
-      loaded: state.loaded,
-      // A complete cache is reconciled immediately by the local fixed-point
-      // queue. A cold or partial cache keeps the lazy invalidation path; the
-      // next read rebuilds every resident grid together, including seams.
-      //
-      // It hangs off the `Written` branch and not off the function, which is the
-      // same rule the dirty channel follows two lines down: `Unchanged` re-places
-      // the block that was already there, so the light it would recompute is the
-      // light that is already cached. Invalidating there would relight a chunk
-      // every tick for a fluid re-asserting its own level.
-      lights: lights ?? withoutLights(state.lights, lightKeys),
-      subscribers: noteChange(state.subscribers, key, 'changed'),
-      nextSubscriberId: state.nextSubscriberId,
-    },
-  ]
+  return applyBlockWrite(state, target, block)
 }
 
 /**
@@ -526,6 +624,48 @@ export const withBlockAt = (
  * NOTHING IS RECOMPUTED WHEN THE ENTRY IS PRESENT, so the state comes back by
  * reference on the common path and `Ref.modify` writes the value it read.
  */
+/** The cache-hit or cache-miss tail of `lightAt`, once a resident chunk is known. */
+const lightReadingForTarget = (
+  state: ChunkStoreState,
+  target: LoadedChunkTarget,
+): readonly [LightReading, ChunkStoreState] => {
+  const voxel = blockIndex(target.local.lx, target.local.ly, target.local.lz)
+  const cached = state.lights.get(target.key)
+
+  if (cached) {
+    return [lightReading(getLightAt(cached.sky, voxel), getLightAt(cached.block, voxel)), state]
+  }
+
+  const lights = computeChunkLights(state.loaded)
+  const computed = lights.get(target.key)
+  /**
+   * PROVABLY DEAD (this guard and its body): `target` came from
+   * `resolveLoadedChunk`, which only returns one after confirming
+   * `state.loaded.get(target.key)` is a real `Chunk` — so `target.key` is
+   * always a key of `state.loaded` here. `computeChunkLights` (`light.ts`)
+   * builds its result via `indexChunks` + `collectLights`, which push into
+   * `keys`/`chunks` together on every iteration of `for (const [key, chunk]
+   * of loaded)` and then re-key the result from those same two index-aligned
+   * arrays — so its returned map's key set is exactly `state.loaded`'s, never
+   * a subset. `lights.get(target.key)` can therefore never miss.
+   */
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore next 3 */
+  if (!computed) {
+    return [LIGHT_CHUNK_NOT_LOADED, state]
+  }
+
+  return [
+    lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),
+    {
+      lights,
+      loaded: state.loaded,
+      nextSubscriberId: state.nextSubscriberId,
+      subscribers: state.subscribers,
+    },
+  ]
+}
+
 export const lightAt = (
   state: ChunkStoreState,
   position: BlockPosition,
@@ -534,37 +674,14 @@ export const lightAt = (
     return [LIGHT_OUT_OF_WORLD, state]
   }
 
-  const coord = chunkCoordOfBlock(position)
-  const key = chunkKeyOf(coord)
-  const chunk = state.loaded.get(key)
-
-  if (chunk === undefined) {
+  const target = resolveLoadedChunk(state, position)
+  if (!target) {
     // NOT "dark". See `LightReading`: a caller that cannot tell an unlit cell
-    // from an unloaded one spawns hostiles at the edge of the loaded area.
+    // From an unloaded one spawns hostiles at the edge of the loaded area.
     return [LIGHT_CHUNK_NOT_LOADED, state]
   }
 
-  const local = localCoordOfBlock(position)
-  const voxel = blockIndex(local.lx, local.ly, local.lz)
-  const cached = state.lights.get(key)
-
-  if (cached !== undefined) {
-    return [lightReading(getLightAt(cached.sky, voxel), getLightAt(cached.block, voxel)), state]
-  }
-
-  const lights = computeChunkLights(state.loaded)
-  const computed = lights.get(key)
-  if (computed === undefined) return [LIGHT_CHUNK_NOT_LOADED, state]
-
-  return [
-    lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),
-    {
-      loaded: state.loaded,
-      lights,
-      subscribers: state.subscribers,
-      nextSubscriberId: state.nextSubscriberId,
-    },
-  ]
+  return lightReadingForTarget(state, target)
 }
 
 /**
@@ -576,6 +693,9 @@ export const lightAt = (
  * whole world again on subscribe would mesh everything twice. A caller that
  * does want a resync has `loadedCoords`.
  */
+/** The amount a fresh subscription advances `nextSubscriberId` by. */
+const SUBSCRIBER_ID_STEP = 1
+
 export const subscribed = (state: ChunkStoreState): readonly [SubscriberId, ChunkStoreState] => {
   const id = state.nextSubscriberId as SubscriberId
   const subscribers = new Map(state.subscribers)
@@ -584,10 +704,10 @@ export const subscribed = (state: ChunkStoreState): readonly [SubscriberId, Chun
   return [
     id,
     {
-      loaded: state.loaded,
       lights: state.lights,
+      loaded: state.loaded,
+      nextSubscriberId: state.nextSubscriberId + SUBSCRIBER_ID_STEP,
       subscribers,
-      nextSubscriberId: state.nextSubscriberId + 1,
     },
   ]
 }
@@ -601,7 +721,7 @@ export const unsubscribed = (state: ChunkStoreState, id: SubscriberId): ChunkSto
   const subscribers = new Map(state.subscribers)
   subscribers.delete(id)
 
-  return { loaded: state.loaded, lights: state.lights, subscribers, nextSubscriberId: state.nextSubscriberId }
+  return { lights: state.lights, loaded: state.loaded, nextSubscriberId: state.nextSubscriberId, subscribers }
 }
 
 /**
@@ -618,13 +738,16 @@ export const unsubscribed = (state: ChunkStoreState, id: SubscriberId): ChunkSto
  * subscriber that outlives a `reset` degrades to "sees nothing" instead of
  * crashing a frame.
  */
+/** A pending set with nothing in it. */
+const EMPTY_SIZE = 0
+
 export const drained = (
   state: ChunkStoreState,
   id: SubscriberId,
 ): readonly [ChunkDirtyBatch, ChunkStoreState] => {
   const pending = state.subscribers.get(id)
 
-  if (pending === undefined || (pending.changed.size === 0 && pending.removed.size === 0)) {
+  if (!pending || (pending.changed.size === EMPTY_SIZE && pending.removed.size === EMPTY_SIZE)) {
     return [EMPTY_DIRTY_BATCH, state]
   }
 
@@ -638,7 +761,7 @@ export const drained = (
 
   return [
     batch,
-    { loaded: state.loaded, lights: state.lights, subscribers, nextSubscriberId: state.nextSubscriberId },
+    { lights: state.lights, loaded: state.loaded, nextSubscriberId: state.nextSubscriberId, subscribers },
   ]
 }
 
@@ -654,9 +777,9 @@ export const residentCoords = (state: ChunkStoreState): ReadonlyArray<ChunkCoord
  * it — a save writer, a worker message, an assertion in a test.
  */
 export const chunkSnapshotOf = (chunk: Chunk): Chunk => ({
-  coord: chunk.coord,
-  blocks: chunk.blocks.slice(),
   biomes: [...chunk.biomes],
+  blocks: chunk.blocks.slice(),
+  coord: chunk.coord,
 })
 
 /**
@@ -684,16 +807,29 @@ export type ChunkNeighbours = {
   readonly zNeg?: Chunk
 }
 
-export const neighboursOf = (state: ChunkStoreState, coord: ChunkCoord): ChunkNeighbours => {
-  const xPos = residentChunk(state, chunkCoord(coord.cx + 1, coord.cz))
-  const xNeg = residentChunk(state, chunkCoord(coord.cx - 1, coord.cz))
-  const zPos = residentChunk(state, chunkCoord(coord.cx, coord.cz + 1))
-  const zNeg = residentChunk(state, chunkCoord(coord.cx, coord.cz - 1))
-
-  return {
-    ...(xPos === undefined ? {} : { xPos }),
-    ...(xNeg === undefined ? {} : { xNeg }),
-    ...(zPos === undefined ? {} : { zPos }),
-    ...(zNeg === undefined ? {} : { zNeg }),
+/** Adds one optional neighbour to an accumulator only when it is resident, never as an explicit `undefined`. */
+const withDefinedNeighbour = (
+  neighbours: ChunkNeighbours,
+  key: keyof ChunkNeighbours,
+  chunk: Chunk | undefined,
+): ChunkNeighbours => {
+  if (!chunk) {
+    return neighbours
   }
+  return { ...neighbours, [key]: chunk }
+}
+
+export const neighboursOf = (state: ChunkStoreState, coord: ChunkCoord): ChunkNeighbours => {
+  const xPos = residentChunk(state, chunkCoord(coord.cx + NEIGHBOUR_OFFSET_STEP, coord.cz))
+  const xNeg = residentChunk(state, chunkCoord(coord.cx - NEIGHBOUR_OFFSET_STEP, coord.cz))
+  const zPos = residentChunk(state, chunkCoord(coord.cx, coord.cz + NEIGHBOUR_OFFSET_STEP))
+  const zNeg = residentChunk(state, chunkCoord(coord.cx, coord.cz - NEIGHBOUR_OFFSET_STEP))
+
+  const candidates: ReadonlyArray<readonly [keyof ChunkNeighbours, Chunk | undefined]> = [
+    ['xPos', xPos],
+    ['xNeg', xNeg],
+    ['zPos', zPos],
+    ['zNeg', zNeg],
+  ]
+  return candidates.reduce<ChunkNeighbours>((neighbours, [key, chunk]) => withDefinedNeighbour(neighbours, key, chunk), {})
 }

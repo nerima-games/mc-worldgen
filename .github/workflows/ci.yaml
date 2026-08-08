@@ -24,7 +24,7 @@ jobs:
           # Fork PRs don't need GITHUB_TOKEN to survive past this step; nothing
           # later pushes anything (SUPPLY_CHAIN.md, "アクションの固定").
           persist-credentials: false
-          # `pnpm changeset status --since=main` below needs the history and
+          # `pnpm changeset status --since=origin/main` below needs the history and
           # the main ref to diff against; the default shallow (depth-1) clone
           # cannot answer "what changed since main".
           fetch-depth: 0
@@ -75,7 +75,7 @@ jobs:
       # no-op — so this step does not run on push.
       - name: Changeset status
         if: github.event_name == 'pull_request'
-        run: pnpm changeset status --since=main
+        run: pnpm changeset status --since=origin/main
 
       - name: Test
         run: pnpm test

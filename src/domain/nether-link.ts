@@ -51,8 +51,8 @@
  * `test/nether-travel.test.ts` pins the round trip. A wrong value there is a
  * failing test rather than a silent halving of the Nether.
  */
+import { type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
-import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
 
 /**
  * Overworld blocks per Nether block, on the horizontal axes only.
@@ -129,12 +129,15 @@ const distanceSquared = (a: BlockPosition, b: BlockPosition): number => {
  * and `test/nether-travel.test.ts` pins the guard so that a later "simplification"
  * back to the reference's arithmetic fails a named test.
  */
+/** Below this, "nothing within N blocks" describes a radius rather than an already-negative rejection. */
+const MIN_SEARCH_DISTANCE = 0
+
 export const findNearestPortal = (
   candidates: ReadonlyArray<BlockPosition>,
   target: BlockPosition,
   maxDistance: number,
 ): Option.Option<BlockPosition> => {
-  if (!Number.isFinite(maxDistance) || maxDistance < 0) {
+  if (!Number.isFinite(maxDistance) || maxDistance < MIN_SEARCH_DISTANCE) {
     return Option.none()
   }
   const maxSq = maxDistance * maxDistance
@@ -148,6 +151,9 @@ export const findNearestPortal = (
     if (incumbent === null) {
       return Option.some(candidate)
     }
-    return distanceSquared(incumbent, target) <= candidateSq ? best : Option.some(candidate)
+    if (distanceSquared(incumbent, target) <= candidateSq) {
+      return best
+    }
+    return Option.some(candidate)
   }, Option.none())
 }

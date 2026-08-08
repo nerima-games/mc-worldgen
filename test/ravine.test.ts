@@ -59,8 +59,8 @@ import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrai
 import { PLANT_IDS } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 
-/** The chunk the eleventh golden row pins: 205 of 256 columns carved. */
-const RAVINE_CHUNK = { cx: 21, cz: 11 } as const
+/** The chunk the sixteenth golden row pins: 166 ravine-band columns, 127 below sea. */
+const RAVINE_CHUNK = { cx: 21, cz: 12 } as const
 
 const bandColumns = (seed: number, cx: number, cz: number): ReadonlyArray<readonly [number, number]> => {
   const found: Array<readonly [number, number]> = []
@@ -256,15 +256,17 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
       const bedY = SEA_LEVEL - 6
 
       const guarded = flatWorld(bedY, 'PLAINS')
-      const carvedWithGuard = carveRavines(guarded.blocks, GOLDEN_SEED, coord, guarded.surfaces, guarded.biomes)
+      const carvedWithGuard = carveRavines({
+        biomes: guarded.biomes,
+        blocks: guarded.blocks,
+        coord,
+        seed: GOLDEN_SEED,
+        surfaces: guarded.surfaces,
+      })
 
       const biomeOnly = flatWorld(bedY, 'PLAINS')
       const carvedBiomeOnly = carveRavines(
-        biomeOnly.blocks,
-        GOLDEN_SEED,
-        coord,
-        biomeOnly.surfaces,
-        biomeOnly.biomes,
+        { biomes: biomeOnly.biomes, blocks: biomeOnly.blocks, coord, seed: GOLDEN_SEED, surfaces: biomeOnly.surfaces },
         { waterGuard: 'biome' },
       )
 
@@ -300,13 +302,16 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
       // Dry ground — the block layer has nothing to find — but classified OCEAN.
       // Only the biome layer can refuse this, so it is the layer under test.
       const ocean = flatWorld(SEA_LEVEL + 4, 'OCEAN')
-      expect(carveRavines(ocean.blocks, GOLDEN_SEED, coord, ocean.surfaces, ocean.biomes)).toBe(0)
+      expect(
+        carveRavines({ biomes: ocean.biomes, blocks: ocean.blocks, coord, seed: GOLDEN_SEED, surfaces: ocean.surfaces }),
+      ).toBe(0)
 
       const unguarded = flatWorld(SEA_LEVEL + 4, 'OCEAN')
       expect(
-        carveRavines(unguarded.blocks, GOLDEN_SEED, coord, unguarded.surfaces, unguarded.biomes, {
-          waterGuard: 'none',
-        }),
+        carveRavines(
+          { biomes: unguarded.biomes, blocks: unguarded.blocks, coord, seed: GOLDEN_SEED, surfaces: unguarded.surfaces },
+          { waterGuard: 'none' },
+        ),
       ).toBe(band.length)
     }),
   )
@@ -322,7 +327,9 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       const world = flatWorld(SEA_LEVEL + 10, 'PLAINS')
 
-      expect(carveRavines(world.blocks, GOLDEN_SEED, coord, world.surfaces, world.biomes)).toBe(band.length)
+      expect(
+        carveRavines({ biomes: world.biomes, blocks: world.blocks, coord, seed: GOLDEN_SEED, surfaces: world.surfaces }),
+      ).toBe(band.length)
       expect(band.length).toBeGreaterThan(20)
 
       const [lx, lz] = band[0] ?? [0, 0]
@@ -354,7 +361,10 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
 
       const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       const world = flatWorld(SEA_LEVEL + 10, 'PLAINS')
-      carveRavines(world.blocks, GOLDEN_SEED, coord, world.surfaces, world.biomes, { waterGuard: 'none' })
+      carveRavines(
+        { biomes: world.biomes, blocks: world.blocks, coord, seed: GOLDEN_SEED, surfaces: world.surfaces },
+        { waterGuard: 'none' },
+      )
 
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -440,6 +450,11 @@ describe('the pass order', () => {
 
       // And on a bare column it is a no-op rather than a hole in the sky.
       expect(clearGroundCover(blocks, 9, surfaceY, 9)).toBe(false)
+
+      // A column whose surface sits at the very top of the world has no cell
+      // above it to check at all — `above >= CHUNK_HEIGHT` must refuse before
+      // ever indexing the buffer, not throw or read out of bounds.
+      expect(clearGroundCover(blocks, 0, CHUNK_HEIGHT - 1, 0)).toBe(false)
     }),
   )
 
@@ -450,7 +465,7 @@ describe('the pass order', () => {
    * This is the invariant `test/chunk-golden.test.ts` I-4 is for water, applied
    * to the other thing this generator leaves standing. It is checked over the
    * ravine chunk and its eight neighbours rather than the golden matrix, for the
-   * reason the eleventh golden row exists: none of the other ten has a ravine in
+   * reason the sixteenth golden row exists: none of the other fifteen has a ravine in
    * it, so the matrix would satisfy this by having nothing to test.
    */
   it.effect('R-7b: no generated column carries a floating plant', () =>
@@ -543,18 +558,65 @@ describe('the pass order', () => {
   )
 })
 
+describe('defensive fallbacks — caller-supplied column data shorter than the chunk', () => {
+  /**
+   * R-13. `RavineTarget.surfaces`/`.biomes` are typed as `Int16Array` /
+   * `ReadonlyArray<BiomeType>` with no length enforced by the type system —
+   * nothing stops a caller from handing over a partial column table. That
+   * makes `surfaces[column] ?? FALLBACK_SURFACE_Y` and
+   * `biomes[column] ?? 'PLAINS'` reachable through the public API, unlike
+   * `applyRavineCut`'s bedrock check (R-5b), which is unreachable by
+   * arithmetic and stays that way regardless of what a caller passes in.
+   *
+   * Proven rather than merely exercised: the fallback surface of 0 clamps
+   * `ravineFloorY` to `RAVINE_FLOOR_Y` (6) while the cut loop starts at
+   * `min(surfaceY, ...) = 0`, so `y > floorY` (`0 > 6`) is false on the very
+   * first check — every band column is still COUNTED, because the depth
+   * check and the water guard's biome layer only read the seed/coord and the
+   * fallback biome ('PLAINS', which the guard does not refuse), but nothing
+   * in the buffer is ever written.
+   */
+  it.effect('R-13: missing column data falls back to a floor of 0, so columns count but nothing is carved', () =>
+    Effect.sync(() => {
+      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      expect(band.length, 'the fixture chunk has no band columns').toBeGreaterThan(0)
+
+      const blocks = new Uint8Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
+      const before = blocks.slice()
+
+      const carved = carveRavines({
+        biomes: [],
+        blocks,
+        coord,
+        seed: GOLDEN_SEED,
+        surfaces: new Int16Array(0),
+      })
+
+      // Every band column is still recognised and counted — the guard and
+      // the depth check never touch `surfaces`/`biomes` for that part.
+      expect(carved).toBe(band.length)
+      // But the fallback floor of 0 makes the carve loop a no-op: nothing in
+      // the buffer moved. If `FALLBACK_SURFACE_Y` were ever raised above
+      // `RAVINE_FLOOR_Y`, this would start failing here rather than silently
+      // carving on malformed input.
+      expect(blocks).toStrictEqual(before)
+    }),
+  )
+})
+
 describe('what the pass does to a real chunk', () => {
   /**
-   * R-9. The eleventh golden row's justification, re-derived rather than
-   * transcribed. `scripts/golden-fixture.ts` claims (21, 11) carries 205 carved
-   * columns and that no other golden chunk carries any; a literal in a comment
+   * R-9. The sixteenth golden row's justification, re-derived rather than
+   * transcribed. `scripts/golden-fixture.ts` claims (21, 12) carries 166 ravine-band
+   * columns and 127 below sea, and that no other golden chunk carries any; a literal in a comment
    * is a claim that decays, so it is recomputed here.
    *
    * IT READS `GOLDEN_SPECS` RATHER THAN A LIST OF COORDINATES, and the first
-   * draft did not — it hard-coded the other ten. Mutation found the hole:
-   * repointing the eleventh spec at (8, -8), a chunk with no ravine in it, left
+   * draft did not — it hard-coded the other fifteen. Mutation found the hole:
+   * repointing the ravine spec at the decorated forest fixture, a chunk with no ravine in it, left
    * this test and the whole golden suite green. The digest comparison could not
-   * see it either, because `committed.entries.find` then matches the NINTH row's
+   * see it either, because `committed.entries.find` then matches the FOURTEENTH row's
    * coordinate and its digest agrees perfectly.
    *
    * So the matrix's own rule is what is asserted: exactly one spec is on the
@@ -596,7 +658,7 @@ describe('what the pass does to a real chunk', () => {
       for (const [cx, cz] of [
         [RAVINE_CHUNK.cx, RAVINE_CHUNK.cz],
         [5, 7],
-        [8, -8],
+        [5, -12],
         [1, 0],
         [4, 9],
       ] as const) {
@@ -626,7 +688,7 @@ describe('what the pass does to a real chunk', () => {
    * R-11. Determinism, narrowed to this pass. `test/determinism.test.ts` covers
    * `generateChunk` as a whole, but a carver that read a clock or a global RNG
    * would still be caught only if the chunk it was tested on happened to be on
-   * the band — which, per R-9, nine of the ten golden chunks are not.
+   * the band — which, per R-9, fifteen of the sixteen golden chunks are not.
    */
   it.effect('R-11: the ravine chunk regenerates byte-identically', () =>
     Effect.sync(() => {

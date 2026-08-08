@@ -111,7 +111,9 @@
  *
  * EMERALD NEEDS ONE MORE SENTENCE, because its 96 was not arbitrary there
  * either: emerald is a MOUNTAINS ore, and its band is high because that is where
- * mountains are. `./biome.ts`'s roster has no MOUNTAINS. So emerald's band here
+ * mountains are. The local biome roster includes MOUNTAINS, but generated
+ * surface material remains the contract that decides whether a column can hold ore.
+ * The band here
  * is LOCAL rather than transcribed — the reference's justification does not
  * survive the port at all, and 64 is chosen for the same reason coal's is, not
  * because it is a rescaling of 96. It stays the rarest ore in the table
@@ -190,11 +192,11 @@
  * unlike the plant salts they do work that a channel name does not: they
  * decorrelate ADJACENT CHUNKS of the same ore, not two streams of one chunk.
  */
-import { BLOCK } from './biome'
-import { readBlock } from './chunk'
-import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
+import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
 import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { channelSeed, mulberry32 } from './seeded-random'
+import { BLOCK } from './biome'
+import { readBlock } from './chunk'
 
 /**
  * The ore ids, transcribed from `mc-kernel/domain/block-registry.ts`.
@@ -211,21 +213,36 @@ import { channelSeed, mulberry32 } from './seeded-random'
  * that consumes block light (`docs/design-notes.md` DN-7), and it is a kernel
  * request rather than a local fix — see `test/ore.test.ts`.
  */
-export const ORE_BLOCK = {
+/**
+ * The raw `mc-kernel` `BLOCK_REGISTRY` ids named above, kept as their own
+ * table so the id itself carries the kernel row it came from rather than
+ * sitting as an unnamed literal inside the `BlockId(...)` calls below.
+ */
+const KERNEL_ORE_BLOCK_ID = {
   /** `block-registry.ts:1367`. */
-  COAL: BlockId(50),
-  /** `block-registry.ts:1380`. */
-  IRON: BlockId(51),
-  /** `block-registry.ts:1392`. */
-  GOLD: BlockId(52),
+  COAL: 50,
   /** `block-registry.ts:1404`. */
-  DIAMOND: BlockId(53),
-  /** `block-registry.ts:1417`. */
-  REDSTONE: BlockId(54),
-  /** `block-registry.ts:1431`. */
-  LAPIS: BlockId(55),
+  DIAMOND: 53,
   /** `block-registry.ts:1444`. */
-  EMERALD: BlockId(56),
+  EMERALD: 56,
+  /** `block-registry.ts:1392`. */
+  GOLD: 52,
+  /** `block-registry.ts:1380`. */
+  IRON: 51,
+  /** `block-registry.ts:1431`. */
+  LAPIS: 55,
+  /** `block-registry.ts:1417`. */
+  REDSTONE: 54,
+} as const
+
+export const ORE_BLOCK = {
+  COAL: BlockId(KERNEL_ORE_BLOCK_ID.COAL),
+  DIAMOND: BlockId(KERNEL_ORE_BLOCK_ID.DIAMOND),
+  EMERALD: BlockId(KERNEL_ORE_BLOCK_ID.EMERALD),
+  GOLD: BlockId(KERNEL_ORE_BLOCK_ID.GOLD),
+  IRON: BlockId(KERNEL_ORE_BLOCK_ID.IRON),
+  LAPIS: BlockId(KERNEL_ORE_BLOCK_ID.LAPIS),
+  REDSTONE: BlockId(KERNEL_ORE_BLOCK_ID.REDSTONE),
 } as const
 
 export type OreName = keyof typeof ORE_BLOCK
@@ -243,7 +260,10 @@ export const ORE_IDS: ReadonlyArray<number> = Object.values(ORE_BLOCK)
  * rather than by this. The header says how that was established, because the
  * comment here used to claim the opposite.
  */
-export const ORE_MIN_Y_FLOOR = BEDROCK_Y + 1
+/** This repository's bedrock is one block deep — see this constant's header paragraph above. */
+const BEDROCK_LAYER_HEIGHT = 1
+
+export const ORE_MIN_Y_FLOOR = BEDROCK_Y + BEDROCK_LAYER_HEIGHT
 
 /**
  * Highest cell that can ever hold stone, and therefore ore.
@@ -289,20 +309,20 @@ export type OreConfig = {
  * reader diffing this against the reference sees the change at the change.
  */
 export const ORE_CONFIGS: ReadonlyArray<OreConfig> = [
-  // maxY 180 -> ORE_MAX_Y (dead above 87); peakY 96 -> 64 (above the ceiling).
-  { name: 'COAL', minY: 12, maxY: ORE_MAX_Y, peakY: 64, avgVeins: 18, minSize: 6, maxSize: 14, saltX: 10007, saltZ: 20011 },
-  // maxY 128 -> ORE_MAX_Y. peakY 48 is verbatim: it sits in the dense stone band.
-  { name: 'IRON', minY: 8, maxY: ORE_MAX_Y, peakY: 48, avgVeins: 12, minSize: 4, maxSize: 9, saltX: 30013, saltZ: 40013 },
+  // MaxY 180 -> ORE_MAX_Y (dead above 87); peakY 96 -> 64 (above the ceiling).
+  { avgVeins: 18, maxSize: 14, maxY: ORE_MAX_Y, minSize: 6, minY: 12, name: 'COAL', peakY: 64, saltX: 10007, saltZ: 20011 },
+  // MaxY 128 -> ORE_MAX_Y. peakY 48 is verbatim: it sits in the dense stone band.
+  { avgVeins: 12, maxSize: 9, maxY: ORE_MAX_Y, minSize: 4, minY: 8, name: 'IRON', peakY: 48, saltX: 30013, saltZ: 40013 },
   // Verbatim: 48 is already under the ceiling.
-  { name: 'GOLD', minY: 5, maxY: 48, peakY: 24, avgVeins: 4, minSize: 3, maxSize: 7, saltX: 50021, saltZ: 60029 },
+  { avgVeins: 4, maxSize: 7, maxY: 48, minSize: 3, minY: 5, name: 'GOLD', peakY: 24, saltX: 50021, saltZ: 60029 },
   // Verbatim.
-  { name: 'DIAMOND', minY: 5, maxY: 16, peakY: 8, avgVeins: 2, minSize: 2, maxSize: 6, saltX: 70037, saltZ: 80039 },
+  { avgVeins: 2, maxSize: 6, maxY: 16, minSize: 2, minY: 5, name: 'DIAMOND', peakY: 8, saltX: 70037, saltZ: 80039 },
   // Verbatim.
-  { name: 'REDSTONE', minY: 5, maxY: 20, peakY: 8, avgVeins: 5, minSize: 3, maxSize: 7, saltX: 90043, saltZ: 100049 },
+  { avgVeins: 5, maxSize: 7, maxY: 20, minSize: 3, minY: 5, name: 'REDSTONE', peakY: 8, saltX: 90043, saltZ: 100049 },
   // Verbatim: 72 is already under the ceiling.
-  { name: 'LAPIS', minY: 8, maxY: 72, peakY: 28, avgVeins: 3, minSize: 3, maxSize: 6, saltX: 110059, saltZ: 120071 },
-  // maxY 160 -> ORE_MAX_Y; peakY 96 -> 64. The MOUNTAINS argument does not port.
-  { name: 'EMERALD', minY: 24, maxY: ORE_MAX_Y, peakY: 64, avgVeins: 2, minSize: 1, maxSize: 3, saltX: 130081, saltZ: 140089 },
+  { avgVeins: 3, maxSize: 6, maxY: 72, minSize: 3, minY: 8, name: 'LAPIS', peakY: 28, saltX: 110059, saltZ: 120071 },
+  // MaxY 160 -> ORE_MAX_Y; peakY 96 -> 64. The MOUNTAINS argument does not port.
+  { avgVeins: 2, maxSize: 3, maxY: ORE_MAX_Y, minSize: 1, minY: 24, name: 'EMERALD', peakY: 64, saltX: 130081, saltZ: 140089 },
 ]
 
 /**
@@ -314,14 +334,32 @@ export const ORE_CONFIGS: ReadonlyArray<OreConfig> = [
  * disagree; the world seed is what makes two worlds disagree, and it is the one
  * the reference is missing.
  */
+/** Coerces a value into the 32-bit integer space `Math.imul` and `>>>` require. */
+const INT32_ZERO = 0
+
+// `oreStreamSeed`'s hash-mixing constants, transcribed with the reference. See this file's header, "THE SEED, AGAIN".
+const WORLD_X_MIX_PRIME = 0x27d4eb2d
+const WORLD_Z_MIX_PRIME = 0x85ebca6b
+const SALT_X_MIX_PRIME = 0xc2b2ae35
+const SALT_Z_MIX_PRIME = 0x165667b1
+const FINALIZE_MIX_PRIME_1 = 0x7feb352d
+const FINALIZE_MIX_SHIFT_1 = 16
+const FINALIZE_MIX_PRIME_2 = 0x846ca68b
+const FINALIZE_MIX_SHIFT_2 = 15
+const FINALIZE_MIX_SHIFT_3 = 16
+
 export const oreStreamSeed = (seed: number, config: OreConfig, baseWorldX: number, baseWorldZ: number): number => {
   let hash = channelSeed(seed, `ore-${config.name}`)
-  hash = (Math.imul(baseWorldX | 0, 0x27d4eb2d) ^ Math.imul(baseWorldZ | 0, 0x85ebca6b) ^ hash) >>> 0
-  hash = (hash ^ Math.imul(config.saltX | 0, 0xc2b2ae35)) >>> 0
-  hash = (hash ^ Math.imul(config.saltZ | 0, 0x165667b1)) >>> 0
-  hash = Math.imul(hash ^ (hash >>> 16), 0x7feb352d) >>> 0
-  hash = Math.imul(hash ^ (hash >>> 15), 0x846ca68b) >>> 0
-  return (hash ^ (hash >>> 16)) >>> 0
+  hash =
+    (Math.imul(baseWorldX | INT32_ZERO, WORLD_X_MIX_PRIME) ^
+      Math.imul(baseWorldZ | INT32_ZERO, WORLD_Z_MIX_PRIME) ^
+      hash) >>>
+    INT32_ZERO
+  hash = (hash ^ Math.imul(config.saltX | INT32_ZERO, SALT_X_MIX_PRIME)) >>> INT32_ZERO
+  hash = (hash ^ Math.imul(config.saltZ | INT32_ZERO, SALT_Z_MIX_PRIME)) >>> INT32_ZERO
+  hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_1), FINALIZE_MIX_PRIME_1) >>> INT32_ZERO
+  hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_2), FINALIZE_MIX_PRIME_2) >>> INT32_ZERO
+  return (hash ^ (hash >>> FINALIZE_MIX_SHIFT_3)) >>> INT32_ZERO
 }
 
 /**
@@ -336,20 +374,37 @@ export const oreStreamSeed = (seed: number, config: OreConfig, baseWorldX: numbe
  * The mode is CLAMPED into the band. That clamp is why an out-of-band `peakY` is
  * dangerous rather than merely wrong — see the header on COAL.
  */
+/** The total probability mass of the triangular distribution `sampleOreY` inverts. */
+const UNIT_PROBABILITY = 1
+/** A band collapses (nothing left to sample) once its span shrinks to this. */
+const MIN_SPAN = 0
+
+/**
+ * The inverse-CDF of a triangular distribution: two square-root branches
+ * meeting at `mode`. See `sampleOreY`'s header for why this is arithmetic
+ * rather than rejection sampling.
+ */
+const triangularInverseCdf = (value: number, yMin: number, yMax: number, mode: number): number => {
+  const span = yMax - yMin
+  const modeFraction = (mode - yMin) / span
+
+  if (value < modeFraction) {
+    return yMin + Math.sqrt(value * span * (mode - yMin))
+  }
+
+  return yMax - Math.sqrt((UNIT_PROBABILITY - value) * span * (yMax - mode))
+}
+
 export const sampleOreY = (config: OreConfig, yMin: number, yMax: number, next: () => number): number => {
   const mode = Math.max(yMin, Math.min(yMax, config.peakY))
   const value = next()
   const span = yMax - yMin
 
-  if (span <= 0) {
+  if (span <= MIN_SPAN) {
     return yMin
   }
 
-  const modeFraction = (mode - yMin) / span
-  const sampled =
-    value < modeFraction
-      ? yMin + Math.sqrt(value * span * (mode - yMin))
-      : yMax - Math.sqrt((1 - value) * span * (yMax - mode))
+  const sampled = triangularInverseCdf(value, yMin, yMax, mode)
 
   return Math.max(yMin, Math.min(yMax, Math.round(sampled)))
 }
@@ -372,60 +427,197 @@ export const sampleOreY = (config: OreConfig, yMin: number, yMax: number, next: 
  * walk, and a vein that always places zero is the failure mode this whole
  * module's band arithmetic exists to avoid.
  */
-export const growVein = (
-  blocks: Uint8Array,
-  seedX: number,
-  seedY: number,
-  seedZ: number,
-  targetSize: number,
-  ore: BlockId,
-  yMin: number,
-  yMax: number,
-  next: () => number,
-): number => {
+/** Number of packed numbers (x, y, z) per candidate cell in `growVein`'s stack. */
+const CELL_COMPONENT_COUNT = 3
+/** Offset of a cell's y-component within its packed [x, y, z] triple. */
+const Y_COMPONENT_OFFSET = 1
+/** Offset of a cell's z-component within its packed [x, y, z] triple. */
+const Z_COMPONENT_OFFSET = 2
+/** The lowest valid local (chunk-relative) X or Z coordinate. */
+const MIN_LOCAL_COORD = 0
+/** Shared "advance by one" step for the counters below (placed cells, veins, attempts). */
+const COUNT_STEP = 1
+/** The empty-stack length `growVein`'s candidate loop stops at. */
+const EMPTY_STACK_LENGTH = 0
+/** The six axis-aligned neighbours of a cell are one block away along each axis. */
+const NEIGHBOR_OFFSET = 1
+
+type VeinCandidate = {
+  readonly cx: number
+  readonly cy: number
+  readonly cz: number
+}
+
+type DepthBand = {
+  readonly yMin: number
+  readonly yMax: number
+}
+
+/**
+ * Reads one packed coordinate out of `stack`.
+ *
+ * Asserted rather than defaulted with `?? 0`, because a fallback here would
+ * be untested dead code that a coverage gate would then require a test for —
+ * and no real input can reach it. PROOF: every caller passes an `index` that
+ * is one of `pickIndex`, `pickIndex + {Y,Z}_COMPONENT_OFFSET`, `lastBase`, or
+ * `lastBase + {Y,Z}_COMPONENT_OFFSET`.
+ *
+ *  - `stack.length` starts at `CELL_COMPONENT_COUNT` (the seed cell) and is
+ *    only ever changed by pushing whole `CELL_COMPONENT_COUNT`-sized cells
+ *    (`pushNeighbors`) or truncating to `lastBase = stack.length -
+ *    CELL_COMPONENT_COUNT` (`swapRemoveCell`), so it is always a positive
+ *    multiple of `CELL_COMPONENT_COUNT` whenever `growVein`'s loop body runs
+ *    (guarded by `stack.length > EMPTY_STACK_LENGTH`).
+ *  - `mulberry32` (`seeded-random.ts`, `@nerima-games/mc-noise`) returns
+ *    `((t ^ (t >>> 14)) >>> 0) / UINT32_MODULUS`, an unsigned 32-bit integer
+ *    divided by its own modulus, which is strictly `< 1` for every `t`. So
+ *    `pickIndex = floor(next() * (length / 3)) * 3` is at most
+ *    `length - CELL_COMPONENT_COUNT`, i.e. `<= lastBase`.
+ *  - Therefore `pickIndex` and `lastBase` are both in
+ *    `[0, stack.length - CELL_COMPONENT_COUNT]`, and adding
+ *    `Y_COMPONENT_OFFSET` (1) or `Z_COMPONENT_OFFSET` (2) keeps every read in
+ *    `[0, stack.length - 1]` — always a valid, defined index.
+ *
+ * `noUncheckedIndexedAccess` still types `stack[index]` as `number |
+ * undefined`, so the non-null assertion below is what tells the type checker
+ * what the proof above already establishes at runtime. `no-non-null-assertion`
+ * is `off` project-wide (`.oxlintrc.json`), so the assertion below needs no
+ * suppression comment.
+ */
+const readPackedCoord = (stack: Array<number>, index: number): number => stack[index]!
+
+/**
+ * Swap-remove one packed [x, y, z] cell from `stack` at `pickIndex`, keeping
+ * the O(1) pick the reference relies on (see `growVein`'s header).
+ */
+const swapRemoveCell = (stack: Array<number>, pickIndex: number): void => {
+  const lastBase = stack.length - CELL_COMPONENT_COUNT
+
+  if (pickIndex !== lastBase) {
+    stack[pickIndex] = readPackedCoord(stack, lastBase)
+    stack[pickIndex + Y_COMPONENT_OFFSET] = readPackedCoord(stack, lastBase + Y_COMPONENT_OFFSET)
+    stack[pickIndex + Z_COMPONENT_OFFSET] = readPackedCoord(stack, lastBase + Z_COMPONENT_OFFSET)
+  }
+
+  stack.length = lastBase
+}
+
+/** Pick one candidate cell at random from `stack` and remove it. */
+const popRandomCandidate = (stack: Array<number>, next: () => number): VeinCandidate => {
+  const pickIndex = Math.floor(next() * (stack.length / CELL_COMPONENT_COUNT)) * CELL_COMPONENT_COUNT
+  const cx = readPackedCoord(stack, pickIndex)
+  const cy = readPackedCoord(stack, pickIndex + Y_COMPONENT_OFFSET)
+  const cz = readPackedCoord(stack, pickIndex + Z_COMPONENT_OFFSET)
+
+  swapRemoveCell(stack, pickIndex)
+
+  return { cx, cy, cz }
+}
+
+const isWithinChunkBounds = (cx: number, cz: number): boolean =>
+  cx >= MIN_LOCAL_COORD && cx < CHUNK_SIZE_XZ && cz >= MIN_LOCAL_COORD && cz < CHUNK_SIZE_XZ
+
+// The vertical clamp enforces the depth band. It is NOT what keeps ore out of the bedrock floor — the STONE test below is. See this file's header.
+const isWithinDepthBand = (cy: number, band: DepthBand): boolean => cy >= band.yMin && cy <= band.yMax
+
+/** Places `ore` at `candidate` if it is a legal, STONE cell. Reports whether it did. */
+const tryPlaceOreAt = (blocks: Uint8Array, candidate: VeinCandidate, ore: BlockId, band: DepthBand): boolean => {
+  const { cx, cy, cz } = candidate
+
+  if (!isWithinChunkBounds(cx, cz) || !isWithinDepthBand(cy, band)) {
+    return false
+  }
+
+  const index = blockIndex(cx, cy, cz)
+
+  if (readBlock(blocks, index) !== BLOCK.STONE) {
+    return false
+  }
+
+  blocks[index] = ore
+  return true
+}
+
+/** Pushes the six axis-aligned neighbours of `candidate` as new stack candidates. */
+const pushNeighbors = (stack: Array<number>, candidate: VeinCandidate): void => {
+  const { cx, cy, cz } = candidate
+  stack.push(cx + NEIGHBOR_OFFSET, cy, cz)
+  stack.push(cx - NEIGHBOR_OFFSET, cy, cz)
+  stack.push(cx, cy + NEIGHBOR_OFFSET, cz)
+  stack.push(cx, cy - NEIGHBOR_OFFSET, cz)
+  stack.push(cx, cy, cz + NEIGHBOR_OFFSET)
+  stack.push(cx, cy, cz - NEIGHBOR_OFFSET)
+}
+
+export type GrowVeinOptions = {
+  readonly blocks: Uint8Array
+  readonly seedX: number
+  readonly seedY: number
+  readonly seedZ: number
+  readonly targetSize: number
+  readonly ore: BlockId
+  readonly yMin: number
+  readonly yMax: number
+  readonly next: () => number
+}
+
+export const growVein = (options: GrowVeinOptions): number => {
+  const { blocks, seedX, seedY, seedZ, targetSize, ore, yMin, yMax, next } = options
+  const band: DepthBand = { yMax, yMin }
   let placed = 0
   const stack: Array<number> = [seedX, seedY, seedZ]
 
-  while (placed < targetSize && stack.length > 0) {
-    const pickIndex = Math.floor(next() * (stack.length / 3)) * 3
-    const cx = stack[pickIndex] ?? 0
-    const cy = stack[pickIndex + 1] ?? 0
-    const cz = stack[pickIndex + 2] ?? 0
+  while (placed < targetSize && stack.length > EMPTY_STACK_LENGTH) {
+    const candidate = popRandomCandidate(stack, next)
 
-    const lastBase = stack.length - 3
-    if (pickIndex !== lastBase) {
-      stack[pickIndex] = stack[lastBase] ?? 0
-      stack[pickIndex + 1] = stack[lastBase + 1] ?? 0
-      stack[pickIndex + 2] = stack[lastBase + 2] ?? 0
+    if (tryPlaceOreAt(blocks, candidate, ore, band)) {
+      placed += COUNT_STEP
+      pushNeighbors(stack, candidate)
     }
-    stack.length = lastBase
-
-    if (cx < 0 || cx >= CHUNK_SIZE_XZ || cz < 0 || cz >= CHUNK_SIZE_XZ) {
-      continue
-    }
-    // The vertical clamp enforces the depth band. It is NOT what keeps ore out
-    // of the bedrock floor — the STONE test below is. See the header.
-    if (cy < yMin || cy > yMax) {
-      continue
-    }
-
-    const index = blockIndex(cx, cy, cz)
-    if (readBlock(blocks, index) !== BLOCK.STONE) {
-      continue
-    }
-
-    blocks[index] = ore
-    placed += 1
-
-    stack.push(cx + 1, cy, cz)
-    stack.push(cx - 1, cy, cz)
-    stack.push(cx, cy + 1, cz)
-    stack.push(cx, cy - 1, cz)
-    stack.push(cx, cy, cz + 1)
-    stack.push(cx, cy, cz - 1)
   }
 
   return placed
+}
+
+/** The `±1` variance the reference draws each vein's count from around `avgVeins`. */
+const VEIN_COUNT_VARIANCE = 1
+/** `next() * this` spans the variance above on both sides of the mean. */
+const VEIN_COUNT_VARIANCE_RANGE = 2
+/** A config can never ask for fewer than zero veins. */
+const MIN_VEIN_COUNT = 0
+/** Converts `CHUNK_HEIGHT` (a block count) into the highest valid Y index. */
+const CHUNK_TOP_Y_OFFSET = 1
+/** `maxSize - minSize` is exclusive of `maxSize`; this makes the drawn range inclusive of it. */
+const INCLUSIVE_RANGE_ADJUSTMENT = 1
+
+type PlaceVeinsOptions = {
+  readonly blocks: Uint8Array
+  readonly config: OreConfig
+  readonly count: number
+  readonly next: () => number
+  readonly ore: BlockId
+  readonly yMin: number
+  readonly yMax: number
+}
+
+/** Places every vein for one ore config, each re-rolled up to `MAX_SEED_ATTEMPTS` times. */
+const placeVeinsForConfig = (options: PlaceVeinsOptions): void => {
+  const { blocks, config, count, next, ore, yMin, yMax } = options
+
+  for (let vein = 0; vein < count; vein += COUNT_STEP) {
+    const veinSize = config.minSize + Math.floor(next() * (config.maxSize - config.minSize + INCLUSIVE_RANGE_ADJUSTMENT))
+
+    for (let attempt = 0; attempt < MAX_SEED_ATTEMPTS; attempt += COUNT_STEP) {
+      const seedX = Math.floor(next() * CHUNK_SIZE_XZ)
+      const seedY = sampleOreY(config, yMin, yMax, next)
+      const seedZ = Math.floor(next() * CHUNK_SIZE_XZ)
+
+      if (readBlock(blocks, blockIndex(seedX, seedY, seedZ)) === BLOCK.STONE) {
+        growVein({ blocks, next, ore, seedX, seedY, seedZ, targetSize: veinSize, yMax, yMin })
+        break
+      }
+    }
+  }
 }
 
 /**
@@ -443,31 +635,13 @@ export const placeOres = (blocks: Uint8Array, seed: number, coord: ChunkCoord): 
     const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
 
     // `avgVeins - 1 + rng * 2` — the reference's ±1 variance around the mean.
-    const count = Math.max(0, Math.round(config.avgVeins - 1 + next() * 2))
+    const count = Math.max(MIN_VEIN_COUNT, Math.round(config.avgVeins - VEIN_COUNT_VARIANCE + next() * VEIN_COUNT_VARIANCE_RANGE))
 
     const yMin = Math.max(config.minY, ORE_MIN_Y_FLOOR)
-    const yMax = Math.min(config.maxY, CHUNK_HEIGHT - 1)
-    if (yMax < yMin) {
-      continue
-    }
+    const yMax = Math.min(config.maxY, CHUNK_HEIGHT - CHUNK_TOP_Y_OFFSET)
 
-    const ore = ORE_BLOCK[config.name]
-
-    for (let vein = 0; vein < count; vein += 1) {
-      const veinSize = config.minSize + Math.floor(next() * (config.maxSize - config.minSize + 1))
-
-      for (let attempt = 0; attempt < MAX_SEED_ATTEMPTS; attempt += 1) {
-        const seedX = Math.floor(next() * CHUNK_SIZE_XZ)
-        const seedY = sampleOreY(config, yMin, yMax, next)
-        const seedZ = Math.floor(next() * CHUNK_SIZE_XZ)
-
-        if (readBlock(blocks, blockIndex(seedX, seedY, seedZ)) !== BLOCK.STONE) {
-          continue
-        }
-
-        growVein(blocks, seedX, seedY, seedZ, veinSize, ore, yMin, yMax, next)
-        break
-      }
+    if (yMax >= yMin) {
+      placeVeinsForConfig({ blocks, config, count, next, ore: ORE_BLOCK[config.name], yMax, yMin })
     }
   }
 }

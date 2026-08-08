@@ -120,7 +120,10 @@ export const TREE_CELL_JITTER_SPAN = 3
  * window is centred, so that the lattice a saturated forest falls back to is the
  * cell centres rather than the cell corners.
  */
-export const TREE_CELL_JITTER_ORIGIN = Math.floor((TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN) / 2)
+/** The window is centred in the leftover span, so its start is offset by half of it. */
+const JITTER_WINDOW_CENTERING_DIVISOR = 2
+
+export const TREE_CELL_JITTER_ORIGIN = Math.floor((TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN) / JITTER_WINDOW_CENTERING_DIVISOR)
 
 /**
  * Radius of the square canopy `plantTree` writes, in columns.
@@ -139,7 +142,13 @@ export const TREE_CROWN_RADIUS = 2
  * checks both that this equals the measured minimum over a large field of cells
  * and that it satisfies `>= 2 * TREE_CROWN_RADIUS + 2`.
  */
-export const TREE_MIN_SPACING = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + 1
+/**
+ * Worst case is one candidate at the top of its jitter window and its neighbour at the bottom of
+ * the next cell's, one column further apart than the raw gap between windows.
+ */
+const MIN_SPACING_ADJACENT_WINDOW_OFFSET = 1
+
+export const TREE_MIN_SPACING = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + MIN_SPACING_ADJACENT_WINDOW_OFFSET
 
 const fract = (value: number): number => value - Math.floor(value)
 
@@ -171,9 +180,9 @@ export const treeCellCandidate = (cellX: number, cellZ: number): TreeCandidate =
   const cellRng = Math.sin(cellX * TREE_RNG_X_SCALE + cellZ * TREE_RNG_Z_SCALE) * TREE_RNG_AMPLITUDE
 
   return {
+    cellRng,
     worldX: cellX * TREE_GRID_SIZE + jitterOffset(cellRng, TREE_CELL_JITTER_X_SCALE),
     worldZ: cellZ * TREE_GRID_SIZE + jitterOffset(cellRng, TREE_CELL_JITTER_Z_SCALE),
-    cellRng,
   }
 }
 

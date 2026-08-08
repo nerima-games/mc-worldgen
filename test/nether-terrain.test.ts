@@ -6,6 +6,7 @@ import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from '../src/do
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
   generateNetherChunk,
+  generateNetherChunkAt,
   generateNetherTerrainChunk,
   NETHER_BLOCK,
   NETHER_LAVA_LEVEL,
@@ -76,6 +77,26 @@ describe('Nether terrain', () => {
 
   it('returns no sample when the column has no valid structure floor', () => {
     expect(netherStructureTerrainAt(0, -256, 0)).toBeUndefined()
+  })
+
+  it('answers air above and below the world column, the same guard `isWorldY` names elsewhere', () => {
+    // `netherBlockAt` is exported and documented as the authoritative query, not
+    // just an internal helper the generation loop happens to feed in-range `y`s
+    // — nothing else in this repository ever calls it with `y < 0` or
+    // `y >= CHUNK_HEIGHT`, but a caller (structure siting probing a neighbour,
+    // or an external consumer) legitimately can.
+    expect(netherBlockAt(1, 0, -1, 0)).toBe(NETHER_BLOCK.AIR)
+    expect(netherBlockAt(1, 0, CHUNK_HEIGHT, 0)).toBe(NETHER_BLOCK.AIR)
+  })
+
+  it('generateNetherChunkAt is the raw-coordinate form of generateNetherChunk', () => {
+    // Mirrors `generateEndChunkAt`'s and `generateChunkAt`'s own tests: this
+    // convenience wrapper (`seed, cx, cz` instead of a `ChunkCoord`) is the
+    // only thing that changes, and this is the one place that equivalence is
+    // pinned rather than merely implied by the two having near-identical
+    // bodies.
+    const seed = 5150
+    expect(generateNetherChunkAt(seed, -2, 7)).toStrictEqual(generateNetherChunk(seed, chunkCoord(-2, 7)))
   })
 
   it('applies a real ruined portal across all touched chunks and preserves markers', () => {
