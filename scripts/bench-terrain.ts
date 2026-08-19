@@ -37,30 +37,24 @@
  * The guard
  * ---------------------------------------------------------------------------
  *
- * `domain/seeded-random.ts` carries its own copy of the plan.md §5.2 octave
- * exception: `fbm2D` is `let` + `for` and its comment says the state thread is
- * deliberate, "written that way here so the convention is established before
- * mc-noise inherits it". A convention established by a comment is a convention
- * one refactor from being lost, so the same shipped-vs-frozen gate mc-noise
- * uses is applied here to `fbm2D`.
+ * `mc-noise` owns the shipped octave sampler. This benchmark keeps a frozen
+ * copy of the current terrain sampler shape so an accidental allocation-heavy
+ * rewrite is visible in the same place as the chunk-generation measurement.
  *
  * Everything below is seeded and deterministic. `SEED` is a constant.
  */
 import {
   carveCaves,
-  channelSeed,
   CHUNK_SIZE_XZ,
   climateAt,
   DEFAULT_TERRAIN_LEVELS,
   emptyBlocks,
-  fbm2D,
   generateChunk,
   surfaceHeightAt,
-  valueNoise2D,
-  worldX,
-  worldZ,
 } from '../src/index'
 import { chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { channelSeed, fbm2D, valueNoise2D } from '@nerima-games/mc-noise'
+import { worldX, worldZ } from '../src/domain/generator-coordinates'
 import {
   checkGuards,
   checkWorkloads,
@@ -137,7 +131,7 @@ const yardstick = (): void => {
 }
 
 // ---------------------------------------------------------------------------
-// Guard — the octave loop of domain/seeded-random.ts
+// Guard — the octave loop used by the terrain sampler
 // ---------------------------------------------------------------------------
 
 /**
@@ -170,7 +164,7 @@ const fbm2DFrozen = (
 }
 
 /**
- * The fold `domain/seeded-random.ts` exists to forbid. Same result, and
+ * The fold variant exists only as a regression control. Same result, and
  * `fbmEquivalence` checks that before anything is timed.
  */
 const fbm2DArrayReduce = (
@@ -313,7 +307,7 @@ const main = async (): Promise<number> => {
   const tolerances = tolerancesFrom(process.argv)
 
   console.log('mc-worldgen benchmark — median of 9 timed runs after warmup, per the reference implementation\n')
-  console.log(`  seed:              ${String(SEED)} (constant; check:deps bans every clock read repository-wide)`)
+  console.log(`  seed:              ${String(SEED)} (constant; generation has no clock source)`)
   console.log(`  chunk:             ${String(CHUNK_SIZE_XZ)} x ${String(CHUNK_SIZE_XZ)} x 256, sea level ${String(DEFAULT_TERRAIN_LEVELS.seaLevel)}`)
   console.log(`  load-time framing: x81 chunks at renderDistance=4`)
   console.log(`  distinct coords:   each timed call generates a different chunk (the reference's rule)\n`)
@@ -326,7 +320,7 @@ const main = async (): Promise<number> => {
   const guards: ReadonlyArray<Guard> = [
     {
       name: 'fbm-octave-loop/shipped-vs-frozen-imperative',
-      regression: 'the plan.md §5.2 octave exception restated in domain/seeded-random.ts',
+      regression: 'the terrain sampler octave loop',
       fastLabel: 'fbm2D (shipped)',
       slowLabel: 'frozen let + for copy',
       fastMs: shippedFbmMs,
@@ -335,7 +329,7 @@ const main = async (): Promise<number> => {
     },
     {
       name: 'fbm-octave-loop/array-from-reduce-vs-imperative',
-      regression: 'the plan.md §5.2 octave exception restated in domain/seeded-random.ts',
+      regression: 'the terrain sampler octave loop',
       fastLabel: 'let + for',
       slowLabel: 'Array.from().reduce',
       fastMs: shippedFbmMs,
@@ -343,7 +337,7 @@ const main = async (): Promise<number> => {
     },
   ]
 
-  console.log('the octave exception of domain/seeded-random.ts, as A/B ratios — machine-independent:\n')
+  console.log('the terrain sampler octave loop, as A/B ratios — machine-independent:\n')
   for (const guard of guards) {
     console.log(formatGuard(guard))
   }

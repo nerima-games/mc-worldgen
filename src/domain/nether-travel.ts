@@ -53,9 +53,10 @@
  *   §6's own settlement of the detector, where 「検出」 and 「点火」 went to
  *   different repositories and both readings of plan.md turned out to be right.
  *
- * What this file DOES NOT close is the row after it. Applying the plan — putting
- * something at `destination` and making a dimension current — needs an owner for
- * 「どの次元に居るのか」, and there is none: see the note on `Dimension` below.
+ * Applying the plan — putting something at `destination` and making a dimension
+ * current — remains host work. `PortalRegistry` owns the portal candidates and
+ * persistence, while the host materializes `portalToCreate`, updates its current
+ * dimension, and registers the resulting portal.
  *
  * ---------------------------------------------------------------------------
  * Constants
@@ -69,8 +70,8 @@
  * is a REUSE bound only. Too large reuses a portal further away than a player
  * would expect; too small builds a second portal beside an existing one. Neither
  * is a correctness failure, which is why it is a defaulted parameter rather than
- * a fixed constant — the caller that eventually owns the portal list can pass
- * its own without editing this file.
+ * a fixed constant — the registry passes its destination-dimension snapshot, while
+ * pure callers can pass their own candidate list without editing this file.
  *
  * `DEFAULT_PORTAL_WIDTH = 2` / `DEFAULT_PORTAL_HEIGHT = 3` — JUSTIFIED, and this
  * is the OTHER END of the corroboration `./portal-frame`'s bounds note relies

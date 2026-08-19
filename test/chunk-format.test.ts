@@ -59,7 +59,7 @@ import {
 import { CHUNK_VOLUME } from '../src/domain/constants'
 import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
 import { chunkCoord } from '@nerima-games/mc-kernel'
-import { planEndCityForRegion } from '../src/domain/natural-structure'
+import { planEndCityForRegion, type NaturalStructureChunk } from '../src/domain/natural-structure'
 import {
   decodeSave,
   encodeSave,
@@ -200,7 +200,7 @@ describe('the chunk format round-trips', () => {
     expect(FIXTURE.biomes.length).toBe(CHUNK_BIOME_COUNT)
   })
 
-  it.effect('CF-17: a legacy v1 payload without structure metadata decodes with empty arrays', () =>
+  it.effect('CF-17: a minimal v1 persistence payload without structure metadata decodes with empty arrays', () =>
     Effect.gen(function* () {
       const legacyPayload = {
         coord: ENCODED.coord,
@@ -232,6 +232,168 @@ describe('the chunk format round-trips', () => {
 
       expect(chunk.naturalStructureIds).toContain(plan.id)
       expect(chunk.naturalStructureMarkers.length).toBeGreaterThan(0)
+
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+
+      expect(restored).toStrictEqual(chunk)
+    }),
+  )
+
+  it.effect('CF-19: a desert-pyramid chunk preserves its loot marker kind and table', () =>
+    Effect.gen(function* () {
+      const structureId = 'desert-pyramid:1:0:0'
+      const marker: NaturalStructureChunk['naturalStructureMarkers'][number] = {
+        structureId,
+        structureKind: 'desert-pyramid',
+        kind: 'loot-chest',
+        lootTable: 'desert-pyramid',
+        x: 2,
+        y: 70,
+        z: 3,
+      }
+      const chunk = {
+        ...generateChunk(SEED, chunkCoord(0, 0)),
+        endFeatureIds: [],
+        endFeatureMarkers: [],
+        naturalStructureIds: [structureId],
+        naturalStructureMarkers: [marker],
+      }
+
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+
+      expect(restored).toStrictEqual(chunk)
+    }),
+  )
+
+  it.effect('CF-20: igloo, jungle-pyramid, mineshaft, ocean-monument, ocean-ruin, pillager-outpost, shipwreck, and bastion-remnant chunks preserve their semantic markers', () =>
+    Effect.gen(function* () {
+      const structureId = 'igloo:1:0:0'
+      const junglePyramidStructureId = 'jungle-pyramid:1:0:0'
+      const mineshaftStructureId = 'mineshaft:1:0:0'
+      const oceanMonumentStructureId = 'ocean-monument:1:0:0'
+      const oceanStructureId = 'ocean-ruin:1:0:0'
+      const outpostStructureId = 'pillager-outpost:1:0:0'
+      const shipwreckStructureId = 'shipwreck:1:0:0'
+      const bastionRemnantStructureId = 'bastion-remnant:1:0:0'
+      const markers: NaturalStructureChunk['naturalStructureMarkers'] = [
+        {
+          structureId,
+          structureKind: 'igloo',
+          kind: 'loot-chest',
+          lootTable: 'igloo',
+          x: 2,
+          y: 70,
+          z: 3,
+        },
+        {
+          structureId,
+          structureKind: 'igloo',
+          kind: 'entity-spawn',
+          entity: 'zombie-villager',
+          x: 1,
+          y: 70,
+          z: 1,
+        },
+        {
+          structureId: junglePyramidStructureId,
+          structureKind: 'jungle-pyramid',
+          kind: 'loot-chest',
+          lootTable: 'jungle-pyramid',
+          x: 2,
+          y: 67,
+          z: 2,
+        },
+        {
+          structureId: mineshaftStructureId,
+          structureKind: 'mineshaft',
+          kind: 'loot-chest',
+          lootTable: 'mineshaft',
+          x: 3,
+          y: 53,
+          z: 4,
+        },
+        {
+          structureId: oceanMonumentStructureId,
+          structureKind: 'ocean-monument',
+          kind: 'loot-chest',
+          lootTable: 'ocean-monument',
+          x: 4,
+          y: 53,
+          z: 4,
+        },
+        {
+          structureId: bastionRemnantStructureId,
+          structureKind: 'bastion-remnant',
+          kind: 'loot-chest',
+          lootTable: 'bastion-remnant',
+          x: 5,
+          y: 50,
+          z: 5,
+        },
+        {
+          structureId: bastionRemnantStructureId,
+          structureKind: 'bastion-remnant',
+          kind: 'entity-spawn',
+          entity: 'piglin',
+          x: 6,
+          y: 49,
+          z: 5,
+        },
+        {
+          structureId: bastionRemnantStructureId,
+          structureKind: 'bastion-remnant',
+          kind: 'entity-spawn',
+          entity: 'piglin-brute',
+          x: 4,
+          y: 49,
+          z: 5,
+        },
+        {
+          structureId: oceanStructureId,
+          structureKind: 'ocean-ruin',
+          kind: 'loot-chest',
+          lootTable: 'ocean-ruin',
+          x: 4,
+          y: 56,
+          z: 4,
+        },
+        {
+          structureId: outpostStructureId,
+          structureKind: 'pillager-outpost',
+          kind: 'loot-chest',
+          lootTable: 'pillager-outpost',
+          x: 0,
+          y: 73,
+          z: 1,
+        },
+        {
+          structureId: outpostStructureId,
+          structureKind: 'pillager-outpost',
+          kind: 'entity-spawn',
+          entity: 'pillager',
+          x: 1,
+          y: 73,
+          z: 1,
+        },
+        {
+          structureId: shipwreckStructureId,
+          structureKind: 'shipwreck',
+          kind: 'loot-chest',
+          lootTable: 'shipwreck',
+          x: 4,
+          y: 59,
+          z: 0,
+        },
+      ]
+      const chunk = {
+        ...generateChunk(SEED, chunkCoord(0, 0)),
+        endFeatureIds: [],
+        endFeatureMarkers: [],
+        naturalStructureIds: [structureId, junglePyramidStructureId, mineshaftStructureId, oceanMonumentStructureId, bastionRemnantStructureId, oceanStructureId, outpostStructureId, shipwreckStructureId],
+        naturalStructureMarkers: markers,
+      }
 
       const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)

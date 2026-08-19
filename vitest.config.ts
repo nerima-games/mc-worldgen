@@ -7,7 +7,8 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
-        maxForks: '50%',
+        // Keep coverage-time worker RPC responsive on hosts with many cores.
+        maxForks: 2,
         minForks: 1,
         isolate: true,
         singleFork: false,
@@ -45,8 +46,8 @@ export default defineConfig({
       all: true,
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      // TEST_STANDARD.md §3: 4-metric 99% gate, enabled org-wide, no phase-in.
-      thresholds: { branches: 99, functions: 99, lines: 99, statements: 99 },
+      // TEST_STANDARD.md §3: 4-metric 100% gate, enabled org-wide, no phase-in.
+      thresholds: { branches: 100, functions: 100, lines: 100, statements: 100 },
     },
   },
   esbuild: {

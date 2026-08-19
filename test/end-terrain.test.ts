@@ -3,6 +3,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_VOLUME, blockIndex } from '../src/domain/constants'
+import { END_FEATURE_BLOCK, endFeaturePlanForSeed } from '../src/domain/end-features'
 import {
   END_BASE_Y,
   END_OUTER_ISLAND_START,
@@ -47,6 +48,24 @@ describe('End terrain', () => {
     expect(first).toStrictEqual(second)
     expect(first.blocks.every((block) => block === 0 || block === END_STONE_BLOCK_ID)).toBe(true)
     expect(first.blocks).toHaveLength(16 * 16 * CHUNK_HEIGHT)
+  })
+
+  it('projects the generated spike plan into the owning chunk', () => {
+    const seed = 42
+    const plan = endFeaturePlanForSeed(seed)
+    const spike = plan.spikes[0]
+    if (!spike) throw new Error('expected the generated End plan to contain spikes')
+    const cx = Math.floor(spike.centerX / 16)
+    const cz = Math.floor(spike.centerZ / 16)
+    const chunk = generateEndChunk(seed, chunkCoord(cx, cz))
+    const localX = spike.centerX - cx * 16
+    const localZ = spike.centerZ - cz * 16
+
+    expect(chunk.endFeatureIds).toStrictEqual([plan.id])
+    expect(chunk.blocks[blockIndex(localX, 0, localZ)]).toBe(END_FEATURE_BLOCK.OBSIDIAN)
+    expect(chunk.endFeatureMarkers.some((marker) => marker.kind === 'end-crystal' && marker.featureId === plan.id)).toBe(
+      true,
+    )
   })
 
   it('applies every city and ship slice with marker provenance across chunk boundaries', () => {

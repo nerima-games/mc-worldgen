@@ -34,7 +34,7 @@ import {
   unpackZ,
   updateChunkLights,
 } from '../src/domain/light'
-import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { BlockId, blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 // ---------------------------------------------------------------------------
 // Block ids kernel names and `domain/biome.ts`'s `BLOCK` does not.
@@ -43,9 +43,8 @@ import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-gam
 // repository's GENERATOR places. Torches and glowstone are placed by nobody
 // here — they arrive from a rule in another repository — so they are written as
 // the literals kernel's `BLOCK_REGISTRY` assigns, with the emission that makes
-// them worth testing. `mc-kernel` transcribes the same rows,
-// and `test/kernel-mirror.test.ts` is what pins the transcription; naming them
-// again here would be a third copy.
+// them worth testing. `mc-kernel` provides the canonical registry; this test
+// exercises propagation rather than duplicating those rows.
 // ---------------------------------------------------------------------------
 
 /**
@@ -58,6 +57,8 @@ import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-gam
 const TORCH = BlockId(14)
 /** `lightEmission: 15`, and `opacity: 'opaque'` — the case that needs its own rule. */
 const GLOWSTONE = BlockId(15)
+const REDSTONE_ORE = blockIdOf('redstone_ore')
+const DEEPSLATE_REDSTONE_ORE = blockIdOf('deepslate_redstone_ore')
 
 const PLAINS_BIOMES = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const)
 
@@ -135,7 +136,7 @@ describe('the 4-bit light grid', () => {
   it.effect('a fresh grid is entirely dark, and is the size the reference says', () =>
     Effect.sync(() => {
       // 16 × 16 × 256 / 2. One byte per voxel would make the two grids TWICE the
-      // size of the block buffer they describe; see `domain/light.ts`.
+      // size of the block buffer they describe; see `src/domain/light-grid.ts`.
       expect(LIGHT_BYTE_LENGTH).toBe(32768)
 
       const light = emptyChunkLight()
@@ -339,20 +340,29 @@ describe('block light', () => {
     }),
   )
 
+  it.effect('uses the kernel emission table for both redstone ore variants', () =>
+    Effect.sync(() => {
+      const y = SURFACE_Y + 1
+
+      for (const block of [REDSTONE_ORE, DEEPSLATE_REDSTONE_ORE]) {
+        const chunk = sealedRoom()
+        chunk.blocks[blockIndex(4, y, 4)] = block
+
+        const light = computeChunkLight(chunk)
+
+        expect(getLightAt(light.block, blockIndex(4, y, 4))).toBe(9)
+        expect(getLightAt(light.block, blockIndex(5, y, 4))).toBe(8)
+      }
+    }),
+  )
+
   /**
-   * THE FOURTEEN EMITTERS THE MIRROR HAD LOST, measured through the light grid.
+   * Emitter levels are measured through the light grid rather than reduced to
+   * a boolean `emissive` flag.
    *
-   * `mc-kernel` carried three emitting rows while kernel had
-   * seventeen, so every other emitter fell through to `LIGHT_LEVEL_MIN` and this
-   * pass seeded nothing for it. A redstone torch lit nothing; a nether portal
-   * lit nothing. The transcription is fixed and pinned by
-   * `test/kernel-mirror.test.ts`, but that file only asserts what
-   * `lightEmissionOfBlockId` ANSWERS — it never runs the propagation, so it
-   * cannot show that a placed emitter actually lights a room.
-   *
-   * These are the levels a boolean `emissive` could not have expressed, which is
-   * why they are worth measuring separately rather than trusting the torch test
-   * to stand in for all seventeen rows.
+   * `mc-kernel` provides the registry lookup, but it does not run this
+   * propagation, so these tests show that a placed emitter actually lights a
+   * room at the level declared by the registry.
    */
   const REDSTONE_TORCH = BlockId(75)
   const NETHER_PORTAL = BlockId(118)
@@ -366,8 +376,8 @@ describe('block light', () => {
 
       const light = computeChunkLight(chunk)
 
-      // Before the mirror was re-transcribed this cell read 0 and the room
-      // stayed dark, which is the DARK direction DN-7 names as non-conservative.
+      // The registry supplies level 7; propagation must preserve it at the
+      // source and decrement it only when crossing an air cell.
       expect(getLightAt(light.block, blockIndex(4, y, 4))).toBe(7)
       expect(getLightAt(light.block, blockIndex(5, y, 4))).toBe(6)
       expect(getLightAt(light.block, blockIndex(7, y, 4))).toBe(4)
@@ -517,7 +527,7 @@ describe('block light', () => {
 
   it.effect('keeps the single-chunk API isolated when no neighbour is resident', () =>
     Effect.sync(() => {
-      // `domain/light.ts`'s header argues this at length and names the failure
+      // `src/domain/light.ts`'s header argues this at length and names the failure
       // mode: a hostile spawning inside the lit border of a torch-lit room on
       // the far side of a seam. It is pinned so that the day cross-chunk
       // propagation lands, this test is what has to be rewritten — rather than

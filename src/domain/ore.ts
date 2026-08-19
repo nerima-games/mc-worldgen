@@ -4,9 +4,7 @@
  * plan.md §3.7 gives this repository 鉱石. Ported from the reference
  * implementation's `packages/world/domain/terrain/ore-generator.ts` (187 LOC,
  * `docs/porting.md` §5), with the vein-growth algorithm transcribed and the
- * DEPTH BANDS re-derived. Read the section on the bands before touching a
- * number: three of the seven were not portable and it is provable rather than
- * arguable.
+ * depth bands re-derived for this generator's terrain.
  *
  * ---------------------------------------------------------------------------
  * PASS ORDER: AFTER THE CARVER, BEFORE DECORATION, AND NOT OPTIONAL
@@ -26,15 +24,13 @@
  * golden row would stop being 「the FOREST chunk without the vegetation pass」.
  *
  * ---------------------------------------------------------------------------
- * THE DEPTH BANDS. THREE OF SEVEN DO NOT PORT, AND THE CEILING IS DERIVABLE
+ * THE DEPTH BANDS FOLLOW THE LOCAL STRATUM
  * ---------------------------------------------------------------------------
  *
- * `ORE_CONFIGS` (`terrain/constants.ts:71-79`) is tuned for the reference's
- * terrain, which has a MOUNTAINS biome, an overhang pass and a taller stone
- * column. Transcribing its Y bands here would be the exact failure this
- * repository already has on record for `CONTINENTALNESS_CONTRAST`
- * (`./terrain.ts`): a figure justified by a measurement of a different
- * population.
+ * `ORE_CONFIGS` (`terrain/constants.ts:71-79`) is tuned for a different
+ * terrain population. The local bands therefore follow the actual stone and
+ * deepslate strata produced by `./terrain.ts`, while preserving the reference
+ * vein rates and sizes where the local block distribution can realise them.
  *
  * THE CEILING IS NOT A MEASUREMENT, IT IS A CONSTRUCTION. `./terrain.ts`'s
  * `fillColumn` writes STONE over `[BEDROCK_Y + 1, surfaceY - FILLER_DEPTH)` and
@@ -156,28 +152,14 @@
  * exactly the day nobody would think to add it.
  *
  * ---------------------------------------------------------------------------
- * NO DEEPSLATE VARIANTS, AND THAT IS A MISSING STRATUM RATHER THAN A SHORTCUT
+ * DEEPSLATE HOSTS AND ORE VARIANTS
  * ---------------------------------------------------------------------------
  *
- * Kernel carries all fourteen rows — seven ores in stone/deepslate pairs, ids
- * 50-63 (`block-registry.ts:1329-1544`) — and the reference chooses between them
- * per cell: `blocks[idx] = cy < DEEPSLATE_CEILING ? deepslateOreIndex :
- * oreIndex` (`ore-generator.ts`), with `DEEPSLATE_CEILING = 16`
- * (`terrain/constants.ts:17`).
- *
- * That branch is a fact about the STONE, not about the ore: below y=16 the
- * reference's `fillColumn` equivalent writes deepslate rather than stone, so
- * `deepslate_coal_ore` is coal embedded in the rock that is actually there.
- * `./terrain.ts` writes `BLOCK.STONE` from `BEDROCK_Y + 1` to the filler, with
- * no deepslate band at all. Writing `deepslate_coal_ore` into ordinary stone
- * would be inventing a stratum: the player would mine deepslate ore out of a
- * wall of grey stone, and mc-render would draw the two textures adjacent with
- * nothing between them.
- *
- * So the seven stone variants are placed and the seven deepslate ones are owed,
- * together with the deepslate band itself. `docs/porting.md` §5 records it as
- * one item rather than two, because doing either half alone is what produces the
- * artefact above.
+ * Kernel carries fourteen ore blocks — seven stone/deepslate pairs — and the
+ * terrain pass writes deepslate in `[BEDROCK_Y + 1, DEEPSLATE_CEILING)`.
+ * `oreTargetAt` selects the matching host and ore for each Y coordinate. The
+ * placement boundary then replaces only that host, so a deepslate ore cannot
+ * appear in ordinary stone and a stone ore cannot replace deepslate.
  *
  * ---------------------------------------------------------------------------
  * THE SEED, AGAIN
@@ -187,14 +169,20 @@
  * cfg.saltX, cfg.saltZ)` (`math.ts:20-28`), which takes NO WORLD SEED — so every
  * world would carry its ore in the same places. `./vegetation.ts`'s header
  * records the same finding for plants and the reasoning is identical, so the
- * world seed is folded in here through `./seeded-random`'s `channelSeed`. The
+ * world seed is folded in here through `@nerima-games/mc-noise`'s `channelSeed`. The
  * reference's mixing constants and its per-ore salts ARE transcribed, because
  * unlike the plant salts they do work that a channel name does not: they
  * decorrelate ADJACENT CHUNKS of the same ore, not two streams of one chunk.
  */
-import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import { channelSeed, mulberry32 } from './seeded-random'
+import {
+  BEDROCK_Y,
+  CHUNK_HEIGHT,
+  CHUNK_SIZE_XZ,
+  DEEPSLATE_CEILING,
+  blockIndex,
+} from './constants'
+import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
+import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
 import { BLOCK } from './biome'
 import { readBlock } from './chunk'
 
@@ -205,50 +193,50 @@ import { readBlock } from './chunk'
  * Held outside `./biome.ts`'s `BLOCK` for the reason `./vegetation.ts` states:
  * `BLOCK` is in `api-lock.md` and this file is not re-exported by `index.ts`.
  *
- * All seven are ordinary opaque cubes in kernel, so `mc-kernel`'s
- * opaque default already answers for them and `./light.ts` needs no change.
- * `redstone_ore` alone emits light 9 there (`block-registry.ts:1361-1363`); this
- * repository does not transcribe that column for these ids, so a wall of
- * redstone reads as dark. That is the CONSERVATIVE direction for the one rule
- * that consumes block light (`docs/design-notes.md` DN-7), and it is a kernel
- * request rather than a local fix — see `test/ore.test.ts`.
+ * The kernel registry owns the properties of these blocks, including their
+ * opacity and emission. `light-propagation.ts` reads that registry through
+ * `lightEmissionOfBlockId`, so both redstone ore variants use the kernel value
+ * without a second local light-emission table.
  */
-/**
- * The raw `mc-kernel` `BLOCK_REGISTRY` ids named above, kept as their own
- * table so the id itself carries the kernel row it came from rather than
- * sitting as an unnamed literal inside the `BlockId(...)` calls below.
- */
-const KERNEL_ORE_BLOCK_ID = {
-  /** `block-registry.ts:1367`. */
-  COAL: 50,
-  /** `block-registry.ts:1404`. */
-  DIAMOND: 53,
-  /** `block-registry.ts:1444`. */
-  EMERALD: 56,
-  /** `block-registry.ts:1392`. */
-  GOLD: 52,
-  /** `block-registry.ts:1380`. */
-  IRON: 51,
-  /** `block-registry.ts:1431`. */
-  LAPIS: 55,
-  /** `block-registry.ts:1417`. */
-  REDSTONE: 54,
+export const ORE_BLOCK = {
+  COAL: blockIdOf('coal_ore'),
+  DIAMOND: blockIdOf('diamond_ore'),
+  EMERALD: blockIdOf('emerald_ore'),
+  GOLD: blockIdOf('gold_ore'),
+  IRON: blockIdOf('iron_ore'),
+  LAPIS: blockIdOf('lapis_ore'),
+  REDSTONE: blockIdOf('redstone_ore'),
 } as const
 
-export const ORE_BLOCK = {
-  COAL: BlockId(KERNEL_ORE_BLOCK_ID.COAL),
-  DIAMOND: BlockId(KERNEL_ORE_BLOCK_ID.DIAMOND),
-  EMERALD: BlockId(KERNEL_ORE_BLOCK_ID.EMERALD),
-  GOLD: BlockId(KERNEL_ORE_BLOCK_ID.GOLD),
-  IRON: BlockId(KERNEL_ORE_BLOCK_ID.IRON),
-  LAPIS: BlockId(KERNEL_ORE_BLOCK_ID.LAPIS),
-  REDSTONE: BlockId(KERNEL_ORE_BLOCK_ID.REDSTONE),
+export const DEEPSLATE_ORE_BLOCK = {
+  COAL: blockIdOf('deepslate_coal_ore'),
+  DIAMOND: blockIdOf('deepslate_diamond_ore'),
+  EMERALD: blockIdOf('deepslate_emerald_ore'),
+  GOLD: blockIdOf('deepslate_gold_ore'),
+  IRON: blockIdOf('deepslate_iron_ore'),
+  LAPIS: blockIdOf('deepslate_lapis_ore'),
+  REDSTONE: blockIdOf('deepslate_redstone_ore'),
 } as const
 
 export type OreName = keyof typeof ORE_BLOCK
 
 /** Every id this module can write. */
-export const ORE_IDS: ReadonlyArray<number> = Object.values(ORE_BLOCK)
+export const ORE_IDS: ReadonlyArray<number> = [
+  ...Object.values(ORE_BLOCK),
+  ...Object.values(DEEPSLATE_ORE_BLOCK),
+]
+
+type OreTarget = Readonly<{
+  host: BlockId
+  ore: BlockId
+}>
+
+const oreTargetAt = (name: OreName, y: number): OreTarget => {
+  if (y < DEEPSLATE_CEILING) {
+    return { host: BLOCK.DEEPSLATE, ore: DEEPSLATE_ORE_BLOCK[name] }
+  }
+  return { host: BLOCK.STONE, ore: ORE_BLOCK[name] }
+}
 
 /**
  * Lowest cell an ore may occupy — the local value of the reference's
@@ -468,7 +456,7 @@ type DepthBand = {
  *    CELL_COMPONENT_COUNT` (`swapRemoveCell`), so it is always a positive
  *    multiple of `CELL_COMPONENT_COUNT` whenever `growVein`'s loop body runs
  *    (guarded by `stack.length > EMPTY_STACK_LENGTH`).
- *  - `mulberry32` (`seeded-random.ts`, `@nerima-games/mc-noise`) returns
+ *  - `mulberry32` (`@nerima-games/mc-noise`) returns
  *    `((t ^ (t >>> 14)) >>> 0) / UINT32_MODULUS`, an unsigned 32-bit integer
  *    divided by its own modulus, which is strictly `< 1` for every `t`. So
  *    `pickIndex = floor(next() * (length / 3)) * 3` is at most
@@ -520,8 +508,14 @@ const isWithinChunkBounds = (cx: number, cz: number): boolean =>
 // The vertical clamp enforces the depth band. It is NOT what keeps ore out of the bedrock floor — the STONE test below is. See this file's header.
 const isWithinDepthBand = (cy: number, band: DepthBand): boolean => cy >= band.yMin && cy <= band.yMax
 
-/** Places `ore` at `candidate` if it is a legal, STONE cell. Reports whether it did. */
-const tryPlaceOreAt = (blocks: Uint8Array, candidate: VeinCandidate, ore: BlockId, band: DepthBand): boolean => {
+/** Places `ore` at `candidate` if it is a legal host cell. Reports whether it did. */
+const tryPlaceOreAt = (
+  blocks: Uint8Array,
+  candidate: VeinCandidate,
+  host: BlockId,
+  ore: BlockId,
+  band: DepthBand,
+): boolean => {
   const { cx, cy, cz } = candidate
 
   if (!isWithinChunkBounds(cx, cz) || !isWithinDepthBand(cy, band)) {
@@ -530,7 +524,7 @@ const tryPlaceOreAt = (blocks: Uint8Array, candidate: VeinCandidate, ore: BlockI
 
   const index = blockIndex(cx, cy, cz)
 
-  if (readBlock(blocks, index) !== BLOCK.STONE) {
+  if (readBlock(blocks, index) !== host) {
     return false
   }
 
@@ -555,6 +549,7 @@ export type GrowVeinOptions = {
   readonly seedY: number
   readonly seedZ: number
   readonly targetSize: number
+  readonly host: BlockId
   readonly ore: BlockId
   readonly yMin: number
   readonly yMax: number
@@ -562,7 +557,7 @@ export type GrowVeinOptions = {
 }
 
 export const growVein = (options: GrowVeinOptions): number => {
-  const { blocks, seedX, seedY, seedZ, targetSize, ore, yMin, yMax, next } = options
+  const { blocks, seedX, seedY, seedZ, targetSize, host, ore, yMin, yMax, next } = options
   const band: DepthBand = { yMax, yMin }
   let placed = 0
   const stack: Array<number> = [seedX, seedY, seedZ]
@@ -570,7 +565,7 @@ export const growVein = (options: GrowVeinOptions): number => {
   while (placed < targetSize && stack.length > EMPTY_STACK_LENGTH) {
     const candidate = popRandomCandidate(stack, next)
 
-    if (tryPlaceOreAt(blocks, candidate, ore, band)) {
+    if (tryPlaceOreAt(blocks, candidate, host, ore, band)) {
       placed += COUNT_STEP
       pushNeighbors(stack, candidate)
     }
@@ -595,25 +590,55 @@ type PlaceVeinsOptions = {
   readonly config: OreConfig
   readonly count: number
   readonly next: () => number
-  readonly ore: BlockId
+  readonly name: OreName
   readonly yMin: number
   readonly yMax: number
 }
 
+type PlaceVeinAttemptOptions = {
+  readonly blocks: Uint8Array
+  readonly config: OreConfig
+  readonly name: OreName
+  readonly next: () => number
+  readonly veinSize: number
+  readonly yMax: number
+  readonly yMin: number
+}
+
+const placeVeinAttempt = ({ blocks, config, name, next, veinSize, yMax, yMin }: PlaceVeinAttemptOptions): boolean => {
+  const seedX = Math.floor(next() * CHUNK_SIZE_XZ)
+  const seedY = sampleOreY(config, yMin, yMax, next)
+  const seedZ = Math.floor(next() * CHUNK_SIZE_XZ)
+  const target = oreTargetAt(name, seedY)
+
+  if (readBlock(blocks, blockIndex(seedX, seedY, seedZ)) !== target.host) {
+    return false
+  }
+
+  growVein({
+    blocks,
+    host: target.host,
+    next,
+    ore: target.ore,
+    seedX,
+    seedY,
+    seedZ,
+    targetSize: veinSize,
+    yMax,
+    yMin,
+  })
+  return true
+}
+
 /** Places every vein for one ore config, each re-rolled up to `MAX_SEED_ATTEMPTS` times. */
 const placeVeinsForConfig = (options: PlaceVeinsOptions): void => {
-  const { blocks, config, count, next, ore, yMin, yMax } = options
+  const { blocks, config, count, next, name, yMin, yMax } = options
 
   for (let vein = 0; vein < count; vein += COUNT_STEP) {
     const veinSize = config.minSize + Math.floor(next() * (config.maxSize - config.minSize + INCLUSIVE_RANGE_ADJUSTMENT))
 
     for (let attempt = 0; attempt < MAX_SEED_ATTEMPTS; attempt += COUNT_STEP) {
-      const seedX = Math.floor(next() * CHUNK_SIZE_XZ)
-      const seedY = sampleOreY(config, yMin, yMax, next)
-      const seedZ = Math.floor(next() * CHUNK_SIZE_XZ)
-
-      if (readBlock(blocks, blockIndex(seedX, seedY, seedZ)) === BLOCK.STONE) {
-        growVein({ blocks, next, ore, seedX, seedY, seedZ, targetSize: veinSize, yMax, yMin })
+      if (placeVeinAttempt({ blocks, config, name, next, veinSize, yMax, yMin })) {
         break
       }
     }
@@ -632,7 +657,7 @@ export const placeOres = (blocks: Uint8Array, seed: number, coord: ChunkCoord): 
   const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
 
   for (const config of ORE_CONFIGS) {
-    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
+    const next = mulberry32(NoiseSeed(oreStreamSeed(seed, config, baseWorldX, baseWorldZ)))
 
     // `avgVeins - 1 + rng * 2` — the reference's ±1 variance around the mean.
     const count = Math.max(MIN_VEIN_COUNT, Math.round(config.avgVeins - VEIN_COUNT_VARIANCE + next() * VEIN_COUNT_VARIANCE_RANGE))
@@ -641,7 +666,7 @@ export const placeOres = (blocks: Uint8Array, seed: number, coord: ChunkCoord): 
     const yMax = Math.min(config.maxY, CHUNK_HEIGHT - CHUNK_TOP_Y_OFFSET)
 
     if (yMax >= yMin) {
-      placeVeinsForConfig({ blocks, config, count, next, ore: ORE_BLOCK[config.name], yMax, yMin })
+      placeVeinsForConfig({ blocks, config, count, name: config.name, next, yMax, yMin })
     }
   }
 }

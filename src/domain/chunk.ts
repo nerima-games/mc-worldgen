@@ -1,29 +1,16 @@
 /**
- * The chunk value.
+ * The generation chunk value.
  *
- * PRE-AUDIT FIRST CUT (叩き台).
+ * This is a generation buffer rather than a structural alias for mc-kernel's
+ * persisted/runtime `Chunk`: the decoration pipeline needs a flat fixed-height
+ * block buffer and one biome value per column, while the kernel type currently
+ * has a different storage shape. Keeping that boundary explicit lets terrain,
+ * carving, lighting, and decoration share one allocation without pretending
+ * the two representations are interchangeable.
  *
- * plan.md §3.1 puts the `Chunk` data structure in mc-kernel, and this module
- * will be deleted in favour of that once kernel is publishable (plan.md §6
- * Step 0 defers publishing until the interfaces settle). It is here so
- * mc-worldgen can be built and tested today; the shape deliberately matches
- * what kernel is expected to define, so the swap is an import change.
- *
- * ---------------------------------------------------------------------------
- * `ChunkCoord` used to be declared here, as `{x, z}`. It is now kernel's.
- * ---------------------------------------------------------------------------
- *
- * Two spellings of one coordinate existed across the roster — kernel's
- * `{cx, cz}` and this repository's `{x, z}` — and this module's header already
- * conceded that kernel would own the type. It now does: `ChunkCoord` comes from
- * `mc-kernel`, which explains why the `c` prefix is worth having
- * (with `{x, z}`, passing a chunk coordinate where a block coordinate belongs
- * is silent; with `{cx, cz}` it is a type error).
- *
- * `ChunkCoord` is imported rather than re-exported: two `export *` barrels that
- * both carry one name make it AMBIGUOUS, and TypeScript resolves an ambiguous
- * star re-export by silently dropping the name from the barrel. Import it from
- * `mc-kernel`, which is where it lives.
+ * `ChunkCoord` is imported from mc-kernel, which is the single owner of the
+ * `{cx, cz}` coordinate vocabulary. A chunk coordinate therefore cannot be
+ * confused with a block coordinate through the old `{x, z}` spelling.
  */
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants'
@@ -74,7 +61,3 @@ export const columnIndex = (lx: number, lz: number): number => lz * CHUNK_SIZE_X
 
 export const biomeAt = (chunk: Chunk, lx: number, lz: number): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'
-
-/** World-space coordinates of a chunk-local column. */
-export const worldX = (coord: ChunkCoord, lx: number): number => coord.cx * CHUNK_SIZE_XZ + lx
-export const worldZ = (coord: ChunkCoord, lz: number): number => coord.cz * CHUNK_SIZE_XZ + lz

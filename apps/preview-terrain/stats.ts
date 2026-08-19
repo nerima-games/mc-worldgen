@@ -61,7 +61,7 @@ import {
   MIN_SURFACE_Y,
   surfaceHeightAt,
 } from '../../src/domain/terrain'
-import { channelSeed, fbm2D } from '../../src/domain/seeded-random'
+import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
 import { TREE_CROWN_RADIUS, TREE_GRID_SIZE, TREE_MIN_SPACING } from '../../src/domain/tree-placement'
 import { chunkFor, sampleColumn, type ChunkCache, type WorldParams } from './sampler'
 

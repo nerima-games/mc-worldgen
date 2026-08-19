@@ -84,7 +84,7 @@
  *                               0.055 band classified ~16% of the world as RIVER
  *                               (vanilla ~3-6%)」. A band width is a statement
  *                               about a DISTRIBUTION, so it does not survive a
- *                               change of noise, and `./seeded-random.ts`'s
+ *                               change of noise, and `@nerima-games/mc-noise`'s
  *                               `valueNoise2D` is smoothed value noise rather
  *                               than the reference's Perlin.
  *
@@ -134,39 +134,31 @@
  *                               written as its own constant, because it is a
  *                               ravine's floor and not a cave's.
  *
- * TWO OF THE REFERENCE'S CONSTANTS ARE DELIBERATELY ABSENT.
+ * ONE OF THE REFERENCE'S CONSTANTS IS DELIBERATELY ABSENT.
  *
  *   RAVINE_WORLD_OFFSET 40_000 (`:11`) is not here. Its job is to decorrelate
  *   the ravine field from the river field, which the reference has to do by
  *   translating the sample point because its noise service is seeded once
  *   globally (`RIVER_WORLD_OFFSET` is 20_000 for the same reason). This
- *   repository decorrelates by CHANNEL — `channelSeed(seed, 'ravines')` — and
- *   `./seeded-random.ts` says why that shape was chosen: 「adding a channel does
- *   not require inventing and documenting another magic number」.
+ *   repository decorrelates by CHANNEL — `channelSeed(seed, 'ravines')` — so a
+ *   named stream replaces another magic coordinate offset.
  *   `./vegetation.ts` dropped the reference's two placement salts on exactly
  *   this argument. Carrying the offset as well would be carrying a second
  *   decorrelator for a correlation that no longer exists.
  *
- *   RAVINE_LAVA_BED_BELOW_Y 16 (`:17`) is not here, and this one is a
- *   REACHABILITY finding rather than a preference. The reference floods the
- *   ravine floor with lava when `floorY <= 16`, and 16 is its
+ *   RAVINE_LAVA_BED_BELOW_Y 16 (`:17`) is implemented below. The reference
+ *   floods the ravine floor with lava when `floorY <= 16`, and 16 is its
  *   `DEEPSLATE_CEILING` (`terrain/constants.ts:17`) — the rule is "a cut deep
  *   enough to reach the deepslate reaches the lava table".
  *
- *   IN THIS REPOSITORY THAT BRANCH CAN NEVER RUN, and it is arithmetic rather
- *   than measurement. The water guard refuses every column whose `surfaceY + 1`
- *   holds water, and `./terrain.ts` fills water from `surfaceY + 1` up to
- *   `seaLevel`, so a carved column has `surfaceY >= seaLevel` = 63. `floorY` is
- *   at least `surfaceY - RAVINE_MAX_DEPTH` = 35, which is never <= 16. Adding
- *   the branch would have meant adding a LAVA id, a `test/kernel-mirror.test.ts`
- *   row and a `BLOCK_NAMES` row for a code path with no reachable input — the
- *   exact shape of the COAL `peakY = 96` error `./ore.ts` records, where a
- *   transcribed band sat above a ceiling the terrain could not reach.
+ *   Ordinary generated Overworld columns still cannot reach that branch: the
+ *   water guard and terrain surface range put their lowest possible floor at
+ *   35. The direct ravine target contract can nevertheless supply a lower
+ *   surface, so the boundary behavior is explicit and covered without
+ *   perturbing the normal terrain goldens.
  *
- *   Kernel already assigns lava id 11 and `mc-kernel` already
- *   mirrors it in both tables (`'fluid'`, emission 15), so the day this
- *   repository grows a deepslate stratum the branch costs one constant and no
- *   new mirror work. `../docs/porting.md` records it as owed.
+ *   The kernel registry provides lava's block, fluid, and emission properties,
+ *   so this module uses the same canonical registry as the rest of generation.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS PASS LEAVES STANDING IN MID-AIR, AND WHICH HALF IS FIXED
@@ -204,8 +196,9 @@
  */
 import { BLOCK, type BiomeType } from './biome'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { channelSeed, valueNoise2D } from './seeded-random'
-import { columnIndex, readBlock, worldX, worldZ } from './chunk'
+import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
+import { columnIndex, readBlock } from './chunk'
+import { worldX, worldZ } from './generator-coordinates'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import { PLANT_IDS } from './vegetation'
 
@@ -232,6 +225,9 @@ export const RAVINE_MIN_DEPTH = 3
 
 /** No ravine floor is ever below this. `ravine-carver.ts:53`. */
 export const RAVINE_FLOOR_Y = 6
+
+/** A sufficiently deep ravine fills its floor with lava. `ravine-carver.ts:17`. */
+export const RAVINE_LAVA_BED_BELOW_Y = 16
 
 /** Depth returned for a column the band does not reach at all. */
 const RAVINE_NOT_CARVED_DEPTH = 0
@@ -272,7 +268,7 @@ export type RavineOptions = {
  * Position-absolute like every other field in this repository, which is what
  * makes a ravine cross a chunk border as one canyon rather than as two
  * unrelated trenches: neighbouring chunks sampling the same world column get
- * the same value (`./seeded-random.ts`, `latticeValue`).
+ * the same value (`@nerima-games/mc-noise`, `latticeValue`).
  *
  * Exported because it is the cheapest possible question about a ravine and the
  * preview asks it per column, the same way it asks `shouldPlaceTree` — it must
@@ -443,15 +439,14 @@ const resolveRavineCut = (
 const applyRavineCut = (blocks: Uint8Array, lx: number, lz: number, cut: RavineCut): void => {
   for (let y = Math.min(cut.surfaceY, CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET); y > cut.floorY; y--) {
     const index = blockIndex(lx, y, lz)
-    // Defensive and currently unreachable — `floorY` is at least
-    // `RAVINE_FLOOR_Y` = 6 and `BEDROCK_Y` is 0, so the loop never descends
-    // To the floor slab. Kept because the reference keeps it (`:56`) and
-    // Because the day it earns its place is the day someone lowers
-    // `RAVINE_FLOOR_Y`, which is exactly the day nobody would think to add
-    // It. `./ore.ts` records `ORE_MIN_Y_FLOOR` under the same heading.
+    // Preserve bedrock if a future floor configuration reaches it.
     if (readBlock(blocks, index) !== BLOCK.BEDROCK) {
       blocks[index] = BLOCK.AIR
     }
+  }
+
+  if (cut.surfaceY > cut.floorY && cut.floorY <= RAVINE_LAVA_BED_BELOW_Y) {
+    blocks[blockIndex(lx, cut.floorY, lz)] = BLOCK.LAVA
   }
 
   clearGroundCover(blocks, lx, cut.surfaceY, lz)

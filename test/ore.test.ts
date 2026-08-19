@@ -21,11 +21,13 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOME_SURFACES, BLOCK } from '../src/domain/biome'
-import { readBlock, worldX, worldZ, type Chunk } from '../src/domain/chunk'
-import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
+import { BLOCK } from '../src/domain/biome'
+import { readBlock, type Chunk } from '../src/domain/chunk'
+import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { worldX, worldZ } from '../src/domain/generator-coordinates'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
+  DEEPSLATE_ORE_BLOCK,
   MAX_SEED_ATTEMPTS,
   ORE_BLOCK,
   ORE_CONFIGS,
@@ -36,9 +38,10 @@ import {
   oreStreamSeed,
   sampleOreY,
   type OreConfig,
+  type OreName,
 } from '../src/domain/ore'
-import { mulberry32 } from '../src/domain/seeded-random'
-import { biomeFor, MAX_SURFACE_Y, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
+import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 
 const ORE_ID_SET = new Set<number>(ORE_IDS)
@@ -47,10 +50,10 @@ const ORE_ID_SET = new Set<number>(ORE_IDS)
  * The reference's `ORE_CONFIGS`, verbatim from
  * `packages/world/domain/terrain/constants.ts:72-78`.
  *
- * Restated here rather than imported, for the same reason
- * `test/kernel-mirror.test.ts` restates kernel's rows: the reference is not a
- * dependency, and the point of the comparison is that a reviewer can check the
- * transcription against the source without running anything.
+ * Restated here rather than imported so the comparison remains explicit: the
+ * reference is not a dependency, and the point of the comparison is that a
+ * reviewer can check the transcription against the source without running
+ * anything.
  */
 const REFERENCE_CONFIGS: ReadonlyArray<OreConfig> = [
   { name: 'COAL', minY: 12, maxY: 180, peakY: 96, avgVeins: 18, minSize: 6, maxSize: 14, saltX: 10007, saltZ: 20011 },
@@ -112,7 +115,7 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: num
   let placed = 0
 
   for (const config of configs) {
-    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
+    const next = mulberry32(NoiseSeed(oreStreamSeed(seed, config, baseWorldX, baseWorldZ)))
     const count = Math.max(0, Math.round(config.avgVeins - 1 + next() * 2))
     const yMin = Math.max(config.minY, ORE_MIN_Y_FLOOR)
     const yMax = Math.min(config.maxY, CHUNK_HEIGHT - 1)
@@ -130,7 +133,18 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: num
         if (readBlock(chunk.blocks, blockIndex(seedX, seedY, seedZ)) !== BLOCK.STONE) {
           continue
         }
-        placed += growVein({ blocks: chunk.blocks, next, ore, seedX, seedY, seedZ, targetSize: veinSize, yMax, yMin })
+        placed += growVein({
+          blocks: chunk.blocks,
+          host: BLOCK.STONE,
+          next,
+          ore,
+          seedX,
+          seedY,
+          seedZ,
+          targetSize: veinSize,
+          yMax,
+          yMin,
+        })
         break
       }
     }
@@ -153,11 +167,10 @@ const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed
 }
 
 describe('the ore id table', () => {
-  it.effect('carries kernel’s seven stone-variant ids and no deepslate ones', () =>
+  it.effect('carries kernel’s seven stone and seven deepslate ore ids', () =>
     Effect.sync(() => {
-      // `mc-kernel/domain/block-registry.ts:1367-1444`. The deepslate twins are
-      // ids 57-63 there and are deliberately absent here: this repository
-      // generates no deepslate band for them to sit in. See domain/ore.ts.
+      // `mc-kernel/domain/block-registry.ts:1367-1444`; the implementation
+      // obtains these values through `blockIdOf`, rather than mirroring them.
       expect(ORE_BLOCK).toStrictEqual({
         COAL: 50,
         IRON: 51,
@@ -167,9 +180,17 @@ describe('the ore id table', () => {
         LAPIS: 55,
         EMERALD: 56,
       })
-      for (const id of ORE_IDS) {
-        expect(id).toBeLessThan(57)
-      }
+      expect(DEEPSLATE_ORE_BLOCK).toStrictEqual({
+        COAL: 57,
+        DIAMOND: 60,
+        EMERALD: 63,
+        GOLD: 59,
+        IRON: 58,
+        LAPIS: 62,
+        REDSTONE: 61,
+      })
+      expect(ORE_IDS).toHaveLength(14)
+      expect(new Set(ORE_IDS).size).toBe(ORE_IDS.length)
     }),
   )
 
@@ -273,7 +294,8 @@ describe('vein growth', () => {
       const before = Uint8Array.from(blocks)
       const placed = growVein({
         blocks,
-        next: mulberry32(12345),
+        host: BLOCK.STONE,
+        next: mulberry32(NoiseSeed(12345)),
         ore: ORE_BLOCK.COAL,
         seedX: 8,
         seedY: 21,
@@ -305,7 +327,8 @@ describe('vein growth', () => {
       const blocks = new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(BLOCK.STONE)
       growVein({
         blocks,
-        next: mulberry32(999),
+        host: BLOCK.STONE,
+        next: mulberry32(NoiseSeed(999)),
         ore: ORE_BLOCK.IRON,
         seedX: 8,
         seedY: 30,
@@ -337,7 +360,7 @@ describe('vein growth', () => {
         return
       }
 
-      const next = mulberry32(42)
+      const next = mulberry32(NoiseSeed(42))
       const histogram = new Map<number, number>()
       for (let draw = 0; draw < 20000; draw += 1) {
         const y = sampleOreY(config, config.minY, config.maxY, next)
@@ -370,7 +393,7 @@ describe('vein growth', () => {
         return
       }
 
-      const next = mulberry32(7)
+      const next = mulberry32(NoiseSeed(7))
       for (let draw = 0; draw < 50; draw += 1) {
         expect(sampleOreY(config, 40, 40, next)).toBe(40)
       }
@@ -397,13 +420,12 @@ describe('what backs the ore half of the golden move', () => {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
             const wx = worldX(chunk.coord, lx)
             const wz = worldZ(chunk.coord, lz)
-            const surfaceY = surfaceHeightAt(GOLDEN_SEED, wx, wz)
-            const surface = BIOME_SURFACES[biomeFor(GOLDEN_SEED, wx, wz, surfaceY, DEFAULT_TERRAIN_LEVELS)]
-            const stoneTop = surface.top === BLOCK.STONE
-              ? surfaceY
-              : surface.filler === BLOCK.STONE
-                ? surfaceY - 1
-                : surfaceY - 5
+            const column = terrainColumnAt(GOLDEN_SEED, wx, wz)
+            const stoneTop = column.surface.top === BLOCK.STONE
+              ? column.surfaceY
+              : column.surface.filler === BLOCK.STONE
+                ? column.surfaceY - 1
+                : column.surfaceY - column.surface.fillerDepth - 1
 
             for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
               if (!ORE_ID_SET.has(readBlock(chunk.blocks, blockIndex(lx, y, lz)))) {
@@ -425,8 +447,13 @@ describe('what backs the ore half of the golden move', () => {
 
   it.effect('O-3b: every ore cell is inside its own declared depth band', () =>
     Effect.sync(() => {
-      const bands = new Map<number, OreConfig>(ORE_CONFIGS.map((config) => [ORE_BLOCK[config.name], config]))
+      const bands = new Map<number, OreConfig>()
+      for (const config of ORE_CONFIGS) {
+        bands.set(ORE_BLOCK[config.name], config)
+        bands.set(DEEPSLATE_ORE_BLOCK[config.name], config)
+      }
       const seen = new Set<number>()
+      const seenNames = new Set<OreName>()
       const violations: Array<string> = []
 
       for (const chunk of chunks) {
@@ -439,6 +466,7 @@ describe('what backs the ore half of the golden move', () => {
                 continue
               }
               seen.add(id)
+              seenNames.add(config.name)
               if (y < Math.max(config.minY, ORE_MIN_Y_FLOOR) || y > config.maxY) {
                 violations.push(`${config.name} at y=${String(y)}, band ${String(config.minY)}..${String(config.maxY)}`)
               }
@@ -449,7 +477,8 @@ describe('what backs the ore half of the golden move', () => {
 
       expect(violations, 'ore outside its own declared depth band').toStrictEqual([])
       // All seven appear, so no band is being silently skipped.
-      expect(seen.size).toBe(ORE_CONFIGS.length)
+      expect(seenNames.size).toBe(ORE_CONFIGS.length)
+      expect(seen.size).toBeGreaterThanOrEqual(ORE_CONFIGS.length)
     }),
   )
 

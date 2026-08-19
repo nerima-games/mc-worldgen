@@ -10,7 +10,7 @@ import { chunkCoord } from '@nerima-games/mc-kernel'
 // eslint-disable-next-line sort-imports -- Grouped siting types and values stay together.
 import {
   VILLAGE_REGION_SPAWN_PERMILLE,
-  type VillageTerrainSampler,
+  type OverworldTerrainSampler,
   villageSiteForRegion,
 } from '../src/domain/structure-siting'
 import { biomeFor, generateChunk, surfaceHeightAt } from '../src/domain/terrain'
@@ -26,9 +26,9 @@ const SEED = 20260726
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed accepted site is a deterministic integration fixture.
 const SITE = { x: -3312, z: 1082 }
 // eslint-disable-next-line no-magic-numbers -- Flat fixture models dry buildable plains.
-const flatPlains: VillageTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
+const flatPlains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
-const actualTerrain: VillageTerrainSampler = (x, z) => {
+const actualTerrain: OverworldTerrainSampler = (x, z) => {
   const surfaceY = surfaceHeightAt(SEED, x, z)
   return {
     biome: biomeFor(SEED, x, z, surfaceY, DEFAULT_TERRAIN_LEVELS),

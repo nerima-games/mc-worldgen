@@ -16,13 +16,13 @@ import {
   withChunk,
   type ChunkStoreState,
 } from '../src/domain/chunk-store-state'
-import { BlockId, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 const PLAINS = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const)
 const SURFACE_Y = 63
 const ROOF_Y = SURFACE_Y + 2
 const ROOM_Y = SURFACE_Y + 1
-const TORCH = BlockId(14)
+const TORCH = blockIdOf('torch')
 const EDITS = 8
 const RUNS = 5
 

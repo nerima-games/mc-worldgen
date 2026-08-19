@@ -1,15 +1,14 @@
 /**
- * `generateChunk(seed, coords) → Chunk` — the public entry point (plan.md §3.7).
+ * `generateChunk(seed, coords) → NaturalStructureChunk` — the public entry point (plan.md §3.7).
  *
- * PRE-AUDIT FIRST CUT (叩き台).
+ * This module implements the current deterministic terrain pipeline.
  *
  * ---------------------------------------------------------------------------
  * Pure and deterministic, and those are two different claims
  * ---------------------------------------------------------------------------
  *
- * Pure: no clock, no I/O, no global state. `pnpm check:deps` enforces the clock
- * half mechanically — `Date.now()`, `new Date()` and `performance.now()` are
- * banned repository-wide.
+ * Pure: no clock, no I/O, no global state. The verification suite guards this
+ * boundary; generation code itself has no time source.
  *
  * Deterministic: the same `(seed, coord)` always produces byte-identical
  * output, on any machine, in any order, in a worker or on the main thread. This
@@ -56,17 +55,21 @@ import {
   BEDROCK_Y,
   CHUNK_HEIGHT,
   CHUNK_SIZE_XZ,
+  DEEPSLATE_CEILING,
   DEFAULT_TERRAIN_LEVELS,
   type TerrainLevels,
   blockIndex,
 } from './constants'
 import {
-  BIOME_SURFACES,
   BLOCK,
-  type BiomeSurface,
   type BiomeType,
 } from './biome'
-import { type BlockId, type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
+import {
+  CONTINENTALNESS_CONTRAST,
+  MAX_SURFACE_Y,
+  MIN_SURFACE_Y,
+  surfaceHeightAt,
+} from './density-function'
 import { type CarveOptions, carveCaves } from './carver'
 import {
   type Chunk,
@@ -74,148 +77,43 @@ import {
   columnIndex,
   emptyBlocks,
   readBlock,
-  worldX,
-  worldZ,
 } from './chunk'
+import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import {
-  type ClimateSample,
-  classifyBiomeFromClimate,
-  peaksAndValleysFromWeirdness,
-} from './biome-classifier'
-import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config'
+  type NaturalStructureChunk,
+  applyNaturalStructurePlansToChunk,
+  naturalStructurePlansForChunk,
+} from './natural-structure'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement'
+import { type TerrainColumn, biomeFor, climateAt, terrainColumnAt } from './terrain-column'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
   plantGroundCover,
+  plantSpecialVegetation,
   shouldPlaceGroundPlant,
 } from './vegetation'
-import { channelSeed, fbm2D, valueNoise2D } from './seeded-random'
+import {
+  fillWaterForColumn,
+  shouldFreezeWaterSurface,
+} from './lake-generator'
+import { worldX, worldZ } from './generator-coordinates'
 import { carveRavines } from './ravine'
 import { placeOres } from './ore'
 import { writeStrongholdBlocksForChunk } from './stronghold'
-import { writeVillageBlocksForChunk } from './village'
-
-/** Lowest and highest surface the base terrain shaper will produce. */
-export const MIN_SURFACE_Y = 38
-export const MAX_SURFACE_Y = 92
-
-/**
- * Contrast applied to raw continentalness before it becomes a height.
- *
- * ---------------------------------------------------------------------------
- * MEASUREMENT — how the numbers below were taken
- * ---------------------------------------------------------------------------
- *
- * Method: the SURVEY scan of `pnpm preview --stats` — a strided sample, every
- * 16th block over 8192 × 8192 blocks centred on the origin, so 262,144 columns
- * spanning ~45 continentalness features at this field's 1/180 frequency.
- * Repeated for seeds 20260726, 1, 4242, 999983 and 77777; the figures below are
- * seed 20260726 and every other seed agrees to within half a point.
- *
- * The sample size is the whole point of this comment. A window has to be many
- * multiples of 1/frequency across before the tails of the distribution appear
- * in it at all — see the previous value's obituary at the bottom.
- *
- *     raw continentalness      [0.053, 0.946]   p5 0.266  p50 0.496  p95 0.733
- *
- * ---------------------------------------------------------------------------
- * THE CHOICE — 1.15
- * ---------------------------------------------------------------------------
- *
- * The field already spans almost the whole unit interval, so it needs almost no
- * stretching. What it does need is the last sliver: at contrast 1.0 the extremes
- * map to heights 40 and 89, and `MIN_SURFACE_Y` / `MAX_SURFACE_Y` are then
- * bounds no column ever reaches — declared limits that are fiction. 1.15 is the
- * smallest value at which both bounds are attained on this sample, and it costs
- * one column in ten thousand:
- *
- *     contrast   flat-clamped   below sea level   observed height range
- *     1.00           0.00%           41.7%              [40, 89]
- *     1.15           0.01%           42.9%              [38, 92]   <- chosen
- *     1.50           1.05%           44.8%              [38, 92]
- *     2.00           8.06%           46.4%              [38, 92]
- *     2.60          19.96%           47.5%              [38, 92]
- *
- * Contrast barely moves the ocean fraction (42% to 47% across that whole range)
- * because sea level sits near the middle of the height range; what it moves is
- * how much of the world is a flat clamped plane. So the design call is cheap:
- * take the ocean fraction the field gives you — 42.9% here, which is ample sea
- * for the carver's water-floor guard to be exercised by (docs/design-notes.md
- * DN-2) — and do not pay 20% of the world's surface for the other five points.
- *
- * The height histogram at 1.15 is a single-peaked hump centred on 64 with thin
- * tails. At 2.6 it was flat between the bounds with a spike at each end: 11.8%
- * of columns in the lowest 4-block bucket and 9.2% in the highest. That spike
- * IS the table-top mesa; a histogram is what it looks like from above.
- *
- * ---------------------------------------------------------------------------
- * WHY IT WAS 2.6 — the mistake, kept because it is instructive
- * ---------------------------------------------------------------------------
- *
- * The previous comment justified 2.6 with two measured numbers, both wrong:
- * that the raw field spans "about [0.40, 0.72]" and that without the stretch
- * "3% of columns fall below sea level". It named its sample: 800 × 800 blocks.
- * At 1/180 that is four terrain features across. Four features are enough to
- * see where the middle of the distribution is (0.496 — that part was right) and
- * nowhere near enough to see its tails. The true unstretched ocean fraction is
- * 41.7%, not 3%.
- *
- * Multiplying a distribution that really does reach 0.05 and 0.95 by 2.6
- * saturates both ends, which is how a fifth of the world became flat. Note the
- * shape of the error: the narrow sample did not produce a wrong-looking answer,
- * it produced a plausible one, and the constant chosen to fix the imaginary
- * problem then created a real one. `pnpm preview --stats` defaults to an 8192
- * block survey for this reason, and docs/testing.md §4-b F-5 records the same
- * trap being walked into a second time, with biomes.
- *
- * Stretching about the midpoint is still the right shape of knob, and is what
- * the reference does in its climate path (`stretchClimate`,
- * `packages/world/domain/biome-classifier.ts:91`, applied at `:104-105`).
- * `test/terrain-distribution.test.ts` pins the clamped fraction so that the
- * next person to reach for this constant has to move a number that was measured
- * rather than a number that was recalled.
- */
-export const CONTINENTALNESS_CONTRAST = 1.15
-
-const UNIT_INTERVAL_MIN = 0
-const UNIT_INTERVAL_MAX = 1
-const UNIT_INTERVAL_MIDPOINT = 0.5
-
-const stretch = (value: number): number =>
-  Math.min(
-    UNIT_INTERVAL_MAX,
-    Math.max(UNIT_INTERVAL_MIN, (value - UNIT_INTERVAL_MIDPOINT) * CONTINENTALNESS_CONTRAST + UNIT_INTERVAL_MIDPOINT),
-  )
-
-/** Depth of the biome-specific filler beneath the top block. */
-const FILLER_DEPTH = 4
+export {
+  CONTINENTALNESS_CONTRAST,
+  MAX_SURFACE_Y,
+  MIN_SURFACE_Y,
+  surfaceHeightAt,
+}
+export { biomeFor, climateAt, terrainColumnAt }
+export type { TerrainColumn } from './terrain-column'
 
 /** Single-block iteration step for the per-voxel/per-column loops below. */
 const AXIS_STEP = 1
-
-/** Shared "one" numerator for every `frequency: 1 / wavelength` noise call below. */
-const NOISE_FREQUENCY_UNIT = 1
-/** `continentalnessAt`'s noise wavelength, in blocks. */
-const CONTINENTALNESS_WAVELENGTH_BLOCKS = 180
-/** `climateAtWithContinentalness`'s temperature noise wavelength, in blocks. */
-const TEMPERATURE_WAVELENGTH_BLOCKS = 320
-/** `climateAtWithContinentalness`'s humidity noise wavelength, in blocks. */
-const HUMIDITY_WAVELENGTH_BLOCKS = 280
-/** `climateAtWithContinentalness`'s erosion noise wavelength, in blocks. */
-const EROSION_WAVELENGTH_BLOCKS = 220
-/** `climateAtWithContinentalness`'s weirdness noise wavelength, in blocks. */
-const WEIRDNESS_WAVELENGTH_BLOCKS = 160
-/** The river field's coordinates are pre-scaled by `RIVER_NOISE_SCALE`, so this call samples at unit frequency. */
-const RIVER_NOISE_UNIT_FREQUENCY = 1
-
-/** Scale factor of the `[0, 1] -> [-1, 1]` remap `toBipolar` applies. */
-const BIPOLAR_SCALE = 2
-/** Offset of the `[0, 1] -> [-1, 1]` remap `toBipolar` applies. */
-const BIPOLAR_OFFSET = 1
-
-/** Remaps a `[0, 1]` sample to `[-1, 1]` — `value * 2 - 1`. */
-const toBipolar = (unitValue: number): number => unitValue * BIPOLAR_SCALE - BIPOLAR_OFFSET
+/** Sentinel stored for columns whose terrain has no water surface. */
+const NO_WATER_LEVEL = -1
 
 export type GenerateOptions = {
   readonly terrainLevels?: TerrainLevels
@@ -223,160 +121,60 @@ export type GenerateOptions = {
   readonly decorate?: boolean
 }
 
-/**
- * Surface height for a world column.
- *
- * Exported because it is the cheapest possible query about the world and the
- * chunk manager needs it for spawn selection without generating a whole chunk.
- * It must agree exactly with what `generateChunk` produces — `test/terrain.test.ts`
- * pins that.
- */
-const continentalnessAt = (seed: number, wx: number, wz: number): number =>
-  fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
-    frequency: NOISE_FREQUENCY_UNIT / CONTINENTALNESS_WAVELENGTH_BLOCKS,
-    octaves: 4,
-    persistence: 0.5,
-  })
-
-const surfaceHeightFromContinentalness = (continentalness: number): number =>
-  Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
-
-export const surfaceHeightAt = (seed: number, wx: number, wz: number): number =>
-  surfaceHeightFromContinentalness(continentalnessAt(seed, wx, wz))
-
-const climateAtWithContinentalness = (
-  seed: number,
-  wx: number,
-  wz: number,
-  continentalness: number = toBipolar(continentalnessAt(seed, wx, wz)),
-): ClimateSample => {
-  const temperature = fbm2D(channelSeed(seed, 'temperature'), wx, wz, {
-    frequency: NOISE_FREQUENCY_UNIT / TEMPERATURE_WAVELENGTH_BLOCKS,
-    octaves: 2,
-    persistence: 0.5,
-  })
-  const humidity = fbm2D(channelSeed(seed, 'humidity'), wx, wz, {
-    frequency: NOISE_FREQUENCY_UNIT / HUMIDITY_WAVELENGTH_BLOCKS,
-    octaves: 2,
-    persistence: 0.5,
-  })
-  const erosion = toBipolar(valueNoise2D(channelSeed(seed, 'erosion'), wx, wz, NOISE_FREQUENCY_UNIT / EROSION_WAVELENGTH_BLOCKS))
-  const weirdness = toBipolar(
-    valueNoise2D(channelSeed(seed, 'weirdness'), wx, wz, NOISE_FREQUENCY_UNIT / WEIRDNESS_WAVELENGTH_BLOCKS),
-  )
-  const riverNoise = valueNoise2D(
-    channelSeed(seed, 'river'),
-    wx * RIVER_NOISE_SCALE + RIVER_WORLD_OFFSET,
-    wz * RIVER_NOISE_SCALE + RIVER_WORLD_OFFSET,
-    RIVER_NOISE_UNIT_FREQUENCY,
-  )
-
-  return {
-    continentalness,
-    erosion,
-    humidity,
-    pv: peaksAndValleysFromWeirdness(weirdness),
-    riverNoise,
-    temperature,
-  }
-}
-
-export const climateAt = (seed: number, wx: number, wz: number): ClimateSample =>
-  climateAtWithContinentalness(seed, wx, wz)
-
-/** How far below sea level a column must sit before the OCEAN override applies. */
-const OCEAN_BELOW_SEA_LEVEL_MARGIN = 2
-/** How far above sea level a column may sit and still take the BEACH override. */
-const BEACH_ABOVE_SEA_LEVEL_MARGIN = 1
-
-type BiomeQuery = {
-  readonly seed: number
-  readonly wx: number
-  readonly wz: number
-  readonly surfaceY: number
-  readonly levels: TerrainLevels
-  readonly continentalness: number
-}
-
-/**
- * Biome for a column, after the submerged and shoreline overrides.
- *
- * The overrides run after climate classification, not instead of it: a desert
- * that happens to dip below sea level is an ocean there, whatever its climate
- * says. The reference applies its OCEAN override the same way, downstream of
- * `classifyBiome` (`biome-classifier.ts:113`).
- */
-const biomeForWithContinentalness = (query: BiomeQuery): BiomeType => {
-  const { seed, wx, wz, surfaceY, levels, continentalness } = query
-
-  if (surfaceY < levels.seaLevel - OCEAN_BELOW_SEA_LEVEL_MARGIN) {
-    return 'OCEAN'
-  }
-  if (surfaceY <= levels.seaLevel + BEACH_ABOVE_SEA_LEVEL_MARGIN) {
-    return 'BEACH'
-  }
-  return classifyBiomeFromClimate(climateAtWithContinentalness(seed, wx, wz, toBipolar(continentalness)))
-}
-
-/**
- * Locked public signature (`docs/public-api.md` §"biomeFor") — five positional
- * parameters, called throughout `test/**`, `apps/preview-terrain` and
- * `scripts/**`. Bundling it into an options object would be a breaking change
- * to that contract, so its own `max-params` warning is not fixable from this
- * file alone; see this repository's lint follow-ups.
- */
-export const biomeFor = (
-  seed: number,
-  wx: number,
-  wz: number,
-  surfaceY: number,
-  levels: TerrainLevels,
-): BiomeType =>
-  biomeForWithContinentalness({ continentalness: continentalnessAt(seed, wx, wz), levels, seed, surfaceY, wx, wz })
-
 type ColumnFill = {
   readonly lx: number
   readonly lz: number
-  readonly surfaceY: number
-  readonly biome: BiomeType
+  readonly column: TerrainColumn
   readonly levels: TerrainLevels
 }
+
+type FilledColumn = Readonly<{
+  readonly surfaceY: number
+  readonly waterLevel: number | null
+}>
 
 /** One block above a Y, used both for "stone starts here" and "water starts here". */
 const ONE_BLOCK_ABOVE = 1
 
-/** A column's top block: the underwater variant when submerged, the dry one otherwise. */
-const surfaceTopBlockId = (surface: BiomeSurface, submerged: boolean): BlockId => {
-  if (submerged) {
-    return surface.underwaterTop
-  }
-  return surface.top
-}
-
-const fillStoneCore = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number): void => {
-  for (let y = BEDROCK_Y + ONE_BLOCK_ABOVE; y < surfaceY - FILLER_DEPTH; y += AXIS_STEP) {
-    blocks[blockIndex(lx, y, lz)] = BLOCK.STONE
+const fillStoneCore = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number, fillerDepth: number): void => {
+  for (let y = BEDROCK_Y + ONE_BLOCK_ABOVE; y < surfaceY - fillerDepth; y += AXIS_STEP) {
+    const index = blockIndex(lx, y, lz)
+    if (y < DEEPSLATE_CEILING) {
+      blocks[index] = BLOCK.DEEPSLATE
+    } else {
+      blocks[index] = BLOCK.STONE
+    }
   }
 }
 
-const fillColumn = (blocks: Uint8Array, column: ColumnFill): void => {
-  const { lx, lz, surfaceY, biome, levels } = column
-  const surface = BIOME_SURFACES[biome]
-  const submerged = surfaceY < levels.seaLevel
+const fillColumn = (blocks: Uint8Array, column: ColumnFill): FilledColumn => {
+  const { levels, lx, lz, column: terrainColumn } = column
+  const { biome, lakeBasinY, surface, surfaceY, temperature, waterLevel } = terrainColumn
 
   blocks[blockIndex(lx, BEDROCK_Y, lz)] = BLOCK.BEDROCK
-  fillStoneCore(blocks, lx, lz, surfaceY)
+  fillStoneCore(blocks, lx, lz, surfaceY, surface.fillerDepth)
 
-  for (let y = Math.max(BEDROCK_Y + ONE_BLOCK_ABOVE, surfaceY - FILLER_DEPTH); y < surfaceY; y += AXIS_STEP) {
+  for (let y = Math.max(BEDROCK_Y + ONE_BLOCK_ABOVE, surfaceY - surface.fillerDepth); y < surfaceY; y += AXIS_STEP) {
     blocks[blockIndex(lx, y, lz)] = surface.filler
   }
-  blocks[blockIndex(lx, surfaceY, lz)] = surfaceTopBlockId(surface, submerged)
+  blocks[blockIndex(lx, surfaceY, lz)] = surface.top
 
-  // Water fills from just above the surface up to sea level. This happens
+  // Water fills from just above the surface to the resolved body level. This happens
   // BEFORE carving, because the carver's guard probes for these blocks.
-  for (let y = surfaceY + ONE_BLOCK_ABOVE; y <= levels.seaLevel && y < CHUNK_HEIGHT; y += AXIS_STEP) {
-    blocks[blockIndex(lx, y, lz)] = BLOCK.WATER
-  }
+  fillWaterForColumn({
+    biome,
+    blocks,
+    freezeSurface: shouldFreezeWaterSurface(biome, temperature),
+    iceBlockIndex: BLOCK.ICE,
+    lakeBasinY,
+    lx,
+    lz,
+    surfaceY,
+    terrainLevels: levels,
+    waterBlockIndex: BLOCK.WATER,
+  })
+
+  return { surfaceY, waterLevel }
 }
 
 /** Trunk height for a planted tree, in blocks above the surface. */
@@ -448,19 +246,21 @@ const plantTree = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number)
   plantCanopy(blocks, lx, lz, surfaceY + TREE_TRUNK_HEIGHT)
 }
 
-/** `createChunkBuffers`'s placeholder biome, overwritten for every column by `generateColumns` before any decoration pass reads it. */
+/** Seed value for the buffer; `generateColumns` writes each column before decoration reads it. */
 const FALLBACK_DECORATION_BIOME: BiomeType = 'PLAINS'
 
 type ChunkBuffers = {
   readonly blocks: Uint8Array
   readonly biomes: Array<BiomeType>
   readonly surfaces: Int16Array
+  readonly waterLevels: Int16Array
 }
 
 const createChunkBuffers = (): ChunkBuffers => ({
   biomes: Array.from<BiomeType>({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }).fill(FALLBACK_DECORATION_BIOME),
   blocks: emptyBlocks(),
   surfaces: new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ),
+  waterLevels: new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(NO_WATER_LEVEL),
 })
 
 type ChunkGenerationContext = ChunkBuffers & {
@@ -489,26 +289,30 @@ const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number)
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
   context.biomes[columnIndex(lx, lz)]!
 
+const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
+  const waterLevel = context.waterLevels[columnIndex(lx, lz)]!
+  if (waterLevel === NO_WATER_LEVEL) {
+    return null
+  }
+  return waterLevel
+}
+
 const generateColumns = (context: ChunkGenerationContext): void => {
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
       const wx = worldX(context.coord, lx)
       const wz = worldZ(context.coord, lz)
-      const continentalness = continentalnessAt(context.seed, wx, wz)
-      const surfaceY = surfaceHeightFromContinentalness(continentalness)
-      const biome = biomeForWithContinentalness({
-        continentalness,
+      const terrainColumn = terrainColumnAt(context.seed, wx, wz, context.levels)
+      const filled = fillColumn(context.blocks, {
+        column: terrainColumn,
         levels: context.levels,
-        seed: context.seed,
-        surfaceY,
-        wx,
-        wz,
+        lx,
+        lz,
       })
 
-      context.biomes[columnIndex(lx, lz)] = biome
-      context.surfaces[columnIndex(lx, lz)] = surfaceY
-
-      fillColumn(context.blocks, { biome, levels: context.levels, lx, lz, surfaceY })
+      context.biomes[columnIndex(lx, lz)] = terrainColumn.biome
+      context.surfaces[columnIndex(lx, lz)] = filled.surfaceY
+      context.waterLevels[columnIndex(lx, lz)] = filled.waterLevel ?? NO_WATER_LEVEL
     }
   }
 }
@@ -534,8 +338,30 @@ const plantTreesPass = (context: ChunkGenerationContext): void => {
   }
 }
 
+const plantSpecialVegetationPass = (context: ChunkGenerationContext): void => {
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
+      const surfaceY = columnSurfaceY(context, lx, lz)
+      const biome = columnBiome(context, lx, lz)
+      const waterLevel = columnWaterLevel(context, lx, lz) ?? context.levels.seaLevel
+
+      plantSpecialVegetation({
+        biome,
+        blocks: context.blocks,
+        lx,
+        lz,
+        seed: context.seed,
+        surfaceY,
+        waterLevel,
+        worldX: worldX(context.coord, lx),
+        worldZ: worldZ(context.coord, lz),
+      })
+    }
+  }
+}
+
 /**
- * Ground cover runs in a SECOND pass, after every trunk is standing. The
+ * Ground cover runs after trees and special vegetation. The
  * support rule refuses a column whose `surfaceY + 1` is not AIR, so a plant
  * can never displace a trunk — but only if every trunk is already there.
  * Fused into the tree pass, a plant placed at (lx, lz) before that column's
@@ -562,22 +388,36 @@ const plantGroundCoverPass = (context: ChunkGenerationContext): void => {
 
 const decorateChunk = (context: ChunkGenerationContext): void => {
   plantTreesPass(context)
+  plantSpecialVegetationPass(context)
   plantGroundCoverPass(context)
 }
 
 /** Structures run last so their shell, roads and interiors override carving and vegetation. */
-const writeStructures = (blocks: Uint8Array, seed: number, coord: ChunkCoord, levels: TerrainLevels): void => {
-  writeVillageBlocksForChunk(blocks, seed, coord, (wx, wz) => {
-    const surfaceY = surfaceHeightAt(seed, wx, wz)
-    return { biome: biomeFor(seed, wx, wz, surfaceY, levels), seaLevel: levels.seaLevel, surfaceY }
+const writeStructures = (
+  chunk: Chunk,
+  seed: number,
+  coord: ChunkCoord,
+  levels: TerrainLevels,
+): NaturalStructureChunk => {
+  const plans = naturalStructurePlansForChunk(seed, 'overworld', coord, {
+    overworld: (wx, wz) => {
+      const surfaceY = surfaceHeightAt(seed, wx, wz)
+      return { biome: biomeFor(seed, wx, wz, surfaceY, levels), seaLevel: levels.seaLevel, surfaceY }
+    },
   })
-  writeStrongholdBlocksForChunk(blocks, seed, coord)
+  const structuredChunk = applyNaturalStructurePlansToChunk(chunk, plans)
+  writeStrongholdBlocksForChunk(structuredChunk.blocks, seed, coord)
+  return structuredChunk
 }
 
 /**
  * Generate a chunk. Total, pure, and a function of `(seed, coord)` alone.
  */
-export const generateChunk = (seed: number, coord: ChunkCoord, options: GenerateOptions = {}): Chunk => {
+export const generateChunk = (
+  seed: number,
+  coord: ChunkCoord,
+  options: GenerateOptions = {},
+): NaturalStructureChunk => {
   const context: ChunkGenerationContext = {
     ...createChunkBuffers(),
     coord,
@@ -598,13 +438,22 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options: Generate
 
   // Ravines LAST, after ore and after decoration, so their walls cut cleanly through both — the reference's ordering and its stated reason (`generator.ts:141-142`). See the module header for why this is outside the `decorate` block rather than at the end of it.
   carveRavines({ biomes: context.biomes, blocks: context.blocks, coord, seed, surfaces: context.surfaces })
-  writeStructures(context.blocks, seed, coord, context.levels)
 
-  return { biomes: context.biomes, blocks: context.blocks, coord }
+  return writeStructures(
+    { biomes: context.biomes, blocks: context.blocks, coord },
+    seed,
+    coord,
+    context.levels,
+  )
 }
 
 /** Convenience for callers that have plain numbers rather than a `ChunkCoord`. */
-export const generateChunkAt = (seed: number, x: number, z: number, options: GenerateOptions = {}): Chunk =>
+export const generateChunkAt = (
+  seed: number,
+  x: number,
+  z: number,
+  options: GenerateOptions = {},
+): NaturalStructureChunk =>
   generateChunk(seed, chunkCoord(x, z), options)
 
 /** Re-exported so callers need one import to read a generated chunk. */

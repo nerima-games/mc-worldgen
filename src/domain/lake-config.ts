@@ -1,0 +1,9 @@
+export const LAKE_NOISE_SCALE = 0.02
+export const LAKE_WORLD_OFFSET = 5000
+export const LAKE_THRESHOLD = 0.70
+export const LAKE_MAX_DEPTH = 18
+export const LAKE_SHORE_WIDTH = 0.04
+export const RIVER_WATER_LEVEL = 62
+export const RIVER_MIN_CUT = 4
+export const RIVER_MAX_CUT = 10
+export const ICE_FREEZE_TEMPERATURE = 0.15

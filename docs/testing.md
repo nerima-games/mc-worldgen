@@ -5,28 +5,26 @@
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm typecheck` | `tsconfig.build.json`（出荷ソース）、`tsconfig.test.json`（テスト+ツール）、`tsconfig.preview.json`（`apps/`）の 3 プロジェクト |
+| `pnpm build` | `dist/index.js` と `dist/index.d.ts` を生成する配布ビルド |
 | `pnpm lint` | oxlint。このリポジトリ唯一の lint/format 設定（prettier も biome も .editorconfig も置かない）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`.oxlintrc.json` は 5 カテゴリすべてと個別ルールの大半が `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
-| `pnpm check:deps` | 依存ホワイトリスト + 循環検査 + `Date.now()` 禁止 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API） |
-| `pnpm test:coverage` | カバレッジ計測。**閾値は未設定**（後述） |
-| `pnpm verify` | 上記 4 つ（coverage 以外）。CI と同一内容 |
+| `pnpm test:coverage` | Vitest + V8 によるカバレッジ計測。branches / functions / lines / statements の 100% を必須化 |
+| `pnpm verify` | typecheck、lint、test:coverage、build。CI と同じ品質ゲート |
 | `pnpm preview` | 内蔵地形プレビュー。**`verify` には入らない**（後述） |
 | `pnpm bench` | ベンチマーク（`scripts/bench-terrain.ts`）。**`verify` には入らない**（§7） |
 | `pnpm goldens:update` | `test/golden/chunk-goldens.json` を書き直す。**`verify` には入らないし、入れてはならない**——検証がゴールデンを更新できたら、それはゴールデンではない |
 
-`pnpm` は PATH に無い場合がある。`corepack pnpm <cmd>` で 9.15.0 が起動する。
+`pnpm` は PATH に無い場合がある。`corepack pnpm <cmd>` で、`package.json` が指定する pnpm 11 系を起動する。
 
 ### プレビューはゲートではないが、野放しでもない
 
 `pnpm preview` は `pnpm verify` に入っていない。人間が見るものであり、
 CI が pass/fail を判定できるものではないからである。
 
-ただし `apps/` は**他の 3 つのゲート全部の対象**にしてある:
+ただし `apps/` は typecheck と lint の対象にしてある:
 
 - `pnpm typecheck` — `tsconfig.preview.json`（`tsconfig.build.json` とは**別プロジェクト**）
 - `pnpm lint` — `oxlint ... apps`
-- `pnpm check:deps` — `SCAN_ROOTS` に `apps` が入っている
-
 `tsconfig.build.json` に `apps/**` を足さなかったのは意図的である。
 あのプロジェクトが `types: []` と `"DOM"` 無しの `lib` を継いでいることが、
 「出荷ドメインはプラットフォーム非依存である」ことの**証明**になっている。
@@ -37,50 +35,20 @@ CI が pass/fail を判定できるものではないからである。
 
 ## 2. 現状のテスト
 
-```
-test/determinism.test.ts          7 tests   (seed, coords) → Chunk の決定論、継ぎ目
-test/terrain-levels.test.ts       6 tests   SEA_LEVEL=63 の補正、水位不変条件
-test/carver.test.ts               6 tests   hollow-lake 回帰（バグの再現つき）
-test/ravine.test.ts              16 tests   渓谷。帯の形 R-1..R-2c、2 層の水ガード R-3..R-5b、
-                                            パス順序 R-6..R-8、実チャンク R-9..R-12
-test/biome-and-trees.test.ts     14 tests   バイオーム分類の全域性、格子ジッターの間隔
-test/vegetation.test.ts          16 tests   草・花 V-1..V-6
-test/ore.test.ts                 16 tests   鉱石 O-1..O-5（O-5 は参照実装の帯を再現して赤くなる）
-test/structure-siting.test.ts    12 tests   要塞のサイト決定
-test/stronghold.test.ts           5 tests   要塞石室、ポータル枠、チャンク境界、最終パス
-test/terrain-distribution.test.ts  9 tests   F-1 回帰。広域 SURVEY での高度分布
-test/biome-distribution.test.ts  10 tests   F-5 回帰。広域 SURVEY でのバイオーム分布
-test/chunk-golden.test.ts        16 tests   シード固定ゴールデン + 独立した裏付け I-1..I-8
-test/tree-canopy.test.ts          6 tests   F-2 回帰。生成ブロックでの樹冠連結成分
-test/light.test.ts               28 tests   4bit ライトグリッド、setBlock による無効化
-test/chunk-store.test.ts         23 tests   ChunkStore
-test/chunk-format.test.ts        16 tests   チャンクフォーマット CF-1..CF-16
-test/save-format-mirror.test.ts  17 tests   mc-save ミラー SF-1..SF-17
-test/api-lock.test.ts            26 tests   API ロックのハーネス
-test/kernel-mirror.test.ts       21 tests   BLOCK / ORE_BLOCK / PLANT 番号の mc-kernel との一致
-test/portal-frame.test.ts        19 tests   ネザーポータル枠の検出と生成（全サイズ往復 + 変異検証）
-test/nether-travel.test.ts       25 tests   8:1 スケーリングの往復、最近傍探索、移動先の解決
-                                            （生成したポータルを検出器に通す往復 + 変異検証）
-test/vertical-slice.test.ts       4 tests   縦の結合
-test/dependency-policy.test.ts   22 tests   16 リポジトリのグラフ、import ゲート
-                                 ─────
-                                335 tests   全て green
-```
+`test/` がテストの実体であり、ファイル別の件数はこの文書に複製しない。
+`corepack pnpm test` は全テストを実行し、選択されたファイル数とテスト数を出力する。
+テストを追加・分割しても、ここに古い件数が残らないようにするためである。
 
-> 旧版はここを 132 と書き、次の版は 193 と書き、その次は 214 と書いていた。
-> **三つとも実測とずれていた。** 214 の版は 6 ファイル
-> （`ore` / `vegetation` / `structure-siting` / `ravine` / `chunk-format` /
-> `save-format-mirror`）を数えておらず、`kernel-mirror` も 18 と書いていた（実際は 21）。
->
-> **この表は手で保つ限り必ずずれる。** 数えなおしは
-> `npx vitest run 2>&1 | grep -E "^ ✓ test/"` の 1 行であり、
-> 上の数字はその出力から取ってある。次に触る人も同じことをすること —
-> 記憶から書くと 4 回目になる。
-> `test/light.test.ts`（28）が後から入り、`test/kernel-mirror.test.ts` は
-> 9 → 16 → **18** と伸びている。193 と書かれていた時点の実測は既に 195 だった。
-> この表は**手で維持されており、それを検査するゲートは無い**。
-> 数字だけを直しても次の PR でまたずれるので、性質として書いておく:
-> **この行は `pnpm test` の出力を貼るところであって、記憶から書くところではない。**
+主な検証領域は次のとおり:
+
+- シードと座標からの決定論、チャンク境界、地形・水位・バイオーム分布
+- 洞窟・渓谷、植生、鉱石、村・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・bastion remnant・要塞・その他の自然構造
+- ライトグリッド、チャンクストア、保存フォーマット、Nether 移動
+- `mc-kernel` の ID / 座標契約、`mc-save` の保存契約、公開 API のロック
+- ゴールデン出力と、ゴールデンに依存しない不変条件・回帰テスト
+
+`corepack pnpm test:coverage` は `src/` 全体を計測し、4 指標
+(branches / functions / lines / statements) の 100% をゲートする。
 
 ### 重要なテスト 3 本
 
@@ -100,7 +68,7 @@ plan.md を読んだ誰かが「修正」しに来たときに落ちるためで
 
 ### `test/portal-frame.test.ts` — 変異させて赤くなることを確認した
 
-`domain/portal-frame.ts` は本リポジトリで初めて「**生成器を持たないルール**」である。
+`domain/portal-frame.ts` は通常のポータル枠を地形へ配置せず、配置済みの枠を判定するルールである。
 生成物と突き合わせて検証することができないので、代わりに**コードを壊して赤を確認した**。
 6 件、全て revert 済み:
 
@@ -172,16 +140,17 @@ AIR 検査を消しても全テストが通った。「点火セルが AIR で�
 
 | 要求 | 状態 |
 | --- | --- |
-| ユニットテスト | ✅ 301 tests |
-| シード固定ゴールデン | ✅ `test/golden/chunk-goldens.json`（10 チャンク）+ `test/chunk-golden.test.ts`。生成は `pnpm goldens:update` → [design-notes.md DN-9](./design-notes.md#dn-9) |
+| ユニットテスト | ✅ `test/` の Vitest スイート |
+| シード固定ゴールデン | ✅ `test/golden/chunk-goldens.json` + `test/chunk-golden.test.ts`。生成は `pnpm goldens:update` → [design-notes.md DN-9](./design-notes.md#dn-9) |
 | バイオーム分布の統計テスト | ✅ `test/biome-distribution.test.ts`。雛形は宣言どおり `test/terrain-distribution.test.ts` で、SURVEY 幅そのものを assert する形も踏襲した。ただし**幅の基準は流用していない**（下記）→ [design-notes.md DN-10](./design-notes.md#dn-10) |
 | 内蔵地形プレビュー | ✅ **`apps/preview-terrain/`** |
 
 > **この表の旧版は「バイオームは未実装」と書いていた。これは誤りだった。**
-> `domain/biome.ts` の分類器・`BIOME_SURFACES`・`BIOME_TREE_DENSITY` はいずれも実装済みで、
-> `generateChunk` は `biomeFor` の結果を柱ごとに `chunk.biomes` へ書き込み、
-> 地表ブロックと木の密度の両方をそこから引いている（`domain/terrain.ts:302-307`）。
-> `test/biome-and-trees.test.ts`（14 tests）が分類器の全域性を、
+> `src/domain/biome.ts` の分類器・`BIOME_SURFACES`・`BIOME_TREE_DENSITY` はいずれも実装済みで、
+> `generateChunk` は `terrainColumnAt` の列解決結果を `chunk.biomes` へ書き込み、
+> 地表ブロックと木の密度の両方をそこから引いている（`src/domain/terrain-column.ts:198`、
+> `src/domain/terrain.ts:300`）。
+> `test/biome-and-trees.test.ts` が分類器の全域性を、
 > プレビューの `1`（map ビュー）が見た目を、既に押さえていた。
 > 欠けていたのは**バイオームそのもの**ではなく**分布の統計テスト**だけである。
 > 完了条件 7 も同じ理由で書き直した。
@@ -271,7 +240,7 @@ plan.md §4.1 の配置規約どおり `apps/preview-terrain/` に置いた。
 
 #### ポータル枠（`p` / `k` / `--portal`）
 
-`domain/portal-frame.ts` は生成器を持たないので、**どのシードを飛んでも出てこない**。
+`domain/portal-frame.ts` は通常のポータル枠を生成しないので、**どのシードを飛んでも出てこない**。
 `p` は `generatePortalLayout` の出力を**オーバーレイ**として断面図に重ね、
 HUD に `detectNetherPortal` の判定をそのまま出す。地形は 1 バイトも書き換えない。
 
@@ -289,8 +258,10 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 正直に書いておく。
 
 - **山脈のシルエット・洞窟内部の眺め**（上記のとおり 3D ではないため）
-- **自然構造の描画** — 村・ruined Nether portal・End city / ship の immutable plan と
+- **自然構造の描画** — desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・村・ruined Nether portal・Nether fortress・bastion remnant・End city / ship・End spike の immutable plan と
   チャンク別投影は実装済みだが、このプレビューは plan を地形へオーバーレイしない
+- **End crystal / gateway の実体動作** — crystal / cage は entity を生成せず marker として保持し、
+  gateway は配置と出口設定の値だけを返す。entity、テレポート、遅延探索の実行はプレビュー対象外である
 - **ポータルは生成されたものではない** — 上記のとおりオーバーレイである。
   「この世界にポータルがある」ことは示していない。示しているのは**ルールの挙動**だけである
 - **チャンク境界をまたぐ樹冠** — `plantTree` は隣チャンクのバッファを持たない。
@@ -319,16 +290,16 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
    — plan.md §6 Step 2:「worldgen の地形プレビューが最初の遊べる成果物」
    — `apps/preview-terrain/`。**plan.md §6 Step 2 の完成条件の片翼はこれで満たした**
 3. **シード固定ゴールデンハッシュがコミットされている** ✅
-   — `test/golden/chunk-goldens.json`（10 チャンク、seed 20260726）。DN-9
+   — `test/golden/chunk-goldens.json`（seed 20260726）。DN-9
 4. **ワーカープールのパリティテストが green**
    — Worker の出力がメインスレッドとバイト一致すること。
    参照実装の `terrain-worker-pool.parity.property.test.ts`（124 LOC）の移植
-5. ~~カーバー（洞窟 + 渓谷）・植生・鉱石・要塞・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship の自然構造プランと Nether / End 生成器への適用~~ が実装済み
+5. カーバー（洞窟 + 渓谷）・植生・鉱石・stronghold・desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・Nether fortress・bastion remnant・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship・End spike の自然構造プランと Nether / End 生成器への適用、End crystal marker と gateway の純粋 API が実装済み
 6. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
-   （現在の `domain/seeded-random.ts` `domain/chunk.ts` `domain/biome.ts` の `BLOCK` は仮置き）
+   （ブロック ID とチャンク座標は `mc-kernel`、保存契約は `mc-save`、ノイズは `mc-noise` を直接利用する。生成中の `Chunk` はローカルの書き込みバッファである）
 7. バイオーム分布の統計テストが green ✅
-   — `test/biome-distribution.test.ts`（10 tests）。DN-10
-8. カバレッジ 99% ゲートが有効化されている（後述）
+   — `test/biome-distribution.test.ts`。DN-10
+8. カバレッジ 100% ゲートが有効化されている（後述）
 
 ## 4-b. プレビューが見つけたもの（テスト未整備の穴）
 
@@ -339,7 +310,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 ### F-1. ✅ 修正済 — 地形シェイパーが世界の 2 割を平らにクランプしていた
 
 **状態**: `CONTINENTALNESS_CONTRAST` を `2.6` → **`1.15`** に変更。
-回帰テストは `test/terrain-distribution.test.ts`（9 tests）。
+回帰テストは `test/terrain-distribution.test.ts`。
 
 `pnpm preview --view height` を引くと、`!`（`MAX_SURFACE_Y=92` に張り付いた列）の
 **巨大な平原**が見えていた。テーブルマウンテンであって山ではない。
@@ -586,32 +557,16 @@ seed 20260726 の (0,0) 周辺 64 チャンクでは、`--no-guard` にしても
 `k` を押しても絵が変わらないプレビューになるところだった——
 「動いているように見えて死んでいる機能」（§3 の海面マーカー）の再演である。
 
-**このリポジトリのテストはこれを検出できない。** `apps/` は typecheck / lint /
-check:deps の対象ではあるが、`vitest` の `include` は `test/**` だけであり、
+**このリポジトリのテストはこれを検出できない。** `apps/` は typecheck / lint
+の対象ではあるが、`vitest` の `include` は `test/**` だけであり、
 プレビューの描画にテストは 1 本も無い。§3 の「プレビューはゲートではない」は
 そのとおりだが、F-6 は**ゲートでないものが唯一の検出器だった**例である。
 
-## 5. カバレッジ閾値: 今はまだ設定しない
+## 5. カバレッジ閾値: 100% を必須化
 
-参照実装は branches / functions / lines / statements の 99% を強制している。
-mc-worldgen でも**最終的には同じ 99% を課す**が、今は課さない。
-
-理由: スケルトンに閾値を課しても意味が無い。
-型定義だけのモジュールをいくつか置けば簡単に満たせてしまい、
-実装の品質について何も語らない数字になる。
-
-現状:
-
-- 計測とレポートは**常に動いている**（`pnpm test:coverage`、CI でもアーティファクト化）
-- 閾値だけが未設定。`vitest.config.ts` の `coverage.thresholds` がコメントアウトされている
-- CI の `Coverage` ステップも同様
-
-**有効化のタイミング**: 上記「完了条件」の 1〜7 を満たした時点で、
-`vitest.config.ts` と `.github/workflows/ci.yaml` の**両方**を同時に更新する。
-
-```typescript
-thresholds: { branches: 99, functions: 99, lines: 99, statements: 99 },
-```
+`vitest.config.ts` は branches / functions / lines / statements の 100% を要求する。
+`corepack pnpm test:coverage` は `src/` を全量計測し、各指標と総合値を出力する。
+閾値を下げて通すのではなく、未実行分岐には境界条件を表すテストを追加する。
 
 ## 6. テストの書き方の規約
 
@@ -682,14 +637,13 @@ mc-noise 側にはオクターブループとカラムサンプリングのベ�
 `generateChunk` が実際に走らせるパスごとに**内訳**を出している。
 「1.4 ms/chunk」は、それが 4 ms/chunk になったときにどこを見ればいいかを何も教えないからである。
 
-シードは定数 `20260726`。そもそも `pnpm check:deps` が
-`Date.now()` / `new Date()` / `performance.now()` をリポジトリ全体で禁じている
-（ベンチマークハーネスの 1 行だけが `mc-kernel-allow-time-source` で明示的に除外されている）。
+シードは定数 `20260726`。ベンチマークの時間源は測定ハーネスに閉じ込め、
+生成ロジックは時計・I/O・グローバル状態を参照しない。
 
-### guard —— `domain/seeded-random.ts` のオクターブ例外
+### guard —— `mc-noise` と現行オクターブ実装の回帰
 
-`fbm2D` は `let` + `for` で書かれており、そのコメントは
-「mc-noise が継ぐ前にここで規約を確立しておくためにこう書いてある」と述べている。
+`fbm2D` は `let` + `for` で書かれており、`mc-noise` の現行サンプラーと
+同じオクターブ順序を使う。
 **コメントで確立した規約は、リファクタ 1 回で失われる規約である。**
 そこで mc-noise と同じ shipped-vs-frozen ゲートを `fbm2D` にも当てている:
 出荷している `fbm2D` を、**その現在の形をそのまま凍結したコピー**と比較する。
@@ -751,7 +705,7 @@ guard 2 本とサンプリング 2 本は 5% 以内なので**更新していな
 
 ### ゲートが実際に落ちることの確認
 
-`domain/seeded-random.ts` の `fbm2D` を `Array.from().reduce` に書き換えて実行した:
+現行の `fbm2D` を `Array.from().reduce` に書き換えた検証用ブランチで実行した:
 
 ```
 REGRESSED  fbm-octave-loop/shipped-vs-frozen-imperative     observed 0.324   baseline 1.228  (0.26x)

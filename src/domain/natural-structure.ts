@@ -1,25 +1,48 @@
 /** Deterministic, immutable plans for cross-chunk natural structures. */
+import { type BastionRemnantDraft, planBastionRemnantForCandidate } from './bastion-remnant'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
 import { type Chunk, setBlockAt } from './chunk'
+import { type DesertPyramidDraft, planDesertPyramidForCandidate } from './desert-pyramid'
 import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain'
+import { type IglooDraft, planIglooForCandidate } from './igloo'
+import { type JunglePyramidDraft, planJunglePyramidForCandidate } from './jungle-pyramid'
+import { type MineshaftDraft, planMineshaftForCandidate } from './mineshaft'
+import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument'
+import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin'
 import { Option, Predicate } from 'effect'
 import {
+  type OverworldTerrainSampler,
   VILLAGE_HALF_EXTENT,
   VILLAGE_REGION_SIZE,
   VILLAGE_SITE_MARGIN,
   type VillageSite,
-  type VillageTerrainSampler,
   villageSiteForRegion,
 } from './structure-siting'
+import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pillager-outpost'
+import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck'
 import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village'
-import { channelSeed, latticeValue } from './seeded-random'
-import { BlockId } from '@nerima-games/mc-kernel'
+import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { BASTION_REMNANT_GRID } from './bastion-remnant-data'
+import type { BlockId } from '@nerima-games/mc-kernel'
+import { DESERT_PYRAMID_GRID } from './desert-pyramid-data'
 import type { Dimension } from './nether-travel'
+import { IGLOO_GRID } from './igloo-data'
+import { JUNGLE_PYRAMID_GRID } from './jungle-pyramid-data'
+import { MINESHAFT_GRID } from './mineshaft-data'
+import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
+import { NETHER_FORTRESS_GRID } from './nether-fortress-data'
+import { OCEAN_MONUMENT_GRID } from './ocean-monument-data'
+import { OCEAN_RUIN_GRID } from './ocean-ruin-data'
+import { PILLAGER_OUTPOST_GRID } from './pillager-outpost-data'
+import { SHIPWRECK_GRID } from './shipwreck-data'
+import { planNetherFortressForRegion } from './nether-fortress'
+
+export { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
 const UNIT_STEP = 1
 
-export type NaturalStructureKind = 'village' | 'ruined-nether-portal' | 'end-city'
+export type NaturalStructureKind = 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-monument' | 'ocean-ruin' | 'pillager-outpost' | 'shipwreck' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
 
 export type NaturalStructureGrid = {
   /** Distance between candidate-region origins, in blocks. */
@@ -33,8 +56,18 @@ export type NaturalStructureGrid = {
 const VILLAGE_SEPARATION_MULTIPLIER = 2
 
 export const NATURAL_STRUCTURE_GRID: Readonly<Record<NaturalStructureKind, NaturalStructureGrid>> = Object.freeze({
+  'bastion-remnant': BASTION_REMNANT_GRID,
+  'desert-pyramid': DESERT_PYRAMID_GRID,
   'end-city': Object.freeze({ separation: 176, spacing: 320, spawnPermille: 350 }),
+  igloo: IGLOO_GRID,
+  'jungle-pyramid': JUNGLE_PYRAMID_GRID,
+  mineshaft: MINESHAFT_GRID,
+  'nether-fortress': NETHER_FORTRESS_GRID,
+  'ocean-monument': OCEAN_MONUMENT_GRID,
+  'ocean-ruin': OCEAN_RUIN_GRID,
+  'pillager-outpost': PILLAGER_OUTPOST_GRID,
   'ruined-nether-portal': Object.freeze({ separation: 64, spacing: 192, spawnPermille: 300 }),
+  shipwreck: SHIPWRECK_GRID,
   village: Object.freeze({
     separation: VILLAGE_SITE_MARGIN * VILLAGE_SEPARATION_MULTIPLIER,
     spacing: VILLAGE_REGION_SIZE,
@@ -44,24 +77,6 @@ export const NATURAL_STRUCTURE_GRID: Readonly<Record<NaturalStructureKind, Natur
 
 export const MAX_NATURAL_STRUCTURE_BLOCKS = 4096
 export const MAX_NATURAL_STRUCTURE_MARKERS = 32
-
-const NATURAL_STRUCTURE_CHEST_ID = 105
-const NATURAL_STRUCTURE_END_ROD_ID = 95
-const NATURAL_STRUCTURE_END_STONE_BRICKS_ID = 96
-const NATURAL_STRUCTURE_NETHERRACK_ID = 117
-const NATURAL_STRUCTURE_OBSIDIAN_ID = 40
-const NATURAL_STRUCTURE_PURPUR_ID = 98
-const NATURAL_STRUCTURE_PURPUR_PILLAR_ID = 99
-
-export const NATURAL_STRUCTURE_BLOCK = Object.freeze({
-  CHEST: BlockId(NATURAL_STRUCTURE_CHEST_ID),
-  END_ROD: BlockId(NATURAL_STRUCTURE_END_ROD_ID),
-  END_STONE_BRICKS: BlockId(NATURAL_STRUCTURE_END_STONE_BRICKS_ID),
-  NETHERRACK: BlockId(NATURAL_STRUCTURE_NETHERRACK_ID),
-  OBSIDIAN: BlockId(NATURAL_STRUCTURE_OBSIDIAN_ID),
-  PURPUR: BlockId(NATURAL_STRUCTURE_PURPUR_ID),
-  PURPUR_PILLAR: BlockId(NATURAL_STRUCTURE_PURPUR_PILLAR_ID),
-})
 
 export type NaturalStructureRegion = { readonly x: number; readonly z: number }
 export type NaturalStructurePosition = { readonly x: number; readonly y: number; readonly z: number }
@@ -76,9 +91,13 @@ export type NaturalStructureBounds = {
 export type NaturalStructureBlockPlacement = NaturalStructurePosition & { readonly block: BlockId }
 
 export type NaturalStructureMarker = NaturalStructurePosition & (
-  | { readonly kind: 'loot-chest'; readonly lootTable: 'village' | 'ruined-nether-portal' | 'end-city' | 'end-ship' }
+  | { readonly kind: 'loot-chest'; readonly lootTable: 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-monument' | 'ocean-ruin' | 'pillager-outpost' | 'shipwreck' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city' | 'end-ship' }
   | { readonly kind: 'entity-spawn'; readonly entity: 'villager'; readonly profession: 'farmer' | 'toolsmith' }
-  | { readonly kind: 'spawner'; readonly entity: 'shulker' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'zombie-villager' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'pillager' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'blaze' | 'wither-skeleton' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'piglin' | 'piglin-brute' }
+  | { readonly kind: 'spawner'; readonly entity: 'shulker' | 'blaze' }
   | { readonly kind: 'portal-frame'; readonly axis: 'x' | 'z'; readonly complete: false }
   | { readonly kind: 'end-ship' }
 )
@@ -115,7 +134,7 @@ export type NaturalStructureChunk = Chunk & {
 export type NaturalStructureSamplers = {
   readonly nether?: NetherStructureTerrainSampler
   readonly end?: EndStructureTerrainSampler
-  readonly overworld?: VillageTerrainSampler
+  readonly overworld?: OverworldTerrainSampler
 }
 
 export type NetherStructureTerrainSample = {
@@ -165,16 +184,10 @@ const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockPlacemen
    * UNREACHABLE TODAY, NOT PROVABLY DEAD — weaker than the other guards this
    * repository marks this way, and deliberately not deleted for that reason.
    * `addBlock` is module-private, so the cap can only be approached through
-   * `planVillageForRegion`, `planRuinedNetherPortalForRegion` or
-   * `planEndCityForRegion`. Measured directly (400 seeds × a 13×13 region
-   * search each, flat samplers): the largest plan any of them produced was
-   * 1,881 blocks (a village), 652 (an End city), 47 (a ruined portal) — all
-   * well under `MAX_NATURAL_STRUCTURE_BLOCKS` (4096). That is an empirical
-   * bound on today's fixed structure geometry (2 houses, one tower + one
-   * ship, one small frame), not a type-level invariant: a taller tower, a
-   * third house, or a terrain sampler with much more Y variation than a flat
-   * one could raise it. The guard stays live and untouched for exactly that
-   * reason; only its else-branch is what stays uncovered.
+   * the fixed-geometry natural-structure planners. The guard stays live
+   * because future structure geometry or a terrain sampler with much more Y
+   * variation could raise the block count; the cap is not a type-level
+   * invariant.
    */
   // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
   /* v8 ignore next */
@@ -222,7 +235,7 @@ const VILLAGE_STRUCTURE_HEIGHT = 16
 const VILLAGE_LOOT_CHEST_OFFSET_X = 1
 
 /** Carves one village's building interiors and exteriors into `mutable`. */
-const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerrain: VillageTerrainSampler): void => {
+const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerrain: OverworldTerrainSampler): void => {
   for (let x = site.x - VILLAGE_HALF_EXTENT; x <= site.x + VILLAGE_HALF_EXTENT; x += UNIT_STEP) {
     for (let z = site.z - VILLAGE_HALF_EXTENT; z <= site.z + VILLAGE_HALF_EXTENT; z += UNIT_STEP) {
       const { surfaceY } = sampleTerrain(x, z)
@@ -252,7 +265,7 @@ export const planVillageForRegion = (
   seed: number,
   regionX: number,
   regionZ: number,
-  sampleTerrain: VillageTerrainSampler,
+  sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<NaturalStructurePlan> => {
   const siteOption = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
   if (Option.isNone(siteOption)) {return Option.none()}
@@ -270,6 +283,321 @@ export const planVillageForRegion = (
     },
     mutable,
   ))
+}
+
+const finishDesertPyramidPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: DesertPyramidDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `desert-pyramid:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'desert-pyramid',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported desert-pyramid geometry on a dry, level desert site. */
+export const planDesertPyramidForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'desert-pyramid', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planDesertPyramidForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishDesertPyramidPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishIglooPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: IglooDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `igloo:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'igloo',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported igloo geometry on a dry, level snow site. */
+export const planIglooForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'igloo', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planIglooForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishIglooPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishJunglePyramidPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: JunglePyramidDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `jungle-pyramid:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'jungle-pyramid',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported compact jungle-pyramid geometry on a dry, level jungle site. */
+export const planJunglePyramidForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'jungle-pyramid', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planJunglePyramidForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishJunglePyramidPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishMineshaftPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: MineshaftDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `mineshaft:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'mineshaft',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported underground mineshaft network on a level terrain site. */
+export const planMineshaftForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'mineshaft', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planMineshaftForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishMineshaftPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishOceanRuinPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: OceanRuinDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `ocean-ruin:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'ocean-ruin',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+const finishOceanMonumentPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: OceanMonumentDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `ocean-monument:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'ocean-monument',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported compact ocean-monument geometry on a deep ocean floor. */
+export const planOceanMonumentForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'ocean-monument', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planOceanMonumentForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishOceanMonumentPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+/** Plans the supported submerged ocean-ruin geometry on a dry-free, level ocean floor. */
+export const planOceanRuinForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'ocean-ruin', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planOceanRuinForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishOceanRuinPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishShipwreckPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: ShipwreckDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `shipwreck:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'shipwreck',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported submerged shipwreck geometry on a level ocean floor. */
+export const planShipwreckForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'shipwreck', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planShipwreckForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishShipwreckPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishPillagerOutpostPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: PillagerOutpostDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'overworld',
+      id: `pillager-outpost:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'pillager-outpost',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported dry pillager outpost geometry. */
+export const planPillagerOutpostForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'overworld', 'pillager-outpost', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planPillagerOutpostForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishPillagerOutpostPlan(seed, regionX, regionZ, draftOption.value))
+}
+
+const finishBastionRemnantPlan = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  draft: BastionRemnantDraft,
+): NaturalStructurePlan => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  for (const block of draft.blocks) {addBlock(mutable, block)}
+  for (const marker of draft.markers) {addMarker(mutable, marker)}
+  return finishPlan(
+    {
+      dimension: 'nether',
+      id: `bastion-remnant:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'bastion-remnant',
+      origin: draft.origin,
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+}
+
+/** Plans the supported compact bastion remnant geometry. */
+export const planBastionRemnantForRegion = (
+  seed: number,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: NetherStructureTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  const candidateOption = candidateForRegion(seed, 'nether', 'bastion-remnant', { x: regionX, z: regionZ })
+  if (Option.isNone(candidateOption)) {return Option.none()}
+  const draftOption = planBastionRemnantForCandidate(candidateOption.value, sampleTerrain)
+  if (Option.isNone(draftOption)) {return Option.none()}
+  return Option.some(finishBastionRemnantPlan(seed, regionX, regionZ, draftOption.value))
 }
 
 const PORTAL_PROBE_OFFSET = 3
@@ -612,14 +940,14 @@ export const naturalStructureSliceForChunk = (
 const plansInStableOrder = (plans: ReadonlyArray<NaturalStructurePlan>): ReadonlyArray<NaturalStructurePlan> =>
   [...new Map(plans.map((plan) => [plan.id, plan])).values()].sort((left, right) => left.id.localeCompare(right.id))
 
-const naturalStructureKindFor = (dimension: Dimension): NaturalStructureKind => {
+const naturalStructureKindsFor = (dimension: Dimension): ReadonlyArray<NaturalStructureKind> => {
   if (dimension === 'overworld') {
-    return 'village'
+    return ['desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'village']
   }
   if (dimension === 'nether') {
-    return 'ruined-nether-portal'
+    return ['bastion-remnant', 'ruined-nether-portal', 'nether-fortress']
   }
-  return 'end-city'
+  return ['end-city']
 }
 
 const CHUNK_LOCAL_LAST_INDEX_OFFSET = 1
@@ -646,24 +974,104 @@ const regionSpanForChunk = (coord: { readonly cx: number; readonly cz: number },
   }
 }
 
+type OverworldWaterStructureKind = 'ocean-monument' | 'ocean-ruin' | 'shipwreck'
+
+type OverworldLandStructureKind = 'jungle-pyramid' | 'mineshaft' | 'pillager-outpost'
+
+const planOverworldWaterKind = (
+  seed: number,
+  kind: OverworldWaterStructureKind,
+  region: NaturalStructureRegion,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  if (kind === 'ocean-monument') {
+    return planOceanMonumentForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  if (kind === 'ocean-ruin') {
+    return planOceanRuinForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  return planShipwreckForRegion(seed, region.x, region.z, sampleTerrain)
+}
+
+const planOverworldLandKind = (
+  seed: number,
+  kind: OverworldLandStructureKind,
+  region: NaturalStructureRegion,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  if (kind === 'mineshaft') {
+    return planMineshaftForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  if (kind === 'jungle-pyramid') {
+    return planJunglePyramidForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  return planPillagerOutpostForRegion(seed, region.x, region.z, sampleTerrain)
+}
+
+const planOverworldKind = (
+  seed: number,
+  kind: NaturalStructureKind,
+  region: NaturalStructureRegion,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<NaturalStructurePlan> => {
+  if (kind === 'desert-pyramid') {
+    return planDesertPyramidForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  if (kind === 'igloo') {
+    return planIglooForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  if (kind === 'jungle-pyramid' || kind === 'mineshaft' || kind === 'pillager-outpost') {
+    return planOverworldLandKind(seed, kind, region, sampleTerrain)
+  }
+  if (kind === 'ocean-monument' || kind === 'ocean-ruin' || kind === 'shipwreck') {
+    return planOverworldWaterKind(seed, kind, region, sampleTerrain)
+  }
+  return planVillageForRegion(seed, region.x, region.z, sampleTerrain)
+}
+
+const planOverworldRegion = (
+  seed: number,
+  kind: NaturalStructureKind,
+  region: NaturalStructureRegion,
+  sampleTerrain: OverworldTerrainSampler | undefined,
+): Option.Option<NaturalStructurePlan> => {
+  if (Predicate.isUndefined(sampleTerrain)) {
+    return Option.none()
+  }
+  return planOverworldKind(seed, kind, region, sampleTerrain)
+}
+
+const planNetherRegion = (
+  seed: number,
+  kind: NaturalStructureKind,
+  region: NaturalStructureRegion,
+  sampleTerrain: NetherStructureTerrainSampler | undefined,
+): Option.Option<NaturalStructurePlan> => {
+  if (Predicate.isUndefined(sampleTerrain)) {
+    return Option.none()
+  }
+  if (kind === 'bastion-remnant') {
+    return planBastionRemnantForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  if (kind === 'nether-fortress') {
+    return planNetherFortressForRegion(seed, region.x, region.z, sampleTerrain)
+  }
+  return planRuinedNetherPortalForRegion(seed, region.x, region.z, sampleTerrain)
+}
+
 /** Which plan* function, if any, applies to one region in `dimension`. */
 const planForRegion = (
   seed: number,
   dimension: Dimension,
+  kind: NaturalStructureKind,
   region: NaturalStructureRegion,
   samplers: NaturalStructureSamplers,
 ): Option.Option<NaturalStructurePlan> => {
   if (dimension === 'overworld') {
-    if (Predicate.isUndefined(samplers.overworld)) {
-      return Option.none()
-    }
-    return planVillageForRegion(seed, region.x, region.z, samplers.overworld)
+    return planOverworldRegion(seed, kind, region, samplers.overworld)
   }
   if (dimension === 'nether') {
-    if (Predicate.isUndefined(samplers.nether)) {
-      return Option.none()
-    }
-    return planRuinedNetherPortalForRegion(seed, region.x, region.z, samplers.nether)
+    return planNetherRegion(seed, kind, region, samplers.nether)
   }
   return planEndCityForRegion(seed, region.x, region.z, samplers.end)
 }
@@ -679,15 +1087,16 @@ export const naturalStructurePlansForChunk = (
   coord: { readonly cx: number; readonly cz: number },
   samplers: NaturalStructureSamplers = {},
 ): ReadonlyArray<NaturalStructurePlan> => {
-  const kind = naturalStructureKindFor(dimension)
-  const grid = NATURAL_STRUCTURE_GRID[kind]
-  const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = regionSpanForChunk(coord, grid)
   const plans: Array<NaturalStructurePlan> = []
 
-  for (let regionX = minRegionX; regionX <= maxRegionX; regionX += UNIT_STEP) {
-    for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += UNIT_STEP) {
-      const option = planForRegion(seed, dimension, { x: regionX, z: regionZ }, samplers)
-      if (Option.isSome(option)) {plans.push(option.value)}
+  for (const kind of naturalStructureKindsFor(dimension)) {
+    const grid = NATURAL_STRUCTURE_GRID[kind]
+    const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = regionSpanForChunk(coord, grid)
+    for (let regionX = minRegionX; regionX <= maxRegionX; regionX += UNIT_STEP) {
+      for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += UNIT_STEP) {
+        const option = planForRegion(seed, dimension, kind, { x: regionX, z: regionZ }, samplers)
+        if (Option.isSome(option)) {plans.push(option.value)}
+      }
     }
   }
   return Object.freeze(plansInStableOrder(plans))

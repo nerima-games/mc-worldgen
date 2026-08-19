@@ -1,14 +1,15 @@
-import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
 import {
   STRONGHOLD_FLOOR_Y,
   type StrongholdSite,
   strongholdSitesNearChunk,
 } from './structure-siting'
-import { channelSeed, latticeValue } from './seeded-random'
-import { setBlockAt, worldX, worldZ } from './chunk'
+import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { worldX, worldZ } from './generator-coordinates'
 import { BLOCK } from './biome'
 import { CHUNK_SIZE_XZ } from './constants'
 import type { Dimension } from './nether-travel'
+import { setBlockAt } from './chunk'
 
 const STRONGHOLD_WALL_THICKNESS = 1
 const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1
@@ -20,18 +21,12 @@ export const STRONGHOLD_ROOM_AIR_HEIGHT = 5
 export const STRONGHOLD_SHELL_HALF_EXTENT = STRONGHOLD_ROOM_HALF + STRONGHOLD_WALL_THICKNESS
 export const STRONGHOLD_CEILING_Y = STRONGHOLD_FLOOR_Y + STRONGHOLD_ROOM_AIR_HEIGHT + STRONGHOLD_WALL_THICKNESS
 
-const STRONGHOLD_COBBLESTONE_ID = 17
-const STRONGHOLD_END_PORTAL_FRAME_ID = 87
-const STRONGHOLD_END_PORTAL_FRAME_FILLED_ID = 88
-const STRONGHOLD_LAVA_ID = 11
-const STRONGHOLD_PLANKS_ID = 12
-
 export const STRONGHOLD_BLOCK = {
-  COBBLESTONE: BlockId(STRONGHOLD_COBBLESTONE_ID),
-  END_PORTAL_FRAME: BlockId(STRONGHOLD_END_PORTAL_FRAME_ID),
-  END_PORTAL_FRAME_FILLED: BlockId(STRONGHOLD_END_PORTAL_FRAME_FILLED_ID),
-  LAVA: BlockId(STRONGHOLD_LAVA_ID),
-  PLANKS: BlockId(STRONGHOLD_PLANKS_ID),
+  COBBLESTONE: blockIdOf('cobblestone'),
+  END_PORTAL_FRAME: blockIdOf('end_portal_frame'),
+  END_PORTAL_FRAME_FILLED: blockIdOf('end_portal_frame_filled'),
+  LAVA: blockIdOf('lava'),
+  PLANKS: blockIdOf('oak_planks'),
 } as const
 
 export type StrongholdPieceKind = 'portal-room' | 'corridor' | 'stair' | 'library'
@@ -247,6 +242,21 @@ const isStrongholdFrameCell = (dx: number, dz: number): boolean =>
   (dz === STRONGHOLD_FRAME_FAR_OFFSET && dx <= STRONGHOLD_FRAME_NEAR_OFFSET) ||
   (dx === STRONGHOLD_FRAME_FAR_OFFSET && dz <= STRONGHOLD_FRAME_NEAR_OFFSET)
 
+const isOutsideStrongholdRoom = (dx: number, dz: number, y: number): boolean =>
+  dx > STRONGHOLD_SHELL_HALF_EXTENT ||
+  dz > STRONGHOLD_SHELL_HALF_EXTENT ||
+  y < STRONGHOLD_FLOOR_Y ||
+  y > STRONGHOLD_CEILING_Y
+
+const isStrongholdShell = (dx: number, dz: number, y: number): boolean =>
+  y === STRONGHOLD_FLOOR_Y ||
+  y === STRONGHOLD_CEILING_Y ||
+  dx === STRONGHOLD_SHELL_HALF_EXTENT ||
+  dz === STRONGHOLD_SHELL_HALF_EXTENT
+
+const isStrongholdFrameLevel = (y: number): boolean =>
+  y === STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET
+
 /** Returns the stronghold block at a world position, or undefined outside its room. */
 export const strongholdBlockAt = (
   site: StrongholdSite,
@@ -257,20 +267,15 @@ export const strongholdBlockAt = (
   const dx = Math.abs(wx - site.x)
   const dz = Math.abs(wz - site.z)
 
-  if (dx > STRONGHOLD_SHELL_HALF_EXTENT || dz > STRONGHOLD_SHELL_HALF_EXTENT || y < STRONGHOLD_FLOOR_Y || y > STRONGHOLD_CEILING_Y) {
+  if (isOutsideStrongholdRoom(dx, dz, y)) {
     return
   }
 
-  if (
-    y === STRONGHOLD_FLOOR_Y ||
-    y === STRONGHOLD_CEILING_Y ||
-    dx === STRONGHOLD_SHELL_HALF_EXTENT ||
-    dz === STRONGHOLD_SHELL_HALF_EXTENT
-  ) {
+  if (isStrongholdShell(dx, dz, y)) {
     return STRONGHOLD_BLOCK.COBBLESTONE
   }
 
-  if (y === STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET && isStrongholdFrameCell(dx, dz)) {
+  if (isStrongholdFrameLevel(y) && isStrongholdFrameCell(dx, dz)) {
     return STRONGHOLD_BLOCK.END_PORTAL_FRAME
   }
 

@@ -5,7 +5,7 @@ plan.md §3.7 が要求する API を、**参照実装の実コードと突き�
 
 ## 0. plan.md が要求している API
 
-> **主要な公開 API**: `generateChunk(seed, coords) → Chunk`（純粋・決定論）、
+> **主要な公開 API**: `generateChunk(seed, coords) → NaturalStructureChunk`（純粋・決定論）、
 > `BiomeService`（気候→バイオーム）、`ChunkManager`（ロード/アンロード/ダーティフラグ）、
 > ワーカープール Port（実装は利用側が注入）
 
@@ -49,7 +49,7 @@ export const generateChunk = (seed: number, coord: ChunkCoord, options?: {
   readonly terrainLevels?: TerrainLevels
   readonly carve?: CarveOptions
   readonly decorate?: boolean
-}) => Chunk
+}) => NaturalStructureChunk
 ```
 
 `test/terrain-levels.test.ts` の
@@ -81,8 +81,8 @@ Y が連続していることが本質である。柱を上下に走る処理
 ## 2. `generateChunk`
 
 ```typescript
-export type ChunkCoord = { readonly x: number; readonly z: number }
-export const chunkCoord: (x: number, z: number) => ChunkCoord
+export type ChunkCoord = { readonly cx: number; readonly cz: number }
+export const chunkCoord: (cx: number, cz: number) => ChunkCoord
 
 export type Chunk = {
   readonly coord: ChunkCoord
@@ -90,11 +90,122 @@ export type Chunk = {
   readonly biomes: ReadonlyArray<ChunkBiomeType> // 柱ごと。index = lz * 16 + lx
 }
 
-export const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions) => Chunk
-export const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => Chunk
+export type NaturalStructureKind = 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
+export type NaturalStructurePosition = {
+  readonly x: number
+  readonly y: number
+  readonly z: number
+}
+export type NaturalStructureMarker = NaturalStructurePosition & (
+  | { readonly kind: 'loot-chest'; readonly lootTable: 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city' | 'end-ship' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'villager'; readonly profession: 'farmer' | 'toolsmith' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'zombie-villager' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'pillager' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'piglin' | 'piglin-brute' }
+  | { readonly kind: 'entity-spawn'; readonly entity: 'blaze' | 'wither-skeleton' }
+  | { readonly kind: 'spawner'; readonly entity: 'shulker' | 'blaze' }
+  | { readonly kind: 'portal-frame'; readonly axis: 'x' | 'z'; readonly complete: false }
+  | { readonly kind: 'end-ship' }
+)
+export type AppliedNaturalStructureMarker = NaturalStructureMarker & {
+  readonly structureId: string
+  readonly structureKind: NaturalStructureKind
+}
+
+export type NaturalStructureChunk = Chunk & {
+  readonly naturalStructureIds: ReadonlyArray<string>
+  readonly naturalStructureMarkers: ReadonlyArray<AppliedNaturalStructureMarker>
+}
+
+export type EndSpike = {
+  readonly centerX: number
+  readonly centerZ: number
+  readonly radius: number
+  readonly height: number
+  readonly guarded: boolean
+}
+export type EndFeaturePlan = {
+  readonly id: string
+  readonly dimension: 'end'
+  readonly crystalInvulnerable: boolean
+  readonly spikes: ReadonlyArray<EndSpike>
+}
+export const END_FEATURE_BLOCK: {
+  readonly CRYSTAL: BlockId
+  readonly OBSIDIAN: BlockId
+}
+export type EndFeatureMarker =
+  | {
+      readonly kind: 'end-crystal'
+      readonly featureId: string
+      readonly at: BlockPosition
+      readonly block: BlockId
+      readonly invulnerable: boolean
+    }
+  | {
+      readonly kind: 'end-crystal-cage'
+      readonly featureId: string
+      readonly center: BlockPosition
+      readonly radius: number
+      readonly minY: number
+      readonly maxY: number
+      readonly material: 'iron_bars'
+    }
+export type EndFeatureChunk = NaturalStructureChunk & {
+  readonly endFeatureIds: ReadonlyArray<string>
+  readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+}
+export const endFeaturePlanForSeed: (seed: number) => EndFeaturePlan
+export const applyEndFeaturePlansToChunk: (
+  chunk: NaturalStructureChunk,
+  plans: ReadonlyArray<EndFeaturePlan>,
+) => EndFeatureChunk
+
+export type EndGatewayConfiguration = {
+  readonly exit?: BlockPosition
+  readonly exact: boolean
+}
+export type EndGatewayExit = {
+  readonly position: BlockPosition
+  readonly exact: boolean
+}
+export type EndGatewayBlockPlacement = {
+  readonly position: BlockPosition
+  readonly block: BlockId
+}
+export type EndGatewayPlacement = {
+  readonly position: BlockPosition
+  readonly blocks: ReadonlyArray<EndGatewayBlockPlacement>
+  readonly configuration: EndGatewayConfiguration
+}
+export const END_GATEWAY_BLOCK: {
+  readonly BEDROCK: BlockId
+  readonly GATEWAY: BlockId
+}
+export const knownEndGatewayExit: (exit: BlockPosition, exact: boolean) => EndGatewayConfiguration
+export const delayedEndGatewayExitSearch: () => EndGatewayConfiguration
+export const createEndGatewayPlacement: (
+  position: BlockPosition,
+  configuration?: EndGatewayConfiguration,
+) => EndGatewayPlacement
+export const moveEndGatewayPlacement: (
+  placement: EndGatewayPlacement,
+  position: BlockPosition,
+) => EndGatewayPlacement
+export const configureEndGatewayPlacement: (
+  placement: EndGatewayPlacement,
+  configuration: EndGatewayConfiguration,
+) => EndGatewayPlacement
+export const resolveEndGatewayExit: (
+  configuration: EndGatewayConfiguration,
+  searchedExit?: BlockPosition,
+) => EndGatewayExit | undefined
+
+export const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions) => NaturalStructureChunk
+export const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => NaturalStructureChunk
 export const generateEndTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
-export const generateEndChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
-export const generateEndChunkAt: (seed: number, x: number, z: number) => NaturalStructureChunk
+export const generateEndChunk: (seed: number, coord: ChunkCoord) => EndFeatureChunk
+export const generateEndChunkAt: (seed: number, x: number, z: number) => EndFeatureChunk
 export const endSurfaceHeightAt: (seed: number, wx: number, wz: number) => number | undefined
 export const generateNetherTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
 export const generateNetherChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
@@ -105,7 +216,10 @@ export const netherStructureTerrainAt: (seed: number, x: number, z: number) => N
 
 `domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
 End の関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
-シード依存の外縁島を絶対ワールド座標から生成し、End city / ship を適用する。
+シード依存の外縁島を絶対ワールド座標から生成し、End city / ship とスパイクを適用する。
+`end-features.ts` は柱をチャンク境界で投影し、クリスタルとケージを marker として保持する。
+`end-gateway.ts` は bedrock shell の配置、移動、設定更新、既知／遅延出口の解決を純粋な値として返す。
+遅延出口の検索、entity の生成、テレポート実行はホストの責務である。
 Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下の岩盤、溶岩海、
 ソウルサンドを生成して ruined portal を適用する。`*TerrainChunk` は構造物を適用しない基礎地形版である。
 
@@ -174,9 +288,12 @@ export const BIOME_TREE_DENSITY: Record<BiomeType, number>
 テーブルにしてあるので「どの気候がどのバイオームにもならないか」
 「到達不能なバイオームはどれか」がデータを読むだけで答えられる。
 
-### 参照実装との差: 入力が 2 個 vs 6 個
+### 参照実装との差: 6 入力分類と簡易補助 API
 
-**現状の mc-worldgen は 2 入力（temperature / humidity）版しか実装していない。**
+地形生成の mc-worldgen は `ClimateSample` の 6 入力版を実装している:
+`temperature` / `humidity` / `continentalness` / `erosion` / `pv` / `riverNoise`。
+なお `classifyBiome(temperature, humidity)` はルール表を直接確認できる
+2 入力の補助 API として残る。
 
 参照実装のフル分類器は `ClimateSample` が **6 入力**である
 （`biome-classifier.ts:16-23`）:
@@ -200,9 +317,14 @@ BEACH は隣接バイオームを要する後処理である
 `PLAINS, DESERT, FOREST, FLOWER_FOREST, OCEAN, MOUNTAINS, SNOW, SWAMP, JUNGLE, BEACH, RIVER, TAIGA, SAVANNA`。
 
 **地形の高さはバイオームに依存しない。**
-`computeColumnYFromValues(continentalness, erosion, pv, jaggedness)`
-（`packages/world/domain/density-function.ts:42-55`）がスプラインベースで決める（MC 1.18 方式）。
+現行の公開生成経路は `surfaceHeightAt(seed, worldX, worldZ)`
+（`src/domain/density-function.ts`）で絶対座標の continentalness を高さへ変換する。
 バイオームは表面材質と装飾を決めるだけである。
+
+これは現行リポジトリの責務分離であり、参照実装の
+`computeColumnYFromValues(continentalness, erosion, pv, jaggedness)` をそのまま移植したものではない。
+参照実装の完全な density-function 本文は現行リポジトリの履歴とインストール済み依存に存在しないため、
+MC 1.18 の spline と同値だとは主張しない。
 
 ### `BiomeService` は採用しない
 
@@ -396,7 +518,7 @@ mc-render は plan.md §2.1 に既にある `render → worldgen` エッジ経�
 ```typescript
 export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
 
-// 後方互換 API: Overworld を生成する
+// 既定の Overworld 生成 API
 export const generatedChunkSource: (seed: number, options?: GenerateOptions) => ChunkSource
 
 // ディメンションを明示して Overworld / Nether / End を生成する
@@ -494,17 +616,37 @@ chunk-sync ステージのコストが O(変更回数) になるか O(変更チ�
 mc-render が世界を 2 回メッシュすることになる。再同期が欲しい呼び出し側には
 `loadedCoords` がある。
 
-### 6-5. 意図的に後回しにしたもの
+### 6-5. ポータル台帳と Nether 移動
+
+`domain/nether-travel.ts` の `resolveNetherTravel` は、座標と候補配列から
+純粋な移動計画を返す。候補配列を所有して行き先の次元を選ぶ責務は
+`application/portal-registry.ts` の `PortalRegistry` にある。
+
+- `PortalRegistryLayer` はインメモリ台帳を提供する。
+- `PersistentPortalRegistryLayer` は `mc-save` の `StoragePort` と
+  `PORTAL_REGISTRY_FORMAT` を使って、ワールド ID ごとに台帳を保存・再読込する。
+- 保存キーは `portal-registry/${encodeURIComponent(worldId)}` である。
+- `register` と `unregister` は冪等で、保存に成功してからメモリ上の状態を更新する。
+  保存失敗時に未保存の状態が公開されることはない。
+- `resolveTravel` は出発次元に対応する行き先次元の台帳を内部で選び、純粋な
+  `resolveNetherTravel` に渡す。End の Nether 移動分岐は従来どおりで、End portal
+  の判定・到着地点ルールは `domain/end-portal.ts` が担当する。
+
+新しいポータルを必要とする計画は返すが、`PortalRegistry` がチャンクへ枠を
+ materialize したり自動登録したりはしない。ホストは `portalToCreate` のレイアウトを
+ 適用し、実際に生成したポータルの位置を `register` する。
+
+### 6-6. 意図的に後回しにしたもの
 
 | 未実装 | 理由 |
 | --- | --- |
 | ストレージ媒体への接続 | `PersistentChunkStoreLayer` は実装済み。ホストが `StoragePort` を注入して `ChunkStoreApi` に合成する。媒体実装と publish は mc-save / ホスト側の責務 |
 | `loadChunksAroundPlayer` / LRU 追い出し | 方針（描画距離、退避順）は呼び出し側のもの。`load` / `unload` / `loadedCoords` で外から書ける |
 | `Effect.makeSemaphore(4)` による生成の並行度制限 | 実行媒体とキューの責務。`TerrainWorkerPoolPort` は 1 チャンク生成の契約だけを公開し、並行度はホストが制御する |
-| チャンク境界をまたぐライト再伝播 | `computeChunkLights` は常駐チャンク集合を一度に BFS し、完全なキャッシュへの変更は `updateChunkLights` が隣接チャンクを含む固定点まで再計算する。不在チャンクは閉じた境界として扱う |
+| 不在チャンクを含むライト再伝播 | 常駐チャンク集合内は `computeChunkLights` が一度に BFS し、完全なキャッシュへの変更は `updateChunkLights` が隣接チャンクを含む固定点まで再計算する。不在チャンクは閉じた境界として扱い、ロード方針はホストが決める |
 | `dirtyVoxels` 粒度 | チャンク粒度で足りている。位置粒度の追跡は mx-gameplay の `FallingBlockQueue` が既に private に持っており、2 つは合成する |
 
-### 6-6. 参照実装の `ChunkManagerService`
+### 6-7. 参照実装の `ChunkManagerService`
 
 タグは `@minecraft/application/ChunkManagerService`
 （`packages/world/application/chunk-manager-service.ts:26`）。メソッド（`:65-86`）:
@@ -523,21 +665,26 @@ saveDirtyChunks: () => ...
 unloadChunk: (coord: ChunkCoord) => Effect.Effect<void, StorageError>
 ```
 
-ライフサイクル（`chunk-manager-ops.ts:125-132` に文書化されている）:
+現行 `ChunkStore` のライフサイクル:
 
 ```
-キャッシュ (LRU HashMap) → IndexedDB → 生成
+resident state → `ChunkPersistence.load` → `ChunkSource`
 ```
 
-入口は `getChunk`（`chunk-manager-ops.ts:133-137`）。
-並行度は `Effect.makeSemaphore(4)` で制限（`chunk-manager-service.ts:45`）。
+入口は `ChunkStoreApi.load` で、常駐していればその値を返し、
+永続化層があれば `mc-save` の `StoragePort` から読み、見つからなければ `ChunkSource` を実行する。
+`unload` は永続化層がある場合に snapshot を保存してから常駐集合から外す。
+
+LRU、プレイヤー周辺のロード、生成キューの並行度はこのパッケージの API に含めない。
+描画距離・退避順・worker pool の実行媒体を知るホストが決める。
 
 **注意**: `unloadChunk` の失敗型が `StorageError` である。
 これが「mc-worldgen が mc-save に依存する」ことの具体的な現れである。
 
-参照実装も**この機能を `packages/world` に置いていた**。`markChunkDirty` と
-`drainRenderDirtyChunks` が同じサービスに載っている点に注目してよい。
-`ChunkStore` との差は 2 つで、どちらも意図的である:
+参照実装の `ChunkManagerService` と現行 `ChunkStore` は責務の境界が異なる。
+`ChunkStore` は `chunk-store-state.ts` の純粋な状態遷移と、上記の persistence/source の合成を提供する。
+`markChunkDirty` と `drainRenderDirtyChunks` に相当する購読 API は別の責務として公開している。
+差は意図的である:
 
 1. `drainRenderDirtyChunks` は**単一消費者**である。2 人目が drain すると 1 人目の分が消える。
    `ChunkStore` は購読者ごとに集合を持つ（§6-4）。frame には chunk-sync と落下ブロックと
@@ -603,7 +750,9 @@ mx-gameplay の hostile spawn は `NaN > 7` が `false` である以上、
 影響を即時に反映する。これにより、完全なキャッシュからの読み取りは O(1) のまま維持される。
 残る設計上の制約と失敗モードは [design-notes.md](./design-notes.md) DN-7 の表にある。
 
-以下は移植元の構造の記録である。
+現行コードでは、公開入口を `src/domain/light.ts` が提供し、4bit グリッドの格納を
+`src/domain/light-grid.ts`、全体伝播を `src/domain/light-propagation.ts`、増分更新を
+`src/domain/light-update.ts` が担当する。以下は移植元の構造の記録である。
 
 **パック処理は `packages/world` ではなく `packages/block/domain/light.ts`（211 LOC）にある。**
 移植時にパッケージ境界をまたぐ点に注意。
@@ -648,9 +797,9 @@ packPosLevel = (x, y, z, lvl) => (x << 13) | (z << 9) | y | (lvl << 17)
 再メッシュ範囲を絞る（`light-engine-utils.ts:15-19`）。
 
 **重要**: 参照実装は skyLight / blockLight を**永続化していない**。
-ロード時に `ctx.lightEngine.updateLight(baseChunk)` で再計算する
-（`chunk-manager-ops-storage.ts:61`）。
-チャンクフォーマットを `defineFormat` で定義するとき、この判断を引き継ぐか決めること。
+本実装もこの方針を採用し、`CHUNK_FORMAT` はライトグリッドを含めない。
+ロード後の最初の `getLight` が、常駐チャンク集合を `computeChunkLights` で再計算する。
+派生キャッシュを保存しないため、ブロック列とライト列が別々の真実になることもない。
 
 なお `no-bitwise` は mc-worldgen の `.oxlintrc.json` でのみ `off` にしてある。
 シード PRNG とこのライトパックの両方が bit 演算を必要とするためで、理由はそこに書いてある。
@@ -659,13 +808,24 @@ packPosLevel = (x, y, z, lvl) => (x << 13) | (z << 9) | y | (lvl << 17)
 
 ## 9. 自然構造プラン
 
-村、ruined Nether portal、End city / ship は、ロード済みチャンクの状態に依存しない
+desert pyramid、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、村、ruined Nether portal、Nether fortress、bastion remnant、End city / ship、End spike は、ロード済みチャンクの状態に依存しない
 immutable な `NaturalStructurePlan` として公開する。
 
 ```typescript
+planDesertPyramidForRegion(seed, regionX, regionZ, sampleTerrain)
+planIglooForRegion(seed, regionX, regionZ, sampleTerrain)
+planJunglePyramidForRegion(seed, regionX, regionZ, sampleTerrain)
+planMineshaftForRegion(seed, regionX, regionZ, sampleTerrain)
+planOceanRuinForRegion(seed, regionX, regionZ, sampleTerrain)
+planOceanMonumentForRegion(seed, regionX, regionZ, sampleTerrain)
+planPillagerOutpostForRegion(seed, regionX, regionZ, sampleTerrain)
+planShipwreckForRegion(seed, regionX, regionZ, sampleTerrain)
 planVillageForRegion(seed, regionX, regionZ, sampleTerrain)
 planRuinedNetherPortalForRegion(seed, regionX, regionZ, sampleTerrain)
+planNetherFortressForRegion(seed, regionX, regionZ, sampleTerrain)
+planBastionRemnantForRegion(seed, regionX, regionZ, sampleTerrain)
 planEndCityForRegion(seed, regionX, regionZ, sampleTerrain?)
+isNearFortressSite(seed, x, z, radius?)
 naturalStructureSliceForChunk(plan, chunkX, chunkZ)
 naturalStructurePlansForChunk(seed, dimension, coord, samplers?)
 applyNaturalStructurePlansToChunk(chunk, plans)
@@ -674,7 +834,8 @@ applyNaturalStructurePlansToChunk(chunk, plans)
 各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
 バイオーム、起伏、headroom、外縁島の有無を検査する。不適合なら `Option.none()`、適合すれば
 固定された dimension、bounds、registry block ID の配置、semantic marker を持つ plan を返す。
-marker は loot table、villager spawn、shulker spawner、欠損 portal frame、End ship といった
+`bastion remnant` は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。
+marker は loot table、villager / piglin / piglin-brute / blaze / wither skeleton spawn、shulker / blaze spawner、欠損 portal frame、End ship といった
 ブロック配列だけでは失われる意味を downstream へ渡す。
 
 `naturalStructureSliceForChunk` は plan をワールド座標のままチャンク単位へ分割する。
@@ -682,4 +843,14 @@ marker は loot table、villager spawn、shulker spawner、欠損 portal frame�
 同じ結果になる。村 plan は Overworld chunk generator と同じサイト・レイアウトを使う。
 `naturalStructurePlansForChunk` は対象チャンクに届く隣接 region の plan を安定順序で列挙・重複排除し、
 `applyNaturalStructurePlansToChunk` はブロックを書き込んで structure ID と由来付き marker を保持する。
-Nether / End generator は両者を適用済みであり、entity / loot subsystem は marker を消費する。
+Overworld / Nether / End generator は各 dimension の自然構造 plan を適用済みであり、entity / loot subsystem は marker を消費する。
+
+### 9-1. End features と gateway
+
+`endFeaturePlanForSeed` は seed から決定論的な End spike plan を作る。`generateEndChunk` はこの plan を
+各チャンクへ投影し、オブシディアン柱のブロックと、クリスタル／ケージの `endFeatureMarkers` を保持する。
+marker は entity を生成しないため、invulnerability、ケージの範囲、クリスタル位置を downstream が消費できる。
+
+`createEndGatewayPlacement` は中央の gateway と 3×3×3 の bedrock shell を返す。
+`moveEndGatewayPlacement` と `configureEndGatewayPlacement` は元の値を変更せず新しい placement を返し、
+`resolveEndGatewayExit` は既知の exit を優先し、なければホストが渡した遅延探索結果を返す。

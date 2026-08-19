@@ -1,16 +1,20 @@
 /** Deterministic terrain generation for the End dimension. */
-import { BlockId, type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import { CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { type Chunk, emptyBlocks, worldX, worldZ } from './chunk'
+import { type Chunk, emptyBlocks } from './chunk'
+import { type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
 import {
-  type NaturalStructureChunk,
+  type EndFeatureChunk,
+  applyEndFeaturePlansToChunk,
+  endFeaturePlanForSeed,
+} from './end-features'
+import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure'
-import { channelSeed, fbm2D } from './seeded-random'
+import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
+import { worldX, worldZ } from './generator-coordinates'
 
-const END_STONE_KERNEL_ID = 86
-export const END_STONE_BLOCK_ID = BlockId(END_STONE_KERNEL_ID)
+export const END_STONE_BLOCK_ID = blockIdOf('end_stone')
 export const END_BASE_Y = 64
 export const END_CENTRAL_ISLAND_RADIUS = 112
 export const END_OUTER_ISLAND_START = 384
@@ -141,12 +145,15 @@ export const generateEndTerrainChunk = (seed: number, coord: ChunkCoord): Chunk 
   return { biomes, blocks, coord }
 }
 
-/** Generate End terrain and apply every city or ship plan touching the chunk. */
-export const generateEndChunk = (seed: number, coord: ChunkCoord): NaturalStructureChunk =>
-  applyNaturalStructurePlansToChunk(
-    generateEndTerrainChunk(seed, coord),
-    naturalStructurePlansForChunk(seed, 'end', coord),
+/** Generate End terrain, structures, pillars, and crystal markers for a chunk. */
+export const generateEndChunk = (seed: number, coord: ChunkCoord): EndFeatureChunk =>
+  applyEndFeaturePlansToChunk(
+    applyNaturalStructurePlansToChunk(
+      generateEndTerrainChunk(seed, coord),
+      naturalStructurePlansForChunk(seed, 'end', coord),
+    ),
+    [endFeaturePlanForSeed(seed)],
   )
 
-export const generateEndChunkAt = (seed: number, cx: number, cz: number): NaturalStructureChunk =>
+export const generateEndChunkAt = (seed: number, cx: number, cz: number): EndFeatureChunk =>
   generateEndChunk(seed, chunkCoord(cx, cz))

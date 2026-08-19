@@ -1,7 +1,9 @@
+import { CHUNK_SIZE_XZ } from '@nerima-games/mc-kernel'
+
 /**
  * Terrain constants and the chunk buffer layout.
  *
- * PRE-AUDIT FIRST CUT (叩き台).
+ * These constants define the current deterministic generation contract.
  *
  * ---------------------------------------------------------------------------
  * ⚠ plan.md §3.7 STATES THE WRONG SEA LEVEL. DO NOT USE ITS NUMBERS.
@@ -48,7 +50,7 @@
  */
 
 /** Horizontal extent of a chunk, in blocks. */
-export const CHUNK_SIZE_XZ = 16
+export { CHUNK_SIZE_XZ }
 
 /** Vertical extent of a chunk, in blocks. */
 export const CHUNK_HEIGHT = 256
@@ -104,6 +106,9 @@ export const DEFAULT_TERRAIN_LEVELS: TerrainLevels = {
 
 /** Lowest solid layer. Nothing is ever carved or replaced below this. */
 export const BEDROCK_Y = 0
+
+/** Upper-exclusive boundary of the vanilla deepslate layer. */
+export const DEEPSLATE_CEILING = 16
 
 /**
  * How many blocks of solid shell a carver must leave beneath a water body.

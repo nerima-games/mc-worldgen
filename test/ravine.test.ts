@@ -52,6 +52,7 @@ import {
   ravineFloorY,
   RAVINE_FLOOR_Y,
   RAVINE_HALF_WIDTH,
+  RAVINE_LAVA_BED_BELOW_Y,
   RAVINE_MAX_DEPTH,
   RAVINE_MIN_DEPTH,
 } from '../src/domain/ravine'
@@ -121,8 +122,8 @@ describe('the band', () => {
    * R-1. `RAVINE_HALF_WIDTH` is transcribed from `ravine-carver.ts:15`, and the
    * reference's own comment says the number is calibrated to ITS noise: the
    * band 「still yields ~2% of columns」 because single-octave Perlin clusters
-   * near 0.5. `domain/seeded-random.ts` is smoothed value noise, not that, so
-   * the figure had to be re-measured before it could be kept.
+   * near 0.5. The current `mc-noise` value sampler is different, so the figure
+   * had to be re-measured before it could be kept.
    *
    * This is the check that it still means what the reference says it means. It
    * is the same class of error as `CONTINENTALNESS_CONTRAST` — a real number,
@@ -340,6 +341,30 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
       expect(readBlock(world.blocks, blockIndex(lx, floorY + 1, lz))).toBe(BLOCK.AIR)
       // The floor itself is NOT carved — `ravine-carver.ts:54` is `y > floorY`.
       expect(readBlock(world.blocks, blockIndex(lx, floorY, lz))).toBe(BLOCK.STONE)
+    }),
+  )
+
+  it.effect('R-5a: a floor at the lava boundary is filled with canonical lava', () =>
+    Effect.sync(() => {
+      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const world = flatWorld(10, 'PLAINS')
+
+      expect(
+        carveRavines(
+          { biomes: world.biomes, blocks: world.blocks, coord, seed: GOLDEN_SEED, surfaces: world.surfaces },
+          { waterGuard: 'none' },
+        ),
+      ).toBe(band.length)
+      expect(band.length).toBeGreaterThan(20)
+
+      const [lx, lz] = band[0] ?? [0, 0]
+      const depth = ravineDepthAt(ravineDistanceAt(GOLDEN_SEED, RAVINE_CHUNK.cx * 16 + lx, RAVINE_CHUNK.cz * 16 + lz))
+      const floorY = ravineFloorY(10, depth)
+
+      expect(floorY).toBeLessThanOrEqual(RAVINE_LAVA_BED_BELOW_Y)
+      expect(readBlock(world.blocks, blockIndex(lx, floorY + 1, lz))).toBe(BLOCK.AIR)
+      expect(readBlock(world.blocks, blockIndex(lx, floorY, lz))).toBe(BLOCK.LAVA)
     }),
   )
 

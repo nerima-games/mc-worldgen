@@ -21,23 +21,52 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import { blockIdOf } from '@nerima-games/mc-kernel'
 import { BIOMES, BIOME_SURFACES, BLOCK, type BiomeType } from '../src/domain/biome'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { generateChunkAt } from '../src/domain/terrain'
 import {
+  AQUATIC_PLANT_IDS,
+  GROUND_COVER_IDS,
   GROUND_PLANT_DENSITY,
+  MUSHROOM_IDS,
   PLANT,
   PLANT_IDS,
+  STACKED_PLANT_IDS,
   biomeCanGrowGroundPlants,
+  canPlaceAquaticPlantAt,
+  canPlaceCactusAt,
   canPlaceGroundPlantAt,
+  canPlaceLilyPadAt,
+  canPlaceSugarCaneAt,
   groundPlantAt,
+  plantSpecialVegetation,
   plantRoll,
   shouldPlaceGroundPlant,
 } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 
 const PLANT_ID_SET = new Set<number>(PLANT_IDS)
+
+const isSupportedPlant = (id: number, below: number): boolean => {
+  if (GROUND_COVER_IDS.includes(id) || MUSHROOM_IDS.includes(id)) {
+    return below === BLOCK.GRASS || below === BLOCK.DIRT
+  }
+  if (id === PLANT.CACTUS) {
+    return below === BLOCK.SAND || below === PLANT.CACTUS
+  }
+  if (id === PLANT.SUGAR_CANE) {
+    return below === BLOCK.DIRT || below === BLOCK.GRASS || below === BLOCK.SAND || below === PLANT.SUGAR_CANE
+  }
+  if (id === PLANT.LILY_PAD) {
+    return below === BLOCK.WATER
+  }
+  if (id === PLANT.SEAGRASS || id === PLANT.KELP) {
+    return below === BLOCK.DIRT || below === BLOCK.GRASS || below === BLOCK.SAND || below === BLOCK.GRAVEL || below === PLANT.KELP
+  }
+  return false
+}
 
 /** One single-biome chunk per biome, from the golden matrix's own selection rule. */
 const CHUNK_FOR_BIOME: ReadonlyMap<BiomeType, { readonly cx: number; readonly cz: number }> = new Map(
@@ -62,14 +91,50 @@ const countPlants = (chunk: Chunk): number => {
   return total
 }
 
+const emptyBlocks = (): Uint8Array => new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
+
+const putBlock = (blocks: Uint8Array, lx: number, y: number, lz: number, id: number): void => {
+  blocks[blockIndex(lx, y, lz)] = id
+}
+
+const specialInput = (
+  blocks: Uint8Array,
+  biome: BiomeType,
+  surfaceY: number,
+  seed: number,
+  waterLevel = 63,
+) => ({
+  blocks,
+  biome,
+  lx: 8,
+  lz: 8,
+  surfaceY,
+  waterLevel,
+  seed,
+  worldX: 8,
+  worldZ: 8,
+})
+
 describe('the plant id table', () => {
-  it.effect('carries kernel’s four ground-cover ids and nothing else', () =>
+  it.effect('carries the kernel ids for every supported natural plant', () =>
     Effect.sync(() => {
-      // Transcribed from `mc-kernel/domain/block-registry.ts` — dandelion :869,
-      // poppy :889, tall_grass :949, fern :969. `test/kernel-mirror.test.ts`
-      // pins the same four against kernel's roster; this is the local shape.
-      expect(PLANT).toStrictEqual({ DANDELION: 21, POPPY: 22, TALL_GRASS: 25, FERN: 26 })
+      expect(PLANT).toStrictEqual({
+        BROWN_MUSHROOM: blockIdOf('brown_mushroom'),
+        CACTUS: blockIdOf('cactus'),
+        DANDELION: blockIdOf('dandelion'),
+        FERN: blockIdOf('fern'),
+        KELP: blockIdOf('kelp'),
+        LILY_PAD: blockIdOf('lily_pad'),
+        POPPY: blockIdOf('poppy'),
+        RED_MUSHROOM: blockIdOf('red_mushroom'),
+        SEAGRASS: blockIdOf('seagrass'),
+        SUGAR_CANE: blockIdOf('sugar_cane'),
+        TALL_GRASS: blockIdOf('tall_grass'),
+      })
       expect(new Set(PLANT_IDS).size).toBe(PLANT_IDS.length)
+      expect(new Set([...GROUND_COVER_IDS, ...MUSHROOM_IDS, ...AQUATIC_PLANT_IDS, ...STACKED_PLANT_IDS])).toStrictEqual(
+        new Set(PLANT_IDS),
+      )
     }),
   )
 
@@ -137,8 +202,8 @@ describe('the placement roll', () => {
           }
         }
       }
-      // Correlated channels are the trap `domain/seeded-random.ts` names: if
-      // these were one stream, every placed plant would be the same variant.
+      // Correlated channels are the failure mode avoided by named noise channels:
+      // if these were one stream, every placed plant would be the same variant.
       expect(same).toBeLessThan(16)
     }),
   )
@@ -335,6 +400,133 @@ describe('the support rule', () => {
   )
 })
 
+describe('special vegetation support and placement', () => {
+  it.effect('applies the distinct support rules for cactus, sugar cane and aquatic plants', () =>
+    Effect.sync(() => {
+      const cactus = emptyBlocks()
+      putBlock(cactus, 8, 64, 8, BLOCK.SAND)
+      expect(canPlaceCactusAt(cactus, 8, 64, 8)).toBe(true)
+      putBlock(cactus, 7, 65, 8, BLOCK.LOG)
+      expect(canPlaceCactusAt(cactus, 8, 64, 8)).toBe(false)
+      expect(canPlaceCactusAt(cactus, 0, 64, 8)).toBe(false)
+      putBlock(cactus, 7, 65, 8, BLOCK.AIR)
+      putBlock(cactus, 8, 64, 8, BLOCK.DIRT)
+      expect(canPlaceCactusAt(cactus, 8, 64, 8)).toBe(false)
+
+      const sugarCane = emptyBlocks()
+      putBlock(sugarCane, 8, 64, 8, BLOCK.DIRT)
+      expect(canPlaceSugarCaneAt(sugarCane, 8, 64, 8)).toBe(false)
+      putBlock(sugarCane, 7, 64, 8, BLOCK.WATER)
+      expect(canPlaceSugarCaneAt(sugarCane, 8, 64, 8)).toBe(true)
+      putBlock(sugarCane, 7, 64, 8, BLOCK.AIR)
+      expect(canPlaceSugarCaneAt(sugarCane, 8, 64, 8)).toBe(false)
+
+      const aquatic = emptyBlocks()
+      putBlock(aquatic, 8, 62, 8, BLOCK.GRAVEL)
+      putBlock(aquatic, 8, 63, 8, BLOCK.WATER)
+      expect(canPlaceAquaticPlantAt(aquatic, 8, 62, 8)).toBe(true)
+      putBlock(aquatic, 8, 63, 8, BLOCK.AIR)
+      expect(canPlaceAquaticPlantAt(aquatic, 8, 62, 8)).toBe(false)
+    }),
+  )
+
+  it.effect('requires a swamp water surface for lily pads and rejects invalid boundaries', () =>
+    Effect.sync(() => {
+      const blocks = emptyBlocks()
+      putBlock(blocks, 8, 63, 8, BLOCK.WATER)
+      expect(canPlaceLilyPadAt({ biome: 'SWAMP', blocks, lx: 8, lz: 8, waterLevel: 63, surfaceY: 60 })).toBe(true)
+      expect(canPlaceLilyPadAt({ biome: 'PLAINS', blocks, lx: 8, lz: 8, waterLevel: 63, surfaceY: 60 })).toBe(false)
+      expect(canPlaceLilyPadAt({ biome: 'SWAMP', blocks, lx: 8, lz: 8, waterLevel: 63, surfaceY: 63 })).toBe(false)
+      putBlock(blocks, 8, 64, 8, BLOCK.LOG)
+      expect(canPlaceLilyPadAt({ biome: 'SWAMP', blocks, lx: 8, lz: 8, waterLevel: 63, surfaceY: 60 })).toBe(false)
+      expect(canPlaceLilyPadAt({ biome: 'SWAMP', blocks, lx: 8, lz: 8, waterLevel: CHUNK_HEIGHT - 1, surfaceY: 60 })).toBe(false)
+      expect(canPlaceLilyPadAt({ biome: 'SWAMP', blocks, lx: -1, lz: 8, waterLevel: 63, surfaceY: 60 })).toBe(false)
+    }),
+  )
+
+  it.effect('places bounded cactus, sugar cane and mushrooms on their own channels', () =>
+    Effect.sync(() => {
+      const cactus = emptyBlocks()
+      putBlock(cactus, 8, 64, 8, BLOCK.SAND)
+      plantSpecialVegetation(specialInput(cactus, 'DESERT', 64, 18))
+      expect(cactus[blockIndex(8, 65, 8)]).toBe(PLANT.CACTUS)
+      expect(cactus[blockIndex(8, 66, 8)]).toBe(PLANT.CACTUS)
+      expect(cactus[blockIndex(8, 67, 8)]).toBe(BLOCK.AIR)
+
+      const blockedCactus = emptyBlocks()
+      putBlock(blockedCactus, 8, 64, 8, BLOCK.SAND)
+      putBlock(blockedCactus, 7, 65, 8, BLOCK.LOG)
+      plantSpecialVegetation(specialInput(blockedCactus, 'DESERT', 64, 18))
+      expect(blockedCactus[blockIndex(8, 65, 8)]).toBe(BLOCK.AIR)
+
+      const cappedCactus = emptyBlocks()
+      putBlock(cappedCactus, 8, 64, 8, BLOCK.SAND)
+      putBlock(cappedCactus, 7, 66, 8, BLOCK.LOG)
+      plantSpecialVegetation(specialInput(cappedCactus, 'DESERT', 64, 18))
+      expect(cappedCactus[blockIndex(8, 65, 8)]).toBe(PLANT.CACTUS)
+      expect(cappedCactus[blockIndex(8, 66, 8)]).toBe(BLOCK.AIR)
+
+      const sugarCane = emptyBlocks()
+      putBlock(sugarCane, 8, 64, 8, BLOCK.DIRT)
+      putBlock(sugarCane, 7, 64, 8, BLOCK.WATER)
+      putBlock(sugarCane, 8, 66, 8, BLOCK.LOG)
+      plantSpecialVegetation(specialInput(sugarCane, 'PLAINS', 64, 18))
+      expect(sugarCane[blockIndex(8, 65, 8)]).toBe(PLANT.SUGAR_CANE)
+      expect(sugarCane[blockIndex(8, 66, 8)]).toBe(BLOCK.LOG)
+
+      const mushroom = emptyBlocks()
+      putBlock(mushroom, 8, 64, 8, BLOCK.DIRT)
+      plantSpecialVegetation(specialInput(mushroom, 'FOREST', 64, 54))
+      expect(mushroom[blockIndex(8, 65, 8)]).toBe(PLANT.BROWN_MUSHROOM)
+    }),
+  )
+
+  it.effect('places seagrass, kelp and a swamp lily pad only in water', () =>
+    Effect.sync(() => {
+      const seagrass = emptyBlocks()
+      putBlock(seagrass, 8, 62, 8, BLOCK.GRAVEL)
+      putBlock(seagrass, 8, 63, 8, BLOCK.WATER)
+      plantSpecialVegetation(specialInput(seagrass, 'OCEAN', 62, 0))
+      expect(seagrass[blockIndex(8, 63, 8)]).toBe(PLANT.SEAGRASS)
+
+      const kelp = emptyBlocks()
+      putBlock(kelp, 8, 62, 8, BLOCK.GRAVEL)
+      putBlock(kelp, 8, 63, 8, BLOCK.WATER)
+      putBlock(kelp, 8, 64, 8, BLOCK.WATER)
+      plantSpecialVegetation(specialInput(kelp, 'OCEAN', 62, 18))
+      expect(kelp[blockIndex(8, 63, 8)]).toBe(PLANT.KELP)
+      expect(kelp[blockIndex(8, 64, 8)]).toBe(PLANT.KELP)
+
+      const lilyPad = emptyBlocks()
+      putBlock(lilyPad, 8, 60, 8, BLOCK.DIRT)
+      putBlock(lilyPad, 8, 61, 8, BLOCK.WATER)
+      putBlock(lilyPad, 8, 63, 8, BLOCK.WATER)
+      plantSpecialVegetation(specialInput(lilyPad, 'SWAMP', 60, 6))
+      expect(lilyPad[blockIndex(8, 61, 8)]).toBe(PLANT.SEAGRASS)
+      expect(lilyPad[blockIndex(8, 64, 8)]).toBe(PLANT.LILY_PAD)
+
+      const dry = emptyBlocks()
+      putBlock(dry, 8, 62, 8, BLOCK.GRAVEL)
+      plantSpecialVegetation(specialInput(dry, 'OCEAN', 62, 0))
+      expect(dry[blockIndex(8, 63, 8)]).toBe(BLOCK.AIR)
+    }),
+  )
+
+  it.effect('does not write at world height boundaries', () =>
+    Effect.sync(() => {
+      const floor = emptyBlocks()
+      putBlock(floor, 8, BEDROCK_Y, 8, BLOCK.SAND)
+      plantSpecialVegetation(specialInput(floor, 'DESERT', BEDROCK_Y, 18))
+      expect(floor.some((id) => id !== BLOCK.AIR && id !== BLOCK.SAND)).toBe(false)
+
+      const ceiling = emptyBlocks()
+      putBlock(ceiling, 8, CHUNK_HEIGHT - 1, 8, BLOCK.SAND)
+      plantSpecialVegetation(specialInput(ceiling, 'DESERT', CHUNK_HEIGHT - 1, 18))
+      expect(ceiling.some((id) => id !== BLOCK.AIR && id !== BLOCK.SAND)).toBe(false)
+    }),
+  )
+})
+
 /**
  * ---------------------------------------------------------------------------
  * V-1 .. V-4: what backs the moved goldens.
@@ -346,7 +538,7 @@ describe('the support rule', () => {
 describe('what backs the vegetation half of the golden move', () => {
   const decoratedChunks = BIOMES.map((biome) => ({ biome, chunk: chunkFor(biome) }))
 
-  it.effect('V-1: every plant stands on GRASS or DIRT with the plant itself directly above it', () =>
+  it.effect('V-1: every plant obeys its category support rule', () =>
     Effect.sync(() => {
       let seen = 0
       // Collected rather than asserted per cell: 655,360 matcher calls is slow
@@ -362,7 +554,9 @@ describe('what backs the vegetation half of the golden move', () => {
               }
               seen += 1
               const below = readBlock(chunk.blocks, blockIndex(lx, y - 1, lz))
-              if (below !== BLOCK.GRASS && below !== BLOCK.DIRT) {
+              const id = readBlock(chunk.blocks, blockIndex(lx, y, lz))
+              const supported = isSupportedPlant(id, below)
+              if (!supported) {
                 floating.push(`${biome} (${String(lx)}, ${String(y)}, ${String(lz)}) on ${String(below)}`)
               }
             }
@@ -377,21 +571,31 @@ describe('what backs the vegetation half of the golden move', () => {
     }),
   )
 
-  it.effect('V-2: a plant is exactly one block tall, so no column carries two', () =>
+  it.effect('V-2: single-block plants do not stack and natural columns stay bounded', () =>
     Effect.sync(() => {
       const crowded: Array<string> = []
 
       for (const { biome, chunk } of decoratedChunks) {
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            let inColumn = 0
+            let singleBlockPlants = 0
+            const stackedPlants = new Map<number, number>()
             for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
-              if (PLANT_ID_SET.has(readBlock(chunk.blocks, blockIndex(lx, y, lz)))) {
-                inColumn += 1
+              const id = readBlock(chunk.blocks, blockIndex(lx, y, lz))
+              if (GROUND_COVER_IDS.includes(id) || MUSHROOM_IDS.includes(id) || id === PLANT.LILY_PAD) {
+                singleBlockPlants += 1
+              }
+              if (STACKED_PLANT_IDS.includes(id)) {
+                stackedPlants.set(id, (stackedPlants.get(id) ?? 0) + 1)
               }
             }
-            if (inColumn > 1) {
-              crowded.push(`${biome} (${String(lx)}, ${String(lz)}) carries ${String(inColumn)}`)
+            if (singleBlockPlants > 1) {
+              crowded.push(`${biome} (${String(lx)}, ${String(lz)}) carries ${String(singleBlockPlants)} single-block plants`)
+            }
+            for (const [id, count] of stackedPlants) {
+              if (count > 3) {
+                crowded.push(`${biome} (${String(lx)}, ${String(lz)}) carries ${String(count)} of ${String(id)}`)
+              }
             }
           }
         }
@@ -409,30 +613,35 @@ describe('what backs the vegetation half of the golden move', () => {
    * `BIOME_SURFACES` ever gives BEACH a dirt patch, this fails and the header
    * gets corrected instead of quietly becoming false.
    */
-  it.effect('V-3: exactly the biomes whose surface is soil grow anything, and it is the seven expected', () =>
+  it.effect('V-3: each generated plant biome has an explicit expected category', () =>
     Effect.sync(() => {
       const growing = decoratedChunks.filter(({ chunk }) => countPlants(chunk) > 0).map(({ biome }) => biome)
 
       expect([...growing].sort()).toStrictEqual([
+        'BEACH',
+        'DESERT',
         'FLOWER_FOREST',
         'FOREST',
         'JUNGLE',
+        'MOUNTAINS',
+        'OCEAN',
         'PLAINS',
+        'RIVER',
         'SAVANNA',
         'SWAMP',
         'TAIGA',
       ])
 
-      // And the derived predicate agrees with the realised terrain, in both
-      // directions, for all thirteen biomes.
+      // A generated ground-cover block must be supported by the static biome
+      // predicate. A capable biome may still produce no ground cover when
+      // this sampled column is submerged or otherwise unsuitable.
       for (const { biome, chunk } of decoratedChunks) {
-        expect(biomeCanGrowGroundPlants(biome), `${biome} predicate disagrees with its chunk`).toBe(
-          countPlants(chunk) > 0,
-        )
+        const groundCoverCount = chunk.blocks.filter((id) => GROUND_COVER_IDS.includes(id)).length
+        if (groundCoverCount > 0) expect(biomeCanGrowGroundPlants(biome), `${biome} predicate disagrees with its chunk`).toBe(true)
       }
 
-      // BEACH is the interesting row: a non-zero density that the surface table
-      // makes unreachable. Both halves are asserted so neither can drift alone.
+      // BEACH keeps a non-zero ground-cover density, but its sand surface is
+      // reached by the separate cactus/sugar-cane rules.
       expect(GROUND_PLANT_DENSITY.BEACH).toBeGreaterThan(0)
       expect(BIOME_SURFACES.BEACH.top).toBe(BLOCK.SAND)
       expect(biomeCanGrowGroundPlants('BEACH')).toBe(false)

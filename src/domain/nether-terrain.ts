@@ -1,7 +1,7 @@
 /** Deterministic, absolute-coordinate terrain generation for the Nether. */
-import { BlockId, type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
+import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { type Chunk, emptyBlocks, worldX, worldZ } from './chunk'
+import { type Chunk, emptyBlocks } from './chunk'
 import {
   type NaturalStructureChunk,
   type NaturalStructurePosition,
@@ -9,23 +9,18 @@ import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure'
-import { channelSeed, fbm2D, latticeValue } from './seeded-random'
+import { channelSeed, fbm2D, latticeValue } from '@nerima-games/mc-noise'
+import { worldX, worldZ } from './generator-coordinates'
 
 /** Advances a loop counter, or steps to the adjacent lattice point, by one unit. */
 const UNIT_STEP = 1
 
-const NETHER_AIR_ID = 0
-const NETHER_BEDROCK_ID = 1
-const NETHER_LAVA_ID = 11
-const NETHER_NETHERRACK_ID = 117
-const NETHER_SOUL_SAND_ID = 47
-
 export const NETHER_BLOCK = Object.freeze({
-  AIR: BlockId(NETHER_AIR_ID),
-  BEDROCK: BlockId(NETHER_BEDROCK_ID),
-  LAVA: BlockId(NETHER_LAVA_ID),
-  NETHERRACK: BlockId(NETHER_NETHERRACK_ID),
-  SOUL_SAND: BlockId(NETHER_SOUL_SAND_ID),
+  AIR: blockIdOf('air'),
+  BEDROCK: blockIdOf('bedrock'),
+  LAVA: blockIdOf('lava'),
+  NETHERRACK: blockIdOf('netherrack'),
+  SOUL_SAND: blockIdOf('soul_sand'),
 })
 
 export const NETHER_LAVA_LEVEL = 31

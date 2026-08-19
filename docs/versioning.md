@@ -1,12 +1,11 @@
 # バージョニングと公開
 
-## 1. 現在: `0.1.12`、未公開
+## 1. 現在: `0.1.14`、未公開
 
 `package.json`:
 
 ```json
-"version": "0.1.12",
-"publishConfig": { "registry": "https://npm.pkg.github.com", "access": "restricted" }
+"version": "0.1.14"
 ```
 
 `publishConfig` は書いてあるが、**publish はまだ一度も行っていない**。
@@ -26,28 +25,21 @@ plan.md §6 Step 0 / §8:
 kernel の些細な変更が 15 リポジトリの version bump を誘発する。
 開発初期は界面が動くのが当たり前なので、これは毎日起きる。
 
-代わりに `mc-dev-meta` workspace で `workspace:*` 解決を使い、
-モノレポと同等の DX で開発する。
+現在の checkout は単独パッケージとして、`package.json` に解決可能なバージョン付きの
+`mc-kernel` / `mc-noise` / `mc-save` を宣言している。依存先の実装をこのリポジトリへ
+複製せず、公開パッケージの API を直接利用する。
 
-### 依存を `workspace:*` で宣言する理由
+mc-worldgen のドメインコードは、次の責務境界で各パッケージを直接消費する:
 
-開発時は `mc-dev-meta` の workspace から兄弟パッケージを解決するため、`mc-noise` は `workspace:*` で宣言します。
-
-mc-worldgen はホワイトリスト上 `mc-noise` と `mc-save`（および普遍的な `mc-kernel`）を
-import します。`seeded-random.ts` は既存のローカルimportを維持する互換adapterであり、
-決定的ノイズとseed変換の実装本体は `mc-noise` にあります。
-
-- 何も publish されていないので `@nerima-games/*` はどれも解決できない
-- スケルトンには import すべき兄弟のコードがまだ無い
-
-そのため以下は**仮置き**であり、依存が消費可能になった時点で削除する:
-
-| 仮置き | 本来の所属 |
+| このリポジトリの責務 | 直接利用する契約 |
 | --- | --- |
-| `domain/seeded-random.ts` | `mc-noise` の互換adapter |
-| `domain/chunk.ts` の `Chunk` 型 | `mc-kernel` |
-| `domain/biome.ts` の `BLOCK` テーブル | `mc-kernel` |
-| チャンクフォーマット定義（未実装） | 定義は worldgen、機構は `mc-save` |
+| `(seed, coordinate)` による地形・装飾の生成 | `mc-noise` |
+| ブロック ID とチャンク座標 | `mc-kernel` |
+| 永続化用の型・エンコード契約 | `mc-save` |
+| 生成中の可変ブロック・バイオーム配列 | worldgen 固有の書き込みバッファ `Chunk` |
+
+保存フォーマットの最小入力を読むコードは、永続化フォーマットの契約として残している。
+これはローカルの旧 API 用互換層ではない。
 
 意図された依存グラフは**コードとドキュメントの側に**記録してある:
 
@@ -79,7 +71,7 @@ mc-worldgen の場合、具体的には:
 3. 上記の消費・動作確認が完了したと maintainer が判断している
    （日数計測ベースの自動ゲートは廃止。RELEASE_STANDARD.md §4.2 参照）
 4. 地形プレビューが操作可能である（plan.md §6 Step 2 の完了条件）
-5. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
+5. `mc-noise` / `mc-save` / `mc-kernel` の実依存を下流で消費し、契約を確認している
 
 **mc-worldgen には 5 つの下流がある**（sim / render / playground-kit / gameplay / redstone）。
 mc-sim ほどではないが依存ハブなので、界面が動くと 5 箇所に波及する。
@@ -88,28 +80,27 @@ mc-sim ほどではないが依存ハブなので、界面が動くと 5 箇所�
 
 ## 5. ビルドと publish のパイプライン
 
-### 現状: ビルドステップが無い
+### 現状: ローカル配布ビルドは実装済み、publish は未実施
 
 `package.json`:
 
 ```json
-"main": "./index.ts",
-"types": "./index.ts",
-"exports": { ".": "./index.ts" }
+"main": "./dist/index.js",
+"types": "./dist/index.d.ts",
+"exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
 ```
 
-**TypeScript ソースを直接指している。** `tsconfig.base.json` の `noEmit: true` も同じ理由である。
+`pnpm build` は `esbuild` で ESM をバンドルし、`tsconfig.package.json` で宣言ファイルを
+`dist/` に出力する。リポジトリの型検査プロジェクトは引き続き `noEmit: true` である。
 
-これは `mc-dev-meta` workspace 内でのみ成立する構成である
-（consumer 側がソースをコンパイルする）。
+`files` は `dist/` とドキュメントだけを含むため、consumer は TypeScript ソースを直接コンパイルしない。
+公開レジストリへの publish はまだ実施していない。
 
-### 完成時に追加するもの
+### リリース時に確認するもの
 
-1. `tsconfig.build.json` の `noEmit` を外し、`dist/` に emit する
-2. `exports` を `dist/index.js` + `dist/index.d.ts` に向ける
-3. `files` から `domain` を外し `dist` を入れる
-4. CI に `pnpm build` と、tag push での `pnpm publish` を追加
-5. `.npmrc` に GitHub Packages の認証設定（`//npm.pkg.github.com/:_authToken=`）を追加
+1. `pnpm build` が生成した `dist/index.js` と `dist/index.d.ts` を検査する
+2. CI に `pnpm build` と、tag push での `pnpm publish` を追加する
+3. GitHub Packages の認証を secret 経由で設定する
 
 ### `.npmrc` の現状
 

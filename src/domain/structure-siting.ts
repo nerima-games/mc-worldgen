@@ -24,7 +24,7 @@
  * strongholds in the same 384-block grid cells. Same conclusion as
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
-import { channelSeed, latticeValue } from './seeded-random'
+import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import type { BiomeType } from './biome'
 import { Option } from 'effect'
 
@@ -86,8 +86,8 @@ const floorDiv = (value: number, divisor: number): number => Math.floor(value / 
  * The site in one region, or nothing.
  *
  * Three independent draws — one to decide whether the region has a stronghold at
- * all, two for the offset — from three channels, for the reason
- * `./seeded-random.ts` gives: a shared stream would make 「which regions have
+ * all, two for the offset — from three channels, because a shared stream would
+ * make 「which regions have
  * one」 and 「where in the region it is」 the same fact, and every stronghold
  * would sit at the same offset inside its own region.
  *
@@ -166,13 +166,13 @@ export type VillageSite = {
   readonly z: number
 }
 
-export type VillageTerrainSample = {
+export type OverworldTerrainSample = {
   readonly biome: BiomeType
   readonly surfaceY: number
   readonly seaLevel: number
 }
 
-export type VillageTerrainSampler = (x: number, z: number) => VillageTerrainSample
+export type OverworldTerrainSampler = (x: number, z: number) => OverworldTerrainSample
 
 /**
  * Is every probe of a candidate village site dry, level PLAINS?
@@ -180,7 +180,7 @@ export type VillageTerrainSampler = (x: number, z: number) => VillageTerrainSamp
  * Split out of `villageSiteForRegion` so that function's own statement count
  * stays a plain read: roll, reject, offset, probe, reject-or-accept.
  */
-const isValidVillageSite = (probes: ReadonlyArray<VillageTerrainSample>): boolean => {
+const isValidVillageSite = (probes: ReadonlyArray<OverworldTerrainSample>): boolean => {
   if (probes.some((probe) => probe.biome !== 'PLAINS' || probe.surfaceY <= probe.seaLevel + VILLAGE_MIN_DRY_CLEARANCE)) {
     return false
   }
@@ -194,7 +194,7 @@ export const villageSiteForRegion = (
   seed: number,
   regionX: number,
   regionZ: number,
-  sampleTerrain: VillageTerrainSampler,
+  sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<VillageSite> => {
   const roll = latticeValue(channelSeed(seed, 'village-present'), regionX, regionZ)
   if (roll >= VILLAGE_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
@@ -230,7 +230,7 @@ export const villageSitesNearChunk = (
   seed: number,
   chunkX: number,
   chunkZ: number,
-  sampleTerrain: VillageTerrainSampler,
+  sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<VillageSite> => {
   const bounds = {
     maxX: chunkX * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT,
