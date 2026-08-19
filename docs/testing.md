@@ -16,6 +16,18 @@
 
 `pnpm` は PATH に無い場合がある。`corepack pnpm <cmd>` で、`package.json` が指定する pnpm 11 系を起動する。
 
+### 配布成果物の検査
+
+`pnpm verify` の最後の `build` は `dist/` を生成する。公開前や統合作業の区切りでは、生成物を consumer から読み込めることと、pack の境界にソースやテストが漏れていないことも確認する。
+
+```console
+$ pnpm verify
+$ node --input-type=module -e 'import("./dist/index.js").then((m) => { if (Object.keys(m).length === 0) process.exit(1) })'
+$ pnpm pack --dry-run
+```
+
+`pack --dry-run` の一覧には `dist/`、`docs/`、`LICENSE`、`package.json` が含まれ、`src/` と `test/` は含まれない。ここでは tarball を作成・公開しない。
+
 ### プレビューはゲートではないが、野放しでもない
 
 `pnpm preview` は `pnpm verify` に入っていない。人間が見るものであり、

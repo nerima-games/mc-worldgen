@@ -98,9 +98,11 @@ mc-sim ほどではないが依存ハブなので、界面が動くと 5 箇所�
 
 ### リリース時に確認するもの
 
-1. `pnpm build` が生成した `dist/index.js` と `dist/index.d.ts` を検査する
-2. CI に `pnpm build` と、tag push での `pnpm publish` を追加する
-3. GitHub Packages の認証を secret 経由で設定する
+1. `pnpm verify` を通し、`dist/index.js` と `dist/index.d.ts` を生成する
+2. `node --input-type=module` で `dist/index.js` を consumer と同じ ESM エントリとして読み込む
+3. `pnpm pack --dry-run` で `dist/`、ドキュメント、`LICENSE`、`package.json` が含まれ、`src/` と `test/` が含まれないことを確認する
+4. CI に `pnpm build` と、tag push での `pnpm publish` を追加する
+5. GitHub Packages の認証を secret 経由で設定する
 
 ### `.npmrc` の現状
 
