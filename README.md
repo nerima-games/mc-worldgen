@@ -160,7 +160,7 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
 ## 現状
 
 **現在の実装状態。** Overworld / Nether / End の決定論的な地形生成、主要なカーバー・植生・
-構造配置（Overworld stronghold / desert pyramid / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / Nether fortress / bastion remnant を含む）、End のスパイク／クリスタル計画、ライト、チャンクストア、保存形式定義を実装し、
+構造配置（Overworld stronghold / desert pyramid / desert well / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / Nether fortress / bastion remnant を含む）、End の外縁島 chorus 植生、スパイク／クリスタル計画、ライト、チャンクストア、保存形式定義を実装し、
 依存パッケージの API を直接利用している。
 
 - ✅ **地形プレビューは実装済み** — `apps/preview-terrain/`。
@@ -182,12 +182,12 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   **渓谷カーバー（`domain/ravine.ts`）** — 2 層の水ガードごと。
   帯幅 `RAVINE_HALF_WIDTH` は参照実装から転記する前に実測している
   （帯幅は分布についての主張なので可搬ではない。[docs/responsibility.md](./docs/responsibility.md) §1-6）
-- ✅ **自然構造プランとチャンク適用は実装済み** — `domain/natural-structure.ts` が desert pyramid、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、村、ruined Nether portal、
+- ✅ **自然構造プランとチャンク適用は実装済み** — `domain/natural-structure.ts` が desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、村、ruined Nether portal、
   Nether fortress、bastion remnant、
-  End city / ship をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
+  End city / ship、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
   semantic marker をチャンク別に投影する。村は Overworld chunk generator と同じレイアウトを使い、
   Overworld / Nether / End generator は構造ブロックを書き込んで marker の由来を保持する。
-  bastion remnant は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。
+  bastion remnant、desert well と上記六つの compact structure は現行 `mc-kernel` の登録ブロックだけで構成しており、vanilla の template / palette parity は主張しない。
   `domain/end-features.ts` は決定論的なスパイク、オブシディアン柱、クリスタル／ケージの意味情報を
   同じ境界投影モデルで提供し、`domain/end-gateway.ts` は bedrock shell と出口設定を純粋な値として公開する。
 - **実装済み**: ワーカープール Port の型（`TerrainWorkerPoolPort`）と

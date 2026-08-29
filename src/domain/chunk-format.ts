@@ -214,7 +214,7 @@ const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(
   }),
 )
 
-const NaturalStructureKindSchema = Schema.Literal('desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'village', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city')
+const NaturalStructureKindSchema = Schema.Literal('ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city')
 
 const NaturalStructureMarkerFields = {
   structureId: Schema.String,
@@ -229,7 +229,7 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     kind: Schema.Literal('loot-chest'),
-    lootTable: Schema.Literal('desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'village', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship'),
+    lootTable: Schema.Literal('ancient-city', 'buried-treasure', 'desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
@@ -267,6 +267,12 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
     axis: Schema.Literal('x', 'z'),
     complete: Schema.Literal(false),
     kind: Schema.Literal('portal-frame'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    eye: Schema.Boolean,
+    facing: Schema.Literal('north', 'east', 'south', 'west'),
+    kind: Schema.Literal('end-portal-frame'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,

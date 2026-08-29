@@ -133,6 +133,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | --- | --- |
 | サトウキビ / サボテン / スイレン / キノコ | `domain/vegetation.ts` に支持ブロック・隣接空気・水・バイオーム条件つきの特殊植生パスを実装済み。参照実装の全バイオーム名簿・配置密度との完全一致は未検証 |
 | 昆布 / 海草 | 水柱の水セルを対象にした `canPlaceAquaticPlantAt` と配置パスを実装済み。参照実装の水クッション・柱長・海底分布との完全一致は未検証 |
+| End chorus 植生 | `domain/end-vegetation.ts` が外縁島の絶対座標から決定論的な stem / flower / branch plan を作り、`end-terrain.ts` がチャンクへ適用する。現行 `mc-kernel` の登録ブロックだけを使い、参照実装の配置密度との完全一致は未検証 |
 | deepslate 鉱石 7 種（kernel 57-63） | `domain/ore.ts` の石 / 深層岩 14 variant と `terrain.ts` の深層岩層を実装済み。ローカル地形の深度帯へ再導出しており、参照実装の帯との数値一致は未達 |
 | `redstone_ore` / `deepslate_redstone_ore` の `lightEmission: 9` | 残件ではない。`mc-kernel` のレジストリを `src/domain/light-propagation.ts` が `lightEmissionOfBlockId` 経由で直接参照し、両 variant の 9 を伝播に使う。`test/light.test.ts` が両方の値と隣接セルの 8 を固定している |
 
@@ -144,6 +145,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | 161 | `packages/world/domain/terrain/nether-fortress.ts` | ✅ seed / region 候補、地形適合、Nether brick 断面、semantic marker → `domain/nether-fortress.ts` |
 | — | **bastion remnant** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure（vanilla template/palette parity ではない）。`domain/bastion-remnant.ts` と `domain/natural-structure.ts` が Nether の shelf 適合・生成・loot / piglin marker・immutable plan を担当 |
 | — | **desert pyramid** | ✅ 参照実装の移植対象外のため新規設計。`domain/desert-pyramid.ts` と `domain/natural-structure.ts` が地形適合・生成・immutable plan を担当 |
+| — | **desert well** | ✅ 現行 `mc-kernel` の `sandstone` / `water` だけで新規設計した小規模構造（vanilla template/palette parity ではない）。`domain/desert-well.ts` と `domain/natural-structure.ts` が乾燥・平坦な砂漠サイトの適合、生成、immutable plan を担当 |
 | — | **igloo** | ✅ 参照実装の移植対象外のため新規設計。`domain/igloo.ts` と `domain/natural-structure.ts` が雪地形適合・生成・immutable plan を担当 |
 | — | **jungle pyramid** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure（vanilla template/palette parity ではない）。`domain/jungle-pyramid.ts` と `domain/natural-structure.ts` がジャングル地形適合・生成・immutable plan を担当 |
 | — | **ocean ruin** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計。`domain/ocean-ruin.ts` と `domain/natural-structure.ts` が海底適合・遺跡生成・immutable plan を担当 |
@@ -152,8 +154,9 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | — | **pillager outpost** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure。`domain/pillager-outpost.ts` と `domain/natural-structure.ts` が乾燥地形適合・塔生成・loot / pillager marker・immutable plan を担当 |
 | — | **shipwreck** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計。`domain/shipwreck.ts` と `domain/natural-structure.ts` が海底適合・船体生成・immutable plan を担当 |
 | — | **村** | ✅ 参照実装に存在しないため新規設計。`domain/village.ts` と `domain/natural-structure.ts` が生成・immutable plan を担当 |
+| — | **ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure。`domain/compact-structure.ts` と `domain/natural-structure.ts` が候補配置・地形適合・生成・immutable plan を担当 |
 
-この表にない vanilla structure generator（woodland mansion、trail ruins、trial chambers など）は、現行リポジトリでは未実装である。ブロック registry に対象ブロックが存在することと、構造物の配置・生成器が存在することは別なので、構造物の実装済み一覧をこれ以上広げて主張しない。
+この表にない vanilla structure generator（たとえば nether fossil）は、現行リポジトリでは未実装である。bastion remnant、desert well と上記の compact structure 六種は構造物の配置・地形適合・チャンク投影まで実装済みだが、vanilla の template / palette と完全一致する生成器ではない。ブロック registry に対象ブロックが存在することと、構造物の配置・生成器が存在することは別なので、未検証の構造物まで実装済みとは主張しない。
 
 | LOC | パス |
 | ---: | --- |

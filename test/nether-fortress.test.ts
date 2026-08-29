@@ -18,9 +18,11 @@ import {
 import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
+  planNaturalStructureForRegion,
   type NaturalStructurePlan,
 } from '../src/domain/natural-structure'
 import type { NetherStructureTerrainSampler } from '../src/domain/natural-structure'
+import { candidatePresenceChannelSeedFor } from '../src/domain/natural-structure-plan-builder'
 
 const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: 96, surfaceY: 48 })
 
@@ -171,6 +173,16 @@ describe('Nether fortress plans', () => {
   it('dispatches through the Nether chunk plan and preserves chunk ownership', () => {
     const seed = 0x2468
     const located = findFortress(seed)
+    const routed = planNaturalStructureForRegion({
+      dimension: 'nether',
+      kind: 'nether-fortress',
+      presenceChannelSeed: candidatePresenceChannelSeedFor(seed, 'nether', 'nether-fortress'),
+      region: { x: located.regionX, z: located.regionZ },
+      samplers: { nether: FLAT_NETHER },
+      seed,
+    })
+    expect(routed).toStrictEqual(Option.some(located.plan))
+
     const coordinate = chunkCoord(
       Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
       Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),

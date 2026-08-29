@@ -6,6 +6,10 @@ import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import { detectCompletedEndPortal, endPortalCenterForStronghold } from '../src/domain/end-portal'
 import {
+  NATURAL_STRUCTURE_GRID,
+  planNaturalStructureForRegion,
+} from '../src/domain/natural-structure'
+import {
   STRONGHOLD_BLOCK,
   STRONGHOLD_CEILING_Y,
   STRONGHOLD_SHELL_HALF_EXTENT,
@@ -14,6 +18,7 @@ import {
 } from '../src/domain/stronghold'
 import {
   STRONGHOLD_FLOOR_Y,
+  STRONGHOLD_REGION_SIZE,
   nearestStrongholdSite,
   locateStronghold,
   type StrongholdSite,
@@ -183,5 +188,43 @@ describe('stronghold plan', () => {
       endPortalCenterForStronghold(site),
     )
     expect(Option.isSome(completed)).toBe(true)
+  }))
+
+  it.effect('publishes the generated geometry through natural structure planning', () => Effect.sync(() => {
+    const site = requiredSite()
+    const region = {
+      x: Math.floor(site.x / STRONGHOLD_REGION_SIZE),
+      z: Math.floor(site.z / STRONGHOLD_REGION_SIZE),
+    }
+    const planned = planNaturalStructureForRegion({
+      dimension: 'overworld',
+      kind: 'stronghold',
+      presenceChannelSeed: 0,
+      region,
+      samplers: {},
+      seed: GOLDEN_SEED,
+    })
+    const direct = generateStrongholdPlan(GOLDEN_SEED, site)
+
+    expect(NATURAL_STRUCTURE_GRID.stronghold).toEqual({
+      separation: 192,
+      spacing: STRONGHOLD_REGION_SIZE,
+      spawnPermille: 350,
+    })
+    expect(Option.isSome(planned)).toBe(true)
+    expect(direct).toBeDefined()
+    if (Option.isNone(planned) || direct === undefined) return
+    expect(planned.value.kind).toBe('stronghold')
+    expect(planned.value.dimension).toBe('overworld')
+    expect(planned.value.origin).toEqual({ x: site.x, y: STRONGHOLD_FLOOR_Y, z: site.z })
+    expect(planned.value.blocks).toEqual(direct.mutations.map(({ block, x, y, z }) => ({ block, x, y, z })))
+    expect(planned.value.markers).toEqual(direct.frames.map(({ eye, facing, x, y, z }) => ({
+      eye,
+      facing,
+      kind: 'end-portal-frame',
+      x,
+      y,
+      z,
+    })))
   }))
 })

@@ -1,4 +1,4 @@
-import type { NaturalStructureGrid } from './natural-structure'
+import type { NaturalStructureGrid } from './natural-structure-types'
 import { blockIdOf } from '@nerima-games/mc-kernel'
 
 /** Candidate spacing and terrain-independent block data for Nether fortresses. */

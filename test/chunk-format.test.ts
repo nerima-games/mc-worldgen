@@ -267,7 +267,7 @@ describe('the chunk format round-trips', () => {
     }),
   )
 
-  it.effect('CF-20: igloo, jungle-pyramid, mineshaft, ocean-monument, ocean-ruin, pillager-outpost, shipwreck, and bastion-remnant chunks preserve their semantic markers', () =>
+  it.effect('CF-20: igloo, jungle-pyramid, mineshaft, ocean-monument, ocean-ruin, pillager-outpost, shipwreck, bastion-remnant, and stronghold chunks preserve their semantic markers', () =>
     Effect.gen(function* () {
       const structureId = 'igloo:1:0:0'
       const junglePyramidStructureId = 'jungle-pyramid:1:0:0'
@@ -277,6 +277,7 @@ describe('the chunk format round-trips', () => {
       const outpostStructureId = 'pillager-outpost:1:0:0'
       const shipwreckStructureId = 'shipwreck:1:0:0'
       const bastionRemnantStructureId = 'bastion-remnant:1:0:0'
+      const strongholdStructureId = 'stronghold:1:0:0'
       const markers: NaturalStructureChunk['naturalStructureMarkers'] = [
         {
           structureId,
@@ -351,6 +352,16 @@ describe('the chunk format round-trips', () => {
           z: 5,
         },
         {
+          structureId: strongholdStructureId,
+          structureKind: 'stronghold',
+          kind: 'end-portal-frame',
+          facing: 'north',
+          eye: true,
+          x: 7,
+          y: 30,
+          z: 7,
+        },
+        {
           structureId: oceanStructureId,
           structureKind: 'ocean-ruin',
           kind: 'loot-chest',
@@ -391,7 +402,7 @@ describe('the chunk format round-trips', () => {
         ...generateChunk(SEED, chunkCoord(0, 0)),
         endFeatureIds: [],
         endFeatureMarkers: [],
-        naturalStructureIds: [structureId, junglePyramidStructureId, mineshaftStructureId, oceanMonumentStructureId, bastionRemnantStructureId, oceanStructureId, outpostStructureId, shipwreckStructureId],
+        naturalStructureIds: [structureId, junglePyramidStructureId, mineshaftStructureId, oceanMonumentStructureId, bastionRemnantStructureId, strongholdStructureId, oceanStructureId, outpostStructureId, shipwreckStructureId],
         naturalStructureMarkers: markers,
       }
 

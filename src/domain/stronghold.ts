@@ -1,15 +1,8 @@
-import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
-import {
-  STRONGHOLD_FLOOR_Y,
-  type StrongholdSite,
-  strongholdSitesNearChunk,
-} from './structure-siting'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
-import { worldX, worldZ } from './generator-coordinates'
 import { BLOCK } from './biome'
-import { CHUNK_SIZE_XZ } from './constants'
 import type { Dimension } from './nether-travel'
-import { setBlockAt } from './chunk'
 
 const STRONGHOLD_WALL_THICKNESS = 1
 const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1
@@ -87,8 +80,6 @@ const STRONGHOLD_LAVA_TRAP_OFFSET_X = 4
 const STRONGHOLD_LAVA_TRAP_HALF_WIDTH = 2
 
 const STRONGHOLD_PORTAL_EYE_CHANCE = 0.1
-
-const CHUNK_ORIGIN_LOCAL = 0
 
 type StrongholdRoomBounds = {
   readonly ceiling: number
@@ -280,31 +271,4 @@ export const strongholdBlockAt = (
   }
 
   return BLOCK.AIR
-}
-
-/** Writes only this chunk's slice so cross-boundary strongholds are order independent. */
-export const writeStrongholdBlocksForChunk = (
-  blocks: Uint8Array,
-  seed: number,
-  coord: ChunkCoord,
-): void => {
-  const sites = strongholdSitesNearChunk(
-    seed,
-    coord.cx,
-    coord.cz,
-    STRONGHOLD_PLAN_HALF_EXTENT,
-  )
-
-  for (const site of sites) {
-    const plan = generateStrongholdPlan(seed, site)
-    if (plan) {
-      for (const mutation of plan.mutations) {
-        const lx = mutation.x - worldX(coord, CHUNK_ORIGIN_LOCAL)
-        const lz = mutation.z - worldZ(coord, CHUNK_ORIGIN_LOCAL)
-        if (lx >= CHUNK_ORIGIN_LOCAL && lx < CHUNK_SIZE_XZ && lz >= CHUNK_ORIGIN_LOCAL && lz < CHUNK_SIZE_XZ) {
-          setBlockAt(blocks, lx, mutation.y, lz, mutation.block)
-        }
-      }
-    }
-  }
 }

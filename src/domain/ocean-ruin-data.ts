@@ -1,4 +1,4 @@
-import type { NaturalStructureGrid } from './natural-structure'
+import type { NaturalStructureGrid } from './natural-structure-types'
 import { blockIdOf } from '@nerima-games/mc-kernel'
 
 export const OCEAN_RUIN_GRID: NaturalStructureGrid = Object.freeze({

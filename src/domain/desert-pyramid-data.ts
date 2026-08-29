@@ -1,4 +1,4 @@
-import type { NaturalStructureGrid } from './natural-structure'
+import type { NaturalStructureGrid } from './natural-structure-types'
 
 export const DESERT_PYRAMID_GRID: NaturalStructureGrid = Object.freeze({
   separation: 96,

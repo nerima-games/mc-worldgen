@@ -98,13 +98,13 @@ mc-worldgen では `tsconfig.base.json` の `lib` に `"DOM"` を入れないこ
 ## 現在の状態
 
 監査済みの実装状況。要塞石室・ライトグリッド・`ChunkStore` は実装済み。
-desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・村・ruined Nether portal・Nether fortress・bastion remnant・End city / ship は決定論的な自然構造プラン、地形適合検査、
+desert pyramid・desert well・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・ancient city・buried treasure・swamp hut・trail ruins・trial chambers・woodland mansion・村・ruined Nether portal・Nether fortress・bastion remnant・End city / ship は決定論的な自然構造プラン、地形適合検査、
 semantic marker、チャンク別投影まで実装済み。End のスパイク／オブシディアン柱と
 クリスタル／ケージ marker、gateway の純粋な配置・移動・出口設定 API も実装済み。Nether / End
 chunk generator は構造物を適用し、marker の由来も保持する。チャンク永続化は
 `PersistentChunkStoreLayer` として実装済み。
-bastion remnant は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。
+bastion remnant、desert well と ancient city・buried treasure・swamp hut・trail ruins・trial chambers・woodland mansion は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。
 ホストが `StoragePort` を提供して組み合わせる。ワーカープール Port は
 `TerrainWorkerPoolPort` として型・adapter を公開し、媒体接続はホストの責務とする。
-Nether の 3D 洞窟・岩盤・溶岩海と、End の中央島・虚空リング・外縁島・スパイクは実装済み
+Nether の 3D 洞窟・岩盤・溶岩海と、End の中央島・虚空リング・外縁島・chorus 植生・スパイクは実装済み
 （[testing.md](./testing.md)）。

@@ -22,6 +22,7 @@ const MIN_WORLD_Y = 0
 const MODULO_THREE = 3
 const MODULO_FOUR = 4
 const ZERO_REMAINDER = 0
+const ZERO_OFFSET = 0
 const CHEST_Z_OFFSET = 2
 
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
@@ -151,6 +152,53 @@ const addDebrisAndLoot = (
   addMarker(markers, { kind: 'loot-chest', lootTable: 'ocean-ruin', x: chestX, y: interiorY, z: chestZ })
 }
 
+type OceanRuinPlanBuffers = {
+  readonly blocks: Map<string, NaturalStructureBlockPlacement>
+  readonly markers: Array<NaturalStructureMarker>
+}
+
+const buildOceanRuinPlan = (
+  candidate: OceanRuinCandidate,
+  baseY: number,
+): OceanRuinPlanBuffers => {
+  const blocks = new Map<string, NaturalStructureBlockPlacement>()
+  const markers: Array<NaturalStructureMarker> = []
+  addFoundation(blocks, candidate, baseY)
+  addWalls(blocks, candidate, baseY)
+  addDebrisAndLoot(blocks, markers, candidate, baseY)
+  return { blocks, markers }
+}
+
+const translateBlock = (
+  placement: NaturalStructureBlockPlacement,
+  candidate: OceanRuinCandidate,
+  baseY: number,
+): NaturalStructureBlockPlacement => Object.freeze({
+  block: placement.block,
+  x: candidate.x + placement.x,
+  y: baseY + placement.y,
+  z: candidate.z + placement.z,
+})
+
+const translateMarker = (
+  marker: NaturalStructureMarker,
+  candidate: OceanRuinCandidate,
+  baseY: number,
+): NaturalStructureMarker => Object.freeze({
+  ...marker,
+  x: candidate.x + marker.x,
+  y: baseY + marker.y,
+  z: candidate.z + marker.z,
+})
+
+const oceanRuinRelativePlan = (() => {
+  const plan = buildOceanRuinPlan({ x: ZERO_OFFSET, z: ZERO_OFFSET }, ZERO_OFFSET)
+  return Object.freeze({
+    blocks: Object.freeze([...plan.blocks.values()]),
+    markers: Object.freeze(plan.markers),
+  })
+})()
+
 /** Plans a registry-backed submerged stone ruin on a level ocean floor. */
 export const planOceanRuinForCandidate = (
   candidate: OceanRuinCandidate,
@@ -161,14 +209,15 @@ export const planOceanRuinForCandidate = (
     return Option.none()
   }
 
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
-  addFoundation(blocks, candidate, baseYOption.value)
-  addWalls(blocks, candidate, baseYOption.value)
-  addDebrisAndLoot(blocks, markers, candidate, baseYOption.value)
+  const blocks = Object.freeze(oceanRuinRelativePlan.blocks.map((placement) =>
+    translateBlock(placement, candidate, baseYOption.value),
+  ))
+  const markers = Object.freeze(oceanRuinRelativePlan.markers.map((marker) =>
+    translateMarker(marker, candidate, baseYOption.value),
+  ))
   return Option.some(Object.freeze({
-    blocks: Object.freeze([...blocks.values()]),
-    markers: Object.freeze(markers),
+    blocks,
+    markers,
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
 }

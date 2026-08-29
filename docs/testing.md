@@ -54,7 +54,7 @@ CI が pass/fail を判定できるものではないからである。
 主な検証領域は次のとおり:
 
 - シードと座標からの決定論、チャンク境界、地形・水位・バイオーム分布
-- 洞窟・渓谷、植生、鉱石、村・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・bastion remnant・要塞・その他の自然構造
+- 洞窟・渓谷、植生、鉱石、村・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・ancient city・buried treasure・swamp hut・trail ruins・trial chambers・woodland mansion・bastion remnant・要塞・その他の自然構造
 - ライトグリッド、チャンクストア、保存フォーマット、Nether 移動
 - `mc-kernel` の ID / 座標契約、`mc-save` の保存契約、公開 API のロック
 - ゴールデン出力と、ゴールデンに依存しない不変条件・回帰テスト
@@ -270,7 +270,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 正直に書いておく。
 
 - **山脈のシルエット・洞窟内部の眺め**（上記のとおり 3D ではないため）
-- **自然構造の描画** — desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・村・ruined Nether portal・Nether fortress・bastion remnant・End city / ship・End spike の immutable plan と
+- **自然構造の描画** — desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・ancient city・buried treasure・swamp hut・trail ruins・trial chambers・woodland mansion・村・ruined Nether portal・Nether fortress・bastion remnant・End city / ship・End spike の immutable plan と
   チャンク別投影は実装済みだが、このプレビューは plan を地形へオーバーレイしない
 - **End crystal / gateway の実体動作** — crystal / cage は entity を生成せず marker として保持し、
   gateway は配置と出口設定の値だけを返す。entity、テレポート、遅延探索の実行はプレビュー対象外である
@@ -306,7 +306,7 @@ $ pnpm preview --once --ascii --portal --width 44 --height 22
 4. **ワーカープールのパリティテストが green**
    — Worker の出力がメインスレッドとバイト一致すること。
    参照実装の `terrain-worker-pool.parity.property.test.ts`（124 LOC）の移植
-5. カーバー（洞窟 + 渓谷）・植生・鉱石・stronghold・desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・Nether fortress・bastion remnant・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship・End spike の自然構造プランと Nether / End 生成器への適用、End crystal marker と gateway の純粋 API が実装済み
+5. カーバー（洞窟 + 渓谷）・植生・鉱石・stronghold・desert pyramid・igloo・jungle pyramid・mineshaft・ocean ruin・ocean monument・pillager outpost・shipwreck・ancient city・buried treasure・swamp hut・trail ruins・trial chambers・woodland mansion・Nether fortress・bastion remnant・ライトグリッド・`ChunkManager`・村・ruined Nether portal・End city / ship・End spike の自然構造プランと Nether / End 生成器への適用、End crystal marker と gateway の純粋 API が実装済み
 6. `mc-noise` / `mc-save` / `mc-kernel` への実依存に切り替わっている
    （ブロック ID とチャンク座標は `mc-kernel`、保存契約は `mc-save`、ノイズは `mc-noise` を直接利用する。生成中の `Chunk` はローカルの書き込みバッファである）
 7. バイオーム分布の統計テストが green ✅

@@ -90,14 +90,14 @@ export type Chunk = {
   readonly biomes: ReadonlyArray<ChunkBiomeType> // 柱ごと。index = lz * 16 + lx
 }
 
-export type NaturalStructureKind = 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
+export type NaturalStructureKind = 'desert-pyramid' | 'desert-well' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'stronghold' | 'ancient-city' | 'buried-treasure' | 'swamp-hut' | 'trail-ruins' | 'trial-chambers' | 'woodland-mansion' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
 export type NaturalStructurePosition = {
   readonly x: number
   readonly y: number
   readonly z: number
 }
 export type NaturalStructureMarker = NaturalStructurePosition & (
-  | { readonly kind: 'loot-chest'; readonly lootTable: 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city' | 'end-ship' }
+  | { readonly kind: 'loot-chest'; readonly lootTable: 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'ancient-city' | 'buried-treasure' | 'swamp-hut' | 'trail-ruins' | 'trial-chambers' | 'woodland-mansion' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city' | 'end-ship' }
   | { readonly kind: 'entity-spawn'; readonly entity: 'villager'; readonly profession: 'farmer' | 'toolsmith' }
   | { readonly kind: 'entity-spawn'; readonly entity: 'zombie-villager' }
   | { readonly kind: 'entity-spawn'; readonly entity: 'pillager' }
@@ -105,6 +105,7 @@ export type NaturalStructureMarker = NaturalStructurePosition & (
   | { readonly kind: 'entity-spawn'; readonly entity: 'blaze' | 'wither-skeleton' }
   | { readonly kind: 'spawner'; readonly entity: 'shulker' | 'blaze' }
   | { readonly kind: 'portal-frame'; readonly axis: 'x' | 'z'; readonly complete: false }
+  | { readonly kind: 'end-portal-frame'; readonly facing: 'north' | 'east' | 'south' | 'west'; readonly eye: boolean }
   | { readonly kind: 'end-ship' }
 )
 export type AppliedNaturalStructureMarker = NaturalStructureMarker & {
@@ -216,7 +217,9 @@ export const netherStructureTerrainAt: (seed: number, x: number, z: number) => N
 
 `domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
 End の関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
-シード依存の外縁島を絶対ワールド座標から生成し、End city / ship とスパイクを適用する。
+シード依存の外縁島を絶対ワールド座標から生成し、chorus 植生、End city / ship とスパイクを適用する。
+`end-vegetation.ts` の `endChorusPlanForChunk` は外縁島の stem / flower / branch を不変な計画として返し、
+`applyEndChorusPlansToChunk` は地形を変更せずにその計画をチャンクへ投影する。参照実装との配置密度一致は未検証である。
 `end-features.ts` は柱をチャンク境界で投影し、クリスタルとケージを marker として保持する。
 `end-gateway.ts` は bedrock shell の配置、移動、設定更新、既知／遅延出口の解決を純粋な値として返す。
 遅延出口の検索、entity の生成、テレポート実行はホストの責務である。
@@ -808,11 +811,12 @@ packPosLevel = (x, y, z, lvl) => (x << 13) | (z << 9) | y | (lvl << 17)
 
 ## 9. 自然構造プラン
 
-desert pyramid、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、村、ruined Nether portal、Nether fortress、bastion remnant、End city / ship、End spike は、ロード済みチャンクの状態に依存しない
+desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、stronghold、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、村、ruined Nether portal、Nether fortress、bastion remnant、End city / ship、End spike は、ロード済みチャンクの状態に依存しない
 immutable な `NaturalStructurePlan` として公開する。
 
 ```typescript
 planDesertPyramidForRegion(seed, regionX, regionZ, sampleTerrain)
+planDesertWellForRegion(seed, regionX, regionZ, sampleTerrain)
 planIglooForRegion(seed, regionX, regionZ, sampleTerrain)
 planJunglePyramidForRegion(seed, regionX, regionZ, sampleTerrain)
 planMineshaftForRegion(seed, regionX, regionZ, sampleTerrain)
@@ -820,12 +824,15 @@ planOceanRuinForRegion(seed, regionX, regionZ, sampleTerrain)
 planOceanMonumentForRegion(seed, regionX, regionZ, sampleTerrain)
 planPillagerOutpostForRegion(seed, regionX, regionZ, sampleTerrain)
 planShipwreckForRegion(seed, regionX, regionZ, sampleTerrain)
+planStrongholdForRegion(seed, regionX, regionZ)
+planCompactStructureForRegion(seed, kind, regionX, regionZ, sampleTerrain)
 planVillageForRegion(seed, regionX, regionZ, sampleTerrain)
 planRuinedNetherPortalForRegion(seed, regionX, regionZ, sampleTerrain)
 planNetherFortressForRegion(seed, regionX, regionZ, sampleTerrain)
 planBastionRemnantForRegion(seed, regionX, regionZ, sampleTerrain)
 planEndCityForRegion(seed, regionX, regionZ, sampleTerrain?)
 isNearFortressSite(seed, x, z, radius?)
+planNaturalStructureForRegion(request)
 naturalStructureSliceForChunk(plan, chunkX, chunkZ)
 naturalStructurePlansForChunk(seed, dimension, coord, samplers?)
 applyNaturalStructurePlansToChunk(chunk, plans)
@@ -834,13 +841,16 @@ applyNaturalStructurePlansToChunk(chunk, plans)
 各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
 バイオーム、起伏、headroom、外縁島の有無を検査する。不適合なら `Option.none()`、適合すれば
 固定された dimension、bounds、registry block ID の配置、semantic marker を持つ plan を返す。
-`bastion remnant` は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。
-marker は loot table、villager / piglin / piglin-brute / blaze / wither skeleton spawn、shulker / blaze spawner、欠損 portal frame、End ship といった
+`bastion remnant`、`desert well` と `planCompactStructureForRegion` の六種は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。desert well は `sandstone` / `water` だけを使い、loot marker を持たない。
+marker は loot table、villager / piglin / piglin-brute / blaze / wither skeleton spawn、shulker / blaze spawner、欠損 portal frame、stronghold の End portal frame（向き / eye 状態）、End ship といった
 ブロック配列だけでは失われる意味を downstream へ渡す。
 
 `naturalStructureSliceForChunk` は plan をワールド座標のままチャンク単位へ分割する。
 隣接チャンクを読まず、plan も変更しないため、負座標、未ロードの隣接チャンク、任意のロード順で
 同じ結果になる。村 plan は Overworld chunk generator と同じサイト・レイアウトを使う。
+`planNaturalStructureForRegion` は dimension、structure kind、region、sampler を受け取り、
+chunk planner と同じ dispatch を単一 region に適用する低レベル API である。候補 channel を事前計算
+した `candidateChannelSeeds`、または互換用の `presenceChannelSeed` を渡せる。
 `naturalStructurePlansForChunk` は対象チャンクに届く隣接 region の plan を安定順序で列挙・重複排除し、
 `applyNaturalStructurePlansToChunk` はブロックを書き込んで structure ID と由来付き marker を保持する。
 Overworld / Nether / End generator は各 dimension の自然構造 plan を適用済みであり、entity / loot subsystem は marker を消費する。

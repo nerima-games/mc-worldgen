@@ -364,7 +364,7 @@ const main = async (): Promise<number> => {
         sink += generateChunk(SEED, nextCoord(), { decorate: false }).blocks[0] ?? 0
       }, options(40, 80)),
       unit: 'chunk',
-      detail: 'height + biome + column fill + carve; carving is not optional in generateChunk',
+      detail: 'height + biome + column fill + carve + ore + ravines + structures; vegetation is disabled by decorate:false',
     },
     {
       name: 'carveCaves/re-carve-warm-buffer',
@@ -378,7 +378,7 @@ const main = async (): Promise<number> => {
         sink += generateChunk(SEED, nextCoord()).blocks[0] ?? 0
       }, options(30, 60)),
       unit: 'chunk',
-      detail: 'the reference implementation\'s generateTerrainBlocks equivalent',
+      detail: 'height + biome + column fill + carve + ore + vegetation + ravines + structures',
     },
   ]
 

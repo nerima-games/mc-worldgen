@@ -127,6 +127,26 @@ const biomeForWithContinentalness = (query: BiomeQuery): BiomeType =>
     climateAtWithContinentalness(query.seed, query.wx, query.wz, toBipolar(query.continentalness)),
   )
 
+export type SurfaceBiome = Readonly<{
+  readonly biome: BiomeType
+  readonly surfaceY: number
+}>
+
+/** Resolve the raw surface and its biome while sharing one continentalness sample. */
+export const surfaceBiomeAt = (
+  seed: number,
+  wx: number,
+  wz: number,
+  levels: TerrainLevels,
+): SurfaceBiome => {
+  const continentalness = continentalnessAt(seed, wx, wz)
+  const surfaceY = surfaceHeightFromContinentalness(continentalness)
+  return {
+    biome: biomeForWithContinentalness({ continentalness, levels, seed, surfaceY, wx, wz }),
+    surfaceY,
+  }
+}
+
 /** Resolve a public biome query using the fixed five-argument API. */
 export const biomeFor = (
   seed: number,

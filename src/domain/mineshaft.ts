@@ -76,23 +76,53 @@ const corridorCell = (x: number, z: number): boolean => {
   return mainCorridor || branchCorridor
 }
 
+type RelativeCell = readonly [number, number]
+
+const MINESHAFT_CORRIDOR_CELLS: ReadonlyArray<RelativeCell> = (() => {
+  const cells: Array<RelativeCell> = []
+  const extent = MINESHAFT_LAYOUT.branchHalfExtent
+  for (let x = -extent; x <= extent; x += UNIT_STEP) {
+    for (let z = -extent; z <= extent; z += UNIT_STEP) {
+      if (corridorCell(x, z)) {cells.push(Object.freeze([x, z]))}
+    }
+  }
+  return Object.freeze(cells)
+})()
+
 const carveCorridors = (
   blocks: Map<string, NaturalStructureBlockPlacement>,
   candidate: MineshaftCandidate,
   baseY: number,
 ): void => {
-  const extent = MINESHAFT_LAYOUT.branchHalfExtent
-  for (let x = -extent; x <= extent; x += UNIT_STEP) {
-    for (let z = -extent; z <= extent; z += UNIT_STEP) {
-      if (corridorCell(x, z)) {
-        addBlock(blocks, MINESHAFT_BLOCK.OAK_PLANKS, candidate.x + x, baseY, candidate.z + z)
-        for (let y = baseY + UNIT_STEP; y < baseY + MINESHAFT_LAYOUT.frameHeight - UNIT_STEP; y += UNIT_STEP) {
-          addBlock(blocks, MINESHAFT_BLOCK.AIR, candidate.x + x, y, candidate.z + z)
-        }
-      }
+  for (const [x, z] of MINESHAFT_CORRIDOR_CELLS) {
+    addBlock(blocks, MINESHAFT_BLOCK.OAK_PLANKS, candidate.x + x, baseY, candidate.z + z)
+    for (let y = baseY + UNIT_STEP; y < baseY + MINESHAFT_LAYOUT.frameHeight - UNIT_STEP; y += UNIT_STEP) {
+      addBlock(blocks, MINESHAFT_BLOCK.AIR, candidate.x + x, y, candidate.z + z)
     }
   }
 }
+
+const translateBlock = (
+  placement: NaturalStructureBlockPlacement,
+  candidate: MineshaftCandidate,
+  baseY: number,
+): NaturalStructureBlockPlacement => Object.freeze({
+  block: placement.block,
+  x: candidate.x + placement.x,
+  y: baseY + placement.y,
+  z: candidate.z + placement.z,
+})
+
+const translateMarker = (
+  marker: NaturalStructureMarker,
+  candidate: MineshaftCandidate,
+  baseY: number,
+): NaturalStructureMarker => Object.freeze({
+  ...marker,
+  x: candidate.x + marker.x,
+  y: baseY + marker.y,
+  z: candidate.z + marker.z,
+})
 
 const addSupportFrame = (
   blocks: Map<string, NaturalStructureBlockPlacement>,
@@ -178,6 +208,19 @@ const buildMineshaftPlan = (
   return { blocks, markers }
 }
 
+type MineshaftRelativePlan = {
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
+  readonly markers: ReadonlyArray<NaturalStructureMarker>
+}
+
+const mineshaftRelativePlan: MineshaftRelativePlan = (() => {
+  const plan = buildMineshaftPlan({ x: ZERO_OFFSET, z: ZERO_OFFSET }, ZERO_OFFSET)
+  return Object.freeze({
+    blocks: Object.freeze([...plan.blocks.values()]),
+    markers: Object.freeze(plan.markers),
+  })
+})()
+
 /** Plans a deterministic, underground mineshaft network from registry-backed blocks. */
 export const planMineshaftForCandidate = (
   candidate: MineshaftCandidate,
@@ -186,10 +229,15 @@ export const planMineshaftForCandidate = (
   const probes = terrainProbesFor(candidate, sampleTerrain)
   const baseYOption = baseYForProbes(probes)
   if (Option.isNone(baseYOption)) {return Option.none()}
-  const { blocks, markers } = buildMineshaftPlan(candidate, baseYOption.value)
+  const blocks = Object.freeze(mineshaftRelativePlan.blocks.map((placement) =>
+    translateBlock(placement, candidate, baseYOption.value),
+  ))
+  const markers = Object.freeze(mineshaftRelativePlan.markers.map((marker) =>
+    translateMarker(marker, candidate, baseYOption.value),
+  ))
   return Option.some(Object.freeze({
-    blocks: Object.freeze([...blocks.values()]),
-    markers: Object.freeze(markers),
+    blocks,
+    markers,
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
 }

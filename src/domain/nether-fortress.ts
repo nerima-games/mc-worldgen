@@ -47,8 +47,9 @@ const positiveModulo = (value: number, divisor: number): number => ((value % div
 const candidateForRegion = (
   seed: number,
   region: NaturalStructureRegion,
+  presenceChannelSeed = channelSeed(seed, 'nether:nether-fortress:present'),
 ): Option.Option<FortressCandidate> => {
-  const presence = latticeValue(channelSeed(seed, 'nether:nether-fortress:present'), region.x, region.z)
+  const presence = latticeValue(presenceChannelSeed, region.x, region.z)
   if (presence >= FORTRESS_REGION_SPAWN_PERMILLE / PERMILLE_DENOMINATOR) {
     return Option.none()
   }
@@ -386,8 +387,9 @@ const fortressSiteForRegion = (
   seed: number,
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler,
+  presenceChannelSeed?: number,
 ): Option.Option<{ readonly candidate: FortressCandidate; readonly floorY: number }> => {
-  const candidateOption = candidateForRegion(seed, region)
+  const candidateOption = candidateForRegion(seed, region, presenceChannelSeed)
   if (Option.isNone(candidateOption)) {return Option.none()}
   return fortressSiteFromCandidate(candidateOption.value, sampleTerrain)
 }
@@ -398,8 +400,9 @@ export const planNetherFortressForRegion = (
   regionX: number,
   regionZ: number,
   sampleTerrain: NetherStructureTerrainSampler,
+  presenceChannelSeed?: number,
 ): Option.Option<NaturalStructurePlan> => {
-  const siteOption = fortressSiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain)
+  const siteOption = fortressSiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain, presenceChannelSeed)
   if (Option.isNone(siteOption)) {return Option.none()}
   const { candidate, floorY } = siteOption.value
   const mutable: MutableFortressPlan = { blocks: new Map(), markers: [] }

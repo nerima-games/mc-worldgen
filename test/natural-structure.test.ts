@@ -6,6 +6,7 @@ import { Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks } from '../src/domain/chunk'
 import { chunkCoord } from '@nerima-games/mc-kernel'
+import { candidatePresenceChannelSeedFor } from '../src/domain/natural-structure-plan-builder'
 import {
   applyNaturalStructurePlansToChunk,
   MAX_NATURAL_STRUCTURE_BLOCKS,
@@ -79,6 +80,26 @@ const positionKey = (position: { readonly x: number; readonly y: number; readonl
   `${String(position.x)},${String(position.y)},${String(position.z)}`
 
 describe('natural structure plans', () => {
+  it('accepts an explicit presence channel while preserving the candidate', () => {
+    const seed = 0x3456
+    const portal = findPortal(seed)
+    const expected = planRuinedNetherPortalForRegion(
+      seed,
+      portal.region.x,
+      portal.region.z,
+      FLAT_NETHER,
+    )
+    const explicit = planRuinedNetherPortalForRegion(
+      seed,
+      portal.region.x,
+      portal.region.z,
+      FLAT_NETHER,
+      candidatePresenceChannelSeedFor(seed, 'nether', 'ruined-nether-portal'),
+    )
+
+    expect(explicit).toStrictEqual(expected)
+  })
+
   it('are deterministic, immutable, and carry actionable semantic markers', () => {
     const firstPlans: readonly [NaturalStructurePlan, NaturalStructurePlan, NaturalStructurePlan, NaturalStructurePlan] = [
       findDesertPyramid(0x1234),
@@ -183,6 +204,17 @@ describe('natural structure plans', () => {
     ))).toBe(true)
   })
 
+  it('rejects an End city candidate inside the central island before sampling terrain', () => {
+    let sampleCount = 0
+    const plan = planEndCityForRegion(0, 0, -1, () => {
+      sampleCount += 1
+      return 70
+    })
+
+    expect(Option.isNone(plan)).toBe(true)
+    expect(sampleCount).toBe(0)
+  })
+
   it('splits a negative-coordinate city across chunks without load-order coupling', () => {
     const plan = findEndCity(444, true)
     expect(plan.origin.x).toBeLessThan(0)
@@ -280,6 +312,30 @@ describe('natural structure plans', () => {
     expect(slice.markers.every(({ x, z }) =>
       Math.floor(x / CHUNK_SIZE_XZ) === coord.cx && Math.floor(z / CHUNK_SIZE_XZ) === coord.cz)).toBe(true)
     expect(matched.markers).toContainEqual(expect.objectContaining({ kind: 'loot-chest', lootTable: 'desert-pyramid' }))
+  })
+
+  it('does not record a plan id when its declared bounds overlap but placements miss the chunk', () => {
+    const plan: NaturalStructurePlan = Object.freeze({
+      blocks: Object.freeze([{ block: NATURAL_STRUCTURE_BLOCK.CHEST, x: CHUNK_SIZE_XZ, y: 1, z: CHUNK_SIZE_XZ }]),
+      bounds: Object.freeze({ maxX: 0, maxY: 1, maxZ: 0, minX: 0, minY: 1, minZ: 0 }),
+      dimension: 'overworld',
+      id: 'bounds-only-overlap',
+      kind: 'desert-well',
+      markers: Object.freeze([]),
+      origin: Object.freeze({ x: 0, y: 1, z: 0 }),
+      region: Object.freeze({ x: 0, z: 0 }),
+    })
+    const terrain = {
+      biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const),
+      blocks: emptyBlocks(),
+      coord: chunkCoord(0, 0),
+    }
+
+    const applied = applyNaturalStructurePlansToChunk(terrain, [plan])
+
+    expect(applied.naturalStructureIds).toStrictEqual([])
+    expect(applied.naturalStructureMarkers).toStrictEqual([])
+    expect(applied.blocks).toStrictEqual(terrain.blocks)
   })
 
   it('answers no plans for a dimension whose sampler was not supplied, rather than throwing', () => {

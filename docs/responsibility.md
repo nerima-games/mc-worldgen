@@ -20,6 +20,7 @@
 | カーバー（渓谷） | ノイズ帯 + テーパー壁 + **2 層の水ガード**。`domain/ravine.ts` の `carveRavines`。装飾の**後**に走る（下記 §1-6） | ✅ 深部の溶岩床を含む |
 | 植生（木） | 格子ジッター配置 | ✅ 配置ロジック |
 | 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダに加え、サボテン / サトウキビ / キノコ / 水生植物 / スイレン。`domain/vegetation.ts` | ✅ 条件つき特殊植生を含む（参照実装との全密度一致は未検証） |
+| 植生（End chorus） | `domain/end-vegetation.ts` が外縁島の chorus stem / flower / branch を決定論的に計画し、`end-terrain.ts` がチャンクへ適用する | ✅ 現行 registry で生成（参照実装との配置密度一致は未検証） |
 | 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石 / 深層岩の 14 variant |
 | 構造物（stronghold） | サイト決定 `domain/structure-siting.ts` と 13×13 石室生成 `domain/stronghold.ts`。各チャンクが自分の断面を書き、境界をまたぐ | ✅ |
 | 構造物（Nether fortress） | `domain/nether-fortress.ts` が seed / region 候補、地形適合、Nether brick の断面、loot / mob / spawner marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
@@ -28,6 +29,7 @@
 | 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。両方を `index.ts` から公開する（下記 §6-1） | ✅ barrel 公開 |
 | 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
 | 構造物（desert pyramid） | `domain/desert-pyramid.ts` が乾燥した砂漠サイトを選び、砂岩ピラミッド、地下 chamber、TNT、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（desert well） | `domain/desert-well.ts` が乾燥・平坦な砂漠サイトを選び、mc-kernel 登録済みの sandstone / water だけで井戸を計画し、`natural-structure.ts` が Overworld chunk へ適用する。loot marker は持たない | ✅ plan + generator 適用 |
 | 構造物（igloo） | `domain/igloo.ts` が雪バイオームの平坦なサイトを選び、雪ドーム、地下室、設備、chest と villager / zombie-villager marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（jungle pyramid） | `domain/jungle-pyramid.ts` がジャングル地形の平坦なサイトを選び、mc-kernel 登録ブロックだけで構成した compact structure、TNT、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（ocean ruin） | `domain/ocean-ruin.ts` が海洋バイオームの浅すぎない海底を選び、登録済み石系ブロックの遺跡、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
@@ -35,6 +37,7 @@
 | 構造物（mineshaft） | `domain/mineshaft.ts` が地下通路、木製支柱、レール、装飾、chest と loot marker を登録済みブロックだけで計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（pillager outpost） | `domain/pillager-outpost.ts` が登録済みブロックだけで compact tower を計画し、乾燥地形適合、chest + loot marker、pillager marker を提供し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（shipwreck） | `domain/shipwreck.ts` が海洋バイオームの十分な水深と平坦な海底を選び、登録済み木材の船体、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion） | `domain/compact-structure.ts` が現行 `mc-kernel` の登録ブロックだけで compact structure を計画し、候補配置、バイオーム・起伏適合、chest と loot marker を提供し、`natural-structure.ts` が Overworld chunk へ適用する。vanilla template / palette parity は主張しない | ✅ plan + generator 適用 |
 | 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。`end-features.ts` がスパイク、柱、クリスタル／ケージ marker を同じモデルで提供し、`end-gateway.ts` が bedrock shell と出口設定の純粋 API を提供する。`domain/end-portal.ts` は完成ポータル判定と到着地点を提供する | ✅ city / ship / spike / portal rule |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。公開 façade は `src/domain/light.ts`、実装は `light-grid.ts`・`light-propagation.ts`・`light-update.ts`。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
@@ -53,7 +56,7 @@
 | カーバー（渓谷） | **REAL** → 今回実装 | `carver.ts` は `carveCaves` だけだった。`domain/ravine.ts` として移植（§1-6） |
 | 植生（草・花） | **REAL** → 今回実装 | `tree-placement.ts` は木であって地被ではなかった |
 | 鉱石 | **REAL** → 今回実装 | 初回監査時は語彙だけだったが、現在は `domain/ore.ts` が脈配置と石 / 深層岩 14 variant を実装している |
-| 構造物（desert pyramid / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / 村 / End / Nether fortress / bastion remnant） | **REAL**、ただし desert pyramid、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、村、bastion remnant は新規設計 | stronghold、desert pyramid、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、Nether fortress、bastion remnant、End city / ship は各 planner とチャンク投影を実装。村は §1-3 |
+| 構造物（desert pyramid / desert well / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / 村 / End / Nether fortress / bastion remnant） | **REAL**、ただし desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、村、bastion remnant は新規設計 | stronghold、desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、Nether fortress、bastion remnant、End city / ship は各 planner とチャンク投影を実装。村は §1-3。desert well と compact structure 六種は vanilla template / palette parity を主張しない |
 | チャンクフォーマット定義 | ~~**REAL、かつブロック中**~~ → **判定そのものが誤り**。7 回目の訂正 | §1-5 |
 
 **⬜ が「まだ誰も手をつけていない」を意味しない行が 2 つあった。**

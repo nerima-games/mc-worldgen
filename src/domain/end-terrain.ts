@@ -7,6 +7,7 @@ import {
   applyEndFeaturePlansToChunk,
   endFeaturePlanForSeed,
 } from './end-features'
+import { applyEndChorusPlansToChunk, endChorusPlanForChunk } from './end-vegetation'
 import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
@@ -149,7 +150,15 @@ export const generateEndTerrainChunk = (seed: number, coord: ChunkCoord): Chunk 
 export const generateEndChunk = (seed: number, coord: ChunkCoord): EndFeatureChunk =>
   applyEndFeaturePlansToChunk(
     applyNaturalStructurePlansToChunk(
-      generateEndTerrainChunk(seed, coord),
+      applyEndChorusPlansToChunk(generateEndTerrainChunk(seed, coord), [
+        endChorusPlanForChunk({
+          coord,
+          isOuterIsland: (candidateX, candidateZ) =>
+            Math.hypot(candidateX, candidateZ) >= END_OUTER_ISLAND_START,
+          seed,
+          surfaceHeightAt: endSurfaceHeightAt,
+        }),
+      ]),
       naturalStructurePlansForChunk(seed, 'end', coord),
     ),
     [endFeaturePlanForSeed(seed)],
