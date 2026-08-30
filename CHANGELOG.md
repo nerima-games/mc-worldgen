@@ -1,5 +1,15 @@
 # @nerima-games/mc-worldgen
 
+## 0.3.0
+
+### Minor Changes
+
+- [#19](https://github.com/nerima-games/mc-worldgen/pull/19) [`38a1152`](https://github.com/nerima-games/mc-worldgen/commit/38a11525e2356ed35c71b8806bd46ca88dc1f6ec) Thanks [@takeokunn](https://github.com/takeokunn)! - Remove the duplicate `domain/portal-frame.ts` (export set identical to `@nerima-games/mc-kernel`'s) and repoint `nether-travel.ts`, its tests, and the `preview-terrain` app to import `detectNetherPortal`, `generatePortalLayout`, `PortalFrame`, `PortalLayout`, `PortalAxis`, `BlockAt`, and the `MIN_PORTAL_*`/`MAX_PORTAL_*` bounds from `@nerima-games/mc-kernel` (pinned to 0.5.1). `detectNetherPortal` now returns `PortalFrame | undefined` (kernel's convention) instead of `Option.Option<PortalFrame>`; callers that pattern-matched on `Option` have been updated. `src/index.ts` no longer re-exports these symbols — consumers must import them from `@nerima-games/mc-kernel` directly.
+
+### Patch Changes
+
+- [#18](https://github.com/nerima-games/mc-worldgen/pull/18) [`6509a2f`](https://github.com/nerima-games/mc-worldgen/commit/6509a2fb62338c026aa9cd60f49ce7dafc13623e) Thanks [@takeokunn](https://github.com/takeokunn)! - Complete the org toolchain devDependency pin set: knip 6.33.0 (its verify gate arrives in Wave 3; the pin belongs to the Wave 0 table) plus @effect/vitest 0.30.0 where it was missing.
+
 ## 0.2.1
 
 ### Patch Changes
