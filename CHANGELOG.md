@@ -1,5 +1,11 @@
 # @nerima-games/mc-worldgen
 
+## 0.2.1
+
+### Patch Changes
+
+- [#16](https://github.com/nerima-games/mc-worldgen/pull/16) [`01e756d`](https://github.com/nerima-games/mc-worldgen/commit/01e756d8a37fca67ef240a4d7eb673db294e603b) Thanks [@takeokunn](https://github.com/takeokunn)! - Restore village availability under the expanded biome classifier (worldgen-village-availability). `feat(worldgen): expand climate biome classifier` (2026-08-08) fragmented PLAINS to ~6.6% of real terrain, a week after the single-candidate-per-region village siting design shipped assuming PLAINS was common and contiguous — villages had become effectively extinct on real terrain (zero found within a 1681-region radius-200-chunk search for several seeds). Fixed by trying up to `VILLAGE_SITE_ATTEMPTS` (64) independent seeded candidate offsets per region instead of one, and raising `VILLAGE_REGION_SPAWN_PERMILLE` from 120 to 500 (matching this file's existing `STRONGHOLD_REGION_SPAWN_PERMILLE` precedent) — retries alone cannot help a region whose presence roll was never selected in the first place. Determinism is unchanged: same seed still produces the same village layout. Added a real-sampler availability battery (25 seeds, ≤48 chunk rings) that would have caught the original regression.
+
 ## 0.2.0
 
 ### Minor Changes
