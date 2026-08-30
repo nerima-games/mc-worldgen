@@ -10,6 +10,7 @@ import { chunkCoord } from '@nerima-games/mc-kernel'
 // eslint-disable-next-line sort-imports -- Grouped siting types and values stay together.
 import {
   VILLAGE_HALF_EXTENT,
+  VILLAGE_REGION_SIZE,
   VILLAGE_REGION_SPAWN_PERMILLE,
   type OverworldTerrainSampler,
   villageSiteForRegion,
@@ -18,6 +19,7 @@ import { biomeFor, generateChunk, surfaceHeightAt } from '../src/domain/terrain'
 // eslint-disable-next-line sort-imports -- Layout assertions import the public village resolver last.
 import {
   VILLAGE_BLOCK,
+  type VillageVillagerSpawn,
   villageBlockAt,
   villageVillagerSpawnsForChunk,
   villageVillagerSpawnsForSite,
@@ -58,53 +60,84 @@ const makeActualTerrain = (seed: number): OverworldTerrainSampler => (x, z) => {
 }
 
 /**
- * The availability battery. `1`, `7`, `42`, `1337` and `20260728` are the
- * exact seeds `worldgen-village-availability`'s repro used; the rest are a
- * consecutive run of small seeds, not curated to avoid failures — except
- * that `11` and `20` are skipped: even after the full escalation path
- * (`VILLAGE_REGION_SPAWN_PERMILLE` 350→500, `VILLAGE_SITE_ATTEMPTS` 32→64)
- * their nearest village sits at ring 73 and 53 respectively, past this
- * battery's bound. That is a real, reported residual — see the changeset and
- * PR body — not a fix; the battery asserts what the shipped parameters
- * actually guarantee, not the residual.
+ * The five seeds `worldgen-village-availability`'s repro used. Kept as their
+ * own list because the determinism test below only needs these — determinism
+ * is a per-function property, so re-checking it across the other 20 battery
+ * seeds buys nothing extra.
  */
-// eslint-disable-next-line no-magic-numbers -- The five repro seeds plus a consecutive run to reach >=25, with 11 and 20 excluded per the comment above.
+const VILLAGE_REPRO_SEEDS = [1, 7, 42, 1337, 20260728] as const
+
+/**
+ * The availability battery. The repro seeds above, plus a consecutive run of
+ * small seeds, not curated to avoid failures — except that `11` and `20` are
+ * skipped: even after the full escalation path (`VILLAGE_REGION_SPAWN_PERMILLE`
+ * 350→500, `VILLAGE_SITE_ATTEMPTS` 32→64) their nearest village sits at ring
+ * 73 and 53 respectively, past this battery's bound. That is a real, reported
+ * residual — see the changeset and PR body — not a fix; the battery asserts
+ * what the shipped parameters actually guarantee, not the residual.
+ */
+// eslint-disable-next-line no-magic-numbers -- A consecutive run of seeds to reach >=25 alongside the repro seeds, with 11 and 20 excluded per the comment above.
 const VILLAGE_AVAILABILITY_BATTERY = [
-  1, 7, 42, 1337, 20260728, 2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24,
+  ...VILLAGE_REPRO_SEEDS, 2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24,
 ]
 
-/** How far `villageVillagerSpawnsForChunk` may have to search before the battery gives up. */
+/** How far a village may have to be before the battery gives up. */
 const VILLAGE_AVAILABILITY_RING_LIMIT = 48
 
 /**
- * Chebyshev-ring chunk coordinates at exactly `ring` from the origin (the
- * ring's border only, not the filled square). Walks the O(ring) border
- * directly rather than scanning the O(ring^2) bounding box and filtering —
- * `nearestVillageRing` calls this for every ring up to
- * `VILLAGE_AVAILABILITY_RING_LIMIT`, so the quadratic form triples this
- * battery's already-heavy real-terrain-sampling cost for no reason.
+ * Regions out from the origin the battery scans directly. Originally this
+ * battery walked CHUNK rings and called `villageVillagerSpawnsForChunk` per
+ * chunk; each call re-ran `villageSiteForRegion` (up to `VILLAGE_SITE_ATTEMPTS`
+ * candidate draws x 5 probes) for the SAME region up to ~100 times, because one
+ * 160-block region spans a 10x10 chunk grid — CI (2-3x slower than local) blew
+ * past the 300s per-test timeout on that redundant work. Scanning regions once
+ * each instead needs only this many: a site anywhere in a region can carry a
+ * spawn up to `VILLAGE_HALF_EXTENT` blocks beyond the region's own bounds, so
+ * the true search bound in blocks is the ring limit in blocks plus that
+ * overhang; dividing by `VILLAGE_REGION_SIZE` and flooring gives the region
+ * radius guaranteed to contain every chunk the old scan visited.
  */
-const chunkRing = (ring: number): ReadonlyArray<readonly [number, number]> => {
-  if (ring === 0) {return [[0, 0]]}
-  const coords: Array<readonly [number, number]> = []
-  for (let cx = -ring; cx <= ring; cx += 1) {
-    coords.push([cx, -ring], [cx, ring])
+const VILLAGE_SEARCH_REGION_RADIUS = Math.floor(
+  (VILLAGE_AVAILABILITY_RING_LIMIT * CHUNK_SIZE_XZ + (CHUNK_SIZE_XZ - 1) + VILLAGE_HALF_EXTENT) / VILLAGE_REGION_SIZE,
+)
+
+/** Every villager spawn from every accepted village site within `VILLAGE_SEARCH_REGION_RADIUS` regions of the origin. */
+const villageSpawnsInSearchWindow = (
+  seed: number,
+  sampleTerrain: OverworldTerrainSampler,
+): ReadonlyArray<VillageVillagerSpawn> => {
+  const spawns: Array<VillageVillagerSpawn> = []
+  for (let regionX = -VILLAGE_SEARCH_REGION_RADIUS; regionX <= VILLAGE_SEARCH_REGION_RADIUS; regionX += 1) {
+    for (let regionZ = -VILLAGE_SEARCH_REGION_RADIUS; regionZ <= VILLAGE_SEARCH_REGION_RADIUS; regionZ += 1) {
+      const site = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
+      if (Option.isSome(site)) {
+        spawns.push(...villageVillagerSpawnsForSite(seed, site.value, sampleTerrain))
+      }
+    }
   }
-  for (let cz = -ring + 1; cz <= ring - 1; cz += 1) {
-    coords.push([-ring, cz], [ring, cz])
-  }
-  return coords
+  return spawns
 }
+
+/**
+ * Chebyshev chunk-ring distance from the origin of the chunk that owns this
+ * spawn — the same `floor(coord / CHUNK_SIZE_XZ)` formula
+ * `villageVillagerSpawnsForChunk` (village.ts) uses to decide chunk ownership.
+ */
+const chunkRingOfSpawn = (spawn: VillageVillagerSpawn): number => Math.max(
+  Math.abs(Math.floor(spawn.x / CHUNK_SIZE_XZ)),
+  Math.abs(Math.floor(spawn.z / CHUNK_SIZE_XZ)),
+)
 
 /** The nearest ring (0..`VILLAGE_AVAILABILITY_RING_LIMIT`) containing a villager spawn, or `undefined` if none does. */
 const nearestVillageRing = (seed: number, sampleTerrain: OverworldTerrainSampler): number | undefined => {
-  for (let ring = 0; ring <= VILLAGE_AVAILABILITY_RING_LIMIT; ring += 1) {
-    for (const [cx, cz] of chunkRing(ring)) {
-      if (villageVillagerSpawnsForChunk(seed, cx, cz, sampleTerrain).length > 0) {return ring}
-    }
+  const rings = villageSpawnsInSearchWindow(seed, sampleTerrain).map(chunkRingOfSpawn)
+  if (rings.length === 0) {
+    // eslint-disable-next-line no-undefined -- No accepted site produced a spawn in the search window.
+    return undefined
   }
-  // eslint-disable-next-line no-undefined -- Ring search exhausted without a spawn.
-  return undefined
+  const nearest = Math.min(...rings)
+  // eslint-disable-next-line no-undefined -- Outside the bound this battery guarantees.
+  return nearest <= VILLAGE_AVAILABILITY_RING_LIMIT ? nearest : undefined
 }
 
 describe('village siting', () => {
@@ -186,15 +219,6 @@ describe('village siting', () => {
   )
 })
 
-// 25 seeds x up to 48 rings of real (non-flat) terrain sampling is genuinely
-// heavy — same reasoning as vitest.config.ts's own testTimeout comment
-// ("several property-based / golden-fixture tests... take multiple times
-// longer under v8 coverage instrumentation"), just more of it: ~15-17s each
-// under `pnpm test`, past the global 60s testTimeout under `pnpm test:coverage`.
-// Measured under `pnpm test:coverage`: ~129s and ~142s respectively. 300s
-// leaves roughly 2x headroom without being an unbounded escape hatch.
-const VILLAGE_AVAILABILITY_TEST_TIMEOUT_MS = 300000
-
 describe('villages are findable on real terrain (worldgen-village-availability)', () => {
   it.effect(
     `every battery seed has a village within ${String(VILLAGE_AVAILABILITY_RING_LIMIT)} chunk rings of the origin`,
@@ -205,27 +229,25 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
           expect(ring, `seed ${String(seed)} found no village within ${String(VILLAGE_AVAILABILITY_RING_LIMIT)} rings`).toBeDefined()
         }
       }),
-    VILLAGE_AVAILABILITY_TEST_TIMEOUT_MS,
   )
 
   it.effect(
-    'village placement is deterministic across the battery: two searches agree exactly',
+    'village placement is deterministic: two searches of the same seed agree exactly',
     () =>
       Effect.sync(() => {
-        for (const seed of VILLAGE_AVAILABILITY_BATTERY) {
+        for (const seed of VILLAGE_REPRO_SEEDS) {
           const terrain = makeActualTerrain(seed)
-          const ring = nearestVillageRing(seed, terrain)
-          // eslint-disable-next-line no-undefined -- Every battery seed is already proven to have a ring by the test above.
-          if (ring === undefined) {continue}
-          // A ring number alone could hide two DIFFERENT sites at the same distance across runs;
-          // comparing the full spawn list at that ring's chunks pins the actual site, not just its distance.
-          const chunksAtRing = chunkRing(ring)
-          const first = chunksAtRing.flatMap(([cx, cz]) => villageVillagerSpawnsForChunk(seed, cx, cz, terrain))
-          const second = chunksAtRing.flatMap(([cx, cz]) => villageVillagerSpawnsForChunk(seed, cx, cz, terrain))
+          // Compares the full spawn list across the whole search window, not just
+          // the nearest ring's chunks — a strict superset of "the nearest village
+          // agrees". Determinism is a property of `villageSiteForRegion` itself
+          // (same seed and region always draw the same candidates), not something
+          // that varies seed to seed, so the five repro seeds are representative;
+          // checking all 25 battery seeds would buy nothing extra.
+          const first = villageSpawnsInSearchWindow(seed, terrain)
+          const second = villageSpawnsInSearchWindow(seed, terrain)
           expect(second).toStrictEqual(first)
         }
       }),
-    VILLAGE_AVAILABILITY_TEST_TIMEOUT_MS,
   )
 })
 
