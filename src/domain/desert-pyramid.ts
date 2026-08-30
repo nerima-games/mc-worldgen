@@ -2,12 +2,12 @@ import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
-} from './natural-structure'
+} from './natural-structure.js'
 import { type BlockId } from '@nerima-games/mc-kernel'
-import { DESERT_PYRAMID_LAYOUT } from './desert-pyramid-data'
-import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
+import { DESERT_PYRAMID_LAYOUT } from './desert-pyramid-data.js'
+import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 import { Option } from 'effect'
-import type { OverworldTerrainSampler } from './structure-siting'
+import type { OverworldTerrainSampler } from './structure-siting.js'
 
 type DesertPyramidCandidate = { readonly x: number; readonly z: number }
 

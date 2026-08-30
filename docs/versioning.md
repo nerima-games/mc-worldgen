@@ -41,6 +41,33 @@ mc-worldgen のドメインコードは、次の責務境界で各パッケー�
 保存フォーマットの最小入力を読むコードは、永続化フォーマットの契約として残している。
 これはローカルの旧 API 用互換層ではない。
 
+### `mc-save` 0.3.0 への追従（2026-08-30）
+
+`mc-save` 0.3.0 は dist 化だけでなく、公開 API そのものを変えた:
+
+- `SaveFormat.migrations` と `validateMigrationChain` を削除した（migration chain
+  機能そのものの撤去。「migration chain は提供しません」）。`CHUNK_FORMAT`
+  （`domain/chunk-format.ts`）はもともと migrations を使っていなかったため
+  ドメインコードへの影響はなく、`test/chunk-format.test.ts` の CF-13 が検査していた
+  migration chain のアサーションだけを削った。
+- `MigrationError` を公開エラー型から削除した。`ChunkPersistenceError`
+  （`application/chunk-persistence.ts`）と `PortalRegistryPersistenceError`
+  （`application/portal-registry.ts`）の合併型から外した——**この 2 つの型は
+  `src/index.ts` からバレル export されている公開 API**なので、これは mc-worldgen
+  自身の公開型シグネチャの変更である。
+- `SaveEnvelope.integrity`（`SaveIntegrity`：fnv1a32 チェックサム）が必須になった。
+  `saveEnvelope()` は `integrity` を持たない `SaveEnvelopeDraft` を返すだけになり、
+  実ストレージへ書き込む経路（`StoragePort.put`）は `sealSaveEnvelope()` で
+  封印してから渡す必要がある。`application/` の本体コードは既に `saveTo`/`loadFrom`
+  （mc-save が内部で封印する高レベル API）経由だったため無傷; 直接
+  `StoragePort.put` を叩いていた 2 つのテストだけ `sealSaveEnvelope()` でラップした。
+
+org 方針: dist 化に伴う契約変更は**この形で追従する**（新しい契約を採用し、
+移行機能の呼び出しを削り、mc-save の writer で integrity を付与する）のであって、
+古い `mc-save` バージョンへ pin し直すのではない。上の変更は `minor` の
+changeset で記録している（§3 の「semver: 0.x なので minor bump で破壊的変更が
+入りうる」のとおり）。
+
 意図された依存グラフは**コードとドキュメントの側に**記録してある:
 
 - `scripts/check-dependency-whitelist.ts` の `REPOSITORY_POLICY.dependencyGraph`（16 行全部）
@@ -80,29 +107,37 @@ mc-sim ほどではないが依存ハブなので、界面が動くと 5 箇所�
 
 ## 5. ビルドと publish のパイプライン
 
-### 現状: ローカル配布ビルドは実装済み、publish は未実施
+### 現状: ビルドと release ワークフローは実装済み、publish はまだ実施していない
 
 `package.json`:
 
 ```json
 "main": "./dist/index.js",
 "types": "./dist/index.d.ts",
-"exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
+"exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "default": "./dist/index.js" } }
 ```
 
-`pnpm build` は `esbuild` で ESM をバンドルし、`tsconfig.package.json` で宣言ファイルを
-`dist/` に出力する。リポジトリの型検査プロジェクトは引き続き `noEmit: true` である。
+`pnpm build` は `scripts/clean-dist.mjs` で `dist/` を空にしたのち `tsc -p tsconfig.release.json`
+が JavaScript と宣言ファイルの両方を `dist/` に出力する tsc emit である(esbuild によるバンドルは廃止
+した——バンドルは `exports` サブパスと declaration map を壊し、他リポジトリが読む型の同一性を保証で
+きないため)。リポジトリの型検査プロジェクトは引き続き `noEmit: true` である。
 
-`files` は `dist/` とドキュメントだけを含むため、consumer は TypeScript ソースを直接コンパイルしない。
-公開レジストリへの publish はまだ実施していない。
+`files` は `dist/`、`LICENSE`、`README.md` だけを含むため、consumer は TypeScript ソースを直接コンパ
+イルしない。`publishConfig.access` は `public`。公開レジストリへの publish はまだ実施していない。
 
 ### リリース時に確認するもの
 
-1. `pnpm verify` を通し、`dist/index.js` と `dist/index.d.ts` を生成する
-2. `node --input-type=module` で `dist/index.js` を consumer と同じ ESM エントリとして読み込む
-3. `pnpm pack --dry-run` で `dist/`、ドキュメント、`LICENSE`、`package.json` が含まれ、`src/` と `test/` が含まれないことを確認する
-4. CI に `pnpm build` と、tag push での `pnpm publish` を追加する
-5. GitHub Packages の認証を secret 経由で設定する
+1. `pnpm verify`(typecheck・lint・test)と `pnpm package:verify`(`pnpm build` に続けて
+   `scripts/verify-package.mjs` が生成物を実際に import し、公開 API と pack 境界を検査する)を通す
+2. `pnpm pack --dry-run` で `dist/`、`LICENSE`、`README.md`、`package.json` が含まれ、`src/` と
+   `test/` が含まれないことを確認する
+3. `.github/workflows/release.yaml` が main への push ごとに `package.json` の version 変化を検知し
+   (`detect`)、変化していれば `pnpm verify && pnpm package:verify` を再実行してから
+   `pnpm publish --no-git-checks` で GitHub Packages へ publish し(`publish`)、`v<version>` タグを
+   push する(`tag`)。GitHub Packages の認証は `secrets.GITHUB_TOKEN` 経由。
+4. version を上げる実際の操作は手動: `pnpm changeset version` で `.changeset/*.md` を消費して
+   `package.json` の version と CHANGELOG.md を更新する PR を作り、それを merge した push が上の
+   release ワークフローを起動する
 
 ### `.npmrc` の現状
 

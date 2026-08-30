@@ -1,5 +1,5 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 export const MINESHAFT_GRID: NaturalStructureGrid = Object.freeze({
   separation: 96,
@@ -10,7 +10,19 @@ export const MINESHAFT_GRID: NaturalStructureGrid = Object.freeze({
 const BRANCH_OFFSET_NONE = 0
 const BRANCH_OFFSET_STEP = 8
 
-export const MINESHAFT_LAYOUT = Object.freeze({
+export const MINESHAFT_LAYOUT: Readonly<{
+  branchHalfExtent: number
+  branchOffsets: ReadonlyArray<number>
+  corridorHalfWidth: number
+  depthBelowSurface: number
+  frameHalfWidth: number
+  frameHeight: number
+  lootBranchOffset: number
+  lootOffsetZ: number
+  maxSurfaceVariation: number
+  minimumBaseY: number
+  supportSpacing: number
+}> = Object.freeze({
   branchHalfExtent: 10,
   branchOffsets: Object.freeze([-BRANCH_OFFSET_STEP, BRANCH_OFFSET_NONE, BRANCH_OFFSET_STEP]),
   corridorHalfWidth: 1,
@@ -24,7 +36,12 @@ export const MINESHAFT_LAYOUT = Object.freeze({
   supportSpacing: 4,
 })
 
-export const MINESHAFT_BLOCK = Object.freeze({
+export const MINESHAFT_BLOCK: Readonly<
+  Record<
+    'AIR' | 'CHEST' | 'COBWEB' | 'OAK_LOG' | 'OAK_PLANKS' | 'POWERED_RAIL' | 'RAIL' | 'TORCH',
+    BlockId
+  >
+> = Object.freeze({
   AIR: blockIdOf('air'),
   CHEST: blockIdOf('chest'),
   COBWEB: blockIdOf('cobweb'),

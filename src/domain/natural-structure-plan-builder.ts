@@ -2,7 +2,7 @@ import {
   MAX_NATURAL_STRUCTURE_BLOCKS,
   MAX_NATURAL_STRUCTURE_MARKERS,
   NATURAL_STRUCTURE_GRID,
-} from './natural-structure-grid-data'
+} from './natural-structure-grid-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureKind,
@@ -10,10 +10,10 @@ import type {
   NaturalStructurePlan,
   NaturalStructurePosition,
   NaturalStructureRegion,
-} from './natural-structure-types'
+} from './natural-structure-types.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
-import { CHUNK_HEIGHT } from './constants'
-import type { Dimension } from './nether-travel'
+import { CHUNK_HEIGHT } from './constants.js'
+import type { Dimension } from './nether-travel.js'
 import { Option } from 'effect'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
@@ -110,10 +110,21 @@ export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockP
    * because future structure geometry or a terrain sampler with much more Y
    * variation could raise the block count; the cap is not a type-level
    * invariant.
+   *
+   * Vitest 4's coverage-v8 provider (ast-v8-to-istanbul) reads its `if`,
+   * `next` and `else` ignore hints from the esbuild-transformed code, where
+   * esbuild drops a standalone inline ignore-next-style comment entirely
+   * (verified empirically: esbuild.transform() strips it even with no
+   * minification). The start/stop hint pair is the one this package
+   * documents as checked against the ORIGINAL source instead, so it survives
+   * the transform — this is why every ignore hint in this repository now
+   * uses that form.
    */
   // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore next */
+  /* v8 ignore start */
   if (!mutable.blocks.has(key) && mutable.blocks.size >= MAX_NATURAL_STRUCTURE_BLOCKS) {return}
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore stop */
   if (Object.isFrozen(placement)) {
     mutable.blocks.set(key, placement)
     return
@@ -122,7 +133,18 @@ export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockP
 }
 
 export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarker): void => {
+  /**
+   * UNREACHABLE TODAY, NOT PROVABLY DEAD — same reasoning as `addBlock`'s cap
+   * above: module-private, only approached through the fixed-geometry
+   * natural-structure planners, and kept live because future structure
+   * geometry could raise the marker count. See `addBlock` for why this uses
+   * the start/stop ignore-hint form.
+   */
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore start */
   if (mutable.markers.length < MAX_NATURAL_STRUCTURE_MARKERS) {mutable.markers.push(Object.freeze(marker))}
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore stop */
 }
 
 /** Everything about a plan except its accumulated blocks and markers. */

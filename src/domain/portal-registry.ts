@@ -1,5 +1,5 @@
 import { type BlockPosition, blockPositionKeyOf } from '@nerima-games/mc-kernel'
-import type { Dimension } from './nether-travel'
+import type { Dimension } from './nether-travel.js'
 
 export type PortalRegistryState = {
   readonly overworld: ReadonlyArray<BlockPosition>

@@ -1,6 +1,5 @@
 import { Effect, Option } from 'effect'
 import {
-  type MigrationError,
   type SaveDecodeError,
   SaveKey,
   type StorageError,
@@ -8,12 +7,15 @@ import {
   loadFrom,
   saveTo,
 } from '@nerima-games/mc-save'
-import { CHUNK_FORMAT } from '../domain/chunk-format'
-import type { Chunk } from '../domain/chunk'
+import { CHUNK_FORMAT } from '../domain/chunk-format.js'
+import type { Chunk } from '../domain/chunk.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import type { Dimension } from '../domain/nether-travel'
+import type { Dimension } from '../domain/nether-travel.js'
 
-export type ChunkPersistenceError = StorageError | SaveDecodeError | MigrationError
+// @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
+// Class from its public error surface; decode/migration failures are now
+// Reported as SaveDecodeError. This union tracks mc-save's actual exports.
+export type ChunkPersistenceError = StorageError | SaveDecodeError
 
 export type ChunkPersistence = {
   readonly load: (coord: ChunkCoord) => Effect.Effect<Option.Option<Chunk>, ChunkPersistenceError>

@@ -1,21 +1,21 @@
 /** Deterministic terrain generation for the End dimension. */
-import { CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { type Chunk, emptyBlocks } from './chunk'
-import { type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
+import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import { type Chunk, emptyBlocks } from './chunk.js'
 import {
   type EndFeatureChunk,
   applyEndFeaturePlansToChunk,
   endFeaturePlanForSeed,
-} from './end-features'
-import { applyEndChorusPlansToChunk, endChorusPlanForChunk } from './end-vegetation'
+} from './end-features.js'
+import { applyEndChorusPlansToChunk, endChorusPlanForChunk } from './end-vegetation.js'
 import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
-} from './natural-structure'
+} from './natural-structure.js'
 import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
-import { worldX, worldZ } from './generator-coordinates'
+import { worldX, worldZ } from './generator-coordinates.js'
 
-export const END_STONE_BLOCK_ID = blockIdOf('end_stone')
+export const END_STONE_BLOCK_ID: BlockId = blockIdOf('end_stone')
 export const END_BASE_Y = 64
 export const END_CENTRAL_ISLAND_RADIUS = 112
 export const END_OUTER_ISLAND_START = 384

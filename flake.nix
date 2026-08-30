@@ -4,6 +4,13 @@
   inputs = {
     # nixos-unstable, not nixpkgs-unstable: it advances only after the NixOS
     # release tests pass, so it is less likely to land a broken build.
+    #
+    # flake.lock is pinned to rev 624af665 (2026-07-26) rather than the
+    # channel head: every revision from 2026-08-28 onward ships oxlint
+    # >=1.79.0, whose `no-redeclare` rule false-positives on the `type X` /
+    # `const X = Brand.refined<X>(...)` branded-type idiom used throughout
+    # src/domain (proven by A/B testing oxlint 1.75.0 vs 1.79.0). Re-check on
+    # the next bump.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
@@ -40,18 +47,25 @@
           # DEPENDENCY_POLICY.md §5's "前提条件" note. Once that bug was fixed,
           # a single pinned Nix-provided oxlint became the one source of truth
           # instead of 16 independently-drifting npm pins.
+          #
+          # ast-grep covers what oxlint cannot: it implements none of
+          # no-restricted-syntax, no-restricted-properties or
+          # no-restricted-globals, so structural checks like the type-assertion
+          # and wall-clock-read bans (`.ast-grep/rules/`) have no other
+          # mechanical gate.
           default = pkgs.mkShell {
             packages = [
               pkgs.nodejs_24
               pkgs.corepack_24
               pkgs.typescript-language-server
               pkgs.oxlint
+              pkgs.ast-grep
             ];
 
             shellHook = ''
-              mkdir -p "$PWD/.corepack"
-              corepack enable --install-directory "$PWD/.corepack"
-              export PATH="$PWD/.corepack:$PATH"
+              corepackDir="$(mktemp -d "''${TMPDIR:-/tmp}/mc-worldgen-corepack.XXXXXX")"
+              corepack enable --install-directory "$corepackDir"
+              export PATH="$corepackDir:$PATH"
             '';
           };
         }

@@ -3,10 +3,10 @@ import type {
   NaturalStructureChunk,
   NaturalStructureChunkSlice,
   NaturalStructurePlan,
-} from './natural-structure-types'
-import { type Chunk, setBlockAt } from './chunk'
-import { CHUNK_SIZE_XZ } from './constants'
-import { plansInStableOrder } from './natural-structure-order'
+} from './natural-structure-types.js'
+import { type Chunk, setBlockAt } from './chunk.js'
+import { CHUNK_SIZE_XZ } from './constants.js'
+import { plansInStableOrder } from './natural-structure-order.js'
 
 /** Projects a plan without observing or mutating loaded neighbouring chunks. */
 export const naturalStructureSliceForChunk = (

@@ -1,8 +1,23 @@
-import type { BiomeType } from './biome'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { BiomeType } from './biome.js'
 
 /** Block ids that can be written by the vegetation passes. */
-export const PLANT = {
+export const PLANT: Readonly<
+  Record<
+    | 'BROWN_MUSHROOM'
+    | 'CACTUS'
+    | 'DANDELION'
+    | 'FERN'
+    | 'KELP'
+    | 'LILY_PAD'
+    | 'POPPY'
+    | 'RED_MUSHROOM'
+    | 'SEAGRASS'
+    | 'SUGAR_CANE'
+    | 'TALL_GRASS',
+    BlockId
+  >
+> = {
   BROWN_MUSHROOM: blockIdOf('brown_mushroom'),
   CACTUS: blockIdOf('cactus'),
   DANDELION: blockIdOf('dandelion'),

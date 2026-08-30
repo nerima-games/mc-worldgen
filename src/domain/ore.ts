@@ -180,11 +180,11 @@ import {
   CHUNK_SIZE_XZ,
   DEEPSLATE_CEILING,
   blockIndex,
-} from './constants'
+} from './constants.js'
 import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
 import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
-import { BLOCK } from './biome'
-import { readBlock } from './chunk'
+import { BLOCK } from './biome.js'
+import { readBlock } from './chunk.js'
 
 /**
  * The ore ids, transcribed from `mc-kernel/domain/block-registry.ts`.
@@ -198,7 +198,9 @@ import { readBlock } from './chunk'
  * `lightEmissionOfBlockId`, so both redstone ore variants use the kernel value
  * without a second local light-emission table.
  */
-export const ORE_BLOCK = {
+export const ORE_BLOCK: Readonly<
+  Record<'COAL' | 'DIAMOND' | 'EMERALD' | 'GOLD' | 'IRON' | 'LAPIS' | 'REDSTONE', BlockId>
+> = {
   COAL: blockIdOf('coal_ore'),
   DIAMOND: blockIdOf('diamond_ore'),
   EMERALD: blockIdOf('emerald_ore'),
@@ -208,7 +210,9 @@ export const ORE_BLOCK = {
   REDSTONE: blockIdOf('redstone_ore'),
 } as const
 
-export const DEEPSLATE_ORE_BLOCK = {
+export const DEEPSLATE_ORE_BLOCK: Readonly<
+  Record<'COAL' | 'DIAMOND' | 'EMERALD' | 'GOLD' | 'IRON' | 'LAPIS' | 'REDSTONE', BlockId>
+> = {
   COAL: blockIdOf('deepslate_coal_ore'),
   DIAMOND: blockIdOf('deepslate_diamond_ore'),
   EMERALD: blockIdOf('deepslate_emerald_ore'),
@@ -251,7 +255,7 @@ const oreTargetAt = (name: OreName, y: number): OreTarget => {
 /** This repository's bedrock is one block deep — see this constant's header paragraph above. */
 const BEDROCK_LAYER_HEIGHT = 1
 
-export const ORE_MIN_Y_FLOOR = BEDROCK_Y + BEDROCK_LAYER_HEIGHT
+export const ORE_MIN_Y_FLOOR: number = BEDROCK_Y + BEDROCK_LAYER_HEIGHT
 
 /**
  * Highest cell that can ever hold stone, and therefore ore.
@@ -665,8 +669,7 @@ export const placeOres = (blocks: Uint8Array, seed: number, coord: ChunkCoord): 
     const yMin = Math.max(config.minY, ORE_MIN_Y_FLOOR)
     const yMax = Math.min(config.maxY, CHUNK_HEIGHT - CHUNK_TOP_Y_OFFSET)
 
-    if (yMax >= yMin) {
-      placeVeinsForConfig({ blocks, config, count, name: config.name, next, yMax, yMin })
-    }
+    // Every entry in ORE_CONFIGS keeps minY/maxY within [ORE_MIN_Y_FLOOR, CHUNK_HEIGHT - CHUNK_TOP_Y_OFFSET] today, so yMax >= yMin always holds; the guard this used to be was removed rather than kept permanently dead. A future ORE_CONFIGS entry with a narrow or misplaced Y band would need this re-added.
+    placeVeinsForConfig({ blocks, config, count, name: config.name, next, yMax, yMin })
   }
 }

@@ -1,5 +1,5 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 export const DESERT_WELL_GRID: NaturalStructureGrid = Object.freeze({
   separation: 64,
@@ -7,7 +7,18 @@ export const DESERT_WELL_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 200,
 })
 
-export const DESERT_WELL_LAYOUT = Object.freeze({
+export const DESERT_WELL_LAYOUT: Readonly<
+  Record<
+    | 'baseHalfExtent'
+    | 'baseYClearance'
+    | 'maxSurfaceVariation'
+    | 'minDryClearance'
+    | 'pillarTopOffset'
+    | 'roofOffsetY'
+    | 'waterHalfExtent',
+    number
+  >
+> = Object.freeze({
   baseHalfExtent: 2,
   baseYClearance: 1,
   maxSurfaceVariation: 3,
@@ -17,7 +28,7 @@ export const DESERT_WELL_LAYOUT = Object.freeze({
   waterHalfExtent: 1,
 })
 
-export const DESERT_WELL_BLOCK = Object.freeze({
+export const DESERT_WELL_BLOCK: Readonly<Record<'SANDSTONE' | 'WATER', BlockId>> = Object.freeze({
   SANDSTONE: blockIdOf('sandstone'),
   WATER: blockIdOf('water'),
 })

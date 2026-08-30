@@ -1,12 +1,12 @@
-import { JUNGLE_PYRAMID_BLOCK, JUNGLE_PYRAMID_LAYOUT } from './jungle-pyramid-data'
+import { JUNGLE_PYRAMID_BLOCK, JUNGLE_PYRAMID_LAYOUT } from './jungle-pyramid-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
-} from './natural-structure'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting'
+} from './natural-structure.js'
+import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
 
 type JunglePyramidCandidate = { readonly x: number; readonly z: number }

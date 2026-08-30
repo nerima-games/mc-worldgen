@@ -90,8 +90,8 @@
  * runs over one world plan the same portal — the same reasoning
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
-import { type PortalAxis, type PortalLayout, generatePortalLayout } from './portal-frame'
-import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link'
+import { type PortalAxis, type PortalLayout, generatePortalLayout } from './portal-frame.js'
+import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link.js'
 import { type BlockPosition } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
 

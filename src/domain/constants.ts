@@ -60,7 +60,7 @@ export const CHUNK_HEIGHT = 256
  * 16 × 16 × 256 = 65,536 bytes, matching the reference implementation
  * (`packages/world/domain/chunk.ts:11-12`).
  */
-export const CHUNK_VOLUME = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT
+export const CHUNK_VOLUME: number = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT
 
 /**
  * Flat index into the `blocks` buffer.
@@ -92,7 +92,7 @@ export const SEA_LEVEL = 63
  * Deliberately written as `SEA_LEVEL` rather than as the literal `63`, so that
  * the two cannot drift apart by someone editing one number.
  */
-export const LAKE_LEVEL = SEA_LEVEL
+export const LAKE_LEVEL: number = SEA_LEVEL
 
 export type TerrainLevels = {
   readonly seaLevel: number

@@ -1,21 +1,23 @@
 /** Deterministic, absolute-coordinate terrain generation for the Nether. */
 import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { type Chunk, emptyBlocks } from './chunk'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import { type Chunk, emptyBlocks } from './chunk.js'
 import {
   type NaturalStructureChunk,
   type NaturalStructurePosition,
   type NetherStructureTerrainSample,
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
-} from './natural-structure'
+} from './natural-structure.js'
 import { channelSeed, fbm2D, latticeValue } from '@nerima-games/mc-noise'
-import { worldX, worldZ } from './generator-coordinates'
+import { worldX, worldZ } from './generator-coordinates.js'
 
 /** Advances a loop counter, or steps to the adjacent lattice point, by one unit. */
 const UNIT_STEP = 1
 
-export const NETHER_BLOCK = Object.freeze({
+export const NETHER_BLOCK: Readonly<
+  Record<'AIR' | 'BEDROCK' | 'LAVA' | 'NETHERRACK' | 'SOUL_SAND', BlockId>
+> = Object.freeze({
   AIR: blockIdOf('air'),
   BEDROCK: blockIdOf('bedrock'),
   LAVA: blockIdOf('lava'),

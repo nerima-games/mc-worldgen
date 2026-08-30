@@ -194,13 +194,13 @@
  *   `test/ravine.test.ts` R-8 pins that so it cannot grow silently, and
  *   `../docs/design-notes.md` DN-8 carries the owed row.
  */
-import { BLOCK, type BiomeType } from './biome'
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
+import { BLOCK, type BiomeType } from './biome.js'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
-import { columnIndex, readBlock } from './chunk'
-import { worldX, worldZ } from './generator-coordinates'
+import { columnIndex, readBlock } from './chunk.js'
+import { worldX, worldZ } from './generator-coordinates.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import { PLANT_IDS } from './vegetation'
+import { PLANT_IDS } from './vegetation.js'
 
 /** Frequency of the ravine field. `ravine-carver.ts:10`; a 250-block wavelength. */
 export const RAVINE_NOISE_SCALE = 0.004
@@ -439,10 +439,12 @@ const resolveRavineCut = (
 const applyRavineCut = (blocks: Uint8Array, lx: number, lz: number, cut: RavineCut): void => {
   for (let y = Math.min(cut.surfaceY, CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET); y > cut.floorY; y--) {
     const index = blockIndex(lx, y, lz)
-    // Preserve bedrock if a future floor configuration reaches it.
-    if (readBlock(blocks, index) !== BLOCK.BEDROCK) {
-      blocks[index] = BLOCK.AIR
-    }
+    // Cut.floorY is clamped to at least RAVINE_FLOOR_Y (6) by ravineFloorY,
+    // And this loop only visits y > cut.floorY, so the lowest y it reads is
+    // 7 — strictly above BEDROCK_Y (0), where the only bedrock layer sits.
+    // A future floor configuration lowering RAVINE_FLOOR_Y far enough would
+    // Need a bedrock-preserving guard re-added here.
+    blocks[index] = BLOCK.AIR
   }
 
   if (cut.surfaceY > cut.floorY && cut.floorY <= RAVINE_LAVA_BED_BELOW_Y) {

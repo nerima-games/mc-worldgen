@@ -6,10 +6,10 @@ import {
   blockIdOf,
   blockPosition,
 } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants.js'
 import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
-import type { NaturalStructureChunk } from './natural-structure'
-import { setBlockAt } from './chunk'
+import type { NaturalStructureChunk } from './natural-structure.js'
+import { setBlockAt } from './chunk.js'
 
 const END_SPIKE_COUNT = 10
 const END_SPIKE_DISTANCE = 42
@@ -26,7 +26,7 @@ const CAGE_MAX_Y_OFFSET = 3
 const ZERO = 0
 const ONE = 1
 
-export const END_FEATURE_BLOCK = Object.freeze({
+export const END_FEATURE_BLOCK: Readonly<Record<'CRYSTAL' | 'OBSIDIAN', BlockId>> = Object.freeze({
   CRYSTAL: blockIdOf('end_crystal'),
   OBSIDIAN: blockIdOf('obsidian'),
 })

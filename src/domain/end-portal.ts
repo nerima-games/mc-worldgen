@@ -1,11 +1,11 @@
 /* oxlint-disable id-length, max-statements, new-cap, no-magic-numbers, sort-imports */
 
 import { type Option, Option as OptionValue, Schema } from 'effect'
-import { BLOCK } from './biome'
+import { BLOCK } from './biome.js'
 import { BlockAxis, type BlockId, type BlockPosition, blockIdOf, blockPosition } from '@nerima-games/mc-kernel'
-import type { Dimension } from './nether-travel'
-import { STRONGHOLD_BLOCK } from './stronghold'
-import { STRONGHOLD_FLOOR_Y } from './structure-siting'
+import type { Dimension } from './nether-travel.js'
+import { STRONGHOLD_BLOCK } from './stronghold.js'
+import { STRONGHOLD_FLOOR_Y } from './structure-siting.js'
 
 export type EndPortalFrameFacing = 'north' | 'east' | 'south' | 'west'
 
@@ -37,7 +37,7 @@ export type EndArrivalDescriptor = {
 
 const BlockAxisFromNumber = Schema.Number.pipe(Schema.fromBrand(BlockAxis))
 
-export const EndPortalFrameFacingSchema = Schema.Literal('north', 'east', 'south', 'west')
+export const EndPortalFrameFacingSchema: Schema.Schema<EndPortalFrameFacing> = Schema.Literal('north', 'east', 'south', 'west')
 
 export const EndPortalCenterSchema: Schema.Schema<BlockPosition, {
   readonly x: number
@@ -45,7 +45,7 @@ export const EndPortalCenterSchema: Schema.Schema<BlockPosition, {
   readonly z: number
 }> = Schema.Struct({ x: BlockAxisFromNumber, y: BlockAxisFromNumber, z: BlockAxisFromNumber })
 
-export const END_PORTAL_BLOCK = {
+export const END_PORTAL_BLOCK: Readonly<Record<'FRAME_EMPTY' | 'FRAME_FILLED' | 'PORTAL', BlockId>> = {
   FRAME_EMPTY: STRONGHOLD_BLOCK.END_PORTAL_FRAME,
   FRAME_FILLED: blockIdOf('end_portal_frame_filled'),
   PORTAL: blockIdOf('end_portal'),

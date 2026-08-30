@@ -13,8 +13,8 @@
  * confused with a block coordinate through the old `{x, z}` spelling.
  */
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants'
-import { type ChunkBiomeType } from './biome'
+import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
+import { type ChunkBiomeType } from './biome.js'
 
 export type Chunk = {
   readonly coord: ChunkCoord

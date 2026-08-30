@@ -2,11 +2,11 @@ import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePlan,
-} from './natural-structure-types'
-import { STRONGHOLD_FLOOR_Y, strongholdSiteForRegion } from './structure-siting'
+} from './natural-structure-types.js'
+import { STRONGHOLD_FLOOR_Y, strongholdSiteForRegion } from './structure-siting.js'
 import { Option } from 'effect'
-import { finishPlanFromValidatedPlacements } from './natural-structure-plan-builder'
-import { generateStrongholdPlan } from './stronghold'
+import { finishPlanFromValidatedPlacements } from './natural-structure-plan-builder.js'
+import { generateStrongholdPlan } from './stronghold.js'
 
 export const planStrongholdForRegion = (
   seed: number,

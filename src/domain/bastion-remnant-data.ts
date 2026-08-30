@@ -1,5 +1,5 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 export const BASTION_REMNANT_GRID: NaturalStructureGrid = Object.freeze({
   separation: 128,
@@ -7,7 +7,9 @@ export const BASTION_REMNANT_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 180,
 })
 
-export const BASTION_REMNANT_BLOCK = Object.freeze({
+export const BASTION_REMNANT_BLOCK: Readonly<
+  Record<'CHEST' | 'GOLD_BLOCK' | 'NETHERRACK' | 'NETHER_BRICK' | 'SMOOTH_BASALT', BlockId>
+> = Object.freeze({
   CHEST: blockIdOf('chest'),
   GOLD_BLOCK: blockIdOf('gold_block'),
   NETHERRACK: blockIdOf('netherrack'),
@@ -15,7 +17,20 @@ export const BASTION_REMNANT_BLOCK = Object.freeze({
   SMOOTH_BASALT: blockIdOf('smooth_basalt'),
 })
 
-export const BASTION_REMNANT_LAYOUT = Object.freeze({
+export const BASTION_REMNANT_LAYOUT: Readonly<
+  Record<
+    | 'bridgeHalfWidth'
+    | 'bridgeHeightOffset'
+    | 'centralTowerHalfExtent'
+    | 'centralTowerHeight'
+    | 'chestYOffset'
+    | 'halfExtent'
+    | 'maxSurfaceVariation'
+    | 'minHeadroom'
+    | 'outerWallHeight',
+    number
+  >
+> = Object.freeze({
   bridgeHalfWidth: 1,
   bridgeHeightOffset: 2,
   centralTowerHalfExtent: 3,

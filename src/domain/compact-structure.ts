@@ -7,7 +7,7 @@ import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
-} from './natural-structure.js'
+} from './natural-structure-types.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
 import type { OverworldTerrainSampler } from './structure-siting.js'

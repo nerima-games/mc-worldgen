@@ -6,7 +6,7 @@ import {
   blockPosition,
 } from '@nerima-games/mc-kernel'
 
-export const END_GATEWAY_BLOCK = Object.freeze({
+export const END_GATEWAY_BLOCK: Readonly<Record<'BEDROCK' | 'GATEWAY', BlockId>> = Object.freeze({
   BEDROCK: blockIdOf('bedrock'),
   GATEWAY: blockIdOf('end_gateway'),
 })

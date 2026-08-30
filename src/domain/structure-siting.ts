@@ -25,7 +25,7 @@
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
-import type { BiomeType } from './biome'
+import type { BiomeType } from './biome.js'
 import { Option } from 'effect'
 
 /**
@@ -131,7 +131,7 @@ const RESULT_START_INDEX = 0
 export const locateStronghold = (
   seed: number,
   origin: StrongholdOrigin,
-  limit = DEFAULT_STRONGHOLD_RESULT_LIMIT,
+  limit: number = DEFAULT_STRONGHOLD_RESULT_LIMIT,
 ): ReadonlyArray<StrongholdSite> => {
   const regionX = floorDiv(origin.x, STRONGHOLD_REGION_SIZE)
   const regionZ = floorDiv(origin.z, STRONGHOLD_REGION_SIZE)

@@ -2,9 +2,9 @@ const AXIS_POSITIVE = 1
 const AXIS_NEGATIVE = -1
 const AXIS_NONE = 0
 
-export const STEP = AXIS_POSITIVE
-export const MIN_CHUNK_COORD = AXIS_NONE
-export const LIGHT_DECAY_PER_HOP = STEP
+export const STEP: number = AXIS_POSITIVE
+export const MIN_CHUNK_COORD: number = AXIS_NONE
+export const LIGHT_DECAY_PER_HOP: number = STEP
 
 export const axisCrossing = (coord: number, size: number): number => {
   if (coord < MIN_CHUNK_COORD) {

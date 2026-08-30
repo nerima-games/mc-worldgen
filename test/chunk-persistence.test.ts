@@ -2,6 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import {
   makeInMemoryStorage,
   saveEnvelope,
+  sealSaveEnvelope,
   StorageError,
   StoragePort,
   type StorageService,
@@ -88,7 +89,7 @@ describe('chunk persistence', () => {
       const coord = chunkCoord(1, 2)
       yield* storage.put(
         chunkSaveKey(context, coord),
-        saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT.version, { blocks: 'not-a-chunk' }),
+        sealSaveEnvelope(saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT.version, { blocks: 'not-a-chunk' })),
       )
       const store = yield* makeStoreWith(storage)
 

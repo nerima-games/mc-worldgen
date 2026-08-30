@@ -264,7 +264,7 @@ export type GoldenFile = {
   readonly entries: ReadonlyArray<GoldenEntry>
 }
 
-export const GOLDEN_FILE_PATH = path.join('test', 'golden', 'chunk-goldens.json')
+export const GOLDEN_FILE_PATH: string = path.join('test', 'golden', 'chunk-goldens.json')
 
 const sha256 = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex')
 

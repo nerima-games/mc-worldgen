@@ -1,8 +1,8 @@
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
-import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting'
+import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
-import { BLOCK } from './biome'
-import type { Dimension } from './nether-travel'
+import { BLOCK } from './biome.js'
+import type { Dimension } from './nether-travel.js'
 
 const STRONGHOLD_WALL_THICKNESS = 1
 const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1
@@ -11,10 +11,19 @@ const STRONGHOLD_UNIT_STEP = 1
 
 export const STRONGHOLD_ROOM_HALF = 5
 export const STRONGHOLD_ROOM_AIR_HEIGHT = 5
-export const STRONGHOLD_SHELL_HALF_EXTENT = STRONGHOLD_ROOM_HALF + STRONGHOLD_WALL_THICKNESS
-export const STRONGHOLD_CEILING_Y = STRONGHOLD_FLOOR_Y + STRONGHOLD_ROOM_AIR_HEIGHT + STRONGHOLD_WALL_THICKNESS
+export const STRONGHOLD_SHELL_HALF_EXTENT: number = STRONGHOLD_ROOM_HALF + STRONGHOLD_WALL_THICKNESS
+export const STRONGHOLD_CEILING_Y: number = STRONGHOLD_FLOOR_Y + STRONGHOLD_ROOM_AIR_HEIGHT + STRONGHOLD_WALL_THICKNESS
 
-export const STRONGHOLD_BLOCK = {
+export const STRONGHOLD_BLOCK: Readonly<
+  Record<
+    | 'COBBLESTONE'
+    | 'END_PORTAL_FRAME'
+    | 'END_PORTAL_FRAME_FILLED'
+    | 'LAVA'
+    | 'PLANKS',
+    BlockId
+  >
+> = {
   COBBLESTONE: blockIdOf('cobblestone'),
   END_PORTAL_FRAME: blockIdOf('end_portal_frame'),
   END_PORTAL_FRAME_FILLED: blockIdOf('end_portal_frame_filled'),

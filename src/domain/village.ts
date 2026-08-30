@@ -2,15 +2,15 @@ import {
   type OverworldTerrainSampler,
   type VillageSite,
   villageSitesNearChunk,
-} from './structure-siting'
+} from './structure-siting.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
-import { BLOCK } from './biome'
+import { BLOCK } from './biome.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
-import { CHUNK_SIZE_XZ } from './constants'
+import { CHUNK_SIZE_XZ } from './constants.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { blockIdOf, type BlockId } from '@nerima-games/mc-kernel'
 
-export const VILLAGE_BLOCK = {
+export const VILLAGE_BLOCK: Readonly<Record<'FOUNDATION' | 'ROAD' | 'TIMBER', BlockId>> = {
   FOUNDATION: blockIdOf('cobblestone'),
   ROAD: BLOCK.GRAVEL,
   TIMBER: BLOCK.LOG,

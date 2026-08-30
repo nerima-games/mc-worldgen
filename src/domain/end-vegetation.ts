@@ -1,7 +1,7 @@
 /** Deterministic chorus vegetation for End outer islands. */
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { type Chunk, readBlock, setBlockAt } from './chunk'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import { type Chunk, readBlock, setBlockAt } from './chunk.js'
 import {
   END_CHORUS_BRANCH_CHANCE,
   END_CHORUS_BRANCH_DIRECTIONS,
@@ -10,10 +10,10 @@ import {
   END_CHORUS_MIN_HEIGHT,
   END_CHORUS_PLACEMENT_CHANCE,
   END_VEGETATION_BLOCK,
-} from './end-vegetation-data'
+} from './end-vegetation-data.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 
-export { END_VEGETATION_BLOCK } from './end-vegetation-data'
+export { END_VEGETATION_BLOCK } from './end-vegetation-data.js'
 
 const PLACEMENT_CHANNEL = 'end-chorus-placement'
 const HEIGHT_CHANNEL = 'end-chorus-height'

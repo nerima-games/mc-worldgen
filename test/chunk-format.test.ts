@@ -64,8 +64,7 @@ import {
   decodeSave,
   encodeSave,
   saveEnvelope,
-  validateMigrationChain,
-  type SaveEnvelope,
+  type SaveEnvelopeDraft,
 } from '@nerima-games/mc-save'
 import { generateChunk } from '../src/domain/terrain'
 
@@ -114,7 +113,7 @@ type DecodeOutcome = {
   readonly cause: string
 }
 
-const decodeOutcome = (envelope: SaveEnvelope): Effect.Effect<DecodeOutcome> =>
+const decodeOutcome = (envelope: SaveEnvelopeDraft): Effect.Effect<DecodeOutcome> =>
   Effect.match(decodeSave(CHUNK_FORMAT, envelope), {
     onFailure: (error): DecodeOutcome => ({
       _tag: 'Refused',
@@ -515,21 +514,16 @@ describe('an envelope that is not ours', () => {
 })
 
 describe('the format is well-formed as a definition', () => {
-  it('CF-13: version 1 with an empty chain has no problems', () => {
+  // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the migration-chain feature
+  // (SaveFormat.migrations and validateMigrationChain no longer exist), so
+  // CF-13 no longer has a chain to assert against; only the version survives.
+  it('CF-13: version 1 has no problems', () => {
     expect(CHUNK_FORMAT.version).toBe(1)
-    expect(CHUNK_FORMAT.migrations).toStrictEqual([])
-    expect(
-      validateMigrationChain({
-        name: CHUNK_FORMAT.name,
-        version: CHUNK_FORMAT.version,
-        migrations: CHUNK_FORMAT.migrations,
-      }),
-    ).toStrictEqual([])
   })
 
   it('CF-14: the format name is the permanent identity and is spelled like the tag', () => {
-    // Renaming this makes every existing save FOREIGN, with no migration able
-    // to help — the chain is only consulted after the name matches.
+    // Renaming this makes every existing save FOREIGN, and there is no
+    // migration path back — the format only matches on an exact name.
     expect(CHUNK_FORMAT.name).toBe('@nerima-games/mc-worldgen/chunk')
     expect(CHUNK_FORMAT_NAME).toBe(CHUNK_FORMAT.name)
   })

@@ -34,7 +34,7 @@ import {
   TEMP_COLD,
   TEMP_HOT,
   TEMP_JUNGLE,
-} from './biome-classifier.config'
+} from './biome-classifier.config.js'
 
 export const BIOMES = [
   'PLAINS',
@@ -55,7 +55,12 @@ export const BIOMES = [
 export type BiomeType = (typeof BIOMES)[number]
 
 /** Biomes that may be stored in a dimension-agnostic chunk. */
-export const CHUNK_BIOMES = [...BIOMES, 'NETHER', 'END'] as const
+// The isolatedDeclarations flag forbids an array literal with a spread
+// Element unless the declaration carries an explicit type (TS9018). This
+// Widens the element type identically to what `as const` inference would
+// Have produced, since `ChunkBiomeType` below is already the union of every
+// Element.
+export const CHUNK_BIOMES: ReadonlyArray<BiomeType | 'NETHER' | 'END'> = [...BIOMES, 'NETHER', 'END'] as const
 
 export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
@@ -130,7 +135,26 @@ export type BiomeSurface = {
  * lit portal block itself.
  *
  */
-export const BLOCK = {
+export const BLOCK: Readonly<
+  Record<
+    | 'AIR'
+    | 'BEDROCK'
+    | 'DEEPSLATE'
+    | 'DIRT'
+    | 'GRASS'
+    | 'GRAVEL'
+    | 'ICE'
+    | 'LAVA'
+    | 'LEAVES'
+    | 'LOG'
+    | 'OBSIDIAN'
+    | 'SAND'
+    | 'SNOW'
+    | 'STONE'
+    | 'WATER',
+    BlockId
+  >
+> = {
   AIR: blockIdOf('air'),
   BEDROCK: blockIdOf('bedrock'),
   DEEPSLATE: blockIdOf('deepslate'),
