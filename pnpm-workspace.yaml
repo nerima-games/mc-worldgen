@@ -4,7 +4,7 @@ allowBuilds:
   # it, so its install script still needs an explicit allow decision.
   esbuild: true
 minimumReleaseAgeExclude:
-  - '@nerima-games/mc-kernel@0.2.8 || 0.2.17 || 0.4.0'
+  - '@nerima-games/mc-kernel@0.2.8 || 0.2.17 || 0.4.0 || 0.5.1'
   - '@nerima-games/mc-noise@0.3.0'
   - '@nerima-games/mc-save@0.3.0'
 overrides:

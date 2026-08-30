@@ -102,7 +102,7 @@ $ pnpm preview --seed 4242 --view slice --x -100 --z 60
 
 ## ポータル枠を見る（`p` / `k` / `--portal`）
 
-`domain/portal-frame.ts` の `detectNetherPortal` は、プレイヤーが置いた通常の
+mc-kernel の `portal-frame.ts` の `detectNetherPortal` は、プレイヤーが置いた通常の
 ポータル枠を検出するルールであり、その通常枠を地形生成する機能ではない。
 このリポジトリには ruined portal の生成器はあるが、通常のポータル枠とは別の構造物なので、
 どのシードのどの座標を飛んでも通常枠の portal は地形から出てこない。
@@ -126,7 +126,7 @@ docs/testing.md §4-b F-4 は、このリポジトリが**落ちようのない�
 出荷した記録である。`k` はその視覚版であって、飾りではない。
 
 角を抜いても判定は変わらない——これは**バグではなく仕様**である
-（`portal-frame.ts` のリング検査は角を要求しない）。
+（mc-kernel の `portal-frame.ts` のリング検査は角を要求しない）。
 `k` が角ではなく下辺の中央を抜くのはそのためである。
 
 なお十字線は**オーバーレイ込みのアクセサ**を読んでいる。

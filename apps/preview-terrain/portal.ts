@@ -8,7 +8,7 @@
  * Why an overlay and not a chunk write
  * ---------------------------------------------------------------------------
  *
- * `domain/portal-frame.ts` is a rule about block data. It detects a
+ * mc-kernel's `portal-frame.ts` is a rule about block data. It detects a
  * player-built obsidian frame; it does not generate that ordinary frame. This
  * repository does generate ruined portals, but those are a separate natural
  * structure and are not ordinary portal-frame fixtures. So there is no seed
@@ -38,10 +38,14 @@
  * the same demand — and seeing WHICH block you removed still leave a valid
  * portal is how a corner rule that is too strict would look.
  */
-import { Option } from 'effect'
 import { BLOCK } from '../../src/domain/biome'
-import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
-import { detectNetherPortal, generatePortalLayout, type BlockAt } from '../../src/domain/portal-frame'
+import {
+  blockPosition,
+  detectNetherPortal,
+  generatePortalLayout,
+  type BlockAt,
+  type BlockPosition,
+} from '@nerima-games/mc-kernel'
 
 export type PortalOverlay = {
   /** Bottom-left INTERIOR cell. What `detectNetherPortal` is asked about. */
@@ -116,11 +120,9 @@ export const describePortalVerdict = (overlay: PortalOverlay, world: BlockAt): s
   const found = detectNetherPortal(overlayBlockAt(overlay, world), overlay.origin)
   const where = `at (${String(overlay.origin.x)}, ${String(overlay.origin.y)}, ${String(overlay.origin.z)})`
 
-  return Option.match(found, {
-    onNone: () => `NO FRAME ${where}`,
-    onSome: (frame) =>
-      `${String(frame.width)}x${String(frame.height)} ${frame.axis}-axis, ${String(
-        frame.interior.length,
-      )} portal cells ${where}`,
-  })
+  return found === undefined
+    ? `NO FRAME ${where}`
+    : `${String(found.width)}x${String(found.height)} ${found.axis}-axis, ${String(
+        found.interior.length,
+      )} portal cells ${where}`
 }

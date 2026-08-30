@@ -63,7 +63,6 @@ export * from './domain/nether-terrain.js'
 // Mx-gameplay are transcriptions, so moving it is a repoint rather than a
 // Rewrite.
 export * from './domain/nether-travel.js'
-export * from './domain/portal-frame.js'
 export * from './domain/portal-registry.js'
 export * from './domain/portal-registry-format.js'
 export * from './domain/structure-siting.js'
