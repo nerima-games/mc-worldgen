@@ -14,11 +14,11 @@
  *   lossy direction lossless — by rounding instead of flooring, say — passes
  *   every assertion the reference makes.
  *
- *   THE PLANNED PORTAL IS DETECTABLE. `domain/portal-frame.ts`'s bounds note
+ *   THE PLANNED PORTAL IS DETECTABLE. mc-kernel's `portal-frame.ts` bounds note
  *   justifies `MIN_PORTAL_WIDTH`/`MIN_PORTAL_HEIGHT` by citing this file's
  *   `DEFAULT_PORTAL_WIDTH`/`DEFAULT_PORTAL_HEIGHT` as independent corroboration.
- *   Now that both ends are in this repository the citation is checkable: a
- *   planned portal goes through `detectNetherPortal` and comes back. The
+ *   The citation is checkable across the repository boundary: a planned
+ *   portal goes through mc-kernel's `detectNetherPortal` and comes back. The
  *   reference asserts `interior` has six cells, which a generator producing six
  *   cells in the wrong shape would also satisfy.
  *
@@ -42,7 +42,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 import { BLOCK } from '../src/domain/biome'
-import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
+import { blockPosition, detectNetherPortal, type BlockAt, type BlockPosition } from '@nerima-games/mc-kernel'
 import {
   NETHER_HORIZONTAL_RATIO,
   findNearestPortal,
@@ -54,7 +54,6 @@ import {
   resolveNetherTravel,
   type Dimension,
 } from '../src/domain/nether-travel'
-import { detectNetherPortal, type BlockAt } from '../src/domain/portal-frame'
 
 const at = (x: number, y: number, z: number): BlockPosition => blockPosition(x, y, z)
 
@@ -303,10 +302,10 @@ describe('resolveNetherTravel', () => {
 
   it.effect('plans a portal that detection actually accepts', () =>
     Effect.sync(() => {
-      // THE CORROBORATION `domain/portal-frame.ts`'s bounds note relies on, made
+      // THE CORROBORATION mc-kernel's `portal-frame.ts` bounds note relies on, made
       // checkable. That file justifies MIN 2 x 3 by citing this rule's
-      // auto-generated size as an independent second source; with both ends in
-      // one repository the citation can be RUN. A generator that stopped
+      // auto-generated size as an independent second source; this test RUNS that
+      // citation across the repository boundary. A generator that stopped
       // agreeing with the detector's minimum would produce a portal nothing can
       // light, and the reference's `interior.toHaveLength(6)` would still pass.
       const layout = Option.getOrThrow(resolveNetherTravel('overworld', at(800, 64, 160), []).portalToCreate)
@@ -317,10 +316,9 @@ describe('resolveNetherTravel', () => {
 
       for (const cell of layout.interior) {
         const detected = detectNetherPortal(blockAt, cell)
-        expect(Option.isSome(detected)).toBe(true)
-        const frame = Option.getOrThrow(detected)
-        expect(frame.width).toBe(2)
-        expect(frame.height).toBe(3)
+        if (detected === undefined) throw new Error('expected the planned portal to be detectable')
+        expect(detected.width).toBe(2)
+        expect(detected.height).toBe(3)
       }
     }),
   )

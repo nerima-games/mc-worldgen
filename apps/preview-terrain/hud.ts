@@ -57,7 +57,7 @@ export type HudState = {
   readonly chunksGenerated: number
   /**
    * `detectNetherPortal`'s verdict on the portal overlay, or null when there is
-   * no overlay. A STRING rather than the `Option<PortalFrame>` itself, so that
+   * no overlay. A STRING rather than the `PortalFrame | undefined` itself, so that
    * the HUD cannot start making its own judgements about what counts as a
    * portal: the rule decides, this file prints.
    */

@@ -432,8 +432,10 @@ const scanStrongholdShell = (
  * no farther shell can win. Without it this would scan all 169 regions every
  * time; with it, it usually stops at radius 2.
  *
- * `Option` rather than a nullable, matching `./portal-frame.ts` — and the
- * `none` case is reachable rather than theoretical: at 350 permille a
+ * `Option` rather than a nullable — this repository's own convention prior to
+ * W1-M8's repoint of `./portal-frame.ts` onto mc-kernel's nullable-returning
+ * `detectNetherPortal` — and the `none` case is reachable rather than
+ * theoretical: at 350 permille a
  * 13-by-13 block of regions is all-miss with probability about 1e-30, but a
  * caller near the edge of a small search radius can still be told 「not within
  * range」, which is a different answer from 「there are none」.

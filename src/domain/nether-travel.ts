@@ -5,7 +5,7 @@
  * the position into the opposite dimension, reuse the nearest existing portal
  * within `PORTAL_SEARCH_RADIUS`, and otherwise plan a fresh one at the scaled
  * point. It composes `./nether-link` (the coordinate relation) with
- * `./portal-frame`'s `generatePortalLayout` (the shape of a portal) and adds
+ * mc-kernel's `generatePortalLayout` (the shape of a portal) and adds
  * nothing else.
  *
  * ---------------------------------------------------------------------------
@@ -28,8 +28,9 @@
  *   THE ARGUMENT'S OWN SECOND CLAUSE POINTS THE OTHER WAY. 「上の 3 つを合成する
  *   だけ」 — and by §6's own table all three of those are mc-worldgen's:
  *   `overworldToNether`, `netherToOverworld` and `findNearestPortal` are the
- *   rows immediately above, and `generatePortalLayout` is already in
- *   `./portal-frame`. A composition placed away from all four of its parts is
+ *   rows immediately above, and `generatePortalLayout` now comes from
+ *   mc-kernel (W1-M8 moved the duplicate `./portal-frame` out of this
+ *   repository). A composition placed away from all four of its parts is
  *   not a dependency direction that 「合っている」; it is four symbols crossing a
  *   repository boundary to save one from crossing it.
  *
@@ -63,7 +64,7 @@
  * ---------------------------------------------------------------------------
  *
  * `PORTAL_SEARCH_RADIUS = 128` — TRANSCRIBED, NOT JUSTIFIED, in the sense
- * `./portal-frame`'s `MAX_PORTAL_WIDTH` note defines: the reference declares it
+ * mc-kernel's `portal-frame.ts` `MAX_PORTAL_WIDTH` note defines: the reference declares it
  * at `packages/world/domain/nether/nether-travel.ts:20` and calls it 「Vanilla
  * search radius」, and I could not derive 128 from anything in the reference or
  * in this repository. What the code needs from it is weaker than the number: it
@@ -74,15 +75,16 @@
  * pure callers can pass their own candidate list without editing this file.
  *
  * `DEFAULT_PORTAL_WIDTH = 2` / `DEFAULT_PORTAL_HEIGHT = 3` — JUSTIFIED, and this
- * is the OTHER END of the corroboration `./portal-frame`'s bounds note relies
- * on. That file argues `MIN_PORTAL_WIDTH`/`MIN_PORTAL_HEIGHT` are justified
- * because a second reference file — this one, at `nether-travel.ts:23-24` —
- * independently defines the auto-generated size as 2 x 3 with the comment
- * 「Auto-generated portals use the vanilla minimum interior」. Now that both ends
- * are in this repository the corroboration is checkable rather than cited:
- * `test/nether-travel.test.ts` runs a planned portal back through
- * `detectNetherPortal`, so a generator that stopped agreeing with the detector's
- * minimum fails a named test instead of producing an unlightable portal.
+ * is the OTHER END of the corroboration mc-kernel's `portal-frame.ts` bounds
+ * note relies on. That file argues `MIN_PORTAL_WIDTH`/`MIN_PORTAL_HEIGHT` are
+ * justified because a second reference file — this one, at
+ * `nether-travel.ts:23-24` — independently defines the auto-generated size as
+ * 2 x 3 with the comment 「Auto-generated portals use the vanilla minimum
+ * interior」. The corroboration is checkable across the repository boundary
+ * rather than merely cited: `test/nether-travel.test.ts` runs a planned
+ * portal back through mc-kernel's `detectNetherPortal`, so a generator that
+ * stopped agreeing with the detector's minimum fails a named test instead of
+ * producing an unlightable portal.
  *
  * `DEFAULT_PORTAL_AXIS = 'x'` — TRANSCRIBED. The reference passes the literal
  * `'x'` at `nether-travel.ts:47`. There is no correct answer (a destination
@@ -90,9 +92,8 @@
  * runs over one world plan the same portal — the same reasoning
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
-import { type PortalAxis, type PortalLayout, generatePortalLayout } from './portal-frame.js'
+import { type BlockPosition, type PortalAxis, type PortalLayout, generatePortalLayout } from '@nerima-games/mc-kernel'
 import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link.js'
-import { type BlockPosition } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
 
 /**
