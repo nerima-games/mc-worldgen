@@ -3,20 +3,20 @@ import {
   UNIT_STEP,
   candidateChannelSeedsFor,
   floorDiv,
-} from './natural-structure-plan-builder'
-import { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT, NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data'
+} from './natural-structure-plan-builder.js'
+import { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT, NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type {
   NaturalStructureGrid,
   NaturalStructureKind,
   NaturalStructurePlan,
   NaturalStructureRegion,
   NaturalStructureSamplers,
-} from './natural-structure-types'
-import { CHUNK_SIZE_XZ } from './constants'
-import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data'
-import type { Dimension } from './nether-travel'
+} from './natural-structure-types.js'
+import { CHUNK_SIZE_XZ } from './constants.js'
+import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data.js'
+import type { Dimension } from './nether-travel.js'
 import { Option } from 'effect'
-import { plansInStableOrder } from './natural-structure-order'
+import { plansInStableOrder } from './natural-structure-order.js'
 
 const OVERWORLD_NATURAL_STRUCTURE_KINDS: ReadonlyArray<NaturalStructureKind> = Object.freeze([
   ...COMPACT_STRUCTURE_KINDS,

@@ -60,7 +60,7 @@
  * to. A rule that named one of those sources would be usable from only that one.
  */
 import { type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
-import { BLOCK } from './biome'
+import { BLOCK } from './biome.js'
 import { Option } from 'effect'
 
 /**

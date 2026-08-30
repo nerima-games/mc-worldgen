@@ -4,16 +4,16 @@
  * The block roster lives in `vegetation-data.ts`; this module owns placement
  * rules and keeps the terrain pass independent from the data table.
  */
-import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome'
+import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome.js'
 import { type BlockId, canBlockStaySupported } from '@nerima-games/mc-kernel'
 import {
   GROUND_PLANT_DENSITY,
   MUSHROOM_BIOMES,
   PLANT,
-} from './vegetation-data'
+} from './vegetation-data.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
-import { readBlock } from './chunk'
+import { readBlock } from './chunk.js'
 
 export {
   AQUATIC_PLANT_IDS,
@@ -24,7 +24,7 @@ export {
   PLANT,
   PLANT_IDS,
   STACKED_PLANT_IDS,
-} from './vegetation-data'
+} from './vegetation-data.js'
 
 const PLACEMENT_CHANNEL = 'ground-plant-placement'
 const VARIANT_CHANNEL = 'ground-plant-variant'

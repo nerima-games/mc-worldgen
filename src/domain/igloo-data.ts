@@ -1,5 +1,5 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 export const IGLOO_GRID: NaturalStructureGrid = Object.freeze({
   separation: 64,
@@ -7,7 +7,25 @@ export const IGLOO_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 200,
 })
 
-export const IGLOO_LAYOUT = Object.freeze({
+export const IGLOO_LAYOUT: Readonly<{
+  basementDepth: number
+  basementHalfExtent: number
+  domeHalfExtent: number
+  domeLevelCount: number
+  domeLevelRadiusStep: number
+  doorHeight: number
+  doorOffsetZ: number
+  entityHeightOffset: number
+  interior: Readonly<
+    Record<
+      'bed' | 'cauldron' | 'chest' | 'craftingTable' | 'furnace' | 'villager' | 'zombieVillager',
+      Readonly<{ x: number; z: number }>
+    >
+  >
+  maxSurfaceVariation: number
+  minDryClearance: number
+  shaftTopOffset: number
+}> = Object.freeze({
   basementDepth: 5,
   basementHalfExtent: 3,
   domeHalfExtent: 4,
@@ -31,7 +49,21 @@ export const IGLOO_LAYOUT = Object.freeze({
 })
 
 /** Registry-backed palette for the supported igloo geometry. */
-export const IGLOO_BLOCK = Object.freeze({
+export const IGLOO_BLOCK: Readonly<
+  Record<
+    | 'AIR'
+    | 'BED'
+    | 'CAULDRON'
+    | 'CHEST'
+    | 'COBBLESTONE'
+    | 'CRAFTING_TABLE'
+    | 'FURNACE'
+    | 'LADDER'
+    | 'OAK_PLANKS'
+    | 'SNOW',
+    BlockId
+  >
+> = Object.freeze({
   AIR: blockIdOf('air'),
   BED: blockIdOf('bed'),
   CAULDRON: blockIdOf('cauldron'),

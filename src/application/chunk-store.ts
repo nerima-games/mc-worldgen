@@ -72,21 +72,21 @@
  * sources, because a second world load inherited the first world's fibers and
  * refs and deadlocked. Every read-modify-write is one `Ref.modify`.
  */
-import * as Store from '../domain/chunk-store-state'
+import * as Store from '../domain/chunk-store-state.js'
 import type { BlockId, BlockPosition, ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   type ChunkPersistence,
   type ChunkPersistenceContext,
   type ChunkPersistenceError,
   makeChunkPersistence,
-} from './chunk-persistence'
+} from './chunk-persistence.js'
 import { Context, Effect, Layer, Option, Ref } from 'effect'
-import { type GenerateOptions, generateChunk } from '../domain/terrain'
-import type { Chunk } from '../domain/chunk'
-import type { Dimension } from '../domain/nether-travel'
+import { type GenerateOptions, generateChunk } from '../domain/terrain.js'
+import type { Chunk } from '../domain/chunk.js'
+import type { Dimension } from '../domain/nether-travel.js'
 import type { StoragePort } from '@nerima-games/mc-save'
-import { generateEndChunk } from '../domain/end-terrain'
-import { generateNetherChunk } from '../domain/nether-terrain'
+import { generateEndChunk } from '../domain/end-terrain.js'
+import { generateNetherChunk } from '../domain/nether-terrain.js'
 
 /**
  * Where a chunk comes from when it is not resident.
@@ -224,10 +224,14 @@ export type ChunkStoreApi = {
  */
 type Scope = import('effect').Scope.Scope
 
-export class ChunkStore extends Context.Tag('@nerima-games/mc-worldgen/ChunkStore')<
-  ChunkStore,
-  ChunkStoreApi
->() {}
+// The isolatedDeclarations flag forbids a call expression in an `extends`
+// Clause (TS9021), so the Tag is built as a separately-typed constant first.
+// The exported class then extends that plain identifier instead. Same shape
+// As mc-kernel's ClockPort.
+const ChunkStoreBase: Context.TagClass<ChunkStore, '@nerima-games/mc-worldgen/ChunkStore', ChunkStoreApi> =
+  Context.Tag('@nerima-games/mc-worldgen/ChunkStore')<ChunkStore, ChunkStoreApi>()
+
+export class ChunkStore extends ChunkStoreBase {}
 
 /**
  * The chunk at `coord`: from storage if `persistence` has it, generated

@@ -59,12 +59,12 @@
  * lake bed. A regression test that cannot demonstrate the regression is only
  * asserting that today's code does what today's code does.
  */
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
 import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
-import { worldX, worldZ } from './generator-coordinates'
-import { BLOCK } from './biome'
+import { worldX, worldZ } from './generator-coordinates.js'
+import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import { readBlock } from './chunk'
+import { readBlock } from './chunk.js'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
 export const CAVE_FLOOR_Y = 6

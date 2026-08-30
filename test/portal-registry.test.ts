@@ -2,6 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import {
   makeInMemoryStorage,
   saveEnvelope,
+  sealSaveEnvelope,
   StorageError,
   StoragePort,
   type StorageService,
@@ -132,11 +133,13 @@ describe('portal registry domain', () => {
       const storage = yield* makeInMemoryStorage
       yield* storage.put(
         portalRegistrySaveKey(context),
-        saveEnvelope(PORTAL_REGISTRY_FORMAT.name, PORTAL_REGISTRY_FORMAT.version, {
-          end: [],
-          nether: 'not-a-portal-list',
-          overworld: [],
-        }),
+        sealSaveEnvelope(
+          saveEnvelope(PORTAL_REGISTRY_FORMAT.name, PORTAL_REGISTRY_FORMAT.version, {
+            end: [],
+            nether: 'not-a-portal-list',
+            overworld: [],
+          }),
+        ),
       )
 
       const failure = yield* Effect.flip(makePersistent(storage))

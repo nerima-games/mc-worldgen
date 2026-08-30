@@ -1,9 +1,9 @@
 /** Deterministic, immutable plans for cross-chunk natural structures. */
-import { type BastionRemnantDraft, planBastionRemnantForCandidate } from './bastion-remnant'
+import { type BastionRemnantDraft, planBastionRemnantForCandidate } from './bastion-remnant.js'
 import {
   COMPACT_STRUCTURE_KINDS,
   type CompactStructureKind,
-} from './compact-structure-data'
+} from './compact-structure-data.js'
 import {
   type CandidateChannelInput,
   type MutablePlan,
@@ -13,59 +13,59 @@ import {
   candidateForRegion,
   finishPlan,
   finishPlanFromValidatedPlacements,
-} from './natural-structure-plan-builder'
-import { type CompactStructureDraft, planCompactStructureForCandidate } from './compact-structure'
-import { type DesertPyramidDraft, planDesertPyramidForCandidate } from './desert-pyramid'
-import { type DesertWellDraft, planDesertWellForCandidate } from './desert-well'
-import { type IglooDraft, planIglooForCandidate } from './igloo'
-import { type JunglePyramidDraft, planJunglePyramidForCandidate } from './jungle-pyramid'
-import { type MineshaftDraft, planMineshaftForCandidate } from './mineshaft'
+} from './natural-structure-plan-builder.js'
+import { type CompactStructureDraft, planCompactStructureForCandidate } from './compact-structure.js'
+import { type DesertPyramidDraft, planDesertPyramidForCandidate } from './desert-pyramid.js'
+import { type DesertWellDraft, planDesertWellForCandidate } from './desert-well.js'
+import { type IglooDraft, planIglooForCandidate } from './igloo.js'
+import { type JunglePyramidDraft, planJunglePyramidForCandidate } from './jungle-pyramid.js'
+import { type MineshaftDraft, planMineshaftForCandidate } from './mineshaft.js'
 import type {
   NaturalStructureKind,
   NaturalStructurePlan,
   NaturalStructureRegion,
   NaturalStructureSamplers,
   NetherStructureTerrainSampler,
-} from './natural-structure-types'
+} from './natural-structure-types.js'
 import {
   type NaturalStructureRegionPlanRequest,
   naturalStructurePlansForChunk as enumerateNaturalStructurePlansForChunk,
-} from './natural-structure-chunk-planner'
-export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner'
-import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument'
-import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin'
+} from './natural-structure-chunk-planner.js'
+export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
+import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
+import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin.js'
 import { Option, Predicate } from 'effect'
 import {
   type OverworldTerrainSampler,
   VILLAGE_HALF_EXTENT,
   type VillageSite,
   villageSiteForRegion,
-} from './structure-siting'
-import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pillager-outpost'
-import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck'
-import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village'
-import { CHUNK_HEIGHT } from './constants'
-import type { Dimension } from './nether-travel'
-import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
-import { planEndCityForRegion } from './natural-structure-end-city'
-import { planNetherFortressForRegion } from './nether-fortress'
-import { planRuinedNetherPortalForRegion } from './natural-structure-portal'
-import { planStrongholdForRegion } from './stronghold-structure'
+} from './structure-siting.js'
+import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pillager-outpost.js'
+import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck.js'
+import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village.js'
+import { CHUNK_HEIGHT } from './constants.js'
+import type { Dimension } from './nether-travel.js'
+import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
+import { planEndCityForRegion } from './natural-structure-end-city.js'
+import { planNetherFortressForRegion } from './nether-fortress.js'
+import { planRuinedNetherPortalForRegion } from './natural-structure-portal.js'
+import { planStrongholdForRegion } from './stronghold-structure.js'
 
-export { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
+export { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 export {
   MAX_NATURAL_STRUCTURE_BLOCKS,
   MAX_NATURAL_STRUCTURE_MARKERS,
   NATURAL_STRUCTURE_GRID,
-} from './natural-structure-grid-data'
-export * from './natural-structure-types'
+} from './natural-structure-grid-data.js'
+export * from './natural-structure-types.js'
 export {
   applyNaturalStructurePlansToChunk,
   naturalStructureSliceForChunk,
-} from './natural-structure-application'
-export { planEndCityForRegion } from './natural-structure-end-city'
-export { planRuinedNetherPortalForRegion } from './natural-structure-portal'
-export { planStrongholdForRegion } from './stronghold-structure'
+} from './natural-structure-application.js'
+export { planEndCityForRegion } from './natural-structure-end-city.js'
+export { planRuinedNetherPortalForRegion } from './natural-structure-portal.js'
+export { planStrongholdForRegion } from './stronghold-structure.js'
 
 const finishCompactStructurePlan = (
   seed: number,
@@ -136,6 +136,7 @@ export const planCompactStructureForRegion = (
 
 const VILLAGE_STRUCTURE_HEIGHT = 16
 const VILLAGE_LOOT_CHEST_OFFSET_X = 1
+const FIRST_SPAWN_INDEX = 0
 
 /** Carves one village's building interiors and exteriors into `mutable`. */
 const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerrain: OverworldTerrainSampler): void => {
@@ -155,12 +156,14 @@ const placeVillageSpawnsAndLoot = (mutable: MutablePlan, spawns: ReadonlyArray<V
   for (const spawn of spawns) {
     addMarker(mutable, { entity: 'villager', kind: 'entity-spawn', profession: spawn.profession, x: spawn.x, y: spawn.y, z: spawn.z })
   }
-  const [lootSpawn] = spawns
-  if (Predicate.isNotUndefined(lootSpawn)) {
-    const lootX = lootSpawn.x + VILLAGE_LOOT_CHEST_OFFSET_X
-    addBlock(mutable, { block: NATURAL_STRUCTURE_BLOCK.CHEST, x: lootX, y: lootSpawn.y, z: lootSpawn.z })
-    addMarker(mutable, { kind: 'loot-chest', lootTable: 'village', x: lootX, y: lootSpawn.y, z: lootSpawn.z })
-  }
+  // Non-null assertion, not a branch: this function's only caller passes
+  // VillageVillagerSpawnsForSite's result, which is HOUSES.map(...) — a
+  // Fixed, non-empty literal array (village.ts) — so spawns can never be
+  // Empty and lootSpawn can never be undefined.
+  const lootSpawn = spawns[FIRST_SPAWN_INDEX]!
+  const lootX = lootSpawn.x + VILLAGE_LOOT_CHEST_OFFSET_X
+  addBlock(mutable, { block: NATURAL_STRUCTURE_BLOCK.CHEST, x: lootX, y: lootSpawn.y, z: lootSpawn.z })
+  addMarker(mutable, { kind: 'loot-chest', lootTable: 'village', x: lootX, y: lootSpawn.y, z: lootSpawn.z })
 }
 
 /** Plans the same village layout used by the Overworld chunk generator. */

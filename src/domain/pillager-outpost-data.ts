@@ -1,5 +1,5 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 export const PILLAGER_OUTPOST_GRID: NaturalStructureGrid = Object.freeze({
   separation: 128,
@@ -7,7 +7,16 @@ export const PILLAGER_OUTPOST_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 120,
 })
 
-export const PILLAGER_OUTPOST_LAYOUT = Object.freeze({
+export const PILLAGER_OUTPOST_LAYOUT: Readonly<{
+  baseHalfExtent: number
+  floorCount: number
+  floorSpacing: number
+  maxSurfaceVariation: number
+  minDryClearance: number
+  roofOverhang: number
+  towerBaseYOffset: number
+  towerHalfExtent: number
+}> = Object.freeze({
   baseHalfExtent: 4,
   floorCount: 3,
   floorSpacing: 4,
@@ -18,7 +27,9 @@ export const PILLAGER_OUTPOST_LAYOUT = Object.freeze({
   towerHalfExtent: 2,
 })
 
-export const PILLAGER_OUTPOST_BLOCK = Object.freeze({
+export const PILLAGER_OUTPOST_BLOCK: Readonly<
+  Record<'CHEST' | 'COBBLESTONE' | 'OAK_LOG' | 'OAK_PLANKS' | 'OAK_STAIRS' | 'TORCH', BlockId>
+> = Object.freeze({
   CHEST: blockIdOf('chest'),
   COBBLESTONE: blockIdOf('cobblestone'),
   OAK_LOG: blockIdOf('oak_log'),

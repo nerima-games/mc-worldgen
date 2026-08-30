@@ -20,7 +20,7 @@
   },
   "settings": {
     "typescript": {
-      "version": "5.9"
+      "version": "7.0"
     }
   },
   "plugins": [],
@@ -187,14 +187,22 @@
           }
         ],
         // mc-worldgen is Tier2 (DEPENDENCY_POLICY.md §1) and may depend only on
-        // mc-noise, mc-save, and the universally-importable mc-kernel. This
-        // covers every other @nerima-games/* package in the org, including the
-        // Tier2 siblings (mc-sim, mc-render, mc-playground-kit) and all of
-        // Tier3/Tier4 — Tier2 must not depend laterally or upward.
+        // mc-noise, mc-save, and the universally-importable mc-kernel. Allow-list
+        // form (D.9): ban every @nerima-games/* package, then carve back out the
+        // ones this Tier may import, so a newly added sibling package is banned
+        // by default instead of silently permitted.
         "patterns": [
           {
-            "regex": "^@nerima-games/(mc-meshing|mc-physics|mc-audio|mc-sim|mc-render|mc-playground-kit|mx-gameplay|mx-redstone|mx-ui|mx-multiplayer|mc-compose|mc-dev-meta)(/.*)?$",
-            "message": "mc-worldgen (Tier2, DEPENDENCY_POLICY.md) may depend only on mc-noise, mc-save, and mc-kernel. Propose a graph change (DEPENDENCY_POLICY.md §6) before adding this import."
+            "group": [
+              "@nerima-games/**",
+              "!@nerima-games/mc-kernel",
+              "!@nerima-games/mc-kernel/**",
+              "!@nerima-games/mc-noise",
+              "!@nerima-games/mc-noise/**",
+              "!@nerima-games/mc-save",
+              "!@nerima-games/mc-save/**"
+            ],
+            "message": "mc-worldgen is Tier2 (DEPENDENCY_POLICY.md §1); only the listed packages may be imported."
           }
         ]
       }

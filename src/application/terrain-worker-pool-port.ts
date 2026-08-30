@@ -7,9 +7,9 @@
  * while Node and tests can use the synchronous generator. Keeping the Port
  * free of DOM and Worker types preserves the package's worker-safe boundary.
  */
-import type { Chunk } from '../domain/chunk'
+import type { Chunk } from '../domain/chunk.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import type { ChunkSource } from './chunk-store'
+import type { ChunkSource } from './chunk-store.js'
 import { Effect } from 'effect'
 
 /** A terrain generator supplied by the application host. */

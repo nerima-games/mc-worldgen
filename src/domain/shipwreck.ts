@@ -2,11 +2,11 @@ import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
-} from './natural-structure'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting'
-import { SHIPWRECK_BLOCK, SHIPWRECK_LAYOUT } from './shipwreck-data'
+} from './natural-structure.js'
+import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { SHIPWRECK_BLOCK, SHIPWRECK_LAYOUT } from './shipwreck-data.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
 
 type ShipwreckCandidate = { readonly x: number; readonly z: number }

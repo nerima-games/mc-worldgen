@@ -1,5 +1,5 @@
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants'
-import { type Chunk, getBlockAt } from './chunk'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
+import { type Chunk, getBlockAt } from './chunk.js'
 import {
   type ChunkCoord,
   LIGHT_LEVEL_MAX,
@@ -7,7 +7,7 @@ import {
   lightEmissionOfBlockId,
   transmitsLight,
 } from '@nerima-games/mc-kernel'
-import { type ChunkLight, getLightAt, setLightAt } from './light-grid'
+import { type ChunkLight, getLightAt, setLightAt } from './light-grid.js'
 import {
   LIGHT_DECAY_PER_HOP,
   MIN_CHUNK_COORD,
@@ -15,8 +15,8 @@ import {
   STEP,
   axisCrossing,
   coordKey,
-} from './light-common'
-import { computeChunkLights } from './light-propagation'
+} from './light-common.js'
+import { computeChunkLights } from './light-propagation.js'
 
 /** One block mutation whose cached light neighbourhood must reach a new fixed point. */
 export type ChunkLightChange = {

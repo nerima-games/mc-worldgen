@@ -1,11 +1,11 @@
-import { DESERT_WELL_BLOCK, DESERT_WELL_LAYOUT } from './desert-well-data'
+import { DESERT_WELL_BLOCK, DESERT_WELL_LAYOUT } from './desert-well-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructurePosition,
-} from './natural-structure'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting'
+} from './natural-structure.js'
+import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
 
 type DesertWellCandidate = { readonly x: number; readonly z: number }

@@ -1,4 +1,4 @@
-import type { NaturalStructurePlan } from './natural-structure-types'
+import type { NaturalStructurePlan } from './natural-structure-types.js'
 
 const MIN_PLANS_FOR_ORDERING = 2
 

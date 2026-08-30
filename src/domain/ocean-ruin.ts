@@ -2,11 +2,11 @@ import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
-} from './natural-structure'
-import { OCEAN_RUIN_BLOCK, OCEAN_RUIN_LAYOUT } from './ocean-ruin-data'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting'
+} from './natural-structure.js'
+import { OCEAN_RUIN_BLOCK, OCEAN_RUIN_LAYOUT } from './ocean-ruin-data.js'
+import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
 
 type OceanRuinCandidate = { readonly x: number; readonly z: number }

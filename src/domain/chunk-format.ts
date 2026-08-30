@@ -123,7 +123,7 @@
 import {
   type AppliedNaturalStructureMarker,
   type NaturalStructureChunk,
-} from './natural-structure'
+} from './natural-structure.js'
 import {
   BlockAxis,
   BlockId,
@@ -131,18 +131,18 @@ import {
   ChunkAxis,
   type ChunkCoord,
 } from '@nerima-games/mc-kernel'
-import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
+import { CHUNK_BIOMES, type ChunkBiomeType } from './biome.js'
+import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants.js'
 import {
   type EndFeatureChunk,
   type EndFeatureMarker,
-} from './end-features'
+} from './end-features.js'
 import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
-import { CHUNK_BIOMES } from './biome'
-import { type Chunk } from './chunk'
+import { type Chunk } from './chunk.js'
 import { Schema } from 'effect'
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
-export const CHUNK_BIOME_COUNT = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
+export const CHUNK_BIOME_COUNT: number = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
 
 /**
  * The format's identity in the envelope, and it is a PERMANENT string.
@@ -331,15 +331,36 @@ const EndFeatureMarkerSchema: Schema.Schema<EndFeatureMarker, EndFeatureMarkerEn
  * (`storage-idb-model.ts:27-28`), had no way to notice either. Two integers per
  * save buys a check that the block buffer cannot perform on itself.
  */
-const CHUNK_STRUCT = Schema.Struct({
+const CHUNK_STRUCT: Schema.Schema<
+  {
+    readonly biomes: ReadonlyArray<ChunkBiomeType>
+    readonly blocks: Uint8Array
+    readonly coord: ChunkCoord
+    readonly endFeatureIds: ReadonlyArray<string>
+    readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+    readonly naturalStructureIds: ReadonlyArray<string>
+    readonly naturalStructureMarkers: ReadonlyArray<AppliedNaturalStructureMarker>
+  },
+  {
+    readonly biomes: ReadonlyArray<ChunkBiomeType>
+    readonly blocks: string
+    readonly coord: { readonly cx: number; readonly cz: number }
+    readonly endFeatureIds?: ReadonlyArray<string> | undefined
+    readonly endFeatureMarkers?: ReadonlyArray<EndFeatureMarkerEncoded> | undefined
+    readonly naturalStructureIds?: ReadonlyArray<string> | undefined
+    readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarker> | undefined
+  }
+> = Schema.Struct({
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksSchema,
   coord: ChunkCoordSchema,
-  endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
-  endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), { default: () => [] }),
-  naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
+  endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
+  endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), {
+    default: (): ReadonlyArray<EndFeatureMarker> => [],
+  }),
+  naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
   naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
-    default: () => [],
+    default: (): ReadonlyArray<AppliedNaturalStructureMarker> => [],
   }),
 })
 

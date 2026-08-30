@@ -41,9 +41,9 @@ import {
   chunkCoordOfBlock,
   localCoordOfBlock,
 } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants'
-import { type Chunk, getBlockAt, setBlockAt } from './chunk'
-import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
+import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
 
 // ---------------------------------------------------------------------------
 // Keys
@@ -83,8 +83,18 @@ export const chunkCoordOfKey = (key: ChunkKey): ChunkCoord => {
    * rather than the whole line.
    */
   return chunkCoord(
+    /**
+     * Esbuild drops a standalone inline "ignore next" comment during the TS
+     * transform (verified empirically against esbuild.transform()). Vitest
+     * 4's coverage-v8 provider reads that transformed code, so this
+     * repository uses the start/stop hint pair instead: it is read from the
+     * original source, which survives the transform.
+     */
     // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    Number(cx ?? FALLBACK_CHUNK_ORIGIN) /* v8 ignore next */,
+    /* v8 ignore start */
+    Number(cx ?? FALLBACK_CHUNK_ORIGIN),
+    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+    /* v8 ignore stop */
     Number(cz ?? FALLBACK_CHUNK_ORIGIN),
   )
 }
@@ -390,9 +400,12 @@ const hasCompleteLightCache = (state: ChunkStoreState): boolean => {
    * fall through to `return true`.
    */
   for (const key of state.loaded.keys()) {
+    /** See `chunkCoordOfKey`'s ignore-hint comment for why this repository's ignore hints use the start/stop form. */
     // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore next */
+    /* v8 ignore start */
     if (!state.lights.has(key)) {return false}
+    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+    /* v8 ignore stop */
   }
   return true
 }
@@ -650,10 +663,12 @@ const lightReadingForTarget = (
    * a subset. `lights.get(target.key)` can therefore never miss.
    */
   // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore next 3 */
+  /* v8 ignore start */
   if (!computed) {
     return [LIGHT_CHUNK_NOT_LOADED, state]
   }
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore stop */
 
   return [
     lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),

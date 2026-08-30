@@ -7,15 +7,15 @@ import {
   addMarker,
   candidateForRegion,
   finishPlan,
-} from './natural-structure-plan-builder'
+} from './natural-structure-plan-builder.js'
 import type {
   NaturalStructurePlan,
   NaturalStructureRegion,
   NetherStructureTerrainSampler,
-} from './natural-structure-types'
+} from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
-import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
+import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 
 const PORTAL_PROBE_OFFSET = 3
 const PORTAL_BASE_Y_CLEARANCE = 1

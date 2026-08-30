@@ -4,9 +4,15 @@ import {
   PORTAL_SEARCH_RADIUS,
   type PortalTravelPlan,
   resolveNetherTravel,
-} from '../domain/nether-travel'
+} from '../domain/nether-travel.js'
 import {
-  type MigrationError,
+  type PortalRegistryState,
+  emptyPortalRegistryState,
+  portalsInDimension,
+  registerPortal as registerPortalInState,
+  unregisterPortal as unregisterPortalInState,
+} from '../domain/portal-registry.js'
+import {
   type SaveDecodeError,
   SaveKey,
   type StorageError,
@@ -14,17 +20,13 @@ import {
   loadFrom,
   saveTo,
 } from '@nerima-games/mc-save'
-import {
-  type PortalRegistryState,
-  emptyPortalRegistryState,
-  portalsInDimension,
-  registerPortal as registerPortalInState,
-  unregisterPortal as unregisterPortalInState,
-} from '../domain/portal-registry'
 import { type BlockPosition } from '@nerima-games/mc-kernel'
-import { PORTAL_REGISTRY_FORMAT } from '../domain/portal-registry-format'
+import { PORTAL_REGISTRY_FORMAT } from '../domain/portal-registry-format.js'
 
-export type PortalRegistryPersistenceError = StorageError | SaveDecodeError | MigrationError
+// @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
+// Class from its public error surface; decode/migration failures are now
+// Reported as SaveDecodeError. This union tracks mc-save's actual exports.
+export type PortalRegistryPersistenceError = StorageError | SaveDecodeError
 
 export type PortalRegistryPersistenceContext = {
   readonly worldId: string
@@ -71,10 +73,17 @@ export type PortalRegistryApi<ErrorType = PortalRegistryPersistenceError> = {
   readonly reset: Effect.Effect<void, ErrorType>
 }
 
-export class PortalRegistry extends Context.Tag('@nerima-games/mc-worldgen/PortalRegistry')<
+// The isolatedDeclarations flag forbids a call expression in an `extends`
+// Clause (TS9021), so the Tag is built as a separately-typed constant first.
+// The exported class then extends that plain identifier instead. Same shape
+// As mc-kernel's ClockPort.
+const PortalRegistryBase: Context.TagClass<
   PortalRegistry,
+  '@nerima-games/mc-worldgen/PortalRegistry',
   PortalRegistryApi
->() {}
+> = Context.Tag('@nerima-games/mc-worldgen/PortalRegistry')<PortalRegistry, PortalRegistryApi>()
+
+export class PortalRegistry extends PortalRegistryBase {}
 
 type PortalRegistryWriter<ErrorType> = {
   readonly save: (state: PortalRegistryState) => Effect.Effect<void, ErrorType>

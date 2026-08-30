@@ -9,7 +9,7 @@ import {
   FORTRESS_SITE_MARGIN,
   NETHER_FORTRESS_BLOCK,
   NETHER_FORTRESS_GRID,
-} from './nether-fortress-data'
+} from './nether-fortress-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
@@ -18,11 +18,11 @@ import type {
   NaturalStructureRegion,
   NetherStructureTerrainSample,
   NetherStructureTerrainSampler,
-} from './natural-structure'
+} from './natural-structure.js'
 import { Option, Predicate } from 'effect'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import { type BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 
 type FortressCandidate = NaturalStructurePosition
 type MutableFortressPlan = {
@@ -67,16 +67,28 @@ const candidateForRegion = (
 
 const addBlock = (mutable: MutableFortressPlan, placement: NaturalStructureBlockPlacement): void => {
   const key = keyOf(placement)
+  /**
+   * Esbuild drops a standalone inline "ignore next" comment during the TS
+   * transform (verified empirically against esbuild.transform()). Vitest
+   * 4's coverage-v8 provider reads that transformed code, so this
+   * repository uses the start/stop hint pair instead: it is read from the
+   * original source, which survives the transform.
+   */
   // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore next */
+  /* v8 ignore start */
   if (!mutable.blocks.has(key) && mutable.blocks.size >= FORTRESS_MAX_BLOCKS) {return}
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore stop */
   mutable.blocks.set(key, Object.freeze(placement))
 }
 
 const addMarker = (mutable: MutableFortressPlan, marker: NaturalStructureMarker): void => {
+  /** See `addBlock`'s ignore-hint comment for why this repository's ignore hints use the start/stop form. */
   // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore next */
+  /* v8 ignore start */
   if (mutable.markers.length >= FORTRESS_MAX_MARKERS) {return}
+  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
+  /* v8 ignore stop */
   mutable.markers.push(Object.freeze(marker))
 }
 
@@ -438,7 +450,7 @@ export const isNearFortressSite = (
   seed: number,
   x: number,
   z: number,
-  radius = FORTRESS_BLAZE_RADIUS,
+  radius: number = FORTRESS_BLAZE_RADIUS,
 ): boolean => {
   const [minRegionX, maxRegionX] = regionRange(x, radius)
   const [minRegionZ, maxRegionZ] = regionRange(z, radius)

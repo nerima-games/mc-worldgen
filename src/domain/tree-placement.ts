@@ -80,8 +80,8 @@
  * did not move, and because the density conversion is per unit AREA, growing the
  * cell from 4×4 to 8×8 does not change their tree counts at all.
  */
-import { BIOME_TREE_DENSITY, type BiomeType } from './biome'
-import type { TerrainLevels } from './constants'
+import { BIOME_TREE_DENSITY, type BiomeType } from './biome.js'
+import type { TerrainLevels } from './constants.js'
 
 /**
  * Cell edge in blocks.
@@ -94,7 +94,7 @@ import type { TerrainLevels } from './constants'
 export const TREE_GRID_SIZE = 8
 
 /** `TREE_GRID_SIZE ** 2`. Kept as its own constant so the two cannot drift. */
-export const TREE_GRID_AREA = TREE_GRID_SIZE * TREE_GRID_SIZE
+export const TREE_GRID_AREA: number = TREE_GRID_SIZE * TREE_GRID_SIZE
 
 /** Sin-hash constants, `tree-placer.config.ts:26-28`. */
 export const TREE_RNG_X_SCALE = 127.1
@@ -123,7 +123,7 @@ export const TREE_CELL_JITTER_SPAN = 3
 /** The window is centred in the leftover span, so its start is offset by half of it. */
 const JITTER_WINDOW_CENTERING_DIVISOR = 2
 
-export const TREE_CELL_JITTER_ORIGIN = Math.floor((TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN) / JITTER_WINDOW_CENTERING_DIVISOR)
+export const TREE_CELL_JITTER_ORIGIN: number = Math.floor((TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN) / JITTER_WINDOW_CENTERING_DIVISOR)
 
 /**
  * Radius of the square canopy `plantTree` writes, in columns.
@@ -148,7 +148,7 @@ export const TREE_CROWN_RADIUS = 2
  */
 const MIN_SPACING_ADJACENT_WINDOW_OFFSET = 1
 
-export const TREE_MIN_SPACING = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + MIN_SPACING_ADJACENT_WINDOW_OFFSET
+export const TREE_MIN_SPACING: number = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + MIN_SPACING_ADJACENT_WINDOW_OFFSET
 
 const fract = (value: number): number => value - Math.floor(value)
 

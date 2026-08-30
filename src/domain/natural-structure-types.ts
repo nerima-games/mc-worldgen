@@ -1,8 +1,8 @@
 import type { BlockId } from '@nerima-games/mc-kernel'
-import type { Chunk } from './chunk'
-import type { CompactStructureKind } from './compact-structure-data'
-import type { Dimension } from './nether-travel'
-import type { OverworldTerrainSampler } from './structure-siting'
+import type { Chunk } from './chunk.js'
+import type { CompactStructureKind } from './compact-structure-data.js'
+import type { Dimension } from './nether-travel.js'
+import type { OverworldTerrainSampler } from './structure-siting.js'
 
 export type NaturalStructureKind = CompactStructureKind | 'desert-pyramid' | 'desert-well' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-monument' | 'ocean-ruin' | 'pillager-outpost' | 'shipwreck' | 'stronghold' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
 

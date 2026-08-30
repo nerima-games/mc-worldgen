@@ -1,19 +1,19 @@
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig({
+// isolatedDeclarations (tsconfig.base.json) requires an explicit type
+// annotation on every exported symbol, including a default export built from
+// an expression — `defineConfig(...)`'s inferred return type does not count.
+const config: ReturnType<typeof defineConfig> = defineConfig({
   test: {
     environment: 'node',
     globals: false,
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        // Keep coverage-time worker RPC responsive on hosts with many cores.
-        maxForks: 2,
-        minForks: 1,
-        isolate: true,
-        singleFork: false,
-      },
-    },
+    // vitest 4 flattened the old poolOptions.forks.{maxForks,minForks,isolate,
+    // singleFork} shape to top-level fields (poolOptions no longer exists on
+    // InlineConfig). `maxWorkers` keeps coverage-time worker RPC responsive on
+    // hosts with many cores; `isolate` is unchanged from before.
+    isolate: true,
+    maxWorkers: 2,
     include: ['test/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.git/**'],
     // 60s, not 10s: several property-based / golden-fixture tests
@@ -36,14 +36,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       enabled: false,
-      include: ['src/index.ts', 'src/domain/**/*.ts', 'src/application/**/*.ts'],
+      include: ['src/**/*.ts'],
       exclude: [
         '**/*.d.ts',
         '**/*.config.ts',
         '**/*.test.ts',
         '**/*.spec.ts',
       ],
-      all: true,
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
       // TEST_STANDARD.md §3: 4-metric 100% gate, enabled org-wide, no phase-in.
@@ -56,3 +55,5 @@ export default defineConfig({
     platform: 'node',
   },
 })
+
+export default config

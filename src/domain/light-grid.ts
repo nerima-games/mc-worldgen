@@ -1,4 +1,4 @@
-import { CHUNK_VOLUME } from './constants'
+import { CHUNK_VOLUME } from './constants.js'
 import { clampLightLevel } from '@nerima-games/mc-kernel'
 
 /** Two voxels share one packed light byte, low nibble first. */
@@ -11,7 +11,7 @@ const HIGH_NIBBLE_MASK = 0xf0
 const NIBBLE_BITS = 4
 const EMPTY_BYTE = 0
 
-export const LIGHT_BYTE_LENGTH = CHUNK_VOLUME / VOXELS_PER_BYTE
+export const LIGHT_BYTE_LENGTH: number = CHUNK_VOLUME / VOXELS_PER_BYTE
 
 /** Read one voxel's packed light nibble. Out-of-range reads are dark. */
 export const getLightAt = (grid: Uint8Array, voxel: number): number => {

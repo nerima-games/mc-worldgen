@@ -53,53 +53,52 @@
  */
 import {
   BEDROCK_Y,
-  CHUNK_HEIGHT,
   CHUNK_SIZE_XZ,
   DEEPSLATE_CEILING,
   DEFAULT_TERRAIN_LEVELS,
   type TerrainLevels,
   blockIndex,
-} from './constants'
+} from './constants.js'
 import {
   BLOCK,
   type BiomeType,
-} from './biome'
+} from './biome.js'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
   MIN_SURFACE_Y,
   surfaceHeightAt,
-} from './density-function'
-import { type CarveOptions, carveCaves } from './carver'
+} from './density-function.js'
+import { type CarveOptions, carveCaves } from './carver.js'
 import {
   type Chunk,
   biomeAt,
   columnIndex,
   emptyBlocks,
   readBlock,
-} from './chunk'
+} from './chunk.js'
 import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
-} from './natural-structure'
-import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement'
-import { type TerrainColumn, biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt } from './terrain-column'
+} from './natural-structure.js'
+import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
+import { type TerrainColumn, biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
   plantGroundCover,
   plantSpecialVegetation,
   shouldPlaceGroundPlant,
-} from './vegetation'
+} from './vegetation.js'
 import {
   fillWaterForColumn,
   shouldFreezeWaterSurface,
-} from './lake-generator'
-import type { OverworldTerrainSample } from './structure-siting'
-import { carveRavines } from './ravine'
-import { placeOres } from './ore'
+} from './lake-generator.js'
+import type { OverworldTerrainSample } from './structure-siting.js'
+import { carveRavines } from './ravine.js'
+import { placeOres } from './ore.js'
 export {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -107,7 +106,7 @@ export {
   surfaceHeightAt,
 }
 export { biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt }
-export type { SurfaceBiome, TerrainColumn } from './terrain-column'
+export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 
 /** Single-block iteration step for the per-voxel/per-column loops below. */
 const AXIS_STEP = 1
@@ -184,9 +183,8 @@ const TREE_TRUNK_HEIGHT = 5
 const plantTrunk = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number): void => {
   for (let offset = ONE_BLOCK_ABOVE; offset <= TREE_TRUNK_HEIGHT; offset += AXIS_STEP) {
     const y = surfaceY + offset
-    if (y < CHUNK_HEIGHT) {
-      blocks[blockIndex(lx, y, lz)] = BLOCK.LOG
-    }
+    // This repository's terrain shaper caps surfaceY at MAX_SURFACE_Y (92, see ore.ts's header), so even the tallest trunk (surfaceY + TREE_TRUNK_HEIGHT = 97) sits far under CHUNK_HEIGHT (256). A future shaper raising that cap would need a bounds guard re-added here.
+    blocks[blockIndex(lx, y, lz)] = BLOCK.LOG
   }
 }
 

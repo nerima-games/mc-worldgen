@@ -2,11 +2,11 @@ import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
-} from './natural-structure'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting'
-import { PILLAGER_OUTPOST_BLOCK, PILLAGER_OUTPOST_LAYOUT } from './pillager-outpost-data'
+} from './natural-structure.js'
+import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { PILLAGER_OUTPOST_BLOCK, PILLAGER_OUTPOST_LAYOUT } from './pillager-outpost-data.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
 
 type PillagerOutpostCandidate = { readonly x: number; readonly z: number }

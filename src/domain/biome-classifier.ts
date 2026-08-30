@@ -22,8 +22,8 @@ import {
   RIVER_FLOWER_FOREST_MIN,
   RIVER_HALF_WIDTH,
   TEMP_COLD,
-} from './biome-classifier.config'
-import { type BiomeType, classifyBiome } from './biome'
+} from './biome-classifier.config.js'
+import { type BiomeType, classifyBiome } from './biome.js'
 
 export type ClimateSample = {
   readonly temperature: number

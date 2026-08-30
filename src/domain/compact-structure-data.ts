@@ -30,7 +30,22 @@ export type CompactStructureDescriptor = Readonly<{
   wall: BlockId
 }>
 
-export const COMPACT_STRUCTURE_BLOCK = Object.freeze({
+export const COMPACT_STRUCTURE_BLOCK: Readonly<
+  Record<
+    | 'CALCITE'
+    | 'CHEST'
+    | 'COBBLESTONE'
+    | 'DEEPSLATE'
+    | 'GRAVEL'
+    | 'IRON_BLOCK'
+    | 'OAK_LOG'
+    | 'OAK_PLANKS'
+    | 'OAK_STAIRS'
+    | 'SANDSTONE'
+    | 'STONE',
+    BlockId
+  >
+> = Object.freeze({
   CALCITE: blockIdOf('calcite'),
   CHEST: blockIdOf('chest'),
   COBBLESTONE: blockIdOf('cobblestone'),

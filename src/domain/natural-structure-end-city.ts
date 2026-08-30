@@ -7,17 +7,17 @@ import {
   addMarker,
   candidateForRegion,
   finishPlan,
-} from './natural-structure-plan-builder'
-import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain'
+} from './natural-structure-plan-builder.js'
+import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain.js'
 import type {
   EndStructureTerrainSampler,
   NaturalStructurePlan,
   NaturalStructureRegion,
-} from './natural-structure-types'
+} from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data'
+import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 
 const END_CITY_PROBE_OFFSET = 6
 const END_CITY_MAX_SURFACE_VARIATION = 5

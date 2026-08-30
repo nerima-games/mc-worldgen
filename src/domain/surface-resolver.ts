@@ -1,4 +1,4 @@
-import { BIOME_SURFACES, type BiomeType } from './biome'
+import { BIOME_SURFACES, type BiomeType } from './biome.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 
 export type ResolvedSurfaceMaterial = Readonly<{

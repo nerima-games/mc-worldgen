@@ -1,5 +1,5 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
-import { blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 /** Candidate spacing and terrain-independent block data for Nether fortresses. */
 export const NETHER_FORTRESS_GRID: NaturalStructureGrid = Object.freeze({
@@ -10,10 +10,21 @@ export const NETHER_FORTRESS_GRID: NaturalStructureGrid = Object.freeze({
 
 /** The reference layout's nominal floor; terrain validation may raise it. */
 export const FORTRESS_FLOOR_Y = 48
-export const FORTRESS_REGION_SIZE = NETHER_FORTRESS_GRID.spacing
-export const FORTRESS_REGION_SPAWN_PERMILLE = NETHER_FORTRESS_GRID.spawnPermille
+export const FORTRESS_REGION_SIZE: number = NETHER_FORTRESS_GRID.spacing
+export const FORTRESS_REGION_SPAWN_PERMILLE: number = NETHER_FORTRESS_GRID.spawnPermille
 
-export const NETHER_FORTRESS_BLOCK = Object.freeze({
+export const NETHER_FORTRESS_BLOCK: Readonly<
+  Record<
+    | 'AIR'
+    | 'BREWING_STAND'
+    | 'CHEST'
+    | 'NETHER_BRICK'
+    | 'NETHER_WART_CROP'
+    | 'SOUL_SAND'
+    | 'WITHER_SKELETON_SKULL',
+    BlockId
+  >
+> = Object.freeze({
   AIR: blockIdOf('air'),
   BREWING_STAND: blockIdOf('brewing_stand'),
   CHEST: blockIdOf('chest'),
@@ -24,7 +35,13 @@ export const NETHER_FORTRESS_BLOCK = Object.freeze({
 })
 
 /** Geometry data kept separate from the deterministic placement algorithm. */
-export const FORTRESS_LAYOUT = Object.freeze({
+export const FORTRESS_LAYOUT: Readonly<{
+  corridorHalfLength: number
+  corridorHalfWidth: number
+  pillarInterval: number
+  wallHeight: number
+  windowInterval: number
+}> = Object.freeze({
   corridorHalfLength: 24,
   corridorHalfWidth: 2,
   pillarInterval: 8,
@@ -36,5 +53,5 @@ const FORTRESS_HEADROOM_OFFSET = 2
 const FORTRESS_SITE_MARGIN_DIVISOR = 2
 
 export const FORTRESS_BLAZE_RADIUS = 48
-export const FORTRESS_MIN_HEADROOM = FORTRESS_LAYOUT.wallHeight + FORTRESS_HEADROOM_OFFSET
-export const FORTRESS_SITE_MARGIN = NETHER_FORTRESS_GRID.separation / FORTRESS_SITE_MARGIN_DIVISOR
+export const FORTRESS_MIN_HEADROOM: number = FORTRESS_LAYOUT.wallHeight + FORTRESS_HEADROOM_OFFSET
+export const FORTRESS_SITE_MARGIN: number = NETHER_FORTRESS_GRID.separation / FORTRESS_SITE_MARGIN_DIVISOR

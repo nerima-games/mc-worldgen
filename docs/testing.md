@@ -5,11 +5,12 @@
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm typecheck` | `tsconfig.build.json`（出荷ソース）、`tsconfig.test.json`（テスト+ツール）、`tsconfig.preview.json`（`apps/`）の 3 プロジェクト |
-| `pnpm build` | `dist/index.js` と `dist/index.d.ts` を生成する配布ビルド |
-| `pnpm lint` | oxlint。このリポジトリ唯一の lint/format 設定（prettier も biome も .editorconfig も置かない）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`.oxlintrc.json` は 5 カテゴリすべてと個別ルールの大半が `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
+| `pnpm build` | `scripts/clean-dist.mjs` で `dist/` を空にしたのち `tsc -p tsconfig.release.json` が `dist/index.js` と `dist/index.d.ts`（および `dist/domain/**`、`dist/application/**`）を生成する配布ビルド |
+| `pnpm lint` | oxlint + `ast-grep scan`。oxlint はこのリポジトリ唯一の JS/TS フォーマット設定（prettier も biome も .editorconfig も置かない）で、**`--deny-warnings` 付きで走る**ため `warn` のルールもビルドを落とす。`ast-grep scan` は `.ast-grep/rules/`（`no-type-assertion`、`no-wall-clock-read`）を評価する——oxlint が実装しない `no-restricted-syntax` 系の代替 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API） |
 | `pnpm test:coverage` | Vitest + V8 によるカバレッジ計測。branches / functions / lines / statements の 100% を必須化 |
-| `pnpm verify` | typecheck、lint、test:coverage、build。CI と同じ品質ゲート |
+| `pnpm verify` | typecheck、lint、test の 3 段。CI と同じ品質ゲート。coverage と配布物検証は別ゲート(下記) |
+| `pnpm package:verify` | `pnpm build` で `dist/` を生成し、`scripts/verify-package.mjs` が生成物を実際に import して公開 API と pack 境界を検査する |
 | `pnpm preview` | 内蔵地形プレビュー。**`verify` には入らない**（後述） |
 | `pnpm bench` | ベンチマーク（`scripts/bench-terrain.ts`）。**`verify` には入らない**（§7） |
 | `pnpm goldens:update` | `test/golden/chunk-goldens.json` を書き直す。**`verify` には入らないし、入れてはならない**——検証がゴールデンを更新できたら、それはゴールデンではない |
@@ -18,15 +19,14 @@
 
 ### 配布成果物の検査
 
-`pnpm verify` の最後の `build` は `dist/` を生成する。公開前や統合作業の区切りでは、生成物を consumer から読み込めることと、pack の境界にソースやテストが漏れていないことも確認する。
+`pnpm package:verify` が `dist/` を生成し、生成物を consumer と同じ方法で import できることと、pack の境界にソースやテストが漏れていないことを検査する。
 
 ```console
-$ pnpm verify
-$ node --input-type=module -e 'import("./dist/index.js").then((m) => { if (Object.keys(m).length === 0) process.exit(1) })'
+$ pnpm package:verify
 $ pnpm pack --dry-run
 ```
 
-`pack --dry-run` の一覧には `dist/`、`docs/`、`LICENSE`、`package.json` が含まれ、`src/` と `test/` は含まれない。ここでは tarball を作成・公開しない。
+`pack --dry-run` の一覧には `dist/`、`LICENSE`、`README.md`、`package.json` が含まれ、`src/` と `test/` は含まれない。ここでは tarball を作成・公開しない。
 
 ### プレビューはゲートではないが、野放しでもない
 

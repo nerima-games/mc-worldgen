@@ -1,4 +1,4 @@
-import type { NaturalStructureGrid } from './natural-structure-types'
+import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 export const DESERT_PYRAMID_GRID: NaturalStructureGrid = Object.freeze({
   separation: 96,
@@ -6,7 +6,21 @@ export const DESERT_PYRAMID_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 200,
 })
 
-export const DESERT_PYRAMID_LAYOUT = Object.freeze({
+export const DESERT_PYRAMID_LAYOUT: Readonly<
+  Record<
+    | 'baseHalfExtent'
+    | 'baseYClearance'
+    | 'chamberFloorYOffset'
+    | 'chamberHalfExtent'
+    | 'chestOffset'
+    | 'levelCount'
+    | 'levelInset'
+    | 'maxSurfaceVariation'
+    | 'minDryClearance'
+    | 'tntHalfExtent',
+    number
+  >
+> = Object.freeze({
   baseHalfExtent: 10,
   baseYClearance: 1,
   chamberFloorYOffset: 5,

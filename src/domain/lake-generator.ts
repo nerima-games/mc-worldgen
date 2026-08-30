@@ -1,4 +1,4 @@
-import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels, blockIndex } from './constants'
+import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels, blockIndex } from './constants.js'
 import {
   ICE_FREEZE_TEMPERATURE,
   LAKE_MAX_DEPTH,
@@ -7,8 +7,8 @@ import {
   RIVER_MAX_CUT,
   RIVER_MIN_CUT,
   RIVER_WATER_LEVEL,
-} from './lake-config'
-import type { BiomeType } from './biome'
+} from './lake-config.js'
+import type { BiomeType } from './biome.js'
 import { Option } from 'effect'
 
 const NORMALIZED_MIN = 0

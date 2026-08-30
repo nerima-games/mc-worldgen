@@ -8,20 +8,20 @@ import {
   type ClimateSample,
   classifyBiomeFromClimate,
   peaksAndValleysFromWeirdness,
-} from './biome-classifier'
-import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants'
-import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config'
-import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config'
-import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver'
+} from './biome-classifier.js'
+import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants.js'
+import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config.js'
+import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config.js'
+import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
 import { channelSeed, fbm2D, valueNoise2D } from '@nerima-games/mc-noise'
 import {
   computeLakeBasin,
   determineWaterLevel,
   isLakeShoreColumn,
   resolveSurfaceY,
-} from './lake-generator'
-import { continentalnessAt, surfaceHeightFromContinentalness } from './density-function'
-import type { BiomeType } from './biome'
+} from './lake-generator.js'
+import { continentalnessAt, surfaceHeightFromContinentalness } from './density-function.js'
+import type { BiomeType } from './biome.js'
 import { Option } from 'effect'
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */

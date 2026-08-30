@@ -1,14 +1,14 @@
-import { BASTION_REMNANT_BLOCK, BASTION_REMNANT_LAYOUT } from './bastion-remnant-data'
+import { BASTION_REMNANT_BLOCK, BASTION_REMNANT_LAYOUT } from './bastion-remnant-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureMarker,
   NaturalStructurePosition,
   NetherStructureTerrainSample,
   NetherStructureTerrainSampler,
-} from './natural-structure'
+} from './natural-structure.js'
 import { Option, Predicate } from 'effect'
 import type { BlockId } from '@nerima-games/mc-kernel'
-import { CHUNK_HEIGHT } from './constants'
+import { CHUNK_HEIGHT } from './constants.js'
 
 type BastionRemnantCandidate = {
   readonly x: number
