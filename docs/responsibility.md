@@ -4,7 +4,7 @@
 
 ## 1. 責務（plan.md §3.7 原文）
 
-> バイオーム分類・地形生成・カーバー（洞窟/渓谷）・植生・**構造物（村/ポータル/End）**・
+> バイオーム分類・地形生成・カーバー（洞窟/渓谷）・植生・**構造物（砂漠のピラミッド/村/ポータル/End）**・
 > チャンクのライフサイクル管理。永続化は mc-save のツールキットでチャンクフォーマットを定義
 
 ### 具体的に持つもの
@@ -13,23 +13,36 @@
 | --- | --- | --- |
 | 地形定数 | `SEA_LEVEL` / `LAKE_LEVEL` を `TerrainLevels` として注入 | ✅ |
 | 決定論シード | `(seed, coords) → Chunk` の全域性 | ✅ |
-| バイオーム分類 | 気候 → バイオーム（ルールテーブル、first-match-wins） | ✅ 2 入力版 |
+| バイオーム分類 | 気候 → バイオーム（ルールテーブル、first-match-wins） | ✅ 地形経路は 6 入力版（2 入力補助 API も保持） |
 | 地形生成 | 高さ場 → ブロック充填 → 水位 | ✅ |
 | 地形生成（Nether） | `nether-terrain.ts` が決定論的な 3D 密度場、上下の岩盤、溶岩海、ソウルサンドと構造物用の実地形 sampler を提供する | ✅ |
 | カーバー（洞窟） | **水域の床マージン検査つき**。`domain/carver.ts` の `carveCaves` | ✅ |
-| カーバー（渓谷） | ノイズ帯 + テーパー壁 + **2 層の水ガード**。`domain/ravine.ts` の `carveRavines`。装飾の**後**に走る（下記 §1-6） | ✅ 溶岩床を除く |
+| カーバー（渓谷） | ノイズ帯 + テーパー壁 + **2 層の水ガード**。`domain/ravine.ts` の `carveRavines`。装飾の**後**に走る（下記 §1-6） | ✅ 深部の溶岩床を含む |
 | 植生（木） | 格子ジッター配置 | ✅ 配置ロジック |
-| 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダ。`domain/vegetation.ts` | ✅ |
-| 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石変種のみ |
-| 構造物（要塞） | サイト決定 `domain/structure-siting.ts` と 13×13 石室生成 `domain/stronghold.ts`。各チャンクが自分の断面を書き、境界をまたぐ | ✅ |
+| 植生（草・花） | タンポポ / ポピー / 背の高い草 / シダに加え、サボテン / サトウキビ / キノコ / 水生植物 / スイレン。`domain/vegetation.ts` | ✅ 条件つき特殊植生を含む（参照実装との全密度一致は未検証） |
+| 植生（End chorus） | `domain/end-vegetation.ts` が外縁島の chorus stem / flower / branch を決定論的に計画し、`end-terrain.ts` がチャンクへ適用する | ✅ 現行 registry で生成（参照実装との配置密度一致は未検証） |
+| 鉱石 | 7 鉱石の脈生成。`domain/ore.ts`。**深度帯は再導出した**（下記 §1-2） | ✅ 石 / 深層岩の 14 variant |
+| 構造物（stronghold） | サイト決定 `domain/structure-siting.ts` と 13×13 石室生成 `domain/stronghold.ts`。各チャンクが自分の断面を書き、境界をまたぐ | ✅ |
+| 構造物（Nether fortress） | `domain/nether-fortress.ts` が seed / region 候補、地形適合、Nether brick の断面、loot / mob / spawner marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
+| 構造物（bastion remnant） | `domain/bastion-remnant.ts` が Nether の平坦な shelf を検査し、mc-kernel 登録ブロックだけで compact structure、loot / piglin / piglin-brute marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
 | 構造物（ポータル） | 検出・点火用 `portal-frame.ts` に加え、`natural-structure.ts` が ruined portal の immutable plan と marker を提供し、`nether-terrain.ts` が境界をまたぐ plan をチャンクへ適用する | ✅ plan + generator 適用 |
-| 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。`index.ts` には出していないので `api-lock.md` は動いていない（下記 §6-1） | 🟡 barrel 未公開 |
+| 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。両方を `index.ts` から公開する（下記 §6-1） | ✅ barrel 公開 |
 | 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
-| 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。gateway / crystal は対象外 | ✅ city / ship 生成 |
-| ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。`domain/light.ts`（361 行）。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
+| 構造物（desert pyramid） | `domain/desert-pyramid.ts` が乾燥した砂漠サイトを選び、砂岩ピラミッド、地下 chamber、TNT、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（desert well） | `domain/desert-well.ts` が乾燥・平坦な砂漠サイトを選び、mc-kernel 登録済みの sandstone / water だけで井戸を計画し、`natural-structure.ts` が Overworld chunk へ適用する。loot marker は持たない | ✅ plan + generator 適用 |
+| 構造物（igloo） | `domain/igloo.ts` が雪バイオームの平坦なサイトを選び、雪ドーム、地下室、設備、chest と villager / zombie-villager marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（jungle pyramid） | `domain/jungle-pyramid.ts` がジャングル地形の平坦なサイトを選び、mc-kernel 登録ブロックだけで構成した compact structure、TNT、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（ocean ruin） | `domain/ocean-ruin.ts` が海洋バイオームの浅すぎない海底を選び、登録済み石系ブロックの遺跡、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（ocean monument） | `domain/ocean-monument.ts` が海洋バイオーム・水深・海底の平坦さを検査し、mc-kernel 登録ブロックだけで compact monument、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（mineshaft） | `domain/mineshaft.ts` が地下通路、木製支柱、レール、装飾、chest と loot marker を登録済みブロックだけで計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（pillager outpost） | `domain/pillager-outpost.ts` が登録済みブロックだけで compact tower を計画し、乾燥地形適合、chest + loot marker、pillager marker を提供し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（shipwreck） | `domain/shipwreck.ts` が海洋バイオームの十分な水深と平坦な海底を選び、登録済み木材の船体、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
+| 構造物（ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion） | `domain/compact-structure.ts` が現行 `mc-kernel` の登録ブロックだけで compact structure を計画し、候補配置、バイオーム・起伏適合、chest と loot marker を提供し、`natural-structure.ts` が Overworld chunk へ適用する。vanilla template / palette parity は主張しない | ✅ plan + generator 適用 |
+| 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。`end-features.ts` がスパイク、柱、クリスタル／ケージ marker を同じモデルで提供し、`end-gateway.ts` が bedrock shell と出口設定の純粋 API を提供する。`domain/end-portal.ts` は完成ポータル判定と到着地点を提供する | ✅ city / ship / spike / portal rule |
+| ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。公開 façade は `src/domain/light.ts`、実装は `light-grid.ts`・`light-propagation.ts`・`light-update.ts`。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
 | ワーカープール Port | `TerrainWorkerPoolPort` と `chunkSourceFromTerrainWorkerPool` を公開。Worker/Pool の媒体はホストが注入し、mc-worldgen は DOM/Worker を所有しない | ✅ 型 + adapter |
-| チャンクフォーマット定義 | `domain/chunk-format.ts`。`mc-save`（mc-save ミラー）の `defineFormat` で定義。**「publish 待ち」は誤りだった**（下記 §1-5） | ✅ 定義のみ（媒体は未接続） |
+| チャンクフォーマット定義 | `domain/chunk-format.ts`。`mc-save` の `defineFormat` と `PersistentChunkStoreLayer` で利用 | ✅ フォーマット定義 + `StoragePort` 接続（媒体はホスト注入） |
 | 地形プレビュー | **本計画の最初の遊べる成果物**。`apps/preview-terrain/`（dev アプリ、公開 API ではない） | ✅ |
 
 ### 1-1. この表は 6 回間違えた。今回の訂正の内訳
@@ -38,23 +51,26 @@
 
 | 元の行 | 判定 | 根拠 |
 | --- | --- | --- |
-| ライトグリッド | **STALE（実装済みだった）** | `domain/light.ts` は 361 行。BFS 伝播・4bit パック・2 グリッド・`test/light.test.ts` 28 件。⬜ のまま放置されていた |
+| ライトグリッド | **STALE（実装済みだった）** | `src/domain/light.ts` と分割実装は BFS 伝播・4bit パック・2 グリッドを実装し、`test/light.test.ts` が固定している。⬜ のまま放置されていた |
 | ワーカープール Port | **半分 STALE** | 継ぎ目 `ChunkSource` は実装済みで `test/chunk-store.test.ts` が使っている。名前つき Port 型だけが無い |
 | カーバー（渓谷） | **REAL** → 今回実装 | `carver.ts` は `carveCaves` だけだった。`domain/ravine.ts` として移植（§1-6） |
 | 植生（草・花） | **REAL** → 今回実装 | `tree-placement.ts` は木であって地被ではなかった |
-| 鉱石 | **REAL** → 今回実装 | 「ore」は 10 ファイルに出るが**全て語彙**（`porting.md` の未移植行と `terrain.ts` のコメント）。配置コードは 0 行だった |
-| 構造物（村 / End / 要塞） | **REAL**、ただし村は種類が違う | 要塞はサイト決定と石室生成を実装。村は §1-3 |
+| 鉱石 | **REAL** → 今回実装 | 初回監査時は語彙だけだったが、現在は `domain/ore.ts` が脈配置と石 / 深層岩 14 variant を実装している |
+| 構造物（desert pyramid / desert well / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / 村 / End / Nether fortress / bastion remnant） | **REAL**、ただし desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、村、bastion remnant は新規設計 | stronghold、desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、Nether fortress、bastion remnant、End city / ship は各 planner とチャンク投影を実装。村は §1-3。desert well と compact structure 六種は vanilla template / palette parity を主張しない |
 | チャンクフォーマット定義 | ~~**REAL、かつブロック中**~~ → **判定そのものが誤り**。7 回目の訂正 | §1-5 |
 
 **⬜ が「まだ誰も手をつけていない」を意味しない行が 2 つあった。**
-状態表が信用されなくなるのはこの 2 行のせいであって、未実装の 5 行のせいではない。
+状態表が信用されなくなったのは、この 2 行と初回監査時の未実装項目を
+同じ一覧で区別できていなかったためである。現行の残課題は下記の差分表に記録する。
 
-### 1-2. 鉱石: 参照実装の深度帯は 3 行が移植できなかった
+### 1-2. 鉱石: 参照実装の深度帯は 3 行をローカル地形へ再導出した
 
 `ORE_CONFIGS`（`terrain/constants.ts:72-78`）は参照実装の地形に合わせてある。
 本リポジトリの石は **構造的に y ≤ 87 にしか存在しない**
 （`MAX_SURFACE_Y - FILLER_DEPTH - 1 = 92 - 4 - 1`）。
 COAL と EMERALD の `peakY = 96` はこの天井の**上**にある。
+
+以下の表は深層岩層を追加する前の初回監査時の石だけの比較であり、参照帯をそのまま移植した場合の欠損を示す。現行の `domain/ore.ts` はこの結果を受けて石の上限を再導出し、深層岩層には同じ 7 種の variant を対応づけている。
 
 実測（144 チャンク × 3 シード、両方の帯を同じ石に対して実行）:
 
@@ -71,7 +87,7 @@ COAL と EMERALD の `peakY = 96` はこの天井の**上**にある。
 
 ### 1-3. 村は「未移植」ではなく「出典が無い」
 
-`docs/porting.md` §6 が構造物として挙げる 5 ファイルに村は無い。
+`docs/porting.md` §6 が参照由来の構造物として挙げる行に村は無い。
 それは列挙漏れではない。実測: `packages/world` 全体で「village」は 4 箇所、
 **全て作物の成長に関するコメント**（`crop-growth.ts:2`、
 `crop-growth-service.ts:20`、`block-service.config.ts:175`）と、
@@ -105,10 +121,8 @@ Worker transport の `Result` を定義した上で、別の application boundar
 
 この節は以前こう書いていた:
 
-> mc-save の `defineFormat` は**実在する**（`mc-save/domain/format.ts:132`）。
-> import できない理由は `mc-kernel` と同じで、
-> mc-save が未 publish（plan.md §6 Step 3）であり
-> `package.json#dependencies` に無いものを `pnpm check:deps` が拒否するからである。
+> mc-save の `defineFormat` は**実在する**（`@nerima-games/mc-save`）。
+> 現在は `package.json#dependencies` に公開版を直接宣言して import している。
 >
 > つまりこの行は「やっていない」ではなく「**やれない**」。
 
@@ -117,7 +131,7 @@ Worker transport の `Result` を定義した上で、別の application boundar
 
 「理由は `mc-kernel` と同じ」——`mc-kernel` は
 **publish を待った file ではない。待つ必要を無くした file である。**
-本リポジトリはそれを 410 行書いて、`test/kernel-mirror.test.ts` で固定し、
+本リポジトリはそれを `domain/biome.ts` と各ドメインテストで固定し、
 その上に `light.ts` も `terrain.ts` も載せている。
 同じ手は組織全体で 13 回使われている:
 
@@ -136,17 +150,9 @@ Worker transport の `Result` を定義した上で、別の application boundar
 止まっていたのはこちらだけで、その理由は publish ではなく
 **誰もミラーを書いていなかったこと**である。
 
-さらに `pnpm check:deps` は最初から mc-save を許可している:
-
-```console
-$ pnpm check:deps
-check-dependency-whitelist: OK — 56 file(s) scanned, allowed direct dependencies:
-@nerima-games/mc-noise, @nerima-games/mc-save (plus @nerima-games/mc-kernel,
-which every repository may import).
-```
-
 依存グラフ上の障害は無い。⬜ の noun は「publish 待ち」ではなく
-「**未着手**」だった。§5 の表と同じ扱いにすべき行ではなかった。
+「**未着手**」だった。現在の直接依存と生成・保存の境界は
+`docs/versioning.md` と `package.json` に記録している。
 
 ### 1-5-b. 今あるもの
 
@@ -188,12 +194,12 @@ which every repository may import).
 | `RAVINE_MIN_DEPTH` 3 | `:51` の literal | 転記。命名しただけ |
 | `RAVINE_FLOOR_Y` 6 | `:53` の literal | 転記 |
 | ~~`RAVINE_WORLD_OFFSET` 40_000~~ | `:11` | **落とした**。`channelSeed(seed, 'ravines')` が同じ仕事をする。`vegetation.ts` が salt を落としたのと同じ論拠 |
-| ~~`RAVINE_LAVA_BED_BELOW_Y` 16~~ | `:17` | **落とした**。下記の到達不能性 |
+| `RAVINE_LAVA_BED_BELOW_Y` 16 | `:17` | **実装済み**。通常の Overworld 地形では到達不能だが、低い合成地形の境界テストで固定 |
 
 **帯の幅だけは検算が要った。** 参照実装のコメント自身が
 「単一オクターブのノイズは 0.5 付近に集まるので、この狭い帯でも ~2% の柱を拾う」
 と書いている。つまり 0.006 は**あちらの分布に対して校正された数字**であって、
-`seeded-random.ts` の平滑化 value noise には無条件では移らない。
+現在の `mc-noise` の平滑化 value noise には無条件では移らない。
 
 参照実装はこの誤りを一度踏んでいて、証拠を残している —
 `biome-classifier.config.ts:32-33`:「旧 0.055 の帯は世界の ~16% を RIVER に分類した（vanilla は 3-6%）」。
@@ -214,7 +220,7 @@ SURVEY 走査（8192×8192 を 16 ブロックおき、262,144 柱、5 シード
 `terrain.ts` は `surfaceY + 1` から `seaLevel` まで水を入れる。
 よって彫られる柱は `surfaceY >= 63`、`floorY >= 63 - 28 = 35` であり、
 `floorY <= 16` は決して成立しない。`pnpm preview --stats` の実測でも最深床は 35 である。
-入力の無いコードパスのために LAVA id と `kernel-mirror` の行を増やすのは、
+入力の無いコードパスのために LAVA id と `BLOCK_NAMES` の行を増やすのは、
 `ore.ts` が記録した COAL `peakY = 96`（天井の上にある帯）と同じ誤りになる。
 
 **装飾の後に走る**（`generator.ts:141-142`「壁が鉱石と表層をきれいに切るように」）。
@@ -224,14 +230,19 @@ SURVEY 走査（8192×8192 を 16 ブロックおき、262,144 柱、5 シード
 除去には機構が要る。実測 2.4%（最悪の窓で LOG 580 セル中 14）。
 `test/ravine.test.ts` R-8 が固定している。
 
-### 1-7. ポータル: 「生成器はまだ無い」は誤りだった（8 回目の訂正）
+### 1-7. ポータル: 「通常の枠を生成する器はまだ無い」という記述を分解する（8 回目の訂正）
 
 この表は 6 回間違えたと §1-1 が書き、`chunk-format` で 7 回目になった。**これが 8 回目**である。
 
-行は「**枠の検出だけ**。生成器はまだ無い」と書いていたが、
+行は「**枠の検出だけ**。生成器はまだ無い」と書いていたが、ここでいう生成器を
+「ポータルのセル配置を組み立てる機能」と読むなら、
 `domain/portal-frame.ts:296` に `generatePortalLayout` があり、
 `PortalLayout` 型があり、`test/portal-frame.test.ts` の 19 件がそれを使っている
 （検出との往復スイープ 760 フレームは、この関数が無ければ書けない）。
+
+一方、通常のポータル枠を地形へ配置する生成器は現在もない。`generatePortalLayout` は
+検出の逆変換とプレビュー用オーバーレイのセル配置を返すものであり、通常枠を
+`Chunk` に書き込む地形生成処理ではない。荒廃したポータルの生成は別の自然構造として扱う。
 
 **しかも同じ文書の §6 が既にそう書いていた** —
 「`generatePortalLayout`（枠の**生成**）のほうは §3.7 が直接の根拠になる」。
@@ -248,8 +259,8 @@ SURVEY 走査（8192×8192 を 16 ブロックおき、262,144 柱、5 シード
 | --- | --- | --- |
 | ジオメトリ生成（メッシング） | **mc-meshing** | チャンクデータを作るのはここ、面を作るのは meshing |
 | ライトの**適用**（描画） | **mc-render** | plan.md §7:「ライティング → worldgen（データ）+ render（適用）」 |
-| ノイズ関数そのもの | **mc-noise** | `domain/seeded-random.ts` は mc-noise の公開 value-noise API を再公開する worldgen の互換境界 |
-| 永続化の機構 | **mc-save** | worldgen は `defineFormat` で**フォーマットを定義するだけ** |
+| ノイズ関数そのもの | **mc-noise** | worldgen は `mc-noise` の公開 sampler を直接利用し、独自の互換境界を持たない |
+| 永続化の機構 | **mc-save** | worldgen は `defineFormat` でフォーマットを定義し、`StoragePort` 接続を提供する。媒体はホストが注入 |
 | プレイヤー・エンティティの状態 | **mc-sim** | sim が worldgen に依存する。逆向きは循環 |
 | 「木を斧で切ると原木が落ちる」 | **mx-gameplay** | 動詞は体験モジュール（plan.md §2.3-1） |
 | 「落下ブロック（砂/砂利）」の挙動 | **mx-gameplay** | 同上。plan.md §3.11 |
@@ -314,7 +325,7 @@ export type TerrainLevels = Readonly<{
 
 ### 3-3. ファイルが細かく割れている
 
-`packages/world/domain` + `application` は **195 ファイルで平均 86 LOC**、
+参照実装の `packages/world/domain` + `application` は **195 ファイルで平均 86 LOC**、
 非テストの最大ファイルが 335 LOC である。
 
 移植は「巨大ファイルを解きほぐす」作業ではなく
@@ -322,12 +333,13 @@ export type TerrainLevels = Readonly<{
 
 ### 3-4. 検証はプロパティ / 不変条件ベースだった
 
-`*.property.test.ts` が biome-service / noise-service / chunk-terrain-utils /
+参照実装には `*.property.test.ts` が biome-service / noise-service / chunk-terrain-utils /
 light-engine-bfs / worker parity に存在する。
 
-**ゴールデン / スナップショットテストは 0 件**である
+参照実装では **ゴールデン / スナップショットテストは 0 件**であった
 （`golden|fixture|toMatchSnapshot` の grep が worldgen 関連で 0）。
-生成が決定論である以上、これは埋めるべき穴である。→ [testing.md](./testing.md)
+生成が決定論である以上、当時は埋めるべき穴だった。現在の本リポジトリでは
+`test/golden/chunk-goldens.json` と不変条件テストを用いている。→ [testing.md](./testing.md)
 
 ## 4. 親・子
 
@@ -366,18 +378,18 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 `mc-playground-kit` は mc-worldgen に依存している。
 **mc-worldgen が kit を使うと循環する。** 地形プレビューは kit 無しで作ること。
 
-## 5. スケルトン段階で意図的に省いたもの
+## 5. 現行実装で意図的に残る未接続部分
 
 | 省略したもの | 理由 | いつ入れるか |
 | --- | --- | --- |
-| `mc-noise` への依存 | 未 publish（plan.md §6 Step 0）。`domain/seeded-random.ts` が仮置き | mc-noise が消費可能になった時点 |
-| `mc-save` への依存 | 同上。ただし**フォーマット定義は待っていない** — `mc-save` がミラー（§1-5） | mc-save が消費可能になった時点。その日にミラーを削除して import を張り替える |
-| `mc-kernel` への依存 | 同上。`domain/chunk.ts` `domain/biome.ts` の `BLOCK` が仮置き | kernel が消費可能になった時点 |
-| ~~渓谷カーバー~~ | ~~パイプライン順序が洞窟と違う（木の**後**）ので、木の実装後~~ | **完了**（`domain/ravine.ts`）。溶岩床は到達不能なので入れていない（§1-6）。木が宙に残る件だけが残り、理由つきでそのファイルに書いてある |
+| `mc-noise` | **接続済み**。生成コードが公開 sampler を直接利用する | 依存更新時は `package.json` と lockfile を同時に更新する |
+| `mc-save` | **接続済み**。`CHUNK_FORMAT` と `StoragePort` を利用する。媒体接続はホストの責務 | ストレージ実装を提供するとき |
+| `mc-kernel` | **接続済み**。block ID・座標・定数を利用する。生成中の `Chunk` は別の書き込みバッファ | kernel の型や registry を拡張するとき |
+| ~~渓谷カーバー~~ | ~~パイプライン順序が洞窟と違う（木の**後**）なので、木の実装後~~ | **完了**（`domain/ravine.ts`）。深部の溶岩床も実装し、通常地形では到達しない境界をテストで固定。木が宙に残る件だけが残り、理由つきでそのファイルに書いてある |
 | ~~要塞のブロック生成~~ | ~~サイト決定のみで、チャンク跨ぎと洞窟との交差規則が未決定~~ | **完了**（`domain/stronghold.ts`）。各チャンクが自分の断面を最終パスで書く |
-| deepslate 鉱石 7 種 | 置く先の deepslate 層が無い。層と鉱石は**同時に**入れないと、灰色の石の中から深層岩鉱石が出る | deepslate 層を足すとき |
-| ライトグリッド | ~~4bit パックの実装は `packages/block/domain/light.ts` から~~ | **完了**（`domain/light.ts`）。常駐チャンク間の伝播、ブロック変更の増分再計算、4bit パックを含む |
-| `ChunkStore` の永続化（`unload` が保存しない） | 永続化（mc-save）が要る | mc-save 消費開始後。ストレージ読み出しは `ChunkSource` の前段に合成され、`ChunkStoreApi` は変わらない |
+| ~~deepslate 鉱石 7 種~~ | **完了**。`terrain.ts` の深層岩層と `domain/ore.ts` の 7 variant pair を同じ深度境界で適用する | — |
+| ライトグリッド | ~~4bit パックの実装は `packages/block/domain/light.ts` から~~ | **完了**（公開 façade は `src/domain/light.ts`）。常駐チャンク間の伝播、ブロック変更の増分再計算、4bit パックを含む |
+| `ChunkStore` の実ストレージ接続 | `PersistentChunkStoreLayer` は `StoragePort` を受け取るが媒体はホストが注入する | ホストが `StoragePort` 実装を提供するとき |
 
 ## 6. ポータル: 検出はここ、移動は mx-gameplay
 
@@ -429,9 +441,9 @@ plan.md §3.7 は本リポジトリに「構造物（村/**ポータル**/End）
 | 参照実装のファイル | 判定 | 根拠 |
 | --- | --- | --- |
 | `nether-link.ts` の `overworldToNether` / `netherToOverworld` | **ここ** | 8:1 の座標スケーリング。2 つの次元の**座標空間の関係**であって、入力も出力も座標しかない。`chunkCoordOfBlock` と同じ種類のもの → ✅ `domain/nether-link.ts` |
-| `nether-link.ts` の `findNearestPortal` | **ここ**（注記は生きている） | 候補配列を**引数で受ける**最近傍探索。`BlockAt` と同じ注入形。ただし「世界に存在するポータルの一覧」を**所有する**のが誰かは別問題で、それはまだ誰にも割り当てられていない → ✅ `domain/nether-link.ts`。**注記のほうは消費していない**: 候補は今も引数のままで、所有者は今も居ない（下記 §6-1） |
+| `nether-link.ts` の `findNearestPortal` | **ここ** | 候補配列を**引数で受ける**純粋な最近傍探索。`BlockAt` と同じ注入形で、台帳そのものは `application/portal-registry.ts` が所有する。`PortalRegistry.resolveTravel` が行き先次元のスナップショットを渡す → ✅ `domain/nether-link.ts` |
 | `nether-travel.ts` の `resolveNetherTravel` | ~~**mx-gameplay**~~ → **ここ**（下記 §6-1） | ~~`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す。plan.md §3.11 そのもの。上の 3 つを合成するだけなので、依存の向きも合っている~~ → ✅ `domain/nether-travel.ts` |
-| `end/end-portal-frame.ts` | **ここ**（未移植、意図的） | 形は `portal-frame.ts` と同型（注入された `BlockAt` の純粋ルール）なので境界の議論は同じ結論を出す。要塞の石室、`end_portal_frame` 語彙、End の基礎地形は実装したが、完成ポータル判定はまだ無い。構造物（End）に着手する時に一緒に来るのが正しい |
+| `end/end-portal-frame.ts` | **ここ**（ローカル実装済み） | 参照元と同型の純粋ルールを `domain/end-portal.ts` に移植し、12 枠の向き / 充填状態を検証して中央 3×3 のポータルを materialize する。`endArrivalDescriptor` に End 到着地点の記述も実装済み。スパイク／クリスタル／gateway は `end-features.ts` と `end-gateway.ts` に分離 |
 
 ### 6-1. `resolveNetherTravel` の行を覆した。理由と、覆さなかったもの
 
@@ -471,15 +483,16 @@ plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動�
 
 **覆していないもの、3 つ。**
 
-- **`index.ts` には出していない。** `domain/nether-link.ts` も `domain/nether-travel.ts` も
-  barrel に無いので `api-lock.md` は 156 entries のまま動いていない
-  （§1-5-b の `mc-save` / `chunk-format.ts` と同じ扱い）。
-  **repoint の日には export が要る** —— mx-gameplay がこれを使うには
-  ミラーか import のどちらかが要り、どちらも barrel を経由する。
-  それは §1-4 が「publish 後に払うべき代金」と呼んだものと同じ種類の判断であり、
-  **決定であって事故であるべきではない**ので、ここで止めて記録してある。
-- **ポータル一覧の所有者は決まった —— 本リポジトリである。ただしまだ実装していない。**
-  以前この項は「決めていない」と書いていた。決まった論拠は `ChunkStore` をここに置いたのと
+- **両方を `index.ts` から公開した。** `domain/nether-link.ts` の座標変換・最近傍探索と
+  `domain/nether-travel.ts` の移動先解決は、同じ責務表でこのリポジトリのものと確定した
+  ルールなので、消費側がミラーせず直接利用できる公開契約にした。
+- **ポータル一覧の所有者は決まった —— 本リポジトリであり、実装済みである。**
+  `findNearestPortal` は今も純粋な候補配列引数を受け取るが、ワールド状態は
+  `application/portal-registry.ts` の `PortalRegistry` が所有する。
+  `PortalRegistryLayer` はインメモリ、`PersistentPortalRegistryLayer` は
+  `mc-save` の `StoragePort` と `PORTAL_REGISTRY_FORMAT` を使う。
+  `register` / `unregister` は冪等で、保存成功後に状態を公開する。
+  これは `ChunkStore` をここに置いたのと
   同じもので、**ポータルはセーブを跨いで残るワールド状態**であり、本リポジトリは既に
   チャンクのライフサイクルとライトグリッドを同じ理由で所有している。
   参照実装の所有者もサービス（`packages/world/application/nether-service.ts` の
@@ -487,11 +500,9 @@ plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動�
   mx-gameplay が持てば、ルールしか持たないリポジトリがワールド状態の第 2 の所有者になる ——
   あちらがバケツとハサミについて拒否した「発明」と同じ形である。
 
-  **実装は本タスクの範囲外であり、それは意図的な線引きである。** ポータル台帳は
-  チャンク単位の永続状態でありセーブフォーマットを伴う。滞留タイマーの作業に
-  抱き合わせれば、レビュー可能な変更がレビュー不能な変更になる。
-  したがって `findNearestPortal` の候補は今も引数で、
-  距離比較を移植した副作用でサービスがここに生えることはない。
+  `resolveTravel` は出発次元に応じて行き先次元の台帳を選ぶ。新しいポータルを
+  必要とする計画は返すが、レイアウトをチャンクへ適用したり、生成結果を自動登録したりは
+  しない。適用と登録はホストのブロック書き込み境界で行う。
 
   **実装するときに最初に読むべき危険がこれである。** `knownPortals` は
   **行き先の次元のもの**でなければならない。出発側の一覧を渡すと、
@@ -501,8 +512,8 @@ plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動�
   （`physics-stage-portal.ts:55-57`）。呼び出し規約であって型ではない、
   というのが `domain/nether-travel.ts` の当該注記の主旨である。
 
-  現状の消費側（`mx-gameplay/domain/portal-travel.ts`）は**空リストを渡している**ので、
-  この危険は今日は起きえない —— 起きうるようになるのは、まさにこの台帳を実装した日である。
+  `PortalRegistry.resolveTravel` はこの規約を内部で満たす。純粋な
+  `resolveNetherTravel` を直接呼ぶ場合だけ、呼び出し側が行き先次元の候補を渡す。
 - **`Dimension` は借り物ではなくなった —— 本リポジトリが所有する。**
   この箇条書きは以前「借りているだけである」「barrel に出していないので consumer は
   綴りに依存できず、所有者が現れた日に import へ差し替わる」と書いていた。
@@ -534,10 +545,7 @@ barrel は `index.ts:40`）。**本当に無いのは次元のほう**だった�
 リポジトリにあるのは分裂ではなく本プロジェクトの通常形であり、
 `BlockType` を kernel が所有して `ChunkStore` が値を持つのと同じ形である。
 
-**ただし 3 本目はまだ緑にならない。** 残っているのは上の 2 つ目の箇条書き ——
-**ポータル一覧**であり、これは barrel の問題ではなく所有の問題だった。
-**所有者は本リポジトリに決まり、実装はまだである**（上の箇条書きに論拠と、
-実装時に最初に踏む危険を書いてある）。`resolveNetherTravel` の `knownPortals` は
-今も引数で、実測でも mc-sim / mc-worldgen / mx-gameplay の `domain/` `application/` を
-通じて実装は 0 件である。消費側は空リストを渡すので、
-**既存ポータルは再利用されず、毎回新しいものが計画される**。
+**これで 3 本とも緑になった。** `resolveNetherTravel` の純粋な
+`knownPortals` 引数は直接利用する場合の注入点として残り、通常のワールド状態は
+`PortalRegistry` が台帳から行き先次元の候補を供給する。既存ポータルは距離内なら再利用され、
+無ければ新しいレイアウトが計画される。レイアウトの適用と登録はホストが行う。

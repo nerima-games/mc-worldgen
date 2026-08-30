@@ -71,7 +71,8 @@ export const main = async (): Promise<number> => {
     }
     const blocksMoved = before.blocksSha256 !== entry.blocksSha256
     const biomesMoved = before.biomesSha256 !== entry.biomesSha256
-    if (!blocksMoved && !biomesMoved) {
+    const summaryMoved = JSON.stringify(before.summary) !== JSON.stringify(entry.summary)
+    if (!blocksMoved && !biomesMoved && !summaryMoved) {
       lines.push(`  unchanged  ${label(entry)}`)
       continue
     }
@@ -85,6 +86,9 @@ export const main = async (): Promise<number> => {
       lines.push(
         `  BIOMES     ${label(entry)}  ${before.biomesSha256.slice(0, 16)} -> ${entry.biomesSha256.slice(0, 16)}`,
       )
+    }
+    if (summaryMoved) {
+      lines.push(`  SUMMARY    ${label(entry)}  block-count summary changed`)
     }
   }
 

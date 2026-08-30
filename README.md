@@ -2,7 +2,7 @@
 
 ## 責務
 
-バイオーム分類・地形生成・カーバー（洞窟/渓谷）・植生・構造物（村/ポータル/End）・
+バイオーム分類・地形生成・カーバー（洞窟/渓谷）・植生・構造物（村/ポータル/End/自然構造）・
 チャンクのライフサイクル管理。永続化は mc-save のツールキットでチャンクフォーマットを定義する。
 
 ## ⚠ plan.md §3.7 の地形定数は**両方とも誤りである**
@@ -98,13 +98,13 @@ Nix を使わない場合は Node.js 24 以上と pnpm 11（`corepack` 推奨）
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm typecheck` | `tsconfig.build.json`（出荷）、`tsconfig.test.json`（テスト+ツール）、`tsconfig.preview.json`（`apps/`）の 3 プロジェクト |
+| `pnpm build` | `dist/index.js`（ESM）と `dist/index.d.ts`（宣言）を生成し、公開成果物を検査可能にする |
 | `pnpm lint` | oxlint（唯一の lint/format 設定）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`.oxlintrc.json` は 5 カテゴリすべてと個別ルールの大半が `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
 | `pnpm lint:fix` | oxlint の自動修正 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect`） |
 | `pnpm test:watch` | vitest watch |
-| `pnpm test:coverage` | カバレッジ計測（閾値は未設定。[docs/testing.md](./docs/testing.md) 参照） |
-| `pnpm check:deps` | 依存ホワイトリスト + 循環検査 + `Date.now()` 禁止 |
-| `pnpm verify` | `typecheck && lint && check:deps && test`。CI と同じ |
+| `pnpm test:coverage` | Vitest + V8 カバレッジ。branches / functions / lines / statements の 100% を要求 |
+| `pnpm verify` | `typecheck`、`lint`、`test:coverage`、`build`。CI と同じ品質ゲート |
 | `pnpm preview` | **内蔵地形プレビュー**（下記）。`verify` には入らない |
 
 ### 地形プレビュー
@@ -124,7 +124,8 @@ $ pnpm preview --once --ascii   # 1 フレームを文字で標準出力へ
 理由と、失われたもの（山脈のシルエット、洞窟内部の眺め）は
 [`apps/preview-terrain/README.md`](./apps/preview-terrain/README.md) に書いてある。
 
-**依存は 1 つも増えていない。** org パッケージ 0、npm 依存 0、時計の読み取り 0。
+依存は `mc-kernel`（ブロック・チャンク型）、`mc-noise`（ノイズ）、`mc-save`（保存形式・永続化）を
+直接利用する。生成ロジックはこれらの API を再実装せず、ドメイン固有の地形・構造・配置に集中する。
 
 ### 構成
 
@@ -132,9 +133,9 @@ $ pnpm preview --once --ascii   # 1 フレームを文字で標準出力へ
 index.ts                          公開バレル
 domain/
   constants.ts        SEA_LEVEL=63、TerrainLevels、チャンクレイアウト
-  seeded-random.ts    決定論 PRNG と値ノイズ（mc-noise 到着までの仮置き）
-  biome.ts            バイオームロスター、分類ルールテーブル、表面材質
-  chunk.ts            Chunk 値（mc-kernel 到着までの仮置き）
+  biome.ts            バイオームロスター、表面材質、mc-kernel の block ID
+  chunk.ts            生成用ブロック・バイオームバッファ
+  vegetation-data.ts 植物・植生ルールのデータ
   carver.ts           洞窟カーバー ★水域床ガード
   tree-placement.ts   格子ジッター配置
   terrain.ts          generateChunk(seed, coords)
@@ -143,8 +144,9 @@ domain/
 apps/
   preview-terrain/    内蔵地形プレビュー（dev アプリ。公開 API ではない）
 scripts/
-  check-dependency-whitelist.ts   16 リポジトリ共通のゲート
-test/                             54 tests
+  golden-fixture.ts / update-goldens.ts  ゴールデン管理
+  bench-*.ts                         ベンチマーク
+test/                             Vitest の不変条件・統合テスト
 docs/                             実装情報
 ```
 
@@ -157,13 +159,15 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
 
 ## 現状
 
-**このリポジトリはまだ叩き台（pre-audit first cut）である。**
+**現在の実装状態。** Overworld / Nether / End の決定論的な地形生成、主要なカーバー・植生・
+構造配置（Overworld stronghold / desert pyramid / desert well / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / Nether fortress / bastion remnant を含む）、End の外縁島 chorus 植生、スパイク／クリスタル計画、ライト、チャンクストア、保存形式定義を実装し、
+依存パッケージの API を直接利用している。
 
 - ✅ **地形プレビューは実装済み** — `apps/preview-terrain/`。
   plan.md §6 Step 2 の「最初の遊べる成果物」であり、
   **完成条件 2（プレビューが操作可能）はこれで満たした**。
   mc-playground-kit は使っていない（kit が worldgen に依存しているので循環する）
-- ✅ **シード固定ゴールデンハッシュは実装済み** — `test/golden/chunk-goldens.json`（10 行）、
+- ✅ **シード固定ゴールデンハッシュは実装済み** — `test/golden/chunk-goldens.json`、
   `scripts/golden-fixture.ts`、`pnpm goldens:update`。参照実装には 1 本も無い。
   各ダイジェストには**独立した不変条件**が付いている（`test/chunk-golden.test.ts` I-1..I-8、
   `test/ore.test.ts` O-1..O-5、`test/vegetation.test.ts` V-1..V-6）。
@@ -171,16 +175,21 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
   ゴールデンを動かすときは**先に不変条件で正しさを示す**
 - **実装済み**: `ChunkStore`（plan.md §3.7 の `ChunkManager`）— ロード / アンロード /
   ブロック書き込み / ダーティチャンネル。所有権の根拠は [docs/public-api.md](./docs/public-api.md) §6-0
-- ✅ **実装済み**: ライトグリッド（`domain/light.ts`）、草・花（`domain/vegetation.ts`）、
-  鉱石（`domain/ore.ts`）、要塞のサイト決定と 13×13 石室生成
+- ✅ **実装済み**: ライトグリッド（公開 API は `src/domain/light.ts`、実装は `src/domain/light-grid.ts`・
+  `src/domain/light-propagation.ts`・`src/domain/light-update.ts`）、草・花（`domain/vegetation.ts`）、
+  鉱石（`domain/ore.ts`）、Overworld の要塞（stronghold）のサイト決定と 13×13 石室生成
   （`domain/structure-siting.ts`、`domain/stronghold.ts`）、
   **渓谷カーバー（`domain/ravine.ts`）** — 2 層の水ガードごと。
   帯幅 `RAVINE_HALF_WIDTH` は参照実装から転記する前に実測している
   （帯幅は分布についての主張なので可搬ではない。[docs/responsibility.md](./docs/responsibility.md) §1-6）
-- ✅ **自然構造プランとチャンク適用は実装済み** — `domain/natural-structure.ts` が村、ruined Nether portal、
-  End city / ship をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
+- ✅ **自然構造プランとチャンク適用は実装済み** — `domain/natural-structure.ts` が desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、村、ruined Nether portal、
+  Nether fortress、bastion remnant、
+  End city / ship、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion をリージョン単位で決定し、地形適合を検査して immutable なブロック配置と
   semantic marker をチャンク別に投影する。村は Overworld chunk generator と同じレイアウトを使い、
-  Nether / End generator は構造ブロックを書き込んで marker の由来を保持する。
+  Overworld / Nether / End generator は構造ブロックを書き込んで marker の由来を保持する。
+  bastion remnant、desert well と上記六つの compact structure は現行 `mc-kernel` の登録ブロックだけで構成しており、vanilla の template / palette parity は主張しない。
+  `domain/end-features.ts` は決定論的なスパイク、オブシディアン柱、クリスタル／ケージの意味情報を
+  同じ境界投影モデルで提供し、`domain/end-gateway.ts` は bedrock shell と出口設定を純粋な値として公開する。
 - **実装済み**: ワーカープール Port の型（`TerrainWorkerPoolPort`）と
   `ChunkSource` adapter。実際の Worker/Pool 媒体はホストが注入する。
   チャンク永続化は `PersistentChunkStoreLayer`、チャンクフォーマット定義は
@@ -189,13 +198,13 @@ oxlint 0.12 にパス単位のルール上書きが無いので、この粒度�
 - **Nether 地形**: `generateNetherChunk` が決定論的な 3D 洞窟、上下の岩盤、溶岩海、
   ソウルサンドを生成し、ruined portal を適用する
 - **End 地形**: `generateEndChunk` が中央島、虚空リング、シード依存の外縁島を生成し、
-  End city / ship を適用する
-- **バイオーム分類は 2 入力版のみ。** 参照実装は 6 入力（continentalness / erosion /
-  pv / riverNoise を含む）で 13 バイオーム
-- **`domain/seeded-random.ts` は mc-noise の仮置き**、
-  `domain/chunk.ts` と `BLOCK` は mc-kernel の仮置き
-- **ビルド／publish はまだない。** `exports` は TypeScript ソースを直接指している
-- **カバレッジ閾値は未設定。** 99% ゲートは完成条件到達時に有効化する
+  End city / ship とスパイクを適用する。クリスタルとケージは entity の副作用を持たない marker として
+  保存し、gateway の配置・移動・出口解決は `end-gateway.ts` に分離している
+- **バイオーム分類は 6 入力版。** continentalness / erosion / pv / riverNoise を含む
+  6 入力で 13 バイオームを分類する（2 入力分類器も保持）
+- **公開レジストリへの publish は未実施。** 配布ビルドは `pnpm build` で生成できるが、
+  GitHub Packages への認証・公開手順はリリース作業として別途管理する
+- **カバレッジは 100% ゲート。** `vitest.config.ts` の 4 指標を `pnpm test:coverage` が検証する
 
 ### プレビューが暴いたもの
 

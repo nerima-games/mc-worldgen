@@ -1,20 +1,17 @@
+import {
+  type OverworldTerrainSampler,
+  type VillageSite,
+  villageSitesNearChunk,
+} from './structure-siting'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { BLOCK } from './biome'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
-import { setBlockAt, worldX, worldZ } from './chunk'
+import { CHUNK_SIZE_XZ } from './constants'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants'
-// eslint-disable-next-line new-cap, sort-imports -- BlockId is the established branded-value constructor.
-import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import {
-  type VillageSite,
-  type VillageTerrainSampler,
-  villageSitesNearChunk,
-} from './structure-siting'
+import { blockIdOf, type BlockId } from '@nerima-games/mc-kernel'
 
 export const VILLAGE_BLOCK = {
-  // eslint-disable-next-line new-cap, no-magic-numbers -- 17 is the stable cobblestone protocol id.
-  FOUNDATION: BlockId(17),
+  FOUNDATION: blockIdOf('cobblestone'),
   ROAD: BLOCK.GRAVEL,
   TIMBER: BLOCK.LOG,
 } as const
@@ -36,6 +33,16 @@ export type VillageVillagerSpawn = {
 
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
 type House = { readonly x: number; readonly z: number; readonly profession: VillageVillagerProfession }
+
+type HouseBlockRequest = {
+  readonly site: VillageSite
+  readonly house: House
+  readonly wx: number
+  readonly y: number
+  readonly wz: number
+  readonly sampleTerrain: OverworldTerrainSampler
+}
+
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed offsets define the compact village plan.
 const HOUSES: ReadonlyArray<House> = [
   // eslint-disable-next-line id-length, no-magic-numbers -- Fixed x/z offsets define the compact village plan.
@@ -46,8 +53,11 @@ const HOUSES: ReadonlyArray<House> = [
 const HOUSE_HALF_X = 4
 const HOUSE_HALF_Z = 3
 const HOUSE_WALL_HEIGHT = 4
+const HOUSE_ROOF_TOP_OFFSET = 1
+const HOUSE_DOOR_TOP_OFFSET = 2
+const HOUSE_AXIS_ORIGIN = 0
 
-const houseFloorY = (site: VillageSite, house: House, sample: VillageTerrainSampler): number => {
+const houseFloorY = (site: VillageSite, house: House, sample: OverworldTerrainSampler): number => {
   let highest = 0
   // eslint-disable-next-line id-length, no-magic-numbers -- dx is the conventional local x offset.
   for (let dx = -HOUSE_HALF_X; dx <= HOUSE_HALF_X; dx += 1) {
@@ -65,7 +75,7 @@ const houseFloorY = (site: VillageSite, house: House, sample: VillageTerrainSamp
 export const villageVillagerSpawnsForSite = (
   seed: number,
   site: VillageSite,
-  sampleTerrain: VillageTerrainSampler,
+  sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<VillageVillagerSpawn> => HOUSES.map((house, houseIndex) => ({
   id: `village:${String(seed)}:${String(site.x)}:${String(site.z)}:house:${String(houseIndex)}`,
   profession: house.profession,
@@ -84,44 +94,73 @@ export const villageVillagerSpawnsForChunk = (
   seed: number,
   chunkX: number,
   chunkZ: number,
-  sampleTerrain: VillageTerrainSampler,
+  sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<VillageVillagerSpawn> => villageSitesNearChunk(seed, chunkX, chunkZ, sampleTerrain)
   .flatMap((site) => villageVillagerSpawnsForSite(seed, site, sampleTerrain))
   .filter((spawn) =>
     Math.floor(spawn.x / CHUNK_SIZE_XZ) === chunkX && Math.floor(spawn.z / CHUNK_SIZE_XZ) === chunkZ,
   )
 
-// eslint-disable-next-line max-params, max-statements -- A pure block resolver needs all three axes plus site and terrain.
-const houseBlockAt = (
-  site: VillageSite,
-  house: House,
-  wx: number,
-  // eslint-disable-next-line id-length -- y is the canonical vertical axis.
-  y: number,
-  wz: number,
-  sample: VillageTerrainSampler,
-): BlockId | undefined => {
+const isInsideHouseFootprint = (dx: number, dz: number): boolean =>
+  Math.abs(dx) <= HOUSE_HALF_X && Math.abs(dz) <= HOUSE_HALF_Z
+
+const isHouseFoundation = (y: number, surfaceY: number, floorY: number): boolean =>
+  y >= surfaceY && y < floorY
+
+const isHouseRoof = (y: number, floorY: number): boolean =>
+  y === floorY || y === floorY + HOUSE_WALL_HEIGHT + HOUSE_ROOF_TOP_OFFSET
+
+const isOutsideHouseWallHeight = (y: number, floorY: number): boolean =>
+  y <= floorY || y > floorY + HOUSE_WALL_HEIGHT
+
+const isHouseBoundary = (dx: number, dz: number): boolean =>
+  Math.abs(dx) === HOUSE_HALF_X || Math.abs(dz) === HOUSE_HALF_Z
+
+const houseDoorZ = (house: House): number => {
+  if (house.z < HOUSE_AXIS_ORIGIN) { return HOUSE_HALF_Z }
+  return -HOUSE_HALF_Z
+}
+
+const isHouseDoor = (house: House, dx: number, dz: number, y: number, floorY: number): boolean =>
+  dz === houseDoorZ(house) && dx === HOUSE_AXIS_ORIGIN && y <= floorY + HOUSE_DOOR_TOP_OFFSET
+
+type HouseBlockWithinFootprintRequest = {
+  readonly house: House
+  readonly dx: number
+  readonly dz: number
+  readonly y: number
+  readonly floorY: number
+  readonly surfaceY: number
+}
+
+const houseBlockWithinFootprint = ({
+  house,
+  dx,
+  dz,
+  y,
+  floorY,
+  surfaceY,
+}: HouseBlockWithinFootprintRequest): BlockId | undefined => {
+  if (isHouseFoundation(y, surfaceY, floorY)) { return VILLAGE_BLOCK.FOUNDATION }
+  if (isHouseRoof(y, floorY)) { return VILLAGE_BLOCK.TIMBER }
+  // eslint-disable-next-line no-undefined -- Outside the vertical house span preserves terrain.
+  if (isOutsideHouseWallHeight(y, floorY)) { return undefined }
+
+  if (isHouseBoundary(dx, dz) && !isHouseDoor(house, dx, dz, y, floorY)) {
+    return VILLAGE_BLOCK.TIMBER
+  }
+  return BLOCK.AIR
+}
+
+const houseBlockAt = ({ site, house, wx, y, wz, sampleTerrain }: HouseBlockRequest): BlockId | undefined => {
   const dx = wx - (site.x + house.x)
   const dz = wz - (site.z + house.z)
   // eslint-disable-next-line no-undefined -- Absence means this coordinate is outside the house.
-  if (Math.abs(dx) > HOUSE_HALF_X || Math.abs(dz) > HOUSE_HALF_Z) { return undefined }
+  if (!isInsideHouseFootprint(dx, dz)) { return undefined }
 
-  const floorY = houseFloorY(site, house, sample)
-  const { surfaceY } = sample(wx, wz)
-  if (y >= surfaceY && y < floorY) { return VILLAGE_BLOCK.FOUNDATION }
-  // eslint-disable-next-line no-magic-numbers -- Roof is one block above the wall height.
-  if (y === floorY || y === floorY + HOUSE_WALL_HEIGHT + 1) { return VILLAGE_BLOCK.TIMBER }
-  // eslint-disable-next-line no-magic-numbers, no-undefined -- Outside the vertical house span preserves terrain.
-  if (y < floorY + 1 || y > floorY + HOUSE_WALL_HEIGHT) { return undefined }
-
-  const boundary = Math.abs(dx) === HOUSE_HALF_X || Math.abs(dz) === HOUSE_HALF_Z
-  let doorZ = -HOUSE_HALF_Z
-  // eslint-disable-next-line no-magic-numbers -- Zero separates north-facing from south-facing houses.
-  if (house.z < 0) { doorZ = HOUSE_HALF_Z }
-  // eslint-disable-next-line no-magic-numbers -- The doorway is two blocks high and centered on the wall.
-  const door = dz === doorZ && dx === 0 && y <= floorY + 2
-  if (boundary && !door) { return VILLAGE_BLOCK.TIMBER }
-  return BLOCK.AIR
+  const floorY = houseFloorY(site, house, sampleTerrain)
+  const { surfaceY } = sampleTerrain(wx, wz)
+  return houseBlockWithinFootprint({ dx, dz, floorY, house, surfaceY, y })
 }
 
 /** Resolves one world-space village block, including cleared walking/interior space. */
@@ -132,10 +171,10 @@ export const villageBlockAt = (
   // eslint-disable-next-line id-length -- y is the canonical vertical axis.
   y: number,
   wz: number,
-  sample: VillageTerrainSampler,
+  sample: OverworldTerrainSampler,
 ): BlockId | undefined => {
   for (const house of HOUSES) {
-    const block = houseBlockAt(site, house, wx, y, wz, sample)
+    const block = houseBlockAt({ house, sampleTerrain: sample, site, wx, wz, y })
     // eslint-disable-next-line no-undefined -- Undefined is the resolver's no-structure sentinel.
     if (block !== undefined) { return block }
   }
@@ -152,32 +191,4 @@ export const villageBlockAt = (
   if (y === surfaceY + 1 || y === surfaceY + 2) { return BLOCK.AIR }
   // eslint-disable-next-line no-undefined -- Absence preserves blocks outside road surface/headroom.
   return undefined
-}
-
-/** Writes only the current chunk's slice; no loaded-neighbour state is observed. */
-// eslint-disable-next-line max-params, max-statements -- Chunk mutation needs buffer, identity, coordinate and sampler.
-export const writeVillageBlocksForChunk = (
-  blocks: Uint8Array,
-  seed: number,
-  coord: ChunkCoord,
-  sampleTerrain: VillageTerrainSampler,
-): void => {
-  const sites = villageSitesNearChunk(seed, coord.cx, coord.cz, sampleTerrain)
-  for (const site of sites) {
-    // eslint-disable-next-line no-magic-numbers -- Local chunk coordinates advance one block at a time.
-    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      const wz = worldZ(coord, lz)
-      // eslint-disable-next-line no-magic-numbers -- Local chunk coordinates advance one block at a time.
-      for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-        const wx = worldX(coord, lx)
-        const { surfaceY } = sampleTerrain(wx, wz)
-        // eslint-disable-next-line id-length, no-magic-numbers -- 24 covers foundations through roof on accepted terrain.
-        for (let y = surfaceY; y < Math.min(CHUNK_HEIGHT, surfaceY + 24); y += 1) {
-          const block = villageBlockAt(site, wx, y, wz, sampleTerrain)
-          // eslint-disable-next-line no-undefined -- Undefined means the existing terrain remains unchanged.
-          if (block !== undefined) { setBlockAt(blocks, lx, y, lz, block) }
-        }
-      }
-    }
-  }
 }

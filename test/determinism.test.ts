@@ -18,9 +18,8 @@ import { generateChunk, generateChunkAt, surfaceHeightAt } from '../src/domain/t
  * (`packages/world/test/terrain-determinism.test.ts`) and it earns its keep: it
  * is what kept the unseeded `Math.random` fallback at
  * `packages/world/domain/perlin.ts:42` from ever being reached. This repository
- * removed that fallback outright (see `domain/seeded-random.ts`), but the test
- * still belongs here, because the next way to lose determinism will be a
- * different one.
+ * uses the direct `mc-noise` sampler instead, but the test still belongs here,
+ * because the next way to lose determinism will be a different one.
  */
 
 const SEED = 1337

@@ -30,7 +30,7 @@
  *
  *   blocksSha256  <- I-1  every byte is a declared GENERATED id
  *                   I-2  bedrock floor under all 256 columns
- *                   I-3  water surface is exactly SEA_LEVEL          (DN-1)
+ *                   I-3  water surface is exactly its biome level   (DN-1)
  *                   I-4  no air inside the shell under water         (DN-2)
  *                   I-4b and the guard is what causes I-4            (DN-2)
  *                   I-5  LEAVES == trees * 20, so no fused canopy    (F-2)
@@ -76,6 +76,7 @@ import {
   SEA_LEVEL,
   WATER_FLOOR_MARGIN,
 } from '../src/domain/constants'
+import { RIVER_WATER_LEVEL } from '../src/domain/lake-config'
 import { ORE_IDS } from '../src/domain/ore'
 import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
 import { PLANT_IDS } from '../src/domain/vegetation'
@@ -374,10 +375,10 @@ describe('what backs the block digest', () => {
   )
 
   /**
-   * I-3 — docs/design-notes.md DN-1. `SEA_LEVEL` is 63 and `LAKE_LEVEL` is the
-   * same value; plan.md §3.7's 48 and 62 are both wrong. A golden regenerated on
-   * top of a world whose water had moved to 48 would sail through the digest
-   * comparison and fail here.
+   * I-3 — docs/design-notes.md DN-1. Ordinary water and inland lakes use
+   * `SEA_LEVEL` (63), while rivers use their dedicated level (62). A golden
+   * regenerated on top of a world whose water had moved to another level would
+   * sail through the digest comparison and fail here.
    */
   it.effect('I-3: water stops exactly at SEA_LEVEL and never rises above LAKE_LEVEL', () =>
     Effect.sync(() => {
@@ -395,7 +396,8 @@ describe('what backs the block digest', () => {
             }
             if (top >= 0) {
               wetColumns += 1
-              expect(top, `${describeSpec(spec)} water surface is not SEA_LEVEL`).toBe(SEA_LEVEL)
+              const expectedWaterSurface = spec.biome === 'RIVER' ? RIVER_WATER_LEVEL : SEA_LEVEL
+              expect(top, `${describeSpec(spec)} water surface is not its biome level`).toBe(expectedWaterSurface)
             }
           }
         }
@@ -478,8 +480,11 @@ describe('what backs the block digest', () => {
 
   it.effect('I-4b: and the guard is what does it — without it, 200+ columns of (4, 9) go hollow', () =>
     Effect.sync(() => {
-      const guarded = generateChunkAt(GOLDEN_SEED, 4, 9)
-      const unguarded = generateChunkAt(GOLDEN_SEED, 4, 9, { carve: { waterFloorMargin: 0 } })
+      const guarded = generateChunkAt(GOLDEN_SEED, 4, 9, { decorate: false })
+      const unguarded = generateChunkAt(GOLDEN_SEED, 4, 9, {
+        decorate: false,
+        carve: { waterFloorMargin: 0 },
+      })
 
       expect(airInShell(guarded)).toBe(0)
       // Measured 229 of 256. The bound is loose because the point is that the
@@ -524,7 +529,7 @@ describe('what backs the biome digest', () => {
    * This rebuilds the same array through `biomeFor` one column at a time — a
    * different path to the same claim, so agreement is evidence rather than a
    * restatement. It is also the check that would catch the field being filled
-   * with a placeholder: an array of 256 'PLAINS' hashes perfectly well.
+   * with a default value: an array of 256 'PLAINS' hashes perfectly well.
    */
   it.effect('I-6: the stored biome array agrees with biomeFor recomputed per column', () =>
     Effect.sync(() => {

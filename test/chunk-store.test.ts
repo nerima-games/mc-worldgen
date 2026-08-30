@@ -74,7 +74,7 @@ const withStore = <A>(
   Effect.flatMap(ChunkStore, body).pipe(Effect.provide(flatWorld))
 
 describe('generated chunk sources', () => {
-  it.effect('selects deterministic terrain by dimension without changing the legacy source', () =>
+  it.effect('selects deterministic terrain by dimension without changing the default Overworld source', () =>
     Effect.gen(function* () {
       const coord = chunkCoord(0, 0)
       const legacy = yield* generatedChunkSource(42)(coord)

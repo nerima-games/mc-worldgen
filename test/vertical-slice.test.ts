@@ -17,8 +17,8 @@
  * The RULE half of the scenario is written out below rather than imported.
  * That is not a shortcut, it is the architecture: "sand falls when unsupported"
  * is a verb and verbs live in mx-gameplay (plan.md §2.3-1), which this
- * repository must not depend on — that edge does not exist in plan.md §2.1 and
- * `pnpm check:deps` rejects it. What is asserted here is therefore precisely
+ * repository must not depend on — that edge is intentionally absent from the
+ * dependency graph. What is asserted here is therefore precisely
  * "the store AFFORDS the rule", which is the claim that was in doubt. The rule
  * itself, and the same scenario driven through mx-gameplay's real
  * `FallingBlockQueue`, is `mx-gameplay/test/vertical-slice.test.ts`.
@@ -30,7 +30,7 @@
  *  2. something answers "which chunks changed since I last looked" —
  *     `ChunkStore.subscribeDirty`, with the writer in another repository;
  *  3. `fallsWhenUnsupported` is answerable from a chunk buffer BYTE — kernel's
- *     `capabilityOfBlockId`, restated below because kernel is not published.
+ *     `capabilityOfBlockId`.
  *
  * Note what does NOT appear anywhere in the rule: a block name. The reference
  * implementation asked `blockTypeToIndex('SAND')` in 229 places across 51 files
@@ -45,30 +45,16 @@ import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import type { ChunkDirtyBatch } from '../src/domain/chunk-store-state'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { blockPosition, chunkCoord, type BlockId, type BlockPosition } from '@nerima-games/mc-kernel'
+import {
+  blockPosition,
+  capabilityOfBlockId,
+  chunkCoord,
+  type BlockId,
+  type BlockPosition,
+} from '@nerima-games/mc-kernel'
 
-// ---------------------------------------------------------------------------
-// The capability half, restated from mc-kernel/domain/block-registry.ts
-// ---------------------------------------------------------------------------
-
-/**
- * Kernel's `capabilityOfBlockId(id, 'fallsWhenUnsupported')` and
- * `(id, 'replaceable')`, for the ids this scenario uses.
- *
- * Restated rather than imported for the reason `mc-kernel`
- * gives: mc-kernel is not published (plan.md §6 Step 3), and this repository's
- * shipped code deliberately does not mirror the block TABLE — mc-worldgen never
- * asks what a block does. A test may, because a test is standing in for
- * mx-gameplay here.
- *
- * When kernel is published these two become
- * `capabilityOfBlockId(id, 'fallsWhenUnsupported')` and the rows disappear.
- */
-const FALLS_WHEN_UNSUPPORTED: ReadonlySet<number> = new Set([BLOCK.SAND, BLOCK.GRAVEL])
-const REPLACEABLE: ReadonlySet<number> = new Set([BLOCK.AIR, BLOCK.WATER])
-
-const fallsWhenUnsupported = (id: number): boolean => FALLS_WHEN_UNSUPPORTED.has(id)
-const replaceable = (id: number): boolean => REPLACEABLE.has(id)
+const fallsWhenUnsupported = (id: number): boolean => capabilityOfBlockId(id, 'fallsWhenUnsupported')
+const replaceable = (id: number): boolean => capabilityOfBlockId(id, 'replaceable')
 
 // ---------------------------------------------------------------------------
 // The world

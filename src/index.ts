@@ -1,7 +1,7 @@
 /**
  * @nerima-games/mc-worldgen — biomes, terrain, carvers and vegetation.
  *
- * PRE-AUDIT FIRST CUT (叩き台). See README.md 現状.
+ * This package exposes the current generation API and its domain types.
  *
  * mc-worldgen is tier 2 of the four-tier architecture (plan.md §2.2): a
  * foundation that owns state and services — nouns — on which the experience
@@ -28,13 +28,20 @@ export * from './domain/biome'
 export * from './domain/biome-classifier'
 export * from './domain/carver'
 export * from './domain/chunk'
+export { chunkCoord } from '@nerima-games/mc-kernel'
+export type { ChunkCoord } from '@nerima-games/mc-kernel'
 export { CHUNK_FORMAT } from './domain/chunk-format'
 export * from './domain/chunk-store-state'
 export * from './domain/constants'
+export * from './domain/end-features'
+export * from './domain/end-gateway'
 export * from './domain/end-terrain'
+export * from './domain/end-vegetation'
 export * from './domain/end-portal'
 export * from './domain/light'
 export * from './domain/natural-structure'
+export * from './domain/nether-fortress'
+export * from './domain/nether-link'
 export * from './domain/nether-terrain'
 // `Dimension` is published from here, and that is a DECISION rather than a
 // Widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
@@ -57,7 +64,8 @@ export * from './domain/nether-terrain'
 // Rewrite.
 export * from './domain/nether-travel'
 export * from './domain/portal-frame'
-export * from './domain/seeded-random'
+export * from './domain/portal-registry'
+export * from './domain/portal-registry-format'
 export * from './domain/structure-siting'
 export * from './domain/stronghold'
 export * from './domain/terrain'
@@ -67,4 +75,5 @@ export * from './domain/village'
 // --- Application: Effect services -------------------------------------------
 export * from './application/chunk-store'
 export * from './application/chunk-persistence'
+export * from './application/portal-registry'
 export * from './application/terrain-worker-pool-port'

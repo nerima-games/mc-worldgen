@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { channelSeed, fbm2D } from '../src/domain/seeded-random'
+import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
 import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from '../src/domain/terrain'
 
 /**

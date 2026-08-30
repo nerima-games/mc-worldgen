@@ -21,6 +21,7 @@
  * `biome-classifier.ts`: temperature, humidity, continentalness, erosion, pv,
  * riverNoise) and applies the height and river refinements separately.
  */
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 import {
   HUM_DRY,
   HUM_JUNGLE,
@@ -34,7 +35,6 @@ import {
   TEMP_HOT,
   TEMP_JUNGLE,
 } from './biome-classifier.config'
-import { BlockId } from '@nerima-games/mc-kernel'
 
 export const BIOMES = [
   'PLAINS',
@@ -110,69 +110,42 @@ export type BiomeSurface = {
  * new one, precisely so that adopting the registry costs an import change here
  * and not a regeneration of every golden terrain fixture.
  *
- * `test/kernel-mirror.test.ts` pins the agreement in both directions. Changing
- * a number here is changing a save format; see the registry's header.
+ * `blockIdOf` is the runtime source of truth, and the domain tests exercise
+ * the mapping through generated blocks and format fixtures. Changing a number
+ * here is changing a save format; see the registry's header.
  *
  * The names are this repository's generation vocabulary (`GRASS`, `LOG`,
  * `LEAVES`) rather than kernel's `BlockType` literals (`grass_block`,
- * `oak_log`, `oak_leaves`); the mapping is in that same mirror test.
+ * `oak_log`, `oak_leaves`); the mapping is in the constants below and those
+ * tests.
  *
  * ---------------------------------------------------------------------------
- * OBSIDIAN, and why this comment no longer says "the ids this generator WRITES"
+ * KERNEL-OWNED BLOCK IDS
  * ---------------------------------------------------------------------------
  *
- * The first eleven ids share a property that `OBSIDIAN` does not: every one of
- * them is placed by `../domain/terrain.ts` while filling a column. Obsidian is
- * placed by nothing yet. It is here because `../domain/portal-frame.ts` READS
- * it — a portal frame is defined by it — and because plan.md §3.7 gives this
- * repository 「構造物（村/ポータル/End）」, so the generator that writes it is a
- * structure this repository owes rather than one it will never have.
+ * Every value below comes from mc-kernel's `blockIdOf`; this module only keeps
+ * the shorter vocabulary used by generation passes. `OBSIDIAN` is included
+ * because portal and structure logic reads and writes it. `nether_portal` is
+ * intentionally absent: generation detects the frame and never writes the
+ * lit portal block itself.
  *
- * The heading was rewritten instead of the row being quietly appended under it,
- * because "the ids this generator writes" would have become false on the line
- * it was documenting. Its number, 40, is transcribed from kernel's
- * `BLOCK_REGISTRY` (`block-registry.ts:1269`) rather than chosen here: unlike
- * the eleven above, this one is kernel's assignment and this repository is the
- * one adopting it. `test/kernel-mirror.test.ts` pins it in both directions with
- * the rest.
- *
- * `nether_portal` (kernel id 118) is deliberately NOT here. Detection refuses a
- * frame whose interior is not AIR, so the rule never names the lit block, and an
- * id in this table that nothing reads is an id nobody notices going stale.
  */
-/**
- * The raw `mc-kernel` `BLOCK_REGISTRY` ids named above, kept as their own
- * table so the id itself carries the kernel block name rather than sitting as
- * an unnamed literal inside the `BlockId(...)` calls below.
- */
-const KERNEL_BLOCK_ID = {
-  AIR: 0,
-  BEDROCK: 1,
-  DIRT: 3,
-  GRASS_BLOCK: 4,
-  GRAVEL: 8,
-  OAK_LEAVES: 10,
-  OAK_LOG: 9,
-  OBSIDIAN: 40,
-  SAND: 5,
-  SNOW: 7,
-  STONE: 2,
-  WATER: 6,
-} as const
-
 export const BLOCK = {
-  AIR: BlockId(KERNEL_BLOCK_ID.AIR),
-  BEDROCK: BlockId(KERNEL_BLOCK_ID.BEDROCK),
-  DIRT: BlockId(KERNEL_BLOCK_ID.DIRT),
-  GRASS: BlockId(KERNEL_BLOCK_ID.GRASS_BLOCK),
-  GRAVEL: BlockId(KERNEL_BLOCK_ID.GRAVEL),
-  LEAVES: BlockId(KERNEL_BLOCK_ID.OAK_LEAVES),
-  LOG: BlockId(KERNEL_BLOCK_ID.OAK_LOG),
-  OBSIDIAN: BlockId(KERNEL_BLOCK_ID.OBSIDIAN),
-  SAND: BlockId(KERNEL_BLOCK_ID.SAND),
-  SNOW: BlockId(KERNEL_BLOCK_ID.SNOW),
-  STONE: BlockId(KERNEL_BLOCK_ID.STONE),
-  WATER: BlockId(KERNEL_BLOCK_ID.WATER),
+  AIR: blockIdOf('air'),
+  BEDROCK: blockIdOf('bedrock'),
+  DEEPSLATE: blockIdOf('deepslate'),
+  DIRT: blockIdOf('dirt'),
+  GRASS: blockIdOf('grass_block'),
+  GRAVEL: blockIdOf('gravel'),
+  ICE: blockIdOf('ice'),
+  LAVA: blockIdOf('lava'),
+  LEAVES: blockIdOf('oak_leaves'),
+  LOG: blockIdOf('oak_log'),
+  OBSIDIAN: blockIdOf('obsidian'),
+  SAND: blockIdOf('sand'),
+  SNOW: blockIdOf('snow'),
+  STONE: blockIdOf('stone'),
+  WATER: blockIdOf('water'),
 } as const
 
 export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {

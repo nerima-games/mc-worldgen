@@ -6,6 +6,7 @@ import { Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks } from '../src/domain/chunk'
 import { chunkCoord } from '@nerima-games/mc-kernel'
+import { candidatePresenceChannelSeedFor } from '../src/domain/natural-structure-plan-builder'
 import {
   applyNaturalStructurePlansToChunk,
   MAX_NATURAL_STRUCTURE_BLOCKS,
@@ -15,13 +16,16 @@ import {
   type NaturalStructurePlan,
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
+  planDesertPyramidForRegion,
   planEndCityForRegion,
   planRuinedNetherPortalForRegion,
   planVillageForRegion,
 } from '../src/domain/natural-structure'
-import type { VillageTerrainSampler } from '../src/domain/structure-siting'
+import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { generateChunk } from '../src/domain/terrain'
 
-const FLAT_PLAINS: VillageTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
+const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
+const FLAT_DESERT: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })
 const FLAT_NETHER = () => ({ ceilingY: 96, surfaceY: 48 })
 const FLAT_END = () => 70
 
@@ -38,6 +42,16 @@ const findVillage = (seed: number): NaturalStructurePlan => {
     }
   }
   throw new Error('village search range exhausted')
+}
+
+const findDesertPyramid = (seed: number): NaturalStructurePlan => {
+  for (let regionX = -12; regionX <= 12; regionX += 1) {
+    for (let regionZ = -12; regionZ <= 12; regionZ += 1) {
+      const plan = planDesertPyramidForRegion(seed, regionX, regionZ, FLAT_DESERT)
+      if (Option.isSome(plan)) return plan.value
+    }
+  }
+  throw new Error('desert pyramid search range exhausted')
 }
 
 const findPortal = (seed: number): NaturalStructurePlan => {
@@ -66,21 +80,43 @@ const positionKey = (position: { readonly x: number; readonly y: number; readonl
   `${String(position.x)},${String(position.y)},${String(position.z)}`
 
 describe('natural structure plans', () => {
+  it('accepts an explicit presence channel while preserving the candidate', () => {
+    const seed = 0x3456
+    const portal = findPortal(seed)
+    const expected = planRuinedNetherPortalForRegion(
+      seed,
+      portal.region.x,
+      portal.region.z,
+      FLAT_NETHER,
+    )
+    const explicit = planRuinedNetherPortalForRegion(
+      seed,
+      portal.region.x,
+      portal.region.z,
+      FLAT_NETHER,
+      candidatePresenceChannelSeedFor(seed, 'nether', 'ruined-nether-portal'),
+    )
+
+    expect(explicit).toStrictEqual(expected)
+  })
+
   it('are deterministic, immutable, and carry actionable semantic markers', () => {
-    const firstPlans: readonly [NaturalStructurePlan, NaturalStructurePlan, NaturalStructurePlan] = [
+    const firstPlans: readonly [NaturalStructurePlan, NaturalStructurePlan, NaturalStructurePlan, NaturalStructurePlan] = [
+      findDesertPyramid(0x1234),
       findVillage(0x1234),
       findPortal(0x1234),
       findEndCity(0x1234),
     ]
-    const [village, portal, endCity] = firstPlans
+    const [desertPyramid, village, portal, endCity] = firstPlans
     const repeatedPlans = [
+      unwrap(planDesertPyramidForRegion(0x1234, desertPyramid.region.x, desertPyramid.region.z, FLAT_DESERT)),
       unwrap(planVillageForRegion(0x1234, village.region.x, village.region.z, FLAT_PLAINS)),
       unwrap(planRuinedNetherPortalForRegion(0x1234, portal.region.x, portal.region.z, FLAT_NETHER)),
       unwrap(planEndCityForRegion(0x1234, endCity.region.x, endCity.region.z, FLAT_END)),
     ]
 
     expect(repeatedPlans).toStrictEqual(firstPlans)
-    expect(firstPlans.map((plan) => plan.dimension)).toStrictEqual(['overworld', 'nether', 'end'])
+    expect(firstPlans.map((plan) => plan.dimension)).toStrictEqual(['overworld', 'overworld', 'nether', 'end'])
     for (const plan of firstPlans) {
       expect(Object.isFrozen(plan)).toBe(true)
       expect(Object.isFrozen(plan.blocks)).toBe(true)
@@ -93,6 +129,8 @@ describe('natural structure plans', () => {
         expect(plan.blocks).toContainEqual({ block: NATURAL_STRUCTURE_BLOCK.CHEST, x: marker.x, y: marker.y, z: marker.z })
       }
     }
+    expect(desertPyramid.kind).toBe('desert-pyramid')
+    expect(desertPyramid.markers).toContainEqual(expect.objectContaining({ kind: 'loot-chest', lootTable: 'desert-pyramid' }))
     expect(village.markers.some((marker) => marker.kind === 'entity-spawn')).toBe(true)
     expect(portal.markers.some((marker) => marker.kind === 'portal-frame' && !marker.complete)).toBe(true)
     expect(endCity.markers.some((marker) => marker.kind === 'spawner')).toBe(true)
@@ -100,8 +138,8 @@ describe('natural structure plans', () => {
   })
 
   it('changes candidates with the seed and keeps every origin inside the separation margin', () => {
-    const firstSeed = [findVillage(111), findPortal(111), findEndCity(111)]
-    const secondSeed = [findVillage(222), findPortal(222), findEndCity(222)]
+    const firstSeed = [findDesertPyramid(111), findVillage(111), findPortal(111), findEndCity(111)]
+    const secondSeed = [findDesertPyramid(222), findVillage(222), findPortal(222), findEndCity(222)]
     expect(secondSeed.map((plan) => `${plan.kind}:${positionKey(plan.origin)}`)).not.toStrictEqual(
       firstSeed.map((plan) => `${plan.kind}:${positionKey(plan.origin)}`),
     )
@@ -119,16 +157,30 @@ describe('natural structure plans', () => {
   })
 
   it('rejects unsuitable biome, relief, headroom, and absent End terrain', () => {
+    const desertPyramid = findDesertPyramid(333)
     const village = findVillage(333)
     const portal = findPortal(333)
     const endCity = findEndCity(333)
-    const desert: VillageTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })
-    const steepVillage: VillageTerrainSampler = (x, z) => ({
+    const desert: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })
+    const steepVillage: OverworldTerrainSampler = (x, z) => ({
       biome: 'PLAINS',
       seaLevel: 63,
       surfaceY: x === village.origin.x && z === village.origin.z ? 90 : 70,
     })
+    const steepDesert: OverworldTerrainSampler = (x, z) => ({
+      biome: 'DESERT',
+      seaLevel: 63,
+      surfaceY: x === desertPyramid.origin.x && z === desertPyramid.origin.z ? 90 : 70,
+    })
 
+    expect(Option.isNone(planDesertPyramidForRegion(333, desertPyramid.region.x, desertPyramid.region.z, FLAT_PLAINS))).toBe(true)
+    expect(Option.isNone(planDesertPyramidForRegion(
+      333,
+      desertPyramid.region.x,
+      desertPyramid.region.z,
+      () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 63 }),
+    ))).toBe(true)
+    expect(Option.isNone(planDesertPyramidForRegion(333, desertPyramid.region.x, desertPyramid.region.z, steepDesert))).toBe(true)
     expect(Option.isNone(planVillageForRegion(333, village.region.x, village.region.z, desert))).toBe(true)
     expect(Option.isNone(planVillageForRegion(333, village.region.x, village.region.z, steepVillage))).toBe(true)
     expect(Option.isNone(planRuinedNetherPortalForRegion(
@@ -150,6 +202,17 @@ describe('natural structure plans', () => {
       endCity.region.z,
       (x) => x === endCity.origin.x ? 70 : 80,
     ))).toBe(true)
+  })
+
+  it('rejects an End city candidate inside the central island before sampling terrain', () => {
+    let sampleCount = 0
+    const plan = planEndCityForRegion(0, 0, -1, () => {
+      sampleCount += 1
+      return 70
+    })
+
+    expect(Option.isNone(plan)).toBe(true)
+    expect(sampleCount).toBe(0)
   })
 
   it('splits a negative-coordinate city across chunks without load-order coupling', () => {
@@ -192,7 +255,7 @@ describe('natural structure plans', () => {
   })
 
   it('enforces plan caps and uses only existing registry block ids', () => {
-    const plans = [findVillage(555), findPortal(555), findEndCity(555)]
+    const plans = [findDesertPyramid(555), findVillage(555), findPortal(555), findEndCity(555)]
     const registered = new Set<number>(BLOCK_IDS)
     for (const blockId of Object.values(NATURAL_STRUCTURE_BLOCK)) expect(registered.has(blockId)).toBe(true)
     for (const plan of plans) {
@@ -226,25 +289,53 @@ describe('natural structure plans', () => {
     }
   })
 
-  it('drives the Overworld path through naturalStructurePlansForChunk directly, since no generator wires it up yet', () => {
-    // `terrain.ts` never calls `naturalStructurePlansForChunk` with
-    // `dimension: 'overworld'` — villages are only reachable today through
-    // `planVillageForRegion` directly, which every other test in this file
-    // uses. This function's `dimension === 'overworld'` path (both in
-    // `naturalStructureKindFor` and in `planForRegion`) is real, exported,
-    // documented behaviour for whichever caller wires up the Overworld next,
-    // so it is exercised here rather than left for that future caller to
-    // discover broken.
-    const seed = 0x1234
-    const village = findVillage(seed)
-    const coord = chunkCoord(
-      Math.floor(village.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(village.origin.z / CHUNK_SIZE_XZ),
-    )
+  it('applies Overworld village plans through generateChunk', () => {
+    const generated = generateChunk(20260726, chunkCoord(-207, 67))
+    const markerChunk = generateChunk(20260726, chunkCoord(-208, 67))
+    const villageId = 'village:20260726:-21:6'
 
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', coord, { overworld: FLAT_PLAINS })
+    expect(generated.naturalStructureIds).toContain(villageId)
+    expect(markerChunk.naturalStructureMarkers.some((marker) => marker.structureId === villageId)).toBe(true)
+  })
 
-    expect(plans.some((plan) => plan.id === village.id)).toBe(true)
+  it('enumerates and slices Overworld desert pyramids through the shared planner', () => {
+    const plan = findDesertPyramid(999)
+    const coord = chunkCoord(Math.floor(plan.origin.x / CHUNK_SIZE_XZ), Math.floor(plan.origin.z / CHUNK_SIZE_XZ))
+    const plans = naturalStructurePlansForChunk(999, 'overworld', coord, { overworld: FLAT_DESERT })
+    const matched = plans.find((candidate) => candidate.id === plan.id)
+    if (matched === undefined) throw new Error('expected desert pyramid in Overworld chunk plans')
+
+    const slice = naturalStructureSliceForChunk(matched, coord.cx, coord.cz)
+    expect(slice.blocks.length + slice.markers.length).toBeGreaterThan(0)
+    expect(slice.blocks.every(({ x, z }) =>
+      Math.floor(x / CHUNK_SIZE_XZ) === coord.cx && Math.floor(z / CHUNK_SIZE_XZ) === coord.cz)).toBe(true)
+    expect(slice.markers.every(({ x, z }) =>
+      Math.floor(x / CHUNK_SIZE_XZ) === coord.cx && Math.floor(z / CHUNK_SIZE_XZ) === coord.cz)).toBe(true)
+    expect(matched.markers).toContainEqual(expect.objectContaining({ kind: 'loot-chest', lootTable: 'desert-pyramid' }))
+  })
+
+  it('does not record a plan id when its declared bounds overlap but placements miss the chunk', () => {
+    const plan: NaturalStructurePlan = Object.freeze({
+      blocks: Object.freeze([{ block: NATURAL_STRUCTURE_BLOCK.CHEST, x: CHUNK_SIZE_XZ, y: 1, z: CHUNK_SIZE_XZ }]),
+      bounds: Object.freeze({ maxX: 0, maxY: 1, maxZ: 0, minX: 0, minY: 1, minZ: 0 }),
+      dimension: 'overworld',
+      id: 'bounds-only-overlap',
+      kind: 'desert-well',
+      markers: Object.freeze([]),
+      origin: Object.freeze({ x: 0, y: 1, z: 0 }),
+      region: Object.freeze({ x: 0, z: 0 }),
+    })
+    const terrain = {
+      biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const),
+      blocks: emptyBlocks(),
+      coord: chunkCoord(0, 0),
+    }
+
+    const applied = applyNaturalStructurePlansToChunk(terrain, [plan])
+
+    expect(applied.naturalStructureIds).toStrictEqual([])
+    expect(applied.naturalStructureMarkers).toStrictEqual([])
+    expect(applied.blocks).toStrictEqual(terrain.blocks)
   })
 
   it('answers no plans for a dimension whose sampler was not supplied, rather than throwing', () => {

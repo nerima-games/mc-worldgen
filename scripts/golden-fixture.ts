@@ -88,7 +88,7 @@ import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../src/domain/carver'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, SEA_LEVEL } from '../src/domain/constants'
-import { ORE_BLOCK } from '../src/domain/ore'
+import { DEEPSLATE_ORE_BLOCK, ORE_BLOCK } from '../src/domain/ore'
 import { generateChunkAt } from '../src/domain/terrain'
 import { PLANT } from '../src/domain/vegetation'
 
@@ -192,6 +192,7 @@ export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
 export const BLOCK_NAMES: ReadonlyArray<readonly [string, number]> = [
   ...Object.entries(BLOCK),
   ...Object.entries(ORE_BLOCK).map(([name, id]) => [`${name}_ORE`, id] as const),
+  ...Object.entries(DEEPSLATE_ORE_BLOCK).map(([name, id]) => [`DEEPSLATE_${name}_ORE`, id] as const),
   ...Object.entries(PLANT),
 ].map(([name, id]) => [name, id] as const)
 

@@ -14,7 +14,7 @@ $ pnpm preview --once --ascii   # 1 フレームを文字で標準出力へ（is
 ```
 
 `pnpm verify` はこれを実行しない。ただし `pnpm typecheck`（`tsconfig.preview.json`）と
-`pnpm lint` と `pnpm check:deps` の対象には**入っている**。
+`pnpm lint` の対象には**入っている**。
 
 ## 3D ではなくターミナルに描いている理由
 
@@ -102,9 +102,10 @@ $ pnpm preview --seed 4242 --view slice --x -100 --z 60
 
 ## ポータル枠を見る（`p` / `k` / `--portal`）
 
-`domain/portal-frame.ts` の `detectNetherPortal` は**生成器を持たないルール**である。
-黒曜石を書くコードはこのリポジトリにまだ無い（責務表の 構造物 は ⬜）ので、
-どのシードのどの座標を飛んでも portal は出てこない。
+`domain/portal-frame.ts` の `detectNetherPortal` は、プレイヤーが置いた通常の
+ポータル枠を検出するルールであり、その通常枠を地形生成する機能ではない。
+このリポジトリには ruined portal の生成器はあるが、通常のポータル枠とは別の構造物なので、
+どのシードのどの座標を飛んでも通常枠の portal は地形から出てこない。
 そこで `p` は**オーバーレイ**を置く。地形そのものは 1 バイトも書き換えない。
 
 ```console

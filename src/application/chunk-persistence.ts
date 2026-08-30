@@ -5,8 +5,8 @@ import {
   SaveKey,
   type StorageError,
   StoragePort,
-  decodeSave,
-  encodeSave,
+  loadFrom,
+  saveTo,
 } from '@nerima-games/mc-save'
 import { CHUNK_FORMAT } from '../domain/chunk-format'
 import type { Chunk } from '../domain/chunk'
@@ -40,15 +40,11 @@ export const makeChunkPersistence = (
 ): Effect.Effect<ChunkPersistence, never, StoragePort> =>
   Effect.map(StoragePort, (storage) => ({
     load: (coord) =>
-      Effect.flatMap(
-        storage.get(chunkSaveKey(context, coord)),
-        Option.match({
-          onNone: () => Effect.succeed(Option.none<Chunk>()),
-          onSome: (envelope) => Effect.map(decodeSave(CHUNK_FORMAT, envelope), Option.some),
-        }),
+      loadFrom(CHUNK_FORMAT, chunkSaveKey(context, coord)).pipe(
+        Effect.provideService(StoragePort, storage),
       ),
     save: (chunk) =>
-      Effect.flatMap(encodeSave(CHUNK_FORMAT, chunk), (envelope) =>
-        storage.put(chunkSaveKey(context, chunk.coord), envelope),
+      saveTo(CHUNK_FORMAT, chunkSaveKey(context, chunk.coord), chunk).pipe(
+        Effect.provideService(StoragePort, storage),
       ),
   }))

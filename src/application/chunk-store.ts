@@ -185,7 +185,7 @@ export type ChunkStoreApi = {
    *
    * `computeChunkLights` solves all resident chunks together, including
    * horizontal seams. A complete cache takes the incremental fixed-point path
-   * in `domain/light.ts`; a cold or partial cache uses the same resident-set
+   * in `src/domain/light-update.ts`; a cold or partial cache uses the same resident-set
    * oracle lazily.
    */
   readonly getLight: (position: BlockPosition) => Effect.Effect<Store.LightReading>

@@ -86,7 +86,7 @@
     // object-curly-spacing, one-var, operator-linebreak, padded-blocks,
     // quote-props, semi-spacing, space-before-blocks, space-infix-ops,
     // space-unary-ops, spaced-comment — do not exist as oxlint rules under
-    // oxlint 1.76.0. Verified empirically: once this file is actually loaded
+    // oxlint 1.75.0. Verified empirically: once this file is actually loaded
     // (see the `oxlint.json` -> `.oxlintrc.json` rename), `oxlint
     // --print-config` fails outright with `Rule 'X' not found in plugin
     // 'eslint'` for every one of them. They were carried over from an
@@ -105,7 +105,7 @@
     // Schema/Context names are third-party exports this repository cannot
     // rename. `ChunkStoreLayer`/`PersistentChunkStoreLayer` are this file's
     // own Effect `Layer` factories, named per that same convention. Verified
-    // empirically (oxlint 1.76.0, matching the mc-noise precedent):
+    // empirically (oxlint 1.75.0, matching the mc-noise precedent):
     // `capIsNewExceptions` matches a member expression's rightmost segment
     // (`Schema.Struct` matches on `"Struct"`) as well as a bare identifier, so
     // this is a scoped rule option, not a suppression — every other
@@ -127,7 +127,7 @@
         ]
       }
     ],
-    // Verified empirically (oxlint 1.76.0) against every id-length violation
+    // Verified empirically (oxlint 1.75.0) against every id-length violation
     // in src/: this domain's block/world coordinate vocabulary — x/y/z
     // (spatial coordinates; the public block-position and portal-frame APIs
     // use these names, so renaming them would be a breaking change, not a
@@ -233,7 +233,7 @@
   //    no-useless-concat, prefer-template, no-void: fire on ordinary
   //    CLI-reporting/fixture-setup code in these directories (verified per
   //    directory below), not on src/.
-  // Verified empirically (oxlint 1.76.0, matching mc-noise's note): `files`
+  // Verified empirically (oxlint 1.75.0, matching mc-noise's note): `files`
   // glob-matches relative to this config file and layers on top of the base
   // `rules` block above rather than replacing it — `no-eval` and the
   // `no-restricted-imports` Tier2 dependency rule still apply inside these

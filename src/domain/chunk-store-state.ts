@@ -788,8 +788,8 @@ export const chunkSnapshotOf = (chunk: Chunk): Chunk => ({
  * Shaped to satisfy mc-meshing's `ChunkNeighbours` STRUCTURALLY (its
  * `domain/chunk-view.ts`: four optional `{ blocks }` values, `yPos`/`yNeg`
  * absent because chunks are full-height columns). mc-worldgen must not import
- * mc-meshing — that edge is not in plan.md §2.1's graph and `pnpm check:deps`
- * rejects it — so the compatibility is structural rather than nominal, and
+ * mc-meshing — that edge is intentionally absent from the dependency graph —
+ * so the contract is structural rather than a nominal import, and
  * mc-render, which depends on both, passes the result straight through.
  *
  * This closes the gap the vertical-slice spike found: meshing has no coordinate

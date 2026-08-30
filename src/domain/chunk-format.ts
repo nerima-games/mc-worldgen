@@ -124,8 +124,18 @@ import {
   type AppliedNaturalStructureMarker,
   type NaturalStructureChunk,
 } from './natural-structure'
+import {
+  BlockAxis,
+  BlockId,
+  type BlockPosition,
+  ChunkAxis,
+  type ChunkCoord,
+} from '@nerima-games/mc-kernel'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants'
-import { ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel'
+import {
+  type EndFeatureChunk,
+  type EndFeatureMarker,
+} from './end-features'
 import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
 import { CHUNK_BIOMES } from './biome'
 import { type Chunk } from './chunk'
@@ -155,6 +165,8 @@ export const CHUNK_FORMAT_NAME = '@nerima-games/mc-worldgen/chunk'
  * header records the measurement and why that is not a reason to rely on it.
  */
 const ChunkAxisFromNumber = Schema.Number.pipe(Schema.fromBrand(ChunkAxis))
+const BlockAxisFromNumber = Schema.Number.pipe(Schema.fromBrand(BlockAxis))
+const BlockIdFromNumber = Schema.Number.pipe(Schema.fromBrand(BlockId))
 
 const ChunkCoordSchema: Schema.Schema<ChunkCoord, { readonly cx: number; readonly cz: number }> =
   Schema.Struct({ cx: ChunkAxisFromNumber, cz: ChunkAxisFromNumber })
@@ -180,8 +192,8 @@ const ChunkBlocksSchema = Schema.Uint8ArrayFromBase64.pipe(
 /**
  * The biome column, as a closed literal roster.
  *
- * `BIOMES` IS A SAVE FORMAT, in the same way `test/kernel-mirror.test.ts` says
- * the block ids are: an entry that changes spelling is a world whose deserts
+ * `BIOMES` IS A SAVE FORMAT, just as the block-registry ids returned by
+ * `blockIdOf` are: an entry that changes spelling is a world whose deserts
  * load as something else. Encoding the NAME rather than an index is what makes
  * that safe in one direction — reordering `BIOMES` cannot corrupt a save,
  * because nothing here depends on the order.
@@ -202,7 +214,7 @@ const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(
   }),
 )
 
-const NaturalStructureKindSchema = Schema.Literal('village', 'ruined-nether-portal', 'end-city')
+const NaturalStructureKindSchema = Schema.Literal('ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city')
 
 const NaturalStructureMarkerFields = {
   structureId: Schema.String,
@@ -217,7 +229,7 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     kind: Schema.Literal('loot-chest'),
-    lootTable: Schema.Literal('village', 'ruined-nether-portal', 'end-city', 'end-ship'),
+    lootTable: Schema.Literal('ancient-city', 'buried-treasure', 'desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
@@ -227,7 +239,27 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literal('shulker'),
+    entity: Schema.Literal('zombie-villager'),
+    kind: Schema.Literal('entity-spawn'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    entity: Schema.Literal('pillager'),
+    kind: Schema.Literal('entity-spawn'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    entity: Schema.Literal('blaze', 'wither-skeleton'),
+    kind: Schema.Literal('entity-spawn'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    entity: Schema.Literal('piglin', 'piglin-brute'),
+    kind: Schema.Literal('entity-spawn'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
+    entity: Schema.Literal('shulker', 'blaze'),
     kind: Schema.Literal('spawner'),
   }),
   Schema.Struct({
@@ -238,7 +270,54 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
+    eye: Schema.Boolean,
+    facing: Schema.Literal('north', 'east', 'south', 'west'),
+    kind: Schema.Literal('end-portal-frame'),
+  }),
+  Schema.Struct({
+    ...NaturalStructureMarkerFields,
     kind: Schema.Literal('end-ship'),
+  }),
+)
+
+const BlockPositionSchema: Schema.Schema<BlockPosition, { readonly x: number; readonly y: number; readonly z: number }> =
+  Schema.Struct({ x: BlockAxisFromNumber, y: BlockAxisFromNumber, z: BlockAxisFromNumber })
+
+/** Closed union for entity-like End feature markers attached to a chunk. */
+type EndFeatureMarkerEncoded =
+  | {
+      readonly at: { readonly x: number; readonly y: number; readonly z: number }
+      readonly block: number
+      readonly featureId: string
+      readonly invulnerable: boolean
+      readonly kind: 'end-crystal'
+    }
+  | {
+      readonly center: { readonly x: number; readonly y: number; readonly z: number }
+      readonly featureId: string
+      readonly kind: 'end-crystal-cage'
+      readonly material: 'iron_bars'
+      readonly maxY: number
+      readonly minY: number
+      readonly radius: number
+    }
+
+const EndFeatureMarkerSchema: Schema.Schema<EndFeatureMarker, EndFeatureMarkerEncoded> = Schema.Union(
+  Schema.Struct({
+    at: BlockPositionSchema,
+    block: BlockIdFromNumber,
+    featureId: Schema.String,
+    invulnerable: Schema.Boolean,
+    kind: Schema.Literal('end-crystal'),
+  }),
+  Schema.Struct({
+    center: BlockPositionSchema,
+    featureId: Schema.String,
+    kind: Schema.Literal('end-crystal-cage'),
+    material: Schema.Literal('iron_bars'),
+    maxY: Schema.Number,
+    minY: Schema.Number,
+    radius: Schema.Number,
   }),
 )
 
@@ -256,6 +335,8 @@ const CHUNK_STRUCT = Schema.Struct({
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksSchema,
   coord: ChunkCoordSchema,
+  endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
+  endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), { default: () => [] }),
   naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
   naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
     default: () => [],
@@ -263,10 +344,12 @@ const CHUNK_STRUCT = Schema.Struct({
 })
 
 /**
- * Encoding also accepts terrain-only chunks. Decoding always materialises both
+ * Encoding also accepts terrain-only chunks. Decoding always materialises all
  * metadata arrays through `CHUNK_STRUCT`'s defaults.
  */
-type PersistableChunk = Chunk & Partial<Pick<NaturalStructureChunk, 'naturalStructureIds' | 'naturalStructureMarkers'>>
+type PersistableChunk = Chunk &
+  Partial<Pick<EndFeatureChunk, 'endFeatureIds' | 'endFeatureMarkers'>> &
+  Partial<Pick<NaturalStructureChunk, 'naturalStructureIds' | 'naturalStructureMarkers'>>
 
 const PersistableChunkSchema = Schema.declare(
   (value: unknown): value is PersistableChunk => typeof value === 'object' && value !== null,
@@ -278,6 +361,8 @@ const ChunkSchema = Schema.transform(CHUNK_STRUCT, PersistableChunkSchema, {
     biomes: chunk.biomes,
     blocks: chunk.blocks,
     coord: chunk.coord,
+    endFeatureIds: chunk.endFeatureIds ?? [],
+    endFeatureMarkers: chunk.endFeatureMarkers ?? [],
     naturalStructureIds: chunk.naturalStructureIds ?? [],
     naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
   }),
@@ -305,7 +390,7 @@ export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = Chunk
  * on a chain with a gap, so the first version that forgets a step is a build
  * that does not start rather than a player whose world will not load.
  *
- * Light is deliberately absent. `domain/light.ts` owns two grids and neither is
+ * Light is deliberately absent. `src/domain/light.ts` owns two grids and neither is
  * persisted — mc-save's DN-6 records that the reference recomputed them on load
  * (`chunk-manager-ops-storage.ts:61`) and that decision is kept: the grids are a
  * pure function of the blocks, and a persisted derivative is a second source of

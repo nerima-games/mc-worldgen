@@ -4,7 +4,8 @@ plan.md §3.7 の 設計注意(参照実装の実測知見) を、
 参照実装の実コード (file:line) で裏取りして展開したもの。
 plan.md §6 Step 2 の方針に従い、**各項目を「書くべき回帰テストの名前」として提示する**。
 
-`✅` = このスケルトンに実装済み / `⬜` = 未実装（実装時に必ず入れる）
+`✅` = 参照実装または当時の監査で確認済み / `⬜` = その時点で未実装。
+現行ツリーの完了判定は [testing.md](./testing.md) と [responsibility.md](./responsibility.md) のゲートを参照する。
 
 > plan.md §3.7 は「設計注意(参照実装の実測知見)」の項目を回帰テスト化せよと指示している。
 > **その指示に従う前に、以下の DN-1 と DN-2 を読むこと。**
@@ -242,18 +243,20 @@ packages/world/domain/voxel-raycast.ts:3
 `tsconfig.base.json` の `lib` に `"DOM"` を入れていないので、
 `new THREE.Vector3()` はこのリポジトリのどこにも書けない（型検査で落ちる）。
 
-依存ホワイトリストも `mc-render` / `mc-meshing` を `not-whitelisted` として落とす。
+`package.json` の runtime dependencies は `mc-kernel` / `mc-noise` / `mc-save` / `effect` に限定し、
+`mc-render` / `mc-meshing` / `mc-sim` / `three` を直接取り込まないことを回帰テストで固定する。
 
 ### 書くべき回帰テスト
 
 | テスト名 | 主張 |
 | --- | --- |
-| ✅ `rejects mc-meshing: chunk data is produced here, geometry is not our business` | ジオメトリ側への依存を拒否 |
-| ✅ `rejects mc-sim, whose reverse edge would be the cycle this gate exists to prevent` | 逆向きエッジ |
-| ✅ `finds no path from mc-worldgen to mc-sim, because the edge runs the other way` | グラフ上でも到達しない |
-| ⬜ `no source file imports 'three'` | `lib` で防いでいるが、明示的に書いておくと意図が残る |
+| ✅ `ChunkStore.neighbours` exposes the four structural neighbours | `test/chunk-store.test.ts` でジオメトリ依存なしの境界を検証 |
+| ✅ `runtime dependencies exclude renderer and simulation packages` | `test/dependency-policy.test.ts` で manifest の直接依存を検証 |
+| ✅ `no source file imports 'three'` | `test/dependency-policy.test.ts` が `src` を再帰走査 |
+| ✅ `resolved dependency lockfile excludes renderer and simulation packages` | `test/dependency-policy.test.ts` で `pnpm-lock.yaml` の解決済みパッケージ名を検証 |
+| ✅ `dependency graph has no transitive path to mc-sim` | `test/dependency-policy.test.ts` が `pnpm list --prod --depth Infinity --json` の全依存ノードを再帰走査し、renderer・simulation 禁止名を検証 |
 
-実装は `test/dependency-policy.test.ts`。
+依存境界の実装は `test/chunk-store.test.ts` と `test/dependency-policy.test.ts` にある。
 
 ---
 
@@ -364,7 +367,7 @@ if (fract(candidate.cellRng * TREE_DENSITY_ROLL_RNG_SCALE) >= treeDensity * TREE
 ### 木の配置はシードに依存しない（参照実装の性質）
 
 `tree-placer.ts:173` の sin-hash はセル座標のみの関数であり、
-**シードを含まない**。要塞・寺院の位置決めも同様である。
+**シードを含まない**。これは Overworld の coordinate-only site rule に限られ、Nether fortress の位置決めは `domain/nether-fortress.ts` の seed channel に依存する。
 
 つまり全シードで木の位置が同じである。
 シードで木を変えたいなら、それは**移植ではなく挙動の変更**である。
@@ -414,8 +417,8 @@ const perm = buildPerm(rand ?? Math.random)
 
 ### mc-worldgen での対応
 
-**シードを必須にした。** 消すべきフォールバックが存在しない
-（`domain/seeded-random.ts`）。
+**シードを必須にした。** 消すべきフォールバックは存在せず、生成経路は
+`@nerima-games/mc-noise` の明示的なシード付き API を直接利用する。
 
 ### チャンネルの非相関化
 
@@ -448,7 +451,7 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 | ✅ `agrees about the surface height of a column shared by two chunks` | 継ぎ目が出ない |
 | ✅ `surfaceHeightAt agrees with what generateChunk actually built` | 安いクエリと本体が乖離しない |
 | ✅ `worker output is byte-identical to main-thread output` | `test/terrain-worker-pool-port.test.ts`。Port adapter 経由でも同じ seed × coord の `Chunk` を返す |
-| ⬜ `a fixed seed × coord matrix hashes to the committed golden value` | ゴールデンハッシュ。参照実装には**存在しない** |
+| ✅ `a fixed seed × coord matrix hashes to the committed golden value` | `test/chunk-golden.test.ts` と `test/golden/chunk-goldens.json` に固定。参照実装には**存在しない** |
 
 実装は `test/determinism.test.ts`。
 
@@ -460,7 +463,9 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 > - ライトグリッド（BFS 光伝播、4bit パック）はチャンクデータの一部としてここが所有。
 >   適用（描画）は mc-render
 
-実装は `domain/light.ts`、キャッシュと無効化は `domain/chunk-store-state.ts`、
+実装の公開 façade は `src/domain/light.ts`、ストレージは `src/domain/light-grid.ts`、
+全体伝播は `src/domain/light-propagation.ts`、増分更新は `src/domain/light-update.ts`、
+キャッシュと無効化は `src/domain/chunk-store-state.ts`、
 公開クエリは `ChunkStoreApi.getLight`。構造とファイルの由来は
 [public-api.md](./public-api.md) §8 に整理してある。
 
@@ -471,21 +476,21 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 
 実装時に忘れやすい点（すべて実装に反映済み）:
 
-- **パック処理は `packages/block/domain/light.ts` にある**（`packages/world` ではない）。
-  パッケージ境界をまたぐ
+- **移植元のパック処理は `packages/block/domain/light.ts` にある**（`packages/world` ではない）。
+  現行実装では `src/domain/light-grid.ts` に分割している。
 - BFS は **remove-then-add の 2 キュー**方式。1 キューでは正しくならない
 - `FULL_RECOMPUTE_THRESHOLD = 256` を超えたら全再計算に切り替える
 - 参照実装は光を**永続化していない**。ロード時に再計算する
   （`chunk-manager-ops-storage.ts:61`）
 
-### この初回カットが**やっていない**こと
+### 実装状況と残る差分
 
 | 項目 | 状態 | 理由 |
 | --- | --- | --- |
 | インクリメンタル伝播（固定点キュー） | ✅ | 完全なライトキャッシュへのブロック変更は `updateChunkLights` が増減を同じキューで再評価する。入力キャッシュが不完全な場合は常駐チャンク全体を再計算する |
 | チャンク境界をまたぐ伝播 | ✅ | `computeChunkLights` と `updateChunkLights` が常駐する水平隣接チャンクへ伝播する。不在チャンクは閉じた境界として扱う |
-| 葉・水の減衰 | ⬜ | kernel の `opacity` は 3 クラスを持つが減衰量を持たない。ここで数値を発明すると kernel のテーブルの列を二重所有することになる。kernel が `lightAttenuation` を生やしたら `transmitsLight` がその参照になる |
-| 永続化 | ⬜ | 参照実装もしていない（上記）。`defineFormat` を書くときに引き継ぐ判断 |
+| 葉・水の数値減衰 | ⬜ | `@nerima-games/mc-kernel 0.4.0` は `opacityOfBlockId`（`opaque` / `fluid` / `transparentSolid`）、`lightEmissionOfBlockId`、`transmitsLight` を公開するが、葉・水を何レベル減衰させるかの数値は公開していない。ここで数値を発明すると kernel のテーブルを二重所有するため、数値 API が提供されるまで現行の 1 段減衰を維持する |
+| ライトキャッシュの永続化 | ✅（非永続） | `ChunkPersistence` と `CHUNK_FORMAT` はブロックとバイオームだけを保存し、ライトキャッシュは保存しない。ロード後のライト要求で常駐チャンク集合を再計算する |
 
 | テスト名 | 主張 |
 | --- | --- |
@@ -497,7 +502,7 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 
 ---
 
-## DN-8 ⬜ 地形パイプラインの順序
+## DN-8 ✅ 地形パイプラインの順序
 
 参照実装の順序は非自明であり、理由がソースに書いてある。
 
@@ -511,7 +516,7 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 
 | テスト名 | 主張 |
 | --- | --- |
-| ⬜ `carving runs after water has been filled, so the water-floor guard has something to find` | 順序を逆にすると DN-2 が黙って無効化される |
+| ✅ `carving runs after water has been filled, so the water-floor guard has something to find` | `test/carver.test.ts` の guarded/unguarded 生成比較で、水域先行の順序と carve の水面ガードを固定 |
 | ✅ `R-6: decoration cannot change what the ravine carves` | 渓谷が装飾の後であること。水ガードが読む `surfaceY + 1` に装飾は届かない（3 ファイルにまたがる主張なので実測してある） |
 | 🟡 `R-8: floating trunks over ravines are rare, and stay rare` | 装飾の**後**に彫る代償。参照実装にも同じ欠陥がある。**直していない**（樹冠の所有者を記録する機構が要る）ので、増えないことだけを固定した — 最悪の窓で LOG 580 セル中 14 |
 
@@ -697,39 +702,30 @@ F-1 で地形を平らでなくしたとき BEACH が 7.1% → 15.9% に増え�
 ---
 
 <a id="dn-11"></a>
-## DN-11 ⬜ `BIOME_SURFACES.underwaterTop` の `GRAVEL` は**到達不能**である
+## DN-11 ⬜ `BIOME_SURFACES.underwaterTop` の `GRAVEL` は生成経路から到達不能である
 
-ゴールデンのブロックヒストグラムを読んで見つかった。
-10 チャンク全部で `GRAVEL` が **0** である。偶然ではなく、構造的に 0 である。
+`src/domain/biome.ts` は FLOWER_FOREST / FOREST / JUNGLE / PLAINS / SAVANNA /
+SNOW / SWAMP / TAIGA に `underwaterTop: BLOCK.GRAVEL` を定義している。
+これは表面材質 API の値としては有効だが、現在の `terrainColumnAt` から
+`generateChunk` へ至る生成経路では選ばれない。
 
-`domain/biome.ts` は 5 つの バイオームに `underwaterTop: BLOCK.GRAVEL` を与えている
-（SAVANNA / PLAINS / FOREST / TAIGA / SNOW）。
-`fillColumn` がこれを読むのは `submerged`、つまり `surfaceY < levels.seaLevel` のときだけである。
-ところが `biomeFor` は同じ柱について:
+通常の水没柱では、`biomeForWithClimate` が地表高を先に分類する:
 
 ```
 surfaceY <  seaLevel - 2   -> OCEAN
 surfaceY <= seaLevel + 1   -> BEACH
 ```
 
-を**先に**返す。`surfaceY < seaLevel` を満たす柱は必ずこのどちらかに落ちるので、
-`underwaterTop` が実際に読まれるのは OCEAN と BEACH の行だけであり、
-その 2 つは両方 `SAND` である。
-`seaLevel` は注入されるので、この論証は既定値だけでなく**あらゆる `TerrainLevels`** で成り立つ。
+したがって `surfaceY < seaLevel` の通常地形は OCEAN または BEACH になり、
+どちらの `underwaterTop` も `SAND` である。内陸湖は別の湖ノイズで検出されるが、
+`src/domain/surface-resolver.ts` は湖盆と湖岸の表面材質を明示的に BEACH として解決するため、
+この経路でも水面下の top は `SAND` になる。`TerrainLevels.lakeLevel` は実際に湖水位の
+決定へ渡されており、以前の「湖マスクがない」「lakeLevel が未使用」という記述は誤りだった。
 
-つまり `GRAVEL` は現時点で**生成されないブロック id** である。
-`test/kernel-mirror.test.ts` は mc-kernel との id 一致を固定しているので綴りは正しいが、
-一致していることと生成されることは別である。
-
-**直していない。** どちらの修正も設計判断だからである:
-
-- 5 行の `GRAVEL` を消す → 「水没した草地は砂利になる」という意図の記録を失う
-- `biomeFor` の上書きを緩めて内陸湖を気候バイオームのままにする → DN-2 のガードが
-  依存している「水没柱 = OCEAN/BEACH」という前提と、F-1 で測った BEACH 15.9% が動く
-
-どちらも本タスクの範囲外である。ここに記録して、
-`ChunkManager` と河川・湖が入るとき（`underwaterTop` が初めて意味を持つとき）に決める。
+`GRAVEL` の定義を削除すると意図の記録を失い、湖盆を気候バイオームの
+`underwaterTop` に戻すと現行の表面材質規則を変える。参照実装に対応する公式の内陸湖規則を
+このリポジトリの履歴・依存から確認できていないため、推測でどちらにも変更しない。
 
 | テスト名 | 主張 |
 | --- | --- |
-| ⬜ `an inland lake keeps its climate biome, so underwaterTop is reachable` | 上を解消したときに入れる |
+| ⬜ `an inland lake keeps its climate biome, so underwaterTop is reachable` | 公式の湖盆表面規則を確認した後に追加する |

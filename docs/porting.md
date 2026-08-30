@@ -4,6 +4,10 @@
 
 **LOC は全て `wc -l` の実測値である。plan.md の見積もりは信用しないこと。**
 
+以下の LOC・最大ファイル・✅/⬜ は、凍結した参照実装と当時の移植監査を記録したものだ。
+現行ツリーのファイル数や実装完了判定ではない。現行の検証結果と未対応範囲は
+[testing.md](./testing.md) と [responsibility.md](./responsibility.md) を参照すること。
+
 ---
 
 ## 0. plan.md §3.7 の LOC 表記について
@@ -91,20 +95,23 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 
 | LOC | パス | 役割 | 状態 |
 | ---: | --- | --- | --- |
-| 217 | `packages/world/domain/biome-classifier.ts` | 気候→バイオーム。ルールテーブル `:44-79`、6 入力版 `:96` | ✅ 2 入力版のみ |
-| 181 | `packages/world/domain/terrain/generator.ts` | パイプライン本体。**パス順序が `:102` と `:155`** | ✅ 簡易版 |
-| 203 | `packages/world/domain/terrain/surface-resolver.ts` | 表面材質の決定 | ⬜ |
-| 189 | `packages/world/domain/terrain/generator-coordinates.ts` | 座標変換 | ⬜ |
+| 217 | `packages/world/domain/biome-classifier.ts` | 気候→バイオーム。ルールテーブル `:44-79`、6 入力版 `:96` | ✅ 6 入力版（2 入力分類器も保持） |
+| — | `src/domain/terrain.ts` + `src/domain/terrain-column.ts`（元 `packages/world/domain/terrain/generator.ts`） | パイプライン本体と列解決。**パス順序が参照実装の `:102` と `:155`** | ✅ 現行生成経路 |
+| — | `src/domain/surface-resolver.ts`（元 `packages/world/domain/terrain/surface-resolver.ts`） | 表面材質の決定 | ✅ 責務分離済み |
+| — | `src/domain/generator-coordinates.ts`（元 `packages/world/domain/terrain/generator-coordinates.ts`） | 座標変換 | ✅ `mc-kernel` のチャンク定数を使用 |
 | — | `packages/world/domain/terrain/generator-types.ts` | **`TerrainLevels` と `DEFAULT_TERRAIN_LEVELS` (`:10-18`)。SEA/LAKE_LEVEL の唯一の import 元 (`:3`)** | ✅ |
-| — | `packages/world/domain/density-function.ts` | `computeColumnYFromValues` `:42-55`。スプラインベース高さ | ⬜ |
+| — | `src/domain/density-function.ts`（元 `packages/world/domain/density-function.ts`） | `surfaceHeightAt`。絶対座標の密度入力から高さを決める | ⚠️ ローカル shaper は実装済み。参照実装の `computeColumnYFromValues` と同値な spline は未検証 |
 | — | `packages/world/application/terrain-generation.ts` | `generateTerrainBlocks` `:120`、入力 Schema `:36-47` | ✅ 相当 |
+
+`surface-resolver`、`generator-coordinates`、`density-function` の参照実装本文は、監査時に参照リポジトリから読み取り専用で取得し、`computeColumnYFromValues` と spline の制御点まで確認した。
+ただしこれはブラウザ向けの Three.js ベース実装であり、Mojang の公式仕様や現行 `mc-noise` / `mc-kernel` の API 契約ではない。ローカルのノイズ入力、Y 範囲、表面材質の責務も異なるため、責務分離を済ませたことと数値完全一致を検証済みであることは分けて記録する。
 
 ## 4. カーバー（**最も価値が高い**）
 
 | LOC | パス | 役割 | 状態 |
 | ---: | --- | --- | --- |
 | 109 | `packages/world/domain/terrain/cave-carver.ts` | **水床ガード `:70-74`、`computeWaterFloorYs` `:18-32`** | ✅ |
-| 68 | `packages/world/domain/terrain/ravine-carver.ts` | **2 層ガード `:41-46`。biome だけでは不十分だった証拠** | ✅ `domain/ravine.ts`。溶岩床 `:60-63` のみ未移植（到達不能、responsibility.md §1-6） |
+| 68 | `packages/world/domain/terrain/ravine-carver.ts` | **2 層ガード `:41-46`。biome だけでは不十分だった証拠** | ✅ `domain/ravine.ts`。溶岩床の閾値も実装済み（通常地形では到達しないため、合成地形の境界テストで固定。responsibility.md §1-6） |
 | — | `packages/world/domain/terrain/constants.ts` | `CAVE_WATER_FLOOR_MARGIN = 3` (`:50`)、経緯コメント `:47-49` | ✅ |
 
 → [design-notes.md](./design-notes.md#dn-2)
@@ -118,23 +125,38 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | 265 | `packages/world/domain/terrain/plant-placement-rules.ts` | 草・花 | ✅ 地被のみ → `domain/vegetation.ts` |
 | 114 | `packages/world/domain/terrain/plant-placement-model.ts` | 密度表 `:66-75`、salt `:30-31` | ✅ 密度を転記 |
 | 108 | `packages/world/domain/terrain/plant-placement-ops.ts` | `placeGroundPlant` `:82-89` | ✅ 地被のみ |
-| 187 | `packages/world/domain/terrain/ore-generator.ts` | 鉱石 | ✅ 石変種 7 種 → `domain/ore.ts` |
+| 187 | `packages/world/domain/terrain/ore-generator.ts` | 鉱石 | ✅ 石 / 深層岩の 7 種ペア → `domain/ore.ts` |
 
-### 5-1. 植生・鉱石で**移植しなかった**もの
+### 5-1. 植生・鉱石で残る参照実装との差分
 
-| 未移植 | 理由 |
+| 差分 | 現在の実装と残る範囲 |
 | --- | --- |
-| サトウキビ / サボテン / スイレン / キノコ | 依存するバイオーム（SWAMP / JUNGLE / RIVER / FLOWER_FOREST）が本リポジトリの名簿に無いか、要求する土台を生成していない |
-| 昆布 / 海草 | 水中カラムの規則が要る。`plant-placement-ops.ts:32-52` の水クッション判定ごと |
-| deepslate 鉱石 7 種（kernel 57-63） | 置く先の deepslate 層が無い。`DEEPSLATE_CEILING = 16` は**石の事実**であって鉱石の事実ではない |
-| `redstone_ore` の `lightEmission: 9` | `mc-kernel` の発光表は 3 行のまま。DN-7 の保守側なので出荷可。`test/kernel-mirror.test.ts` が明示的に記録している |
+| サトウキビ / サボテン / スイレン / キノコ | `domain/vegetation.ts` に支持ブロック・隣接空気・水・バイオーム条件つきの特殊植生パスを実装済み。参照実装の全バイオーム名簿・配置密度との完全一致は未検証 |
+| 昆布 / 海草 | 水柱の水セルを対象にした `canPlaceAquaticPlantAt` と配置パスを実装済み。参照実装の水クッション・柱長・海底分布との完全一致は未検証 |
+| End chorus 植生 | `domain/end-vegetation.ts` が外縁島の絶対座標から決定論的な stem / flower / branch plan を作り、`end-terrain.ts` がチャンクへ適用する。現行 `mc-kernel` の登録ブロックだけを使い、参照実装の配置密度との完全一致は未検証 |
+| deepslate 鉱石 7 種（kernel 57-63） | `domain/ore.ts` の石 / 深層岩 14 variant と `terrain.ts` の深層岩層を実装済み。ローカル地形の深度帯へ再導出しており、参照実装の帯との数値一致は未達 |
+| `redstone_ore` / `deepslate_redstone_ore` の `lightEmission: 9` | 残件ではない。`mc-kernel` のレジストリを `src/domain/light-propagation.ts` が `lightEmissionOfBlockId` 経由で直接参照し、両 variant の 9 を伝播に使う。`test/light.test.ts` が両方の値と隣接セルの 8 を固定している |
 
 ## 6. 構造物
 
 | LOC | パス | 状態 |
 | ---: | --- | --- |
 | 174 | `packages/world/domain/terrain/stronghold.ts` | ✅ サイト決定 → `domain/structure-siting.ts`、13×13 石室生成 → `domain/stronghold.ts` |
+| 161 | `packages/world/domain/terrain/nether-fortress.ts` | ✅ seed / region 候補、地形適合、Nether brick 断面、semantic marker → `domain/nether-fortress.ts` |
+| — | **bastion remnant** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure（vanilla template/palette parity ではない）。`domain/bastion-remnant.ts` と `domain/natural-structure.ts` が Nether の shelf 適合・生成・loot / piglin marker・immutable plan を担当 |
+| — | **desert pyramid** | ✅ 参照実装の移植対象外のため新規設計。`domain/desert-pyramid.ts` と `domain/natural-structure.ts` が地形適合・生成・immutable plan を担当 |
+| — | **desert well** | ✅ 現行 `mc-kernel` の `sandstone` / `water` だけで新規設計した小規模構造（vanilla template/palette parity ではない）。`domain/desert-well.ts` と `domain/natural-structure.ts` が乾燥・平坦な砂漠サイトの適合、生成、immutable plan を担当 |
+| — | **igloo** | ✅ 参照実装の移植対象外のため新規設計。`domain/igloo.ts` と `domain/natural-structure.ts` が雪地形適合・生成・immutable plan を担当 |
+| — | **jungle pyramid** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure（vanilla template/palette parity ではない）。`domain/jungle-pyramid.ts` と `domain/natural-structure.ts` がジャングル地形適合・生成・immutable plan を担当 |
+| — | **ocean ruin** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計。`domain/ocean-ruin.ts` と `domain/natural-structure.ts` が海底適合・遺跡生成・immutable plan を担当 |
+| — | **ocean monument** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure（vanilla template/palette parity ではない）。`domain/ocean-monument.ts` と `domain/natural-structure.ts` が海底適合・生成・immutable plan を担当 |
+| — | **mineshaft** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計。`domain/mineshaft.ts` と `domain/natural-structure.ts` が地下通路・地形適合・生成・immutable plan を担当 |
+| — | **pillager outpost** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure。`domain/pillager-outpost.ts` と `domain/natural-structure.ts` が乾燥地形適合・塔生成・loot / pillager marker・immutable plan を担当 |
+| — | **shipwreck** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計。`domain/shipwreck.ts` と `domain/natural-structure.ts` が海底適合・船体生成・immutable plan を担当 |
 | — | **村** | ✅ 参照実装に存在しないため新規設計。`domain/village.ts` と `domain/natural-structure.ts` が生成・immutable plan を担当 |
+| — | **ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure。`domain/compact-structure.ts` と `domain/natural-structure.ts` が候補配置・地形適合・生成・immutable plan を担当 |
+
+この表にない vanilla structure generator（たとえば nether fossil）は、現行リポジトリでは未実装である。bastion remnant、desert well と上記の compact structure 六種は構造物の配置・地形適合・チャンク投影まで実装済みだが、vanilla の template / palette と完全一致する生成器ではない。ブロック registry に対象ブロックが存在することと、構造物の配置・生成器が存在することは別なので、未検証の構造物まで実装済みとは主張しない。
 
 | LOC | パス |
 | ---: | --- |
@@ -144,7 +166,13 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | 161 | `packages/world/domain/terrain/nether-fortress.ts` |
 | — | `packages/world/domain/end/end-portal-frame.ts` |
 
-**注意**: 要塞・寺院の位置決めもワールド座標のみの純関数で、シードを含まない（DN-6 参照）。
+End ポータル枠の検出・向き・充填状態は `domain/end-portal.ts` に実装済みで、完成時の中央 3×3 ポータルと End 到着地点の記述も生成する。
+`domain/end-features.ts` は決定論的なスパイクとオブシディアン柱をチャンク境界で分割し、クリスタルと
+鉄格子ケージを entity の副作用なしの marker として記述する。`domain/end-gateway.ts` は bedrock shell、
+配置・移動・設定更新、既知の出口と遅延探索の解決を純粋な値 API として提供する。実際の entity の生成・
+破壊耐性・テレポート実行はこのリポジトリの責務ではなく、marker と出口記述をホストが消費する。
+
+**注意**: DN-6 の「要塞・寺院の位置決めがシードを含まない」という記述は、Overworld の coordinate-only site rule に限る。Nether fortress は `domain/nether-fortress.ts` の seed channel で region 候補を決める。
 
 ## 7. ライトグリッド
 
@@ -198,7 +226,7 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | — | `packages/world/test/surface-resolver.test.ts` / `-biome-edge.test.ts` | |
 | — | `packages/world/test/density-function.test.ts` | |
 
-### ゴールデン / スナップショットテストは 0 件
+### 参照実装: ゴールデン / スナップショットテストは 0 件
 
 `golden|fixture|toMatchSnapshot` を `packages/world/test` と `packages/worker` で grep しても、
 worldgen 関連のスナップショットテストは出てこない。
@@ -220,11 +248,11 @@ light-engine-bfs / worker parity に存在する）。
    合計 177 LOC で、このリポジトリで最も価値の高いバグ修正が 2 つ入っている（✅ 両方完了）
 3. **`tree-placer.ts:169-220` と `tree-placer.config.ts` を読む** —
    格子ジッターの数式と定数（✅ 完了）
-4. **`biome-classifier.ts` (217) を読む** — ルールテーブルと 6 入力版（✅ 2 入力版のみ）
-5. **`density-function.ts:42-55` を読む** — スプラインベースの高さ場（⬜）
-6. **`generator.ts` (181) を読む** — パス順序。`:102` と `:141-155` のコメントが本体（✅ 洞窟・鉱石・植生・渓谷・要塞の順序を移植済み）
-7. **`packages/block/domain/light.ts` (211) を読む** — 4bit パック（✅ `domain/light.ts`）
-8. **`chunk-manager-ops.ts` (184) を読む** — mc-save 消費開始後（⬜）
+4. **`biome-classifier.ts` (217) を読む** — ルールテーブルと 6 入力版（✅ 6 入力版、2 入力分類器も保持）
+5. **密度関数の責務を確認する** — `src/domain/density-function.ts` に絶対座標の shaper を分離済み（✅）。参照実装の `computeColumnYFromValues` と spline 制御点は読み取り専用で確認済みだが、ローカルのノイズ入力・Y 範囲が異なるため、同値な数値結果の検証は未実施（⚠️）
+6. **`terrain.ts` と `terrain-column.ts` を読む** — パス順序と列解決。`:102` と `:141-155` のコメントが本体（✅ 洞窟・鉱石・植生・渓谷・要塞の順序を移植済み）
+7. **`packages/block/domain/light.ts` (211) を読む** — 4bit パック（✅ 公開 façade は `src/domain/light.ts`、実装は `src/domain/light-grid.ts`）
+8. **`chunk-manager-ops.ts` (184) を読む** — 現行は `application/chunk-persistence.ts` の `PersistentChunkStoreLayer` で `mc-save` の `loadFrom` / `saveTo` を接続済み（✅）。媒体は `StoragePort` をホストが注入する
 
 ### そのまま移植してはいけないもの
 
@@ -234,5 +262,5 @@ light-engine-bfs / worker parity に存在する）。
 | `chunk-manager-ops-storage.ts:54-60` の `healHollowWaterBeds` | 名前もバージョンもテストも無いマイグレーション。mc-save の `defineFormat` 連鎖で表現する |
 | `ravine-carver.ts:42` の biome だけのガード | **不十分**。`:46` のブロック検査も必ず一緒に持ってくる（DN-2）。**両方移植済み**、`test/ravine.test.ts` R-3 が `waterGuard: 'biome'` で不十分さを再現する |
 | `ravine-carver.ts:15` の `RAVINE_HALF_WIDTH = 0.006` | **帯幅は分布についての主張**であって可搬ではない。参照実装のコメント自身が「自分のノイズに合わせた」と書いている。転記する前に実測すること（responsibility.md §1-6。参照実装は river で一度失敗している） |
-| `ravine-carver.ts:17` の `RAVINE_LAVA_BED_BELOW_Y = 16` | **本リポジトリでは到達不能**。彫られる柱は `surfaceY >= 63` なので `floorY >= 35`。deepslate 層が入る日まで移植しない |
+| `ravine-carver.ts:17` の `RAVINE_LAVA_BED_BELOW_Y = 16` | **実装済みだが通常の渓谷形状では到達不能**。彫られる柱は `surfaceY >= 63` なので `floorY >= 35`。低い合成地形を直接与える境界テストで、閾値以下の床セルが溶岩になることを固定している |
 | 木・構造物の位置決めがシードを含まない点 | 変えたいなら意図的に。移植ではなく挙動変更であると認識すること |

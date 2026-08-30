@@ -1,13 +1,7 @@
-import { BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import {
-  STRONGHOLD_FLOOR_Y,
-  type StrongholdSite,
-  strongholdSitesNearChunk,
-} from './structure-siting'
-import { channelSeed, latticeValue } from './seeded-random'
-import { setBlockAt, worldX, worldZ } from './chunk'
+import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting'
+import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import { BLOCK } from './biome'
-import { CHUNK_SIZE_XZ } from './constants'
 import type { Dimension } from './nether-travel'
 
 const STRONGHOLD_WALL_THICKNESS = 1
@@ -20,18 +14,12 @@ export const STRONGHOLD_ROOM_AIR_HEIGHT = 5
 export const STRONGHOLD_SHELL_HALF_EXTENT = STRONGHOLD_ROOM_HALF + STRONGHOLD_WALL_THICKNESS
 export const STRONGHOLD_CEILING_Y = STRONGHOLD_FLOOR_Y + STRONGHOLD_ROOM_AIR_HEIGHT + STRONGHOLD_WALL_THICKNESS
 
-const STRONGHOLD_COBBLESTONE_ID = 17
-const STRONGHOLD_END_PORTAL_FRAME_ID = 87
-const STRONGHOLD_END_PORTAL_FRAME_FILLED_ID = 88
-const STRONGHOLD_LAVA_ID = 11
-const STRONGHOLD_PLANKS_ID = 12
-
 export const STRONGHOLD_BLOCK = {
-  COBBLESTONE: BlockId(STRONGHOLD_COBBLESTONE_ID),
-  END_PORTAL_FRAME: BlockId(STRONGHOLD_END_PORTAL_FRAME_ID),
-  END_PORTAL_FRAME_FILLED: BlockId(STRONGHOLD_END_PORTAL_FRAME_FILLED_ID),
-  LAVA: BlockId(STRONGHOLD_LAVA_ID),
-  PLANKS: BlockId(STRONGHOLD_PLANKS_ID),
+  COBBLESTONE: blockIdOf('cobblestone'),
+  END_PORTAL_FRAME: blockIdOf('end_portal_frame'),
+  END_PORTAL_FRAME_FILLED: blockIdOf('end_portal_frame_filled'),
+  LAVA: blockIdOf('lava'),
+  PLANKS: blockIdOf('oak_planks'),
 } as const
 
 export type StrongholdPieceKind = 'portal-room' | 'corridor' | 'stair' | 'library'
@@ -92,8 +80,6 @@ const STRONGHOLD_LAVA_TRAP_OFFSET_X = 4
 const STRONGHOLD_LAVA_TRAP_HALF_WIDTH = 2
 
 const STRONGHOLD_PORTAL_EYE_CHANCE = 0.1
-
-const CHUNK_ORIGIN_LOCAL = 0
 
 type StrongholdRoomBounds = {
   readonly ceiling: number
@@ -247,6 +233,21 @@ const isStrongholdFrameCell = (dx: number, dz: number): boolean =>
   (dz === STRONGHOLD_FRAME_FAR_OFFSET && dx <= STRONGHOLD_FRAME_NEAR_OFFSET) ||
   (dx === STRONGHOLD_FRAME_FAR_OFFSET && dz <= STRONGHOLD_FRAME_NEAR_OFFSET)
 
+const isOutsideStrongholdRoom = (dx: number, dz: number, y: number): boolean =>
+  dx > STRONGHOLD_SHELL_HALF_EXTENT ||
+  dz > STRONGHOLD_SHELL_HALF_EXTENT ||
+  y < STRONGHOLD_FLOOR_Y ||
+  y > STRONGHOLD_CEILING_Y
+
+const isStrongholdShell = (dx: number, dz: number, y: number): boolean =>
+  y === STRONGHOLD_FLOOR_Y ||
+  y === STRONGHOLD_CEILING_Y ||
+  dx === STRONGHOLD_SHELL_HALF_EXTENT ||
+  dz === STRONGHOLD_SHELL_HALF_EXTENT
+
+const isStrongholdFrameLevel = (y: number): boolean =>
+  y === STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET
+
 /** Returns the stronghold block at a world position, or undefined outside its room. */
 export const strongholdBlockAt = (
   site: StrongholdSite,
@@ -257,49 +258,17 @@ export const strongholdBlockAt = (
   const dx = Math.abs(wx - site.x)
   const dz = Math.abs(wz - site.z)
 
-  if (dx > STRONGHOLD_SHELL_HALF_EXTENT || dz > STRONGHOLD_SHELL_HALF_EXTENT || y < STRONGHOLD_FLOOR_Y || y > STRONGHOLD_CEILING_Y) {
+  if (isOutsideStrongholdRoom(dx, dz, y)) {
     return
   }
 
-  if (
-    y === STRONGHOLD_FLOOR_Y ||
-    y === STRONGHOLD_CEILING_Y ||
-    dx === STRONGHOLD_SHELL_HALF_EXTENT ||
-    dz === STRONGHOLD_SHELL_HALF_EXTENT
-  ) {
+  if (isStrongholdShell(dx, dz, y)) {
     return STRONGHOLD_BLOCK.COBBLESTONE
   }
 
-  if (y === STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET && isStrongholdFrameCell(dx, dz)) {
+  if (isStrongholdFrameLevel(y) && isStrongholdFrameCell(dx, dz)) {
     return STRONGHOLD_BLOCK.END_PORTAL_FRAME
   }
 
   return BLOCK.AIR
-}
-
-/** Writes only this chunk's slice so cross-boundary strongholds are order independent. */
-export const writeStrongholdBlocksForChunk = (
-  blocks: Uint8Array,
-  seed: number,
-  coord: ChunkCoord,
-): void => {
-  const sites = strongholdSitesNearChunk(
-    seed,
-    coord.cx,
-    coord.cz,
-    STRONGHOLD_PLAN_HALF_EXTENT,
-  )
-
-  for (const site of sites) {
-    const plan = generateStrongholdPlan(seed, site)
-    if (plan) {
-      for (const mutation of plan.mutations) {
-        const lx = mutation.x - worldX(coord, CHUNK_ORIGIN_LOCAL)
-        const lz = mutation.z - worldZ(coord, CHUNK_ORIGIN_LOCAL)
-        if (lx >= CHUNK_ORIGIN_LOCAL && lx < CHUNK_SIZE_XZ && lz >= CHUNK_ORIGIN_LOCAL && lz < CHUNK_SIZE_XZ) {
-          setBlockAt(blocks, lx, mutation.y, lz, mutation.block)
-        }
-      }
-    }
-  }
 }

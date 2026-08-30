@@ -1,7 +1,7 @@
 /**
  * Cave carving — and the water-floor guard.
  *
- * PRE-AUDIT FIRST CUT (叩き台).
+ * This module implements the current cave-carving policy.
  *
  * ---------------------------------------------------------------------------
  * CORRECTION TO plan.md §3.7
@@ -60,10 +60,11 @@
  * asserting that today's code does what today's code does.
  */
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants'
-import { channelSeed, valueNoise2D } from './seeded-random'
-import { readBlock, worldX, worldZ } from './chunk'
+import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
+import { worldX, worldZ } from './generator-coordinates'
 import { BLOCK } from './biome'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import { readBlock } from './chunk'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
 export const CAVE_FLOOR_Y = 6

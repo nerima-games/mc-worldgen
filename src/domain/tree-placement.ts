@@ -1,7 +1,7 @@
 /**
  * Tree placement: jittered grid, not per-column dice.
  *
- * PRE-AUDIT FIRST CUT (叩き台).
+ * This module implements the current tree placement policy.
  *
  * plan.md §3.7: 「木は格子ジッター配置(トリビアルな乱数散布は視覚的に偏る)」.
  * The reference implementation states the reason at

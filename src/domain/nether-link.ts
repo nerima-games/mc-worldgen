@@ -15,23 +15,18 @@
  * `docs/responsibility.md` §6's closing table had already adjudicated this file
  * before a line of it was written, under the heading 「残りの半分は誰のものか」:
  *
- *   `overworldToNether` / `netherToOverworld`  ->  **ここ**（未移植）
- *   `findNearestPortal`                        ->  **ここ**（未移植、注記つき）
+ *   `overworldToNether` / `netherToOverworld`  ->  **ここ**（実装済み・公開済み）
+ *   `findNearestPortal`                        ->  **ここ**（実装済み・注記つき）
  *
  * The reason recorded there is the reason it is here: 「8:1 の座標スケーリング。
  * 2 つの次元の座標空間の関係であって、入力も出力も座標しかない」. This commit is
- * that row's 未移植 being spent, not a new argument.
+ * that row's implementation being recorded, not a new ownership argument.
  *
- * The NOTE on `findNearestPortal` is spent too, and it is spent by KEEPING it.
- * §6 says the nearest-portal search belongs here 「ただし『世界に存在するポータル
- * の一覧』を所有するのが誰かは別問題で、それはまだ誰にも割り当てられていない」.
- * That is exactly why `candidates` is a PARAMETER — the same injection shape as
- * `./portal-frame`'s `BlockAt` and `./constants`' `TerrainLevels` — and the
- * unassigned owner stays unassigned rather than being decided here by accident.
- * The reference implementation's owner is a service
- * (`packages/world/application/nether-service.ts`, `getPortals(dimension)`), and
- * a service is a noun with a save file behind it; this repository is not going
- * to grow one as a side effect of porting a distance comparison.
+ * The NOTE on `findNearestPortal` is spent too, and it is spent by KEEPING the
+ * candidate parameter. The search is pure, while `application/portal-registry.ts`
+ * owns the world's in-memory or persisted portal list and supplies candidates
+ * from the destination dimension. This keeps the distance comparison independent
+ * of storage and gives the stateful owner an explicit save boundary.
  *
  * ---------------------------------------------------------------------------
  * Constants, cited or declared unjustified
@@ -116,8 +111,8 @@ const distanceSquared = (a: BlockPosition, b: BlockPosition): number => {
  * TIES RESOLVE TO THE EARLIEST CANDIDATE. The comparison keeps the incumbent on
  * an exact tie, which models 「reuse the first portal found」 — and, more
  * usefully here, makes the answer a function of the candidate ORDER rather than
- * of floating-point luck. Whoever eventually owns the portal list therefore owns
- * the tie-break too, and can make it deterministic by ordering the list.
+ * of floating-point luck. The portal registry therefore preserves insertion order,
+ * and direct callers can make the same tie-break deterministic by ordering the list.
  *
  * ONE DELIBERATE DIVERGENCE FROM THE REFERENCE, declared rather than hidden. The
  * reference computes `maxDistance * maxDistance` unguarded, so a NEGATIVE radius
