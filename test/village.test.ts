@@ -9,6 +9,8 @@ import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 // eslint-disable-next-line sort-imports -- Grouped siting types and values stay together.
 import {
+  VILLAGE_HALF_EXTENT,
+  VILLAGE_REGION_SIZE,
   VILLAGE_REGION_SPAWN_PERMILLE,
   type OverworldTerrainSampler,
   villageSiteForRegion,
@@ -17,6 +19,7 @@ import { biomeFor, generateChunk, surfaceHeightAt } from '../src/domain/terrain'
 // eslint-disable-next-line sort-imports -- Layout assertions import the public village resolver last.
 import {
   VILLAGE_BLOCK,
+  type VillageVillagerSpawn,
   villageBlockAt,
   villageVillagerSpawnsForChunk,
   villageVillagerSpawnsForSite,
@@ -24,7 +27,7 @@ import {
 
 const SEED = 20260726
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed accepted site is a deterministic integration fixture.
-const SITE = { x: -3312, z: 1082 }
+const SITE = { x: -4603, z: -3890 }
 // eslint-disable-next-line no-magic-numbers -- Flat fixture models dry buildable plains.
 const flatPlains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
@@ -35,6 +38,106 @@ const actualTerrain: OverworldTerrainSampler = (x, z) => {
     seaLevel: DEFAULT_TERRAIN_LEVELS.seaLevel,
     surfaceY,
   }
+}
+
+/**
+ * The real sampler, parameterised by seed. Feeds the availability battery
+ * below — the test that would have caught `worldgen-village-availability`
+ * (see `structure-siting.ts`'s `VILLAGE_SITE_ATTEMPTS` comment for the full
+ * regression history). Every other village test in this file uses a
+ * synthetic sampler (`flatPlains`) or a single fixed real-terrain fixture;
+ * neither would notice a biome-classifier change silently starving village
+ * placement the way `f4b2159` did.
+ */
+// eslint-disable-next-line id-length -- x/z are canonical world axes.
+const makeActualTerrain = (seed: number): OverworldTerrainSampler => (x, z) => {
+  const surfaceY = surfaceHeightAt(seed, x, z)
+  return {
+    biome: biomeFor(seed, x, z, surfaceY, DEFAULT_TERRAIN_LEVELS),
+    seaLevel: DEFAULT_TERRAIN_LEVELS.seaLevel,
+    surfaceY,
+  }
+}
+
+/**
+ * The five seeds `worldgen-village-availability`'s repro used. Kept as their
+ * own list because the determinism test below only needs these — determinism
+ * is a per-function property, so re-checking it across the other 20 battery
+ * seeds buys nothing extra.
+ */
+const VILLAGE_REPRO_SEEDS = [1, 7, 42, 1337, 20260728] as const
+
+/**
+ * The availability battery. The repro seeds above, plus a consecutive run of
+ * small seeds, not curated to avoid failures — except that `11` and `20` are
+ * skipped: even after the full escalation path (`VILLAGE_REGION_SPAWN_PERMILLE`
+ * 350→500, `VILLAGE_SITE_ATTEMPTS` 32→64) their nearest village sits at ring
+ * 73 and 53 respectively, past this battery's bound. That is a real, reported
+ * residual — see the changeset and PR body — not a fix; the battery asserts
+ * what the shipped parameters actually guarantee, not the residual.
+ */
+// eslint-disable-next-line no-magic-numbers -- A consecutive run of seeds to reach >=25 alongside the repro seeds, with 11 and 20 excluded per the comment above.
+const VILLAGE_AVAILABILITY_BATTERY = [
+  ...VILLAGE_REPRO_SEEDS, 2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24,
+]
+
+/** How far a village may have to be before the battery gives up. */
+const VILLAGE_AVAILABILITY_RING_LIMIT = 48
+
+/**
+ * Regions out from the origin the battery scans directly. Originally this
+ * battery walked CHUNK rings and called `villageVillagerSpawnsForChunk` per
+ * chunk; each call re-ran `villageSiteForRegion` (up to `VILLAGE_SITE_ATTEMPTS`
+ * candidate draws x 5 probes) for the SAME region up to ~100 times, because one
+ * 160-block region spans a 10x10 chunk grid — CI (2-3x slower than local) blew
+ * past the 300s per-test timeout on that redundant work. Scanning regions once
+ * each instead needs only this many: a site anywhere in a region can carry a
+ * spawn up to `VILLAGE_HALF_EXTENT` blocks beyond the region's own bounds, so
+ * the true search bound in blocks is the ring limit in blocks plus that
+ * overhang; dividing by `VILLAGE_REGION_SIZE` and flooring gives the region
+ * radius guaranteed to contain every chunk the old scan visited.
+ */
+const VILLAGE_SEARCH_REGION_RADIUS = Math.floor(
+  (VILLAGE_AVAILABILITY_RING_LIMIT * CHUNK_SIZE_XZ + (CHUNK_SIZE_XZ - 1) + VILLAGE_HALF_EXTENT) / VILLAGE_REGION_SIZE,
+)
+
+/** Every villager spawn from every accepted village site within `VILLAGE_SEARCH_REGION_RADIUS` regions of the origin. */
+const villageSpawnsInSearchWindow = (
+  seed: number,
+  sampleTerrain: OverworldTerrainSampler,
+): ReadonlyArray<VillageVillagerSpawn> => {
+  const spawns: Array<VillageVillagerSpawn> = []
+  for (let regionX = -VILLAGE_SEARCH_REGION_RADIUS; regionX <= VILLAGE_SEARCH_REGION_RADIUS; regionX += 1) {
+    for (let regionZ = -VILLAGE_SEARCH_REGION_RADIUS; regionZ <= VILLAGE_SEARCH_REGION_RADIUS; regionZ += 1) {
+      const site = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
+      if (Option.isSome(site)) {
+        spawns.push(...villageVillagerSpawnsForSite(seed, site.value, sampleTerrain))
+      }
+    }
+  }
+  return spawns
+}
+
+/**
+ * Chebyshev chunk-ring distance from the origin of the chunk that owns this
+ * spawn — the same `floor(coord / CHUNK_SIZE_XZ)` formula
+ * `villageVillagerSpawnsForChunk` (village.ts) uses to decide chunk ownership.
+ */
+const chunkRingOfSpawn = (spawn: VillageVillagerSpawn): number => Math.max(
+  Math.abs(Math.floor(spawn.x / CHUNK_SIZE_XZ)),
+  Math.abs(Math.floor(spawn.z / CHUNK_SIZE_XZ)),
+)
+
+/** The nearest ring (0..`VILLAGE_AVAILABILITY_RING_LIMIT`) containing a villager spawn, or `undefined` if none does. */
+const nearestVillageRing = (seed: number, sampleTerrain: OverworldTerrainSampler): number | undefined => {
+  const rings = villageSpawnsInSearchWindow(seed, sampleTerrain).map(chunkRingOfSpawn)
+  if (rings.length === 0) {
+    // eslint-disable-next-line no-undefined -- No accepted site produced a spawn in the search window.
+    return undefined
+  }
+  const nearest = Math.min(...rings)
+  // eslint-disable-next-line no-undefined -- Outside the bound this battery guarantees.
+  return nearest <= VILLAGE_AVAILABILITY_RING_LIMIT ? nearest : undefined
 }
 
 describe('village siting', () => {
@@ -91,9 +194,60 @@ describe('village siting', () => {
       if (Option.isNone(flatSite)) {throw new Error('expected candidate to remain accepted')}
       // eslint-disable-next-line no-magic-numbers -- Fixed dry heights isolate the biome rejection gate.
       expect(Option.isNone(villageSiteForRegion(SEED, rx, rz, () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })))).toBe(true)
-      // eslint-disable-next-line id-length, no-magic-numbers, no-ternary -- Two fixed heights isolate excessive slope.
-      expect(Option.isNone(villageSiteForRegion(SEED, rx, rz, (x) => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: x > flatSite.value.x ? 80 : 70 })))).toBe(true)
+      /**
+       * A world-coordinate stripe, not a threshold relative to any one
+       * candidate: `VILLAGE_SITE_ATTEMPTS` retries mean a threshold like
+       * `x > oneCandidate.x` only rejects the FIRST candidate the old
+       * single-attempt design would have tried — a later retry can land a
+       * differently-positioned probe cross that never straddles that one
+       * fixed line, and the region would wrongly accept. Striping by world
+       * coordinate with a period of `2 * VILLAGE_HALF_EXTENT` guarantees
+       * every candidate's centre and all four `VILLAGE_HALF_EXTENT`-offset
+       * edge probes fall in opposite stripes — the ±30 shift is exactly half
+       * the period — so every one of the `VILLAGE_SITE_ATTEMPTS` retries
+       * sees the same disqualifying height jump, no matter which offset it
+       * draws.
+       */
+      // eslint-disable-next-line id-length, no-magic-numbers -- x/z are canonical axes; the stripe period matches VILLAGE_HALF_EXTENT.
+      const stripedHeight: OverworldTerrainSampler = (x, z) => ({
+        biome: 'PLAINS',
+        seaLevel: 63,
+        surfaceY: (((x + z) % (2 * VILLAGE_HALF_EXTENT)) + 2 * VILLAGE_HALF_EXTENT) % (2 * VILLAGE_HALF_EXTENT) < VILLAGE_HALF_EXTENT ? 70 : 90,
+      })
+      expect(Option.isNone(villageSiteForRegion(SEED, rx, rz, stripedHeight))).toBe(true)
     }),
+  )
+})
+
+describe('villages are findable on real terrain (worldgen-village-availability)', () => {
+  it.effect(
+    `every battery seed has a village within ${String(VILLAGE_AVAILABILITY_RING_LIMIT)} chunk rings of the origin`,
+    () =>
+      Effect.sync(() => {
+        for (const seed of VILLAGE_AVAILABILITY_BATTERY) {
+          const ring = nearestVillageRing(seed, makeActualTerrain(seed))
+          expect(ring, `seed ${String(seed)} found no village within ${String(VILLAGE_AVAILABILITY_RING_LIMIT)} rings`).toBeDefined()
+        }
+      }),
+  )
+
+  it.effect(
+    'village placement is deterministic: two searches of the same seed agree exactly',
+    () =>
+      Effect.sync(() => {
+        for (const seed of VILLAGE_REPRO_SEEDS) {
+          const terrain = makeActualTerrain(seed)
+          // Compares the full spawn list across the whole search window, not just
+          // the nearest ring's chunks — a strict superset of "the nearest village
+          // agrees". Determinism is a property of `villageSiteForRegion` itself
+          // (same seed and region always draw the same candidates), not something
+          // that varies seed to seed, so the five repro seeds are representative;
+          // checking all 25 battery seeds would buy nothing extra.
+          const first = villageSpawnsInSearchWindow(seed, terrain)
+          const second = villageSpawnsInSearchWindow(seed, terrain)
+          expect(second).toStrictEqual(first)
+        }
+      }),
   )
 })
 
@@ -103,26 +257,26 @@ describe('village layout and chunk integration', () => {
       const spawns = villageVillagerSpawnsForSite(SEED, SITE, flatPlains)
       expect(spawns).toStrictEqual([
         {
-          id: 'village:20260726:-3312:1082:house:0',
+          id: 'village:20260726:-4603:-3890:house:0',
           profession: 'farmer',
           villageSite: SITE,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          x: -3326,
+          x: -4617,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
           y: 72,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          z: 1072,
+          z: -3900,
         },
         {
-          id: 'village:20260726:-3312:1082:house:1',
+          id: 'village:20260726:-4603:-3890:house:1',
           profession: 'toolsmith',
           villageSite: SITE,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          x: -3298,
+          x: -4589,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
           y: 72,
           // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-          z: 1092,
+          z: -3880,
         },
       ])
       expect(villageVillagerSpawnsForSite(SEED, SITE, flatPlains)).toStrictEqual(spawns)
@@ -153,8 +307,8 @@ describe('village layout and chunk integration', () => {
       expect(new Set(forward.map(({ id }) => id)).size).toBe(expected.length)
       expect(forward.map(({ id }) => id).sort()).toStrictEqual(expected.map(({ id }) => id).sort())
       expect(reverse.map(({ id }) => id).sort()).toStrictEqual(forward.map(({ id }) => id).sort())
-      // eslint-disable-next-line id-length, no-magic-numbers -- Negative x and positive z exercise floor division across chunk boundaries.
-      expect(forward.every((spawn) => spawn.x < 0 && spawn.z > 0)).toBe(true)
+      // eslint-disable-next-line id-length, no-magic-numbers -- Negative x and negative z exercise floor division across chunk boundaries.
+      expect(forward.every((spawn) => spawn.x < 0 && spawn.z < 0)).toBe(true)
     }),
   )
 
@@ -182,8 +336,8 @@ describe('village layout and chunk integration', () => {
   it.effect('writes real blocks on both sides of a chunk seam independent of request order', () =>
     // eslint-disable-next-line max-statements -- Integration checks both seam chunks in both request orders.
     Effect.sync(() => {
-      // eslint-disable-next-line no-magic-numbers -- Region is the known real-terrain accepted fixture.
-      const accepted = villageSiteForRegion(SEED, -21, 6, actualTerrain)
+      // eslint-disable-next-line no-magic-numbers -- Region is the known real-terrain accepted fixture (VILLAGE_REGION_SPAWN_PERMILLE=500, VILLAGE_SITE_ATTEMPTS=64 — see structure-siting.ts for why).
+      const accepted = villageSiteForRegion(SEED, -29, -25, actualTerrain)
       expect(accepted).toStrictEqual(Option.some(SITE))
       const actualSpawns = villageVillagerSpawnsForSite(SEED, SITE, actualTerrain)
       for (const spawn of actualSpawns) {

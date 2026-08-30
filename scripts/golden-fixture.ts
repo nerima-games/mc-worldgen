@@ -127,7 +127,15 @@ export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
   { biome: 'BEACH', cx: 3, cz: 5, decorate: true, why: 'nearest all-BEACH chunk' },
   { biome: 'DESERT', cx: 11, cz: 3, decorate: true, why: 'nearest all-DESERT chunk' },
   { biome: 'SAVANNA', cx: 11, cz: -1, decorate: true, why: 'nearest all-SAVANNA chunk' },
-  { biome: 'PLAINS', cx: -6, cz: -6, decorate: true, why: 'nearest all-PLAINS chunk' },
+  // Was (-6, -6) until worldgen-village-availability raised village density
+  // (structure-siting.ts's VILLAGE_REGION_SPAWN_PERMILLE): that chunk is
+  // still all-PLAINS but now has a village (village:20260726:-1:-1) whose
+  // construction legitimately overwrites part of a tree there (see
+  // terrain.ts's `writeStructures` — "structures run last... override
+  // carving and vegetation"), which is real and correct but not what this
+  // fixture is for. (5, -6) is the next-nearest all-PLAINS chunk with no
+  // structure inside it.
+  { biome: 'PLAINS', cx: 5, cz: -6, decorate: true, why: 'nearest all-PLAINS chunk with no structure' },
   { biome: 'FOREST', cx: -8, cz: 8, decorate: true, why: 'nearest all-FOREST chunk' },
   {
     biome: 'TAIGA',

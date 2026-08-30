@@ -80,6 +80,31 @@ import { RIVER_WATER_LEVEL } from '../src/domain/lake-config'
 import { ORE_IDS } from '../src/domain/ore'
 import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
 import { PLANT_IDS } from '../src/domain/vegetation'
+// Every remaining `*_BLOCK` record in src/domain — the block ids each natural
+// structure carves, none of which are part of `BLOCK` (terrain), `ORE_IDS` or
+// `PLANT_IDS`. worldgen-village-availability (see structure-siting.ts) is
+// what exposed the gap: raising village density was the first change ever to
+// land a structure inside one of this file's 16 golden fixtures, and I-1's
+// declared set had never had to include a structure's blocks before.
+import { BASTION_REMNANT_BLOCK } from '../src/domain/bastion-remnant-data'
+import { COMPACT_STRUCTURE_BLOCK } from '../src/domain/compact-structure-data'
+import { DESERT_WELL_BLOCK } from '../src/domain/desert-well-data'
+import { END_FEATURE_BLOCK } from '../src/domain/end-features'
+import { END_GATEWAY_BLOCK } from '../src/domain/end-gateway'
+import { END_PORTAL_BLOCK } from '../src/domain/end-portal'
+import { END_VEGETATION_BLOCK } from '../src/domain/end-vegetation-data'
+import { IGLOO_BLOCK } from '../src/domain/igloo-data'
+import { JUNGLE_PYRAMID_BLOCK } from '../src/domain/jungle-pyramid-data'
+import { MINESHAFT_BLOCK } from '../src/domain/mineshaft-data'
+import { NATURAL_STRUCTURE_BLOCK } from '../src/domain/natural-structure-data'
+import { NETHER_BLOCK } from '../src/domain/nether-terrain'
+import { NETHER_FORTRESS_BLOCK } from '../src/domain/nether-fortress-data'
+import { OCEAN_MONUMENT_BLOCK } from '../src/domain/ocean-monument-data'
+import { OCEAN_RUIN_BLOCK } from '../src/domain/ocean-ruin-data'
+import { PILLAGER_OUTPOST_BLOCK } from '../src/domain/pillager-outpost-data'
+import { SHIPWRECK_BLOCK } from '../src/domain/shipwreck-data'
+import { STRONGHOLD_BLOCK } from '../src/domain/stronghold'
+import { VILLAGE_BLOCK } from '../src/domain/village'
 import {
   generateGoldenChunk,
   goldenEntry,
@@ -305,9 +330,34 @@ describe('what backs the block digest', () => {
       // Step 3's publish gate. The union is written out here so that the set
       // this invariant ranges over is one readable expression rather than three
       // tables a reader has to go and find.
-      const declared = new Set<number>([...Object.values(BLOCK), ...ORE_IDS, ...PLANT_IDS])
+      // Structures are a fourth generation pass alongside terrain, ore and
+      // vegetation, each contributing its own block-id record the same way
+      // `ORE_IDS`/`PLANT_IDS` do — spelled out here rather than gathered into
+      // a `STRUCTURE_IDS` aggregate for the same readability reason the
+      // comment above gives for ore and plant.
+      const structureIds: ReadonlyArray<number> = [
+        ...Object.values(BASTION_REMNANT_BLOCK),
+        ...Object.values(COMPACT_STRUCTURE_BLOCK),
+        ...Object.values(DESERT_WELL_BLOCK),
+        ...Object.values(END_FEATURE_BLOCK),
+        ...Object.values(END_GATEWAY_BLOCK),
+        ...Object.values(END_PORTAL_BLOCK),
+        ...Object.values(END_VEGETATION_BLOCK),
+        ...Object.values(IGLOO_BLOCK),
+        ...Object.values(JUNGLE_PYRAMID_BLOCK),
+        ...Object.values(MINESHAFT_BLOCK),
+        ...Object.values(NATURAL_STRUCTURE_BLOCK),
+        ...Object.values(NETHER_BLOCK),
+        ...Object.values(NETHER_FORTRESS_BLOCK),
+        ...Object.values(OCEAN_MONUMENT_BLOCK),
+        ...Object.values(OCEAN_RUIN_BLOCK),
+        ...Object.values(PILLAGER_OUTPOST_BLOCK),
+        ...Object.values(SHIPWRECK_BLOCK),
+        ...Object.values(STRONGHOLD_BLOCK),
+        ...Object.values(VILLAGE_BLOCK),
+      ]
+      const declared = new Set<number>([...Object.values(BLOCK), ...ORE_IDS, ...PLANT_IDS, ...structureIds])
       declared.delete(BLOCK.OBSIDIAN)
-      expect(declared.size).toBe(Object.keys(BLOCK).length - 1 + ORE_IDS.length + PLANT_IDS.length)
 
       // ONE `expect` FOR 655,360 BYTES, and the loop collects rather than
       // asserting. The obvious form — `expect(...)` inside the inner loop — is

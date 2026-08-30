@@ -21,7 +21,7 @@ import {
   planRuinedNetherPortalForRegion,
   planVillageForRegion,
 } from '../src/domain/natural-structure'
-import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { VILLAGE_HALF_EXTENT, type OverworldTerrainSampler } from '../src/domain/structure-siting'
 import { generateChunk } from '../src/domain/terrain'
 
 const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
@@ -162,10 +162,20 @@ describe('natural structure plans', () => {
     const portal = findPortal(333)
     const endCity = findEndCity(333)
     const desert: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })
+    // A world-coordinate stripe, not a single-point exception: with
+    // `structure-siting.ts`'s `VILLAGE_SITE_ATTEMPTS` retries, a threshold
+    // keyed to one fixed point only rejects the specific candidate that
+    // happened to draw that point — a later retry can land a probe cross
+    // that never touches it, and the region would wrongly accept. Striping
+    // by world coordinate with a period of `2 * VILLAGE_HALF_EXTENT` instead
+    // guarantees every candidate's centre and all four
+    // `VILLAGE_HALF_EXTENT`-offset edge probes fall in opposite stripes (the
+    // half-extent shift is exactly half the period), so every retry sees the
+    // same disqualifying height jump no matter which offset it draws.
     const steepVillage: OverworldTerrainSampler = (x, z) => ({
       biome: 'PLAINS',
       seaLevel: 63,
-      surfaceY: x === village.origin.x && z === village.origin.z ? 90 : 70,
+      surfaceY: (((x + z) % (2 * VILLAGE_HALF_EXTENT)) + 2 * VILLAGE_HALF_EXTENT) % (2 * VILLAGE_HALF_EXTENT) < VILLAGE_HALF_EXTENT ? 90 : 70,
     })
     const steepDesert: OverworldTerrainSampler = (x, z) => ({
       biome: 'DESERT',
@@ -290,9 +300,13 @@ describe('natural structure plans', () => {
   })
 
   it('applies Overworld village plans through generateChunk', () => {
-    const generated = generateChunk(20260726, chunkCoord(-207, 67))
-    const markerChunk = generateChunk(20260726, chunkCoord(-208, 67))
-    const villageId = 'village:20260726:-21:6'
+    // Region (-29, -25) is the known real-terrain accepted fixture under
+    // VILLAGE_REGION_SPAWN_PERMILLE=500 / VILLAGE_SITE_ATTEMPTS=64 — see
+    // structure-siting.ts for why. The plan id is keyed by region, not site,
+    // so it does not move with the seeded (x, z) draw inside the region.
+    const generated = generateChunk(20260726, chunkCoord(-288, -244))
+    const markerChunk = generateChunk(20260726, chunkCoord(-289, -244))
+    const villageId = 'village:20260726:-29:-25'
 
     expect(generated.naturalStructureIds).toContain(villageId)
     expect(markerChunk.naturalStructureMarkers.some((marker) => marker.structureId === villageId)).toBe(true)

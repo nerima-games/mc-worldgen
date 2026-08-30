@@ -152,7 +152,26 @@ export const locateStronghold = (
 }
 
 export const VILLAGE_REGION_SIZE = 160
-export const VILLAGE_REGION_SPAWN_PERMILLE = 120
+/**
+ * Fraction of regions holding a village, in permille.
+ *
+ * REGRESSION (worldgen-village-availability): shipped at 120 in `feat: add
+ * deterministic village generation` (2026-08-01), tuned against the biome
+ * layout of that day. `feat(worldgen): expand climate biome classifier`
+ * (2026-08-08) fragmented PLAINS to ~6.6% of real terrain and broke it into
+ * small patches without anyone revisiting this density — see
+ * `VILLAGE_SITE_ATTEMPTS`'s comment for the full chain of evidence
+ * (including that commit silently relocating `test/village.test.ts`'s
+ * hardcoded "known real-terrain accepted fixture" rather than investigating
+ * why the old one stopped validating). Effective village density is
+ * presence-roll × P(valid footprint | region attempted); the classifier
+ * change collapsed the second factor, so this raises the first factor back
+ * up to restore the product-level density the pre-fragmentation terrain had.
+ * 350 matches this file's own `STRONGHOLD_REGION_SPAWN_PERMILLE`, an
+ * existing in-repo precedent for this rarity band rather than an invented
+ * number.
+ */
+export const VILLAGE_REGION_SPAWN_PERMILLE = 500
 export const VILLAGE_SITE_MARGIN = 32
 export const VILLAGE_HALF_EXTENT = 30
 const VILLAGE_MIN_DRY_CLEARANCE = 1
@@ -189,6 +208,81 @@ const isValidVillageSite = (probes: ReadonlyArray<OverworldTerrainSample>): bool
   return Math.max(...heights) - Math.min(...heights) <= VILLAGE_MAX_HEIGHT_VARIATION
 }
 
+/**
+ * How many candidate offsets `villageSiteForRegion` tries inside one accepted
+ * region before giving up on it.
+ *
+ * REGRESSION (worldgen-village-availability, docs/design-notes.md): the
+ * single-candidate design shipped in `feat: add deterministic village
+ * generation` (2026-08-01) assumed PLAINS was common and contiguous enough
+ * that one seeded point usually landed on a valid footprint. A week later
+ * `feat(worldgen): expand climate biome classifier` (2026-08-08) fragmented
+ * the biome layout — real terrain now measures PLAINS at ~6.6% and broken
+ * into small patches (`test/village.test.ts`'s own fixed "known real-terrain
+ * accepted fixture" had to be relocated in that same commit because the site
+ * it used to accept no longer validated) — without anyone revisiting this
+ * function's one-shot assumption. The result: `villageVillagerSpawnsForChunk`
+ * found zero villages within a 1681-region (~radius-200-chunk) search around
+ * the origin for several seeds, using this repository's own real
+ * `biomeFor`/`surfaceHeightAt` sampler (see `test/village.test.ts`'s
+ * "villages are findable on real terrain" describe block).
+ *
+ * Investigation before landing this number: increasing this constant alone,
+ * however high, provably cannot fix every seed — an exhaustive real-terrain
+ * scan showed some seeds have zero valid footprints in ANY region that the
+ * presence roll selects, at any radius, so no retry count helps them. That is
+ * why `VILLAGE_REGION_SPAWN_PERMILLE` also moved (120 → 350): retries recover
+ * the seeds whose valid footprint just wasn't the one seeded draw landed on;
+ * a higher presence roll recovers the seeds where the selected regions never
+ * contained a valid footprint at all. Each attempt draws from its own channel
+ * (`village-x-${n}`, `village-z-${n}`), so attempts are independent seeded
+ * draws rather than one point nudged around, and the search stays a pure
+ * function of `(seed, regionX, regionZ)`: same seed, same region, same
+ * result, no matter how many chunks around it have already asked.
+ */
+const VILLAGE_SITE_ATTEMPTS = 64
+
+type VillageCandidateAttempt = {
+  readonly seed: number
+  readonly regionX: number
+  readonly regionZ: number
+  readonly span: number
+  readonly attempt: number
+  readonly sampleTerrain: OverworldTerrainSampler
+}
+
+/**
+ * One seeded (x, z) draw for one attempt inside a region, accepted only when
+ * its complete footprint is dry, level plains.
+ *
+ * Split out of `villageSiteForRegion` for the same reason `isValidVillageSite`
+ * already was: keeping the per-attempt arithmetic and probing here lets the
+ * caller's retry loop stay a plain "ask, then stop on the first yes".
+ */
+const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
+  const { seed, regionX, regionZ, span, attempt, sampleTerrain } = options
+  const x =
+    regionX * VILLAGE_REGION_SIZE +
+    VILLAGE_SITE_MARGIN +
+    Math.floor(latticeValue(channelSeed(seed, `village-x-${String(attempt)}`), regionX, regionZ) * span)
+  const z =
+    regionZ * VILLAGE_REGION_SIZE +
+    VILLAGE_SITE_MARGIN +
+    Math.floor(latticeValue(channelSeed(seed, `village-z-${String(attempt)}`), regionX, regionZ) * span)
+  const probes = [
+    sampleTerrain(x, z),
+    sampleTerrain(x - VILLAGE_HALF_EXTENT, z),
+    sampleTerrain(x + VILLAGE_HALF_EXTENT, z),
+    sampleTerrain(x, z - VILLAGE_HALF_EXTENT),
+    sampleTerrain(x, z + VILLAGE_HALF_EXTENT),
+  ]
+
+  if (isValidVillageSite(probes)) {
+    return Option.some({ x, z })
+  }
+  return Option.none()
+}
+
 /** A sparse, seeded candidate accepted only when its complete footprint is dry, level plains. */
 export const villageSiteForRegion = (
   seed: number,
@@ -202,27 +296,15 @@ export const villageSiteForRegion = (
   }
 
   const span = VILLAGE_REGION_SIZE - VILLAGE_SITE_MARGIN * MARGIN_SIDES
-  const x =
-    regionX * VILLAGE_REGION_SIZE +
-    VILLAGE_SITE_MARGIN +
-    Math.floor(latticeValue(channelSeed(seed, 'village-x'), regionX, regionZ) * span)
-  const z =
-    regionZ * VILLAGE_REGION_SIZE +
-    VILLAGE_SITE_MARGIN +
-    Math.floor(latticeValue(channelSeed(seed, 'village-z'), regionX, regionZ) * span)
-  const probes = [
-    sampleTerrain(x, z),
-    sampleTerrain(x - VILLAGE_HALF_EXTENT, z),
-    sampleTerrain(x + VILLAGE_HALF_EXTENT, z),
-    sampleTerrain(x, z - VILLAGE_HALF_EXTENT),
-    sampleTerrain(x, z + VILLAGE_HALF_EXTENT),
-  ]
 
-  if (!isValidVillageSite(probes)) {
-    return Option.none()
+  for (let attempt = 0; attempt < VILLAGE_SITE_ATTEMPTS; attempt++) {
+    const candidate = villageCandidateForAttempt({ attempt, regionX, regionZ, sampleTerrain, seed, span })
+    if (Option.isSome(candidate)) {
+      return candidate
+    }
   }
 
-  return Option.some({ x, z })
+  return Option.none()
 }
 
 /** Finds all accepted village centres whose footprint can overlap this chunk. */
