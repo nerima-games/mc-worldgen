@@ -12,14 +12,14 @@ importers:
   .:
     dependencies:
       '@nerima-games/mc-kernel':
-        specifier: 0.5.1
-        version: 0.5.1
+        specifier: 0.7.0
+        version: 0.7.0
       '@nerima-games/mc-noise':
         specifier: 0.3.0
         version: 0.3.0
       '@nerima-games/mc-save':
-        specifier: 0.3.0
-        version: 0.3.0
+        specifier: 0.4.1
+        version: 0.4.1
       effect:
         specifier: 3.22.1
         version: 3.22.1
@@ -358,16 +358,16 @@ packages:
     peerDependencies:
       effect: ^3.22.1
 
-  '@nerima-games/mc-kernel@0.5.1':
-    resolution: {integrity: sha512-DlyTf/UUDZh8SKPO+H0mSCL7ywGiIa5KqZJs/xIqj/MpCKLma6lu9QxlnmvWyH0ikV32lyw+Z6yIgCaVIaFCdg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.5.1/0637d8dce6026f6ef114455f0d8f0969a99333f3}
+  '@nerima-games/mc-kernel@0.7.0':
+    resolution: {integrity: sha512-JrIshLsxTAbP6cARvuI/9BeORONp+3Xa8rtW1S2prB7C9A1nLiHtZrUI9FQ6eJba+9XcHdQ7tU4S88cHzXlMpA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.7.0/257fba8aa871ea57c036e9fe89284e4f57aff6be}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@nerima-games/mc-noise@0.3.0':
     resolution: {integrity: sha512-ntPWqPFWH2VADOF0Q4a3qgdvgndo472/FFhzJnVKNANhChvCLbcZ2754+NeOWI56Bw2ZOGYUUD3u116dKBB15Q==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-noise/0.3.0/598f4b65934dad3ae5b16b3250a7084b9a221496}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
-  '@nerima-games/mc-save@0.3.0':
-    resolution: {integrity: sha512-zxFznYQ58lVKyRh8faR1riZ4y5lCksk5mf7IPdCPjUVqrxG0fIpAs5YDie2Pp3R8+ZIUQANqCD5opqqGBspbdA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-save/0.3.0/91153dba4d5cff6c5047d35367f7d940f8470e19}
+  '@nerima-games/mc-save@0.4.1':
+    resolution: {integrity: sha512-bhqxFU51XGe8khixIXeGnDgDrVH83ahHPRXAbN6w5BasprAm9Z8wqN933Wdn0h0ER4lQ0vZi/6VA1tdbszJSoA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-save/0.4.1/15cc97d1b6ca60ed23d5a84b5055fcab9622661d}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@oxc-parser/binding-android-arm-eabi@0.147.0':
@@ -1544,7 +1544,7 @@ snapshots:
     dependencies:
       effect: 3.22.1
 
-  '@nerima-games/mc-kernel@0.5.1':
+  '@nerima-games/mc-kernel@0.7.0':
     dependencies:
       effect: 3.22.1
 
@@ -1553,9 +1553,9 @@ snapshots:
       '@nerima-games/mc-kernel': 0.4.0(effect@3.22.1)
       effect: 3.22.1
 
-  '@nerima-games/mc-save@0.3.0':
+  '@nerima-games/mc-save@0.4.1':
     dependencies:
-      '@nerima-games/mc-kernel': 0.4.0(effect@3.22.1)
+      '@nerima-games/mc-kernel': 0.7.0
       effect: 3.22.1
 
   '@oxc-parser/binding-android-arm-eabi@0.147.0':
