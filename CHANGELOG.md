@@ -1,5 +1,15 @@
 # @nerima-games/mc-worldgen
 
+## 0.3.2
+
+### Patch Changes
+
+- [#23](https://github.com/nerima-games/mc-worldgen/pull/23) [`3b0a74c`](https://github.com/nerima-games/mc-worldgen/commit/3b0a74cd9a158609472e4f7b47229d5ca4943ac0) Thanks [@takeokunn](https://github.com/takeokunn)! - Align internal pins to the current published versions
+  
+  - `@nerima-games/mc-noise` to 0.3.1
+  Each of these upstream releases contained a pin change and no source change,
+  so no behaviour moves with this bump.
+
 ## 0.3.1
 
 ### Patch Changes
