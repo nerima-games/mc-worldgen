@@ -16,12 +16,13 @@
  * ONE deliberate impurity: the block buffer is mutated in place
  * ---------------------------------------------------------------------------
  *
- * `withBlockAt` writes into the existing `Uint8Array` rather than producing a
- * copy. A chunk buffer is 16 × 16 × 256 = 65,536 bytes; a copy per block write
- * would mean 2 MB of allocation and copying for one tick of the falling-block
- * budget (`FALLING_BLOCK_MOVES_PER_TICK = 32` in mx-gameplay), for a mutation
- * of one byte. The reference implementation mutates in place for exactly this
- * reason, and plan.md §5.2 sanctions this class of measured exception.
+ * `withBlockAt` writes into the existing `Uint16Array` rather than producing a
+ * copy. A chunk buffer is 16 × 16 × 256 = 65,536 elements (131,072 bytes); a
+ * copy per block write would mean 4 MB of allocation and copying for one tick
+ * of the falling-block budget (`FALLING_BLOCK_MOVES_PER_TICK = 32` in
+ * mx-gameplay), for a mutation of one element. The reference implementation
+ * mutates in place for exactly this reason, and plan.md §5.2 sanctions this
+ * class of measured exception.
  *
  * The consequence is stated rather than hidden: **a `Chunk` handed out by this
  * store is a live view, not a snapshot.** `chunkSnapshotOf` exists for callers

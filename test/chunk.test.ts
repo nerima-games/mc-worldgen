@@ -9,9 +9,9 @@
  * schema — so it is exercised directly here rather than only through a comment.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { AIR_BLOCK_ID, chunkCoord } from '@nerima-games/mc-kernel'
+import { AIR_BLOCK_ID, BLOCK_ID_MAX, BlockId, chunkCoord } from '@nerima-games/mc-kernel'
 import { BLOCK } from '../src/domain/biome'
-import { biomeAt, emptyBlocks, readBlock, type Chunk } from '../src/domain/chunk'
+import { biomeAt, emptyBlocks, readBlock, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from '../src/domain/constants'
 
 describe('readBlock', () => {
@@ -30,6 +30,32 @@ describe('readBlock', () => {
     // arithmetic (not `blockIndex`) could hand this function a bad index.
     expect(readBlock(blocks, CHUNK_VOLUME)).toBe(AIR_BLOCK_ID)
     expect(readBlock(blocks, -1)).toBe(AIR_BLOCK_ID)
+  })
+})
+
+describe('the widened block-id ceiling', () => {
+  it('emptyBlocks is a Uint16Array, not the retired Uint8Array', () => {
+    expect(emptyBlocks()).toBeInstanceOf(Uint16Array)
+  })
+
+  it('setBlockAt and readBlock hold a block id past the retired Uint8Array ceiling of 255', () => {
+    const blocks = emptyBlocks()
+    const index = blockIndex(2, 5, 9)
+
+    // 300 could never have survived a `Uint8Array` write: element assignment
+    // there wraps modulo 256, so this would have been stored as 44.
+    setBlockAt(blocks, 2, 5, 9, BlockId(300))
+
+    expect(readBlock(blocks, index)).toBe(300)
+  })
+
+  it('holds a block id at BLOCK_ID_MAX, kernel BlockId brand ceiling', () => {
+    const blocks = emptyBlocks()
+    const index = blockIndex(0, 0, 0)
+
+    setBlockAt(blocks, 0, 0, 0, BlockId(BLOCK_ID_MAX))
+
+    expect(readBlock(blocks, index)).toBe(BLOCK_ID_MAX)
   })
 })
 

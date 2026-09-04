@@ -69,7 +69,7 @@ const CROWN_LEAF_BLOCKS = CROWN_COLUMNS - 1
 type Region = {
   readonly width: number
   /** `[x][z][y]`, flattened. */
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
 }
 
 const at = (region: Region, x: number, z: number, y: number): number =>
@@ -82,7 +82,7 @@ const stitch = (
   origin: Readonly<{ cx: number; cz: number }> = { cx: 0, cz: 0 },
 ): Region => {
   const width = chunkSpan * CHUNK_SIZE_XZ
-  const blocks = new Uint8Array(width * width * CHUNK_HEIGHT)
+  const blocks = new Uint16Array(width * width * CHUNK_HEIGHT)
 
   for (let cx = origin.cx; cx < origin.cx + chunkSpan; cx += 1) {
     for (let cz = origin.cz; cz < origin.cz + chunkSpan; cz += 1) {
@@ -269,7 +269,7 @@ describe('the spacing bound the grid is sized for', () => {
     Effect.sync(() => {
       const paint = (separation: number): number => {
         const width = 4 * TREE_MIN_SPACING
-        const field: Region = { width, blocks: new Uint8Array(width * width * CHUNK_HEIGHT) }
+        const field: Region = { width, blocks: new Uint16Array(width * width * CHUNK_HEIGHT) }
         const y = 70
 
         for (const centre of [TREE_MIN_SPACING, TREE_MIN_SPACING + separation]) {

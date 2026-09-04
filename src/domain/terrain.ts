@@ -136,7 +136,7 @@ type FilledColumn = Readonly<{
 /** One block above a Y, used both for "stone starts here" and "water starts here". */
 const ONE_BLOCK_ABOVE = 1
 
-const fillStoneCore = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number, fillerDepth: number): void => {
+const fillStoneCore = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number, fillerDepth: number): void => {
   for (let y = BEDROCK_Y + ONE_BLOCK_ABOVE; y < surfaceY - fillerDepth; y += AXIS_STEP) {
     const index = blockIndex(lx, y, lz)
     if (y < DEEPSLATE_CEILING) {
@@ -147,7 +147,7 @@ const fillStoneCore = (blocks: Uint8Array, lx: number, lz: number, surfaceY: num
   }
 }
 
-const fillColumn = (blocks: Uint8Array, column: ColumnFill): FilledColumn => {
+const fillColumn = (blocks: Uint16Array, column: ColumnFill): FilledColumn => {
   const { levels, lx, lz, column: terrainColumn } = column
   const { biome, lakeBasinY, surface, surfaceY, temperature, waterLevel } = terrainColumn
 
@@ -180,7 +180,7 @@ const fillColumn = (blocks: Uint8Array, column: ColumnFill): FilledColumn => {
 /** Trunk height for a planted tree, in blocks above the surface. */
 const TREE_TRUNK_HEIGHT = 5
 
-const plantTrunk = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number): void => {
+const plantTrunk = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number): void => {
   for (let offset = ONE_BLOCK_ABOVE; offset <= TREE_TRUNK_HEIGHT; offset += AXIS_STEP) {
     const y = surfaceY + offset
     // This repository's terrain shaper caps surfaceY at MAX_SURFACE_Y (92, see ore.ts's header), so even the tallest trunk (surfaceY + TREE_TRUNK_HEIGHT = 97) sits far under CHUNK_HEIGHT (256). A future shaper raising that cap would need a bounds guard re-added here.
@@ -219,10 +219,10 @@ const isTreeCanopyCorner = (dx: number, dz: number): boolean =>
  * A dead bounds check here would only have hidden that failure behind a
  * silently dropped `blockIndex` write (`blockIndex` does not itself bounds
  * check, and an out-of-chunk index writes into `blocks` where the JS
- * `Uint8Array` semantics either no-op or, for a negative index, wrap
+ * `Uint16Array` semantics either no-op or, for a negative index, wrap
  * unpredictably) — worse than letting the grid's own test catch it.
  */
-const plantCanopyCell = (blocks: Uint8Array, x: number, z: number, crownY: number): void => {
+const plantCanopyCell = (blocks: Uint16Array, x: number, z: number, crownY: number): void => {
   const index = blockIndex(x, crownY, z)
   if (readBlock(blocks, index) === BLOCK.AIR) {
     blocks[index] = BLOCK.LEAVES
@@ -230,7 +230,7 @@ const plantCanopyCell = (blocks: Uint8Array, x: number, z: number, crownY: numbe
 }
 
 // Canopy, clipped to the chunk. Crossing a chunk border correctly needs the neighbour's buffer, which is the chunk manager's job — see docs/porting.md.
-const plantCanopy = (blocks: Uint8Array, lx: number, lz: number, crownY: number): void => {
+const plantCanopy = (blocks: Uint16Array, lx: number, lz: number, crownY: number): void => {
   for (let dx = -TREE_CROWN_RADIUS; dx <= TREE_CROWN_RADIUS; dx += AXIS_STEP) {
     for (let dz = -TREE_CROWN_RADIUS; dz <= TREE_CROWN_RADIUS; dz += AXIS_STEP) {
       if (!isTreeCanopyCorner(dx, dz)) {
@@ -240,7 +240,7 @@ const plantCanopy = (blocks: Uint8Array, lx: number, lz: number, crownY: number)
   }
 }
 
-const plantTree = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number): void => {
+const plantTree = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number): void => {
   plantTrunk(blocks, lx, lz, surfaceY)
   plantCanopy(blocks, lx, lz, surfaceY + TREE_TRUNK_HEIGHT)
 }
@@ -249,7 +249,7 @@ const plantTree = (blocks: Uint8Array, lx: number, lz: number, surfaceY: number)
 const FALLBACK_DECORATION_BIOME: BiomeType = 'PLAINS'
 
 type ChunkBuffers = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly biomes: Array<BiomeType>
   readonly initialSurfaces: Int16Array
   readonly surfaces: Int16Array

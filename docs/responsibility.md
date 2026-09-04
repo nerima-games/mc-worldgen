@@ -159,7 +159,7 @@ Worker transport の `Result` を定義した上で、別の application boundar
 | file | 何 |
 | --- | --- |
 | `mc-save` | mc-save の format 語彙のミラー。9 value + 3 type。`defineFormat` / `encodeSave` / `decodeSave` / `SaveFormat` / `Migration` / エンベロープ / 2 つのエラー型 |
-| `domain/chunk-format.ts` | `CHUNK_FORMAT`。`Chunk` ⇄ 符号化形の v1 フォーマット |
+| `domain/chunk-format.ts` | `CHUNK_FORMAT`。`Chunk` ⇄ 符号化形の v2 フォーマット（v1 は `CHUNK_FORMAT_V1` として読み取り専用で残る） |
 | `test/chunk-format.test.ts` | CF-1 〜 CF-16 |
 | `test/save-format-mirror.test.ts` | SF-1 〜 SF-17。ミラーの転記を両方向で固定 |
 | mc-dev-meta `MIRROR_SPECS` | 12 行目。**mc-save を source とする最初の行**。外側からの比較 |

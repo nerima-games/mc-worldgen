@@ -86,7 +86,7 @@ export const chunkCoord: (cx: number, cz: number) => ChunkCoord
 
 export type Chunk = {
   readonly coord: ChunkCoord
-  readonly blocks: Uint8Array                    // CHUNK_VOLUME 個のブロック id
+  readonly blocks: Uint16Array                   // CHUNK_VOLUME 個のブロック id (0..BLOCK_ID_MAX)
   readonly biomes: ReadonlyArray<ChunkBiomeType> // 柱ごと。index = lz * 16 + lx
 }
 
@@ -358,8 +358,8 @@ export const CAVE_THRESHOLD = 0.62
 
 export type CarveOptions = { readonly waterFloorMargin?: number }
 
-export const computeWaterFloorYs: (blocks: Uint8Array, margin: number) => Int16Array
-export const carveCaves: (blocks: Uint8Array, seed: number, coord: ChunkCoord, options?: CarveOptions) => void
+export const computeWaterFloorYs: (blocks: Uint16Array, margin: number) => Int16Array
+export const carveCaves: (blocks: Uint16Array, seed: number, coord: ChunkCoord, options?: CarveOptions) => void
 ```
 
 `domain/carver.ts`。**水域の床マージン検査を含む**。

@@ -114,7 +114,7 @@ export type CarveOptions = {
  * reference does the same and says why — `cave-carver.ts:20`:
  * `const scanTop = CAVE_CEILING + CAVE_WATER_FLOOR_MARGIN`.
  */
-export const computeWaterFloorYs = (blocks: Uint8Array, margin: number): Int16Array => {
+export const computeWaterFloorYs = (blocks: Uint16Array, margin: number): Int16Array => {
   const floors = new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(NO_WATER_FLOOR)
   const scanTop = Math.min(CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET, CAVE_CEILING_Y + margin + WATER_FLOOR_SCAN_HEADROOM)
 
@@ -137,7 +137,7 @@ const isWithinWaterFloorShell = (y: number, waterFloorY: number, margin: number)
   waterFloorY !== NO_WATER_FLOOR && y >= waterFloorY - margin && y < waterFloorY
 
 /** Clears one voxel, unless it is one of the blocks a cave must never remove. */
-const carveVoxelIfClearable = (blocks: Uint8Array, index: number): void => {
+const carveVoxelIfClearable = (blocks: Uint16Array, index: number): void => {
   const current = readBlock(blocks, index)
 
   if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
@@ -148,7 +148,7 @@ const carveVoxelIfClearable = (blocks: Uint8Array, index: number): void => {
 }
 
 type CarveContext = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly margin: number
   readonly caveSeed: number
   readonly coord: ChunkCoord
@@ -214,7 +214,7 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
  * shared, so it is unobservable from outside `generateChunk`.
  */
 export const carveCaves = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   seed: number,
   coord: ChunkCoord,
   options: CarveOptions = {},

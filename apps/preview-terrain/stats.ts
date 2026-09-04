@@ -473,7 +473,7 @@ const localReport = (params: WorldParams, options: StatsOptions): ReadonlyArray<
  * buffer, which is the chunk manager's job), so the real world will be at least
  * this bad and probably worse.
  */
-const largestLeafSheet = (blocks: Uint8Array): number => {
+const largestLeafSheet = (blocks: Uint16Array): number => {
   let largest = 0
   const seen = new Uint8Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
   const stack: Array<number> = []

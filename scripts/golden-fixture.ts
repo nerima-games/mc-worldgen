@@ -87,6 +87,7 @@ import path from 'node:path'
 import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../src/domain/carver'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
+import { packBlocksV2 } from '../src/domain/chunk-format'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, SEA_LEVEL } from '../src/domain/constants'
 import { DEEPSLATE_ORE_BLOCK, ORE_BLOCK } from '../src/domain/ore'
 import { generateChunkAt } from '../src/domain/terrain'
@@ -259,7 +260,12 @@ export type GoldenEntry = {
   readonly cx: number
   readonly cz: number
   readonly decorate: boolean
-  /** SHA-256 over the 65,536-byte block buffer. */
+  /**
+   * SHA-256 over the 131,072-byte block buffer: `CHUNK_VOLUME` elements at
+   * `BYTES_PER_ELEMENT` (kernel's) bytes each, little-endian — `packBlocksV2`,
+   * not the `Uint16Array`'s own memory, which is host-endian and therefore
+   * not a fact about the chunk.
+   */
   readonly blocksSha256: string
   /** SHA-256 over the 256 biome names, newline-joined in column-index order. */
   readonly biomesSha256: string
@@ -370,7 +376,7 @@ export const goldenEntry = (spec: GoldenSpec): GoldenEntry => {
     cx: spec.cx,
     cz: spec.cz,
     decorate: spec.decorate,
-    blocksSha256: sha256(chunk.blocks),
+    blocksSha256: sha256(packBlocksV2(chunk.blocks)),
     biomesSha256: biomesDigest(chunk.biomes as ReadonlyArray<BiomeType>),
     summary: summarise(chunk),
   }

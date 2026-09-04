@@ -273,7 +273,7 @@ describe('vein growth', () => {
    */
   it.effect('O-2: replaces STONE and refuses every other block, including bedrock and water', () =>
     Effect.sync(() => {
-      const blocks = new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
+      const blocks = new Uint16Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
       const others: ReadonlyArray<number> = [BLOCK.BEDROCK, BLOCK.WATER, BLOCK.DIRT, BLOCK.GRAVEL, BLOCK.AIR]
 
       // A solid slab of stone with a checkerboard of other blocks through it.
@@ -291,7 +291,7 @@ describe('vein growth', () => {
       // is 37, so this cell is on the stone side of the checkerboard.
       expect(readBlock(blocks, blockIndex(8, 21, 8))).toBe(BLOCK.STONE)
 
-      const before = Uint8Array.from(blocks)
+      const before = Uint16Array.from(blocks)
       const placed = growVein({
         blocks,
         host: BLOCK.STONE,
@@ -324,7 +324,7 @@ describe('vein growth', () => {
 
   it.effect('respects the vertical band it is given, at both ends', () =>
     Effect.sync(() => {
-      const blocks = new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(BLOCK.STONE)
+      const blocks = new Uint16Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(BLOCK.STONE)
       growVein({
         blocks,
         host: BLOCK.STONE,

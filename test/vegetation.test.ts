@@ -91,14 +91,14 @@ const countPlants = (chunk: Chunk): number => {
   return total
 }
 
-const emptyBlocks = (): Uint8Array => new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
+const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
 
-const putBlock = (blocks: Uint8Array, lx: number, y: number, lz: number, id: number): void => {
+const putBlock = (blocks: Uint16Array, lx: number, y: number, lz: number, id: number): void => {
   blocks[blockIndex(lx, y, lz)] = id
 }
 
 const specialInput = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   biome: BiomeType,
   surfaceY: number,
   seed: number,
@@ -366,7 +366,7 @@ describe('the variant table', () => {
 describe('the support rule', () => {
   it.effect('wants soil below and air above, and refuses everything else', () =>
     Effect.sync(() => {
-      const blocks = new Uint8Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
+      const blocks = new Uint16Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
       const put = (y: number, id: number): void => {
         blocks[blockIndex(0, y, 0)] = id
       }

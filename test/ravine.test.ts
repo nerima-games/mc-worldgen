@@ -76,7 +76,7 @@ const bandColumns = (seed: number, cx: number, cz: number): ReadonlyArray<readon
 }
 
 /** Topmost non-AIR block in a column, or -1 for an empty column. */
-const topBlockY = (blocks: Uint8Array, lx: number, lz: number): number => {
+const topBlockY = (blocks: Uint16Array, lx: number, lz: number): number => {
   for (let y = CHUNK_HEIGHT - 1; y >= 0; y -= 1) {
     if (readBlock(blocks, blockIndex(lx, y, lz)) !== BLOCK.AIR) {
       return y
@@ -97,8 +97,8 @@ const topBlockY = (blocks: Uint8Array, lx: number, lz: number): number => {
 const flatWorld = (
   surfaceY: number,
   biome: BiomeType,
-): { blocks: Uint8Array; surfaces: Int16Array; biomes: Array<BiomeType> } => {
-  const blocks = new Uint8Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
+): { blocks: Uint16Array; surfaces: Int16Array; biomes: Array<BiomeType> } => {
+  const blocks = new Uint16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
   const surfaces = new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(surfaceY)
   const biomes = Array.from<BiomeType>({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }).fill(biome)
 
@@ -457,7 +457,7 @@ describe('the pass order', () => {
    */
   it.effect('R-7: a flower over a ravine is cleared, and it really was there first', () =>
     Effect.sync(() => {
-      const blocks = new Uint8Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
+      const blocks = new Uint16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
       const surfaceY = 70
       const plant = PLANT_IDS[0] ?? BLOCK.AIR
       blocks[blockIndex(3, surfaceY, 4)] = BLOCK.GRASS
@@ -607,7 +607,7 @@ describe('defensive fallbacks — caller-supplied column data shorter than the c
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       expect(band.length, 'the fixture chunk has no band columns').toBeGreaterThan(0)
 
-      const blocks = new Uint8Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
+      const blocks = new Uint16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
       const before = blocks.slice()
 
       const carved = carveRavines({

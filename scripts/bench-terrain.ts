@@ -271,7 +271,7 @@ const climateOnly = (): void => {
  */
 const CARVE_POOL_SIZE = 32
 
-const carvePool: ReadonlyArray<{ readonly coord: ChunkCoord; readonly blocks: Uint8Array }> = Array.from(
+const carvePool: ReadonlyArray<{ readonly coord: ChunkCoord; readonly blocks: Uint16Array }> = Array.from(
   { length: CARVE_POOL_SIZE },
   (_unused, index) => {
     const coord = coordFor(index)

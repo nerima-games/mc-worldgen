@@ -126,7 +126,7 @@ export const groundPlantAt = (seed: number, wx: number, wz: number, biome: Biome
 }
 
 /** Is a ground-cover cell supported and empty? */
-export const canPlaceGroundPlantAt = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean => {
+export const canPlaceGroundPlantAt = (blocks: Uint16Array, lx: number, surfaceY: number, lz: number): boolean => {
   const support = readBlock(blocks, blockIndex(lx, surfaceY, lz))
 
   return (
@@ -143,7 +143,7 @@ export const biomeCanGrowGroundPlants = (biome: BiomeType): boolean => {
 
 /** Place one ground-cover block above its support. */
 export const plantGroundCover = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   column: { readonly lx: number; readonly surfaceY: number; readonly lz: number },
   plant: BlockId,
 ): void => {
@@ -151,7 +151,7 @@ export const plantGroundCover = (
 }
 
 export type SpecialVegetationInput = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly biome: BiomeType
   readonly lx: number
   readonly lz: number
@@ -166,7 +166,7 @@ const isValidColumn = (value: number): boolean => Number.isInteger(value) && val
 
 const isValidY = (value: number): boolean => Number.isInteger(value) && value >= BEDROCK_Y && value < CHUNK_HEIGHT
 
-const readLocalBlock = (blocks: Uint8Array, lx: number, y: number, lz: number): BlockId => {
+const readLocalBlock = (blocks: Uint16Array, lx: number, y: number, lz: number): BlockId => {
   if (!isValidColumn(lx) || !isValidColumn(lz) || !isValidY(y)) {
     return BLOCK.AIR
   }
@@ -175,7 +175,7 @@ const readLocalBlock = (blocks: Uint8Array, lx: number, y: number, lz: number): 
 }
 
 const hasHorizontalBlock = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   lx: number,
   y: number,
   lz: number,
@@ -193,7 +193,7 @@ const hasHorizontalBlock = (
   return true
 }
 
-const hasHorizontalWater = (blocks: Uint8Array, lx: number, y: number, lz: number): boolean => {
+const hasHorizontalWater = (blocks: Uint16Array, lx: number, y: number, lz: number): boolean => {
   for (const [dx, dz] of HORIZONTAL_DELTAS) {
     if (readLocalBlock(blocks, lx + dx, y, lz + dz) === BLOCK.WATER) {
       return true
@@ -205,7 +205,7 @@ const hasHorizontalWater = (blocks: Uint8Array, lx: number, y: number, lz: numbe
 
 type SupportedPlantPlacement = {
   readonly above?: BlockId
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly isSupported: (support: BlockId) => boolean
   readonly lx: number
   readonly lz: number
@@ -229,23 +229,23 @@ const supportsAquaticPlant = (support: BlockId): boolean => AQUATIC_SUPPORTS.inc
 const supportsMushroom = (support: BlockId): boolean => support === BLOCK.DIRT || support === BLOCK.GRASS
 
 /** Can a cactus start on this column without touching a neighboring block? */
-export const canPlaceCactusAt = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean =>
+export const canPlaceCactusAt = (blocks: Uint16Array, lx: number, surfaceY: number, lz: number): boolean =>
   canPlaceSupportedPlantAt({ blocks, isSupported: supportsCactus, lx, lz, surfaceY }) &&
   hasHorizontalBlock(blocks, lx, surfaceY + ABOVE_SURFACE_OFFSET, lz, BLOCK.AIR)
 
 /** Can sugar cane start on this column beside at least one water block? */
-export const canPlaceSugarCaneAt = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean =>
+export const canPlaceSugarCaneAt = (blocks: Uint16Array, lx: number, surfaceY: number, lz: number): boolean =>
   canPlaceSupportedPlantAt({ blocks, isSupported: supportsSugarCane, lx, lz, surfaceY }) &&
   hasHorizontalWater(blocks, lx, surfaceY, lz)
 
 /** Can an aquatic plant occupy the first water cell above this floor? */
-export const canPlaceAquaticPlantAt = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean =>
+export const canPlaceAquaticPlantAt = (blocks: Uint16Array, lx: number, surfaceY: number, lz: number): boolean =>
   canPlaceSupportedPlantAt({ above: BLOCK.WATER, blocks, isSupported: supportsAquaticPlant, lx, lz, surfaceY })
 
 /** Can a swamp lily pad occupy the water surface? */
 type LilyPadPlacement = {
   readonly biome: BiomeType
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly lx: number
   readonly lz: number
   readonly waterLevel: number
@@ -263,7 +263,7 @@ export const canPlaceLilyPadAt = ({ biome, blocks, lx, lz, waterLevel, surfaceY 
   readLocalBlock(blocks, lx, waterLevel + ABOVE_SURFACE_OFFSET, lz) === BLOCK.AIR
 
 type AirStackOptions = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly clearNeighbors: boolean
   readonly height: number
   readonly lx: number

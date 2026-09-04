@@ -125,6 +125,7 @@ import {
   type NaturalStructureChunk,
 } from './natural-structure.js'
 import {
+  BYTES_PER_ELEMENT,
   BlockAxis,
   BlockId,
   type BlockPosition,
@@ -172,15 +173,129 @@ const ChunkCoordSchema: Schema.Schema<ChunkCoord, { readonly cx: number; readonl
   Schema.Struct({ cx: ChunkAxisFromNumber, cz: ChunkAxisFromNumber })
 
 /**
- * The block buffer, base64 on the wire, with its LENGTH part of the format.
+ * ---------------------------------------------------------------------------
+ * VERSION 2: the block buffer widened to two bytes per element
+ * ---------------------------------------------------------------------------
  *
- * The length check is the whole reason this is a format rather than a buffer.
- * Without it a truncated or doubled payload decodes into a `Uint8Array` that
- * every later read treats as authoritative — `readBlock` is total and answers
- * `AIR_BLOCK_ID` past the end (`domain/chunk.ts:51`), so a chunk half the right
- * size is not an error anywhere, it is a world with the bottom missing.
+ * `domain/chunk.ts`'s `Chunk.blocks` widened from `Uint8Array` to `Uint16Array`
+ * so the generation buffer can hold every id `@nerima-games/mc-kernel` can
+ * issue — kernel's own block storage (`BlockState`, `block-state.ts:17`) is
+ * two bytes per element and its `BlockId` brand tops out at `BLOCK_ID_MAX`
+ * (`0xffff` = 65535, `block-registry-types.ts:18`). This package's OWN
+ * `Uint8Array` ceiling of 255 was never derived from that constant — the
+ * 0.3.1 changeset recorded it as "implicit in the generation buffer's storage
+ * type", worth revisiting once the registry passed 256 entries. It has not
+ * yet (kernel 0.7.0 tops out at id 122), so no existing save has ever needed
+ * an id past 255; the widening is preventive, not a fix for observed
+ * corruption.
+ *
+ * `BYTES_PER_ELEMENT` is imported from kernel rather than hardcoded as `2`,
+ * for the same reason `Schema.fromBrand(ChunkAxis)` above reuses kernel's
+ * brand constructor instead of declaring a rival: one constant, not two that
+ * could quietly disagree if kernel ever widens `BlockId` again.
+ *
+ * The wire shape stays base64, not a JSON `number[]`, for the reason this
+ * file's opening section measured (2.7x on a realistic chunk) — doubling the
+ * per-element byte width does not remove that reason, it only doubles the
+ * base64 payload alongside it. Packing follows kernel's own `BlockState`
+ * convention (`block-state.ts:62-95`): a `DataView` over the raw bytes,
+ * little-endian, explicit rather than aliasing a `Uint16Array` view directly
+ * over the buffer, since a directly-aliased view reads host-endian and this
+ * wire format must not depend on which machine wrote it.
+ *
+ * ---------------------------------------------------------------------------
+ * VERSION 1 IS KEPT, READ-ONLY, BECAUSE mc-save HAS NO AUTOMATIC UPGRADE PATH
+ * ---------------------------------------------------------------------------
+ *
+ * mc-save's `decodeSave` (`format-codec.ts`) accepts exactly one version —
+ * `format.version` — and unconditionally refuses every other one, including
+ * older ones. mc-save's own `test/migration.test.ts` (added in 4894155,
+ * 0.4.2) states this in so many words: "mc-save's own 'migration' capability
+ * is therefore NOT an automatic upgrade path... A real migration... has to be
+ * assembled by the consumer" from `SaveEnvelopeSchema`, a schema for the OLD
+ * version, and `encodeSave` under the CURRENT format. `CHUNK_FORMAT_V1` below
+ * is exactly that OLD-version schema, kept forever as a read path so a world
+ * saved before this widening still loads. `application/chunk-persistence.ts`
+ * is where the consumer-side dispatch on `envelope.version` lives.
+ *
+ * The alternative — refuse to load a v1 save and force regeneration — was
+ * rejected: this file's own header already treats REGENERATING an existing
+ * save as the destructive option of last resort, not a routine migration
+ * step.
  */
-const ChunkBlocksSchema = Schema.Uint8ArrayFromBase64.pipe(
+const CHUNK_BLOCK_ELEMENT_BYTES = BYTES_PER_ELEMENT
+
+/**
+ * Exported beyond this format's own decode/encode pipeline because it is also
+ * the right way to turn a `Chunk.blocks` into bytes for anything that must
+ * not depend on host endianness — `scripts/golden-fixture.ts`'s digest is the
+ * first such caller. Hashing (or otherwise byte-comparing) a `Uint16Array`
+ * directly reads ITS OWN buffer in host-native byte order; two little-endian
+ * machines agree by the accident of sharing an architecture, not because
+ * anything pins the order. `packBlocksV2` pins it explicitly, the same way
+ * kernel's `BlockState` does.
+ */
+export const packBlocksV2 = (blocks: Uint16Array): Uint8Array => {
+  const bytes = new Uint8Array(blocks.length * CHUNK_BLOCK_ELEMENT_BYTES)
+  const view = new DataView(bytes.buffer)
+  for (const [index, blockId] of blocks.entries()) {
+    view.setUint16(index * CHUNK_BLOCK_ELEMENT_BYTES, blockId, true)
+  }
+  return bytes
+}
+
+const unpackBlocksV2 = (bytes: Uint8Array): Uint16Array => {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const blocks = new Uint16Array(bytes.length / CHUNK_BLOCK_ELEMENT_BYTES)
+  return blocks.map((_unused, index) => view.getUint16(index * CHUNK_BLOCK_ELEMENT_BYTES, true))
+}
+
+/**
+ * No separate `BLOCK_ID_MAX` filter here: a `Uint16Array` element cannot
+ * exceed 65535, which is exactly `BLOCK_ID_MAX` today — pinned by
+ * `test/chunk-format.test.ts`'s "BLOCK_ID_MAX still equals the Uint16Array
+ * ceiling" assertion, not left an unchecked coincidence. A filter that
+ * re-tested `blockId > BLOCK_ID_MAX` here could never fail against a real
+ * `Uint16Array` — it would be dead code kept alive only by a contrived test,
+ * which proves nothing the pinned assertion does not already prove for free.
+ * If kernel ever widens `BlockId` past 16 bits, THAT assertion is what goes
+ * red first, and a real range filter belongs here again at that point.
+ */
+const Uint16ArraySchema = Schema.declare(
+  (value: unknown): value is Uint16Array => value instanceof Uint16Array,
+)
+
+/**
+ * The v2 block buffer, base64 on the wire, with its BYTE LENGTH part of the
+ * format — `CHUNK_VOLUME * BYTES_PER_ELEMENT`, not `CHUNK_VOLUME`, now that
+ * each element is two bytes. See the section header above for why the length
+ * check exists at all: a truncated or doubled payload must fail loudly here
+ * rather than decode into a buffer `readBlock` will silently treat as
+ * authoritative (`domain/chunk.ts`'s total `readBlock`).
+ */
+const ChunkBlocksBytesSchema = Schema.Uint8ArrayFromBase64.pipe(
+  Schema.filter((bytes) => {
+    const expected = CHUNK_VOLUME * CHUNK_BLOCK_ELEMENT_BYTES
+    if (bytes.length === expected) {
+      return
+    }
+    return `expected ${String(expected)} block bytes, received ${String(bytes.length)}`
+  }),
+)
+
+const ChunkBlocksSchema = Schema.transform(ChunkBlocksBytesSchema, Uint16ArraySchema, {
+  decode: unpackBlocksV2,
+  encode: packBlocksV2,
+  strict: true,
+})
+
+/**
+ * The v1 block buffer: one byte per block, `BLOCK_ID_MAX` was 255 under the
+ * `Uint8Array` generation buffer this format shipped alongside. Decode-only —
+ * nothing in this package ever encodes a v1 payload again — and kept solely
+ * so `CHUNK_FORMAT_V1` below can read a save written before this widening.
+ */
+const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
   Schema.filter((blocks) => {
     if (blocks.length === CHUNK_VOLUME) {
       return
@@ -334,7 +449,7 @@ const EndFeatureMarkerSchema: Schema.Schema<EndFeatureMarker, EndFeatureMarkerEn
 const CHUNK_STRUCT: Schema.Schema<
   {
     readonly biomes: ReadonlyArray<ChunkBiomeType>
-    readonly blocks: Uint8Array
+    readonly blocks: Uint16Array
     readonly coord: ChunkCoord
     readonly endFeatureIds: ReadonlyArray<string>
     readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
@@ -353,6 +468,48 @@ const CHUNK_STRUCT: Schema.Schema<
 > = Schema.Struct({
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksSchema,
+  coord: ChunkCoordSchema,
+  endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
+  endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), {
+    default: (): ReadonlyArray<EndFeatureMarker> => [],
+  }),
+  naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
+  naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
+    default: (): ReadonlyArray<AppliedNaturalStructureMarker> => [],
+  }),
+})
+
+/**
+ * The v1 struct: identical to `CHUNK_STRUCT` in every field except `blocks`,
+ * which decodes through `ChunkBlocksV1Schema` into the pre-widening
+ * `Uint8Array` domain shape. Decode-only — see the section header above
+ * `ChunkBlocksV1Schema` for why no encoder ever targets this again — and used
+ * by `CHUNK_FORMAT_V1` purely so `application/chunk-persistence.ts` has a
+ * `SaveFormat` it can hand to mc-save's own `loadFrom` for a save whose
+ * envelope names version 1.
+ */
+const CHUNK_STRUCT_V1: Schema.Schema<
+  {
+    readonly biomes: ReadonlyArray<ChunkBiomeType>
+    readonly blocks: Uint8Array
+    readonly coord: ChunkCoord
+    readonly endFeatureIds: ReadonlyArray<string>
+    readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+    readonly naturalStructureIds: ReadonlyArray<string>
+    readonly naturalStructureMarkers: ReadonlyArray<AppliedNaturalStructureMarker>
+  },
+  {
+    readonly biomes: ReadonlyArray<ChunkBiomeType>
+    readonly blocks: string
+    readonly coord: { readonly cx: number; readonly cz: number }
+    readonly endFeatureIds?: ReadonlyArray<string> | undefined
+    readonly endFeatureMarkers?: ReadonlyArray<EndFeatureMarkerEncoded> | undefined
+    readonly naturalStructureIds?: ReadonlyArray<string> | undefined
+    readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarker> | undefined
+  }
+> = Schema.Struct({
+  biomes: ChunkBiomesSchema,
+  blocks: ChunkBlocksV1Schema,
   coord: ChunkCoordSchema,
   endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
   endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), {
@@ -406,10 +563,14 @@ export type ChunkEncoded = Schema.Schema.Encoded<typeof CHUNK_STRUCT>
 export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = ChunkSchema
 
 /**
- * Version 1, with an EMPTY migration chain, and `defineFormat` is what makes
- * that assertable rather than merely true: it throws at module-evaluation time
- * on a chain with a gap, so the first version that forgets a step is a build
- * that does not start rather than a player whose world will not load.
+ * Version 2, the widened block buffer. `defineFormat` (`@nerima-games/mc-save`
+ * `format-definition.ts`) validates only `name` and `version` at
+ * module-evaluation time today — it has carried no `migrations` field, and
+ * mc-save has shipped no automatic upgrade path, since mc-save 0.3.0 (this
+ * package's own 0.2.0 changeset: "mc-save 0.3.0... no longer provides a
+ * migration chain"). An earlier revision of this comment described a
+ * migration-chain guarantee `defineFormat` no longer makes; see
+ * `CHUNK_FORMAT_V1` below for what actually carries an old save forward now.
  *
  * Light is deliberately absent. `src/domain/light.ts` owns two grids and neither is
  * persisted — mc-save's DN-6 records that the reference recomputed them on load
@@ -417,8 +578,72 @@ export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = Chunk
  * pure function of the blocks, and a persisted derivative is a second source of
  * truth that can disagree with the first.
  */
+/**
+ * The widened format's version: one past `FIRST_VERSION` (1), which
+ * `CHUNK_FORMAT_V1` below still owns. Written as a literal rather than
+ * `FIRST_VERSION + 1` because a save format's version is a fixed identity,
+ * not a computed value — the day a v3 exists, this becomes its own literal
+ * `3`, not an expression chained off `FIRST_VERSION`.
+ */
+const CHUNK_FORMAT_VERSION = 2
+
 export const CHUNK_FORMAT: SaveFormat<PersistableChunk, ChunkEncoded> = defineFormat({
   name: CHUNK_FORMAT_NAME,
   schema: CHUNK_SCHEMA,
+  version: CHUNK_FORMAT_VERSION,
+})
+
+/**
+ * The pre-widening domain shape: `PersistableChunk` with `blocks` narrowed
+ * back to the `Uint8Array` a v1 save actually decodes to.
+ */
+type PersistableChunkV1 = Omit<PersistableChunk, 'blocks'> & { readonly blocks: Uint8Array }
+
+const PersistableChunkV1Schema = Schema.declare(
+  (value: unknown): value is PersistableChunkV1 => typeof value === 'object' && value !== null,
+)
+
+const ChunkSchemaV1 = Schema.transform(CHUNK_STRUCT_V1, PersistableChunkV1Schema, {
+  decode: (chunk) => chunk,
+  encode: (chunk) => ({
+    biomes: chunk.biomes,
+    blocks: chunk.blocks,
+    coord: chunk.coord,
+    endFeatureIds: chunk.endFeatureIds ?? [],
+    endFeatureMarkers: chunk.endFeatureMarkers ?? [],
+    naturalStructureIds: chunk.naturalStructureIds ?? [],
+    naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+  }),
+})
+
+type ChunkEncodedV1 = Schema.Schema.Encoded<typeof CHUNK_STRUCT_V1>
+
+const CHUNK_SCHEMA_V1: Schema.Schema<PersistableChunkV1, ChunkEncodedV1> = ChunkSchemaV1
+
+/**
+ * Version 1, the pre-widening format, kept forever as a READ path.
+ *
+ * Never used with `encodeSave`/`saveTo` — nothing in this package writes a v1
+ * envelope again. `application/chunk-persistence.ts` hands this to mc-save's
+ * `loadFrom` only when a stored envelope's own `version` field names 1, then
+ * widens the result with `migrateChunkV1ToV2` before handing it to a caller
+ * that only ever sees the current `Chunk` shape.
+ */
+export const CHUNK_FORMAT_V1: SaveFormat<PersistableChunkV1, ChunkEncodedV1> = defineFormat({
+  name: CHUNK_FORMAT_NAME,
+  schema: CHUNK_SCHEMA_V1,
   version: FIRST_VERSION,
+})
+
+/**
+ * The consumer-side upgrade mc-save does not provide (see `CHUNK_FORMAT`'s
+ * comment above and mc-save's `test/migration.test.ts`, which documents
+ * `decodeSave` refusing every non-current version unconditionally and states
+ * the upgrade is the consumer's to assemble). A v1 block id is a byte,
+ * 0-255 — already inside `[0, BLOCK_ID_MAX]` — so widening the container
+ * loses nothing: every legacy id is representable as itself in the v2 range.
+ */
+export const migrateChunkV1ToV2 = (chunk: PersistableChunkV1): PersistableChunk => ({
+  ...chunk,
+  blocks: Uint16Array.from(chunk.blocks),
 })
