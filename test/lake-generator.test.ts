@@ -53,7 +53,7 @@ describe('lake and river terrain resolution', () => {
 
   it.effect('fills a water column and replaces only its top block with ice', () =>
     Effect.sync(() => {
-      const blocks = new Uint8Array(CHUNK_VOLUME)
+      const blocks = new Uint16Array(CHUNK_VOLUME)
       fillWaterForColumn({
         biome: 'PLAINS',
         blocks,

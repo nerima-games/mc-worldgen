@@ -31,7 +31,7 @@ import { generateChunkAt } from '../src/domain/terrain'
 const SEED = 4242
 
 /** Every world column where water sits directly on a solid bed. */
-const submergedColumns = (blocks: Uint8Array): ReadonlyArray<{ lx: number; lz: number; waterFloorY: number }> => {
+const submergedColumns = (blocks: Uint16Array): ReadonlyArray<{ lx: number; lz: number; waterFloorY: number }> => {
   const floors = computeWaterFloorYs(blocks, WATER_FLOOR_MARGIN)
   const found: Array<{ lx: number; lz: number; waterFloorY: number }> = []
 
@@ -49,14 +49,14 @@ const submergedColumns = (blocks: Uint8Array): ReadonlyArray<{ lx: number; lz: n
 
 type SubmergedFixture = {
   readonly coord: readonly [number, number]
-  readonly guarded: Uint8Array
-  readonly unguarded: Uint8Array
+  readonly guarded: Uint16Array
+  readonly unguarded: Uint16Array
   readonly columns: ReadonlyArray<{ lx: number; lz: number; waterFloorY: number }>
 }
 
 /** Blocks of air inside the protected shell — i.e. the bug, counted. */
 export const hollowUnderWater = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   columns: ReadonlyArray<{ lx: number; lz: number; waterFloorY: number }>,
 ): number => {
   let count = 0
@@ -180,7 +180,7 @@ describe('carver water-floor guard', () => {
 describe('computeWaterFloorYs', () => {
   it.effect('reports -1 for a column with no water', () =>
     Effect.sync(() => {
-      const dry = new Uint8Array(16 * 16 * 256).fill(BLOCK.STONE)
+      const dry = new Uint16Array(16 * 16 * 256).fill(BLOCK.STONE)
       const floors = computeWaterFloorYs(dry, WATER_FLOOR_MARGIN)
 
       expect([...floors].every((value) => value === -1)).toBe(true)
@@ -191,7 +191,7 @@ describe('computeWaterFloorYs', () => {
     Effect.sync(() => {
       // A deep column: the guard must protect the bed, which sits under the
       // bottom of the water, not under its surface.
-      const blocks = new Uint8Array(16 * 16 * 256).fill(BLOCK.STONE)
+      const blocks = new Uint16Array(16 * 16 * 256).fill(BLOCK.STONE)
       for (let y = 40; y <= 63; y += 1) {
         blocks[blockIndex(0, y, 0)] = BLOCK.WATER
       }

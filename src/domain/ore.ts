@@ -514,7 +514,7 @@ const isWithinDepthBand = (cy: number, band: DepthBand): boolean => cy >= band.y
 
 /** Places `ore` at `candidate` if it is a legal host cell. Reports whether it did. */
 const tryPlaceOreAt = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   candidate: VeinCandidate,
   host: BlockId,
   ore: BlockId,
@@ -548,7 +548,7 @@ const pushNeighbors = (stack: Array<number>, candidate: VeinCandidate): void => 
 }
 
 export type GrowVeinOptions = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly seedX: number
   readonly seedY: number
   readonly seedZ: number
@@ -590,7 +590,7 @@ const CHUNK_TOP_Y_OFFSET = 1
 const INCLUSIVE_RANGE_ADJUSTMENT = 1
 
 type PlaceVeinsOptions = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly config: OreConfig
   readonly count: number
   readonly next: () => number
@@ -600,7 +600,7 @@ type PlaceVeinsOptions = {
 }
 
 type PlaceVeinAttemptOptions = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly config: OreConfig
   readonly name: OreName
   readonly next: () => number
@@ -656,7 +656,7 @@ const placeVeinsForConfig = (options: PlaceVeinsOptions): void => {
  * confinement argument applies: the buffer belongs to `generateChunk`, which has
  * not shared it yet.
  */
-export const placeOres = (blocks: Uint8Array, seed: number, coord: ChunkCoord): void => {
+export const placeOres = (blocks: Uint16Array, seed: number, coord: ChunkCoord): void => {
   const baseWorldX = coord.cx * CHUNK_SIZE_XZ
   const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
 

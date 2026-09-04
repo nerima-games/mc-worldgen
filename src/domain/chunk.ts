@@ -18,13 +18,24 @@ import { type ChunkBiomeType } from './biome.js'
 
 export type Chunk = {
   readonly coord: ChunkCoord
-  /** Flat `Uint8Array` of `CHUNK_VOLUME` block ids. See `blockIndex`. */
-  readonly blocks: Uint8Array
+  /**
+   * Flat `Uint16Array` of `CHUNK_VOLUME` block ids. See `blockIndex`.
+   *
+   * Widened from `Uint8Array` (255 ceiling) so this buffer can represent
+   * every id `@nerima-games/mc-kernel` can hand out — kernel's own block
+   * storage (`BlockState`) is two bytes per element and its `BlockId` brand
+   * accepts up to `BLOCK_ID_MAX` (`0xffff` = 65535). A `Uint16Array` element
+   * assignment still wraps modulo 65536 rather than rejecting an
+   * out-of-range write, exactly as the retired `Uint8Array` wrapped modulo
+   * 256 — the ceiling moved, the lack of a runtime guard on plain element
+   * writes did not.
+   */
+  readonly blocks: Uint16Array
   /** One biome per column, indexed `lz * CHUNK_SIZE_XZ + lx`. */
   readonly biomes: ReadonlyArray<ChunkBiomeType>
 }
 
-export const emptyBlocks = (): Uint8Array => new Uint8Array(CHUNK_VOLUME)
+export const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_VOLUME)
 
 /**
  * Read a block, treating out-of-range as air.
@@ -35,7 +46,7 @@ export const emptyBlocks = (): Uint8Array => new Uint8Array(CHUNK_VOLUME)
  * (`packages/world/domain/terrain/ravine-carver.ts:46` among others); the
  * difference is that this version is total rather than merely unchecked.
  */
-export const readBlock = (blocks: Uint8Array, index: number): number => blocks[index] ?? AIR_BLOCK_ID
+export const readBlock = (blocks: Uint16Array, index: number): number => blocks[index] ?? AIR_BLOCK_ID
 
 export const getBlockAt = (chunk: Chunk, lx: number, y: number, lz: number): number =>
   readBlock(chunk.blocks, blockIndex(lx, y, lz))
@@ -52,7 +63,7 @@ export const getBlockAt = (chunk: Chunk, lx: number, y: number, lz: number): num
  * parameter, which is what satisfies `max-params` without touching either
  * caller.
  */
-export const setBlockAt = (blocks: Uint8Array, ...coordinate: readonly [lx: number, y: number, lz: number, block: BlockId]): void => {
+export const setBlockAt = (blocks: Uint16Array, ...coordinate: readonly [lx: number, y: number, lz: number, block: BlockId]): void => {
   const [lx, y, lz, block] = coordinate
   blocks[blockIndex(lx, y, lz)] = block
 }

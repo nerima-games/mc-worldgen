@@ -143,7 +143,7 @@ const spikeChunkBounds = (spike: EndSpike, coord: ChunkCoord): SpikeChunkBounds 
   }
 }
 
-const fillSpikeColumn = (blocks: Uint8Array, spike: EndSpike, localX: number, localZ: number): void => {
+const fillSpikeColumn = (blocks: Uint16Array, spike: EndSpike, localX: number, localZ: number): void => {
   for (let y = ZERO; y < CHUNK_HEIGHT && y <= spike.height; y += ONE) {
     setBlockAt(blocks, localX, y, localZ, END_FEATURE_BLOCK.OBSIDIAN)
   }
@@ -156,7 +156,7 @@ const spikeContains = (spike: EndSpike, worldX: number, worldZ: number): boolean
   return distanceX * distanceX + distanceZ * distanceZ <= spike.radius * spike.radius
 }
 
-const applySpikeBlocks = (blocks: Uint8Array, spike: EndSpike, coord: ChunkCoord): void => {
+const applySpikeBlocks = (blocks: Uint16Array, spike: EndSpike, coord: ChunkCoord): void => {
   const originX = coord.cx * CHUNK_SIZE_XZ
   const originZ = coord.cz * CHUNK_SIZE_XZ
   const bounds = spikeChunkBounds(spike, coord)
@@ -209,7 +209,7 @@ type AppliedEndFeaturePlan = {
 }
 
 const applyPlanToChunk = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   plan: EndFeaturePlan,
   coord: ChunkCoord,
 ): AppliedEndFeaturePlan => {

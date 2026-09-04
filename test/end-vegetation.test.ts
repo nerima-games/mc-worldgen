@@ -148,7 +148,7 @@ describe('End vegetation', () => {
       END_VEGETATION_BLOCK.CHORUS_FLOWER,
       END_VEGETATION_BLOCK.CHORUS_PLANT,
     ])
-    const chorusCount = (blocks: Uint8Array): number => blocks.reduce(
+    const chorusCount = (blocks: Uint16Array): number => blocks.reduce(
       (count, block) => count + (chorusBlocks.has(block) ? 1 : 0),
       0,
     )

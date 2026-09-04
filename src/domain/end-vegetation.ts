@@ -219,7 +219,7 @@ const localTargetFor = (coord: ChunkCoord, target: EndChorusPlacement): LocalTar
   return { index: blockIndex(localX, target.y, localZ), localX, localZ }
 }
 
-const plantCanBeApplied = (blocks: Uint8Array, coord: ChunkCoord, plant: EndChorusPlant): boolean => {
+const plantCanBeApplied = (blocks: Uint16Array, coord: ChunkCoord, plant: EndChorusPlant): boolean => {
   const originX = coord.cx * CHUNK_SIZE_XZ
   const originZ = coord.cz * CHUNK_SIZE_XZ
   const baseX = plant.baseX - originX
@@ -232,7 +232,7 @@ const plantCanBeApplied = (blocks: Uint8Array, coord: ChunkCoord, plant: EndChor
     readBlock(blocks, blockIndex(baseX, plant.baseY - ONE, baseZ)) === END_VEGETATION_BLOCK.END_STONE
 }
 
-const applyPlant = (blocks: Uint8Array, coord: ChunkCoord, plant: EndChorusPlant): void => {
+const applyPlant = (blocks: Uint16Array, coord: ChunkCoord, plant: EndChorusPlant): void => {
   if (!plantCanBeApplied(blocks, coord, plant)) {
     return
   }
@@ -246,7 +246,7 @@ const applyPlant = (blocks: Uint8Array, coord: ChunkCoord, plant: EndChorusPlant
 }
 
 const applyPlansToBlocks = (
-  blocks: Uint8Array,
+  blocks: Uint16Array,
   coord: ChunkCoord,
   plans: ReadonlyArray<EndChorusPlan>,
 ): void => {

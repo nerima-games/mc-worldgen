@@ -35,7 +35,7 @@
  * Note what does NOT appear anywhere in the rule: a block name. The reference
  * implementation asked `blockTypeToIndex('SAND')` in 229 places across 51 files
  * (plan.md §3.1) and that is what made engine/content separation impossible.
- * Here the rule sees a number out of a `Uint8Array` and asks the capability
+ * Here the rule sees a number out of a `Uint16Array` and asks the capability
  * table about it.
  */
 import { describe, expect, it } from '@effect/vitest'

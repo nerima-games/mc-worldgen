@@ -320,7 +320,7 @@ export const ravineFloorY = (surfaceY: number, depth: number): number =>
  */
 export type RavineWaterGuardInput = {
   readonly biome: BiomeType
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly guard: RavineWaterGuard
   readonly lx: number
   readonly lz: number
@@ -368,7 +368,7 @@ export const ravineWaterGuardLayer = ({
  * neighbour, so this is exact. Logs and leaves are NOT in the set — see the
  * module header on why a trunk cannot be removed without a mechanism.
  */
-export const clearGroundCover = (blocks: Uint8Array, lx: number, surfaceY: number, lz: number): boolean => {
+export const clearGroundCover = (blocks: Uint16Array, lx: number, surfaceY: number, lz: number): boolean => {
   const above = surfaceY + ABOVE_SURFACE_OFFSET
   if (above >= CHUNK_HEIGHT) {
     return false
@@ -386,7 +386,7 @@ export const clearGroundCover = (blocks: Uint8Array, lx: number, surfaceY: numbe
 /** Everything `resolveRavineCut` needs about the chunk being carved. */
 type RavineCarveContext = {
   readonly biomes: ReadonlyArray<BiomeType>
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly coord: ChunkCoord
   readonly guard: RavineWaterGuard
   readonly seed: number
@@ -436,7 +436,7 @@ const resolveRavineCut = (
  * Carves one column down to `cut.floorY`, then removes any loose ground cover
  * left standing over the fresh canyon. Mutates `blocks` in place.
  */
-const applyRavineCut = (blocks: Uint8Array, lx: number, lz: number, cut: RavineCut): void => {
+const applyRavineCut = (blocks: Uint16Array, lx: number, lz: number, cut: RavineCut): void => {
   for (let y = Math.min(cut.surfaceY, CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET); y > cut.floorY; y--) {
     const index = blockIndex(lx, y, lz)
     // Cut.floorY is clamped to at least RAVINE_FLOOR_Y (6) by ravineFloorY,

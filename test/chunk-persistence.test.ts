@@ -8,12 +8,12 @@ import {
   type StorageService,
 } from '@nerima-games/mc-save'
 import { Effect, Option } from 'effect'
-import { chunkSaveKey, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
+import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import { makePersistentChunkStore, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
-import { CHUNK_FORMAT } from '../src/domain/chunk-format'
-import { blockIndex } from '../src/domain/constants'
+import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1 } from '../src/domain/chunk-format'
+import { blockIndex, CHUNK_VOLUME } from '../src/domain/constants'
 import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 const context: ChunkPersistenceContext = { worldId: 'world/one', dimension: 'overworld' }
@@ -97,6 +97,49 @@ describe('chunk persistence', () => {
       expect(failure._tag).toBe('SaveDecodeError')
       expect(yield* store.isLoaded(coord)).toBe(false)
       expect(yield* storage.get(chunkSaveKey(context, coord))).toStrictEqual(expect.objectContaining({ _tag: 'Some' }))
+    }),
+  )
+
+  it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v2 on the next save', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const coord = chunkCoord(5, -9)
+
+      // A save exactly as a build before the widening would have written:
+      // one byte per block, base64 on the wire, stamped with CHUNK_FORMAT_V1's
+      // version rather than the current one.
+      const legacyBlocks = new Uint8Array(CHUNK_VOLUME)
+      legacyBlocks[blockIndex(0, 10, 0)] = BLOCK.STONE
+      legacyBlocks[blockIndex(1, 10, 0)] = 255 // the v1 ceiling itself
+
+      yield* storage.put(
+        chunkSaveKey(context, coord),
+        sealSaveEnvelope(
+          saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT_V1.version, {
+            biomes: Array.from({ length: CHUNK_BIOME_COUNT }, () => 'PLAINS' as const),
+            blocks: Buffer.from(legacyBlocks).toString('base64'),
+            coord: { cx: coord.cx, cz: coord.cz },
+          }),
+        ),
+      )
+
+      const persistence = yield* makeChunkPersistence(context).pipe(
+        Effect.provideService(StoragePort, storage),
+      )
+      const loaded = yield* persistence.load(coord)
+
+      expect(Option.isSome(loaded)).toBe(true)
+      const chunk = Option.getOrThrow(loaded)
+      expect(chunk.blocks).toBeInstanceOf(Uint16Array)
+      expect(chunk.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.STONE)
+      expect(chunk.blocks[blockIndex(1, 10, 0)]).toBe(255)
+
+      // Saving the migrated chunk writes the CURRENT format, not v1 again —
+      // the store never re-writes the retired shape.
+      yield* persistence.save(chunk)
+      const stored = yield* storage.get(chunkSaveKey(context, coord))
+      expect(Option.isSome(stored)).toBe(true)
+      expect(Option.getOrThrow(stored).version).toBe(CHUNK_FORMAT.version)
     }),
   )
 

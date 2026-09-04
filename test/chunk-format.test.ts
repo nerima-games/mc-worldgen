@@ -58,7 +58,7 @@ import {
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
 import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import { BLOCK_ID_MAX, chunkCoord } from '@nerima-games/mc-kernel'
 import { planEndCityForRegion, type NaturalStructureChunk } from '../src/domain/natural-structure'
 import {
   decodeSave,
@@ -96,7 +96,7 @@ const envelopeWith = (patch: Partial<ChunkEncoded>) =>
  * Written this way after the obvious `Effect.flip` made the suite unusable, and
  * the reason is worth keeping: `flip` on a decode that unexpectedly SUCCEEDS
  * fails with the whole `Chunk`, and vitest then formats a 65,536-element
- * `Uint8Array` into the failure message. Found by deleting the length filter
+ * `Uint16Array` into the failure message. Found by deleting the length filter
  * below and watching the run stop responding rather than go red — so the
  * mutation that proves these tests work was also the thing that could not be
  * read.
@@ -138,7 +138,7 @@ describe('the chunk format round-trips', () => {
       // Compared as arrays rather than with `toStrictEqual` on the typed array,
       // so a failure prints the first differing INDEX instead of 64KB of hex.
       expect(restored.blocks.length).toBe(FIXTURE.blocks.length)
-      const differing = [...FIXTURE.blocks].findIndex((byte, index) => restored.blocks[index] !== byte)
+      const differing = [...FIXTURE.blocks].findIndex((value, index) => restored.blocks[index] !== value)
       expect(differing).toBe(-1)
     }),
   )
@@ -148,12 +148,14 @@ describe('the chunk format round-trips', () => {
       const envelope = yield* encodeSave(CHUNK_FORMAT, FIXTURE)
       const payload = envelope.payload as ChunkEncoded
 
-      // A base64 string, not a Uint8Array and not a 65,536-element array. This
-      // is the whole of `domain/chunk-format.ts`'s DN-6 decision, asserted.
+      // A base64 string, not a Uint16Array and not a 65,536-element array.
+      // This is the whole of `domain/chunk-format.ts`'s DN-6 decision, asserted.
       expect(typeof payload.blocks).toBe('string')
       expect(payload.blocks).toMatch(/^[A-Za-z0-9+/]*={0,2}$/u)
-      // ceil(65536 / 3) * 4
-      expect(payload.blocks.length).toBe(87_384)
+      // ceil(131072 / 3) * 4 — 131,072 = CHUNK_VOLUME * BYTES_PER_ELEMENT (2),
+      // the v2 widened wire width. See `domain/chunk-format.ts`'s "VERSION 2"
+      // section.
+      expect(payload.blocks.length).toBe(174_764)
 
       // Biome NAMES, so reordering `BIOMES` cannot corrupt a save.
       expect(payload.biomes.every((biome) => (BIOMES as ReadonlyArray<string>).includes(biome))).toBe(true)
@@ -176,7 +178,7 @@ describe('the chunk format round-trips', () => {
       const restored = yield* decodeSave(CHUNK_FORMAT, throughJson as typeof envelope)
 
       expect(restored.coord).toStrictEqual(FIXTURE.coord)
-      const differing = [...FIXTURE.blocks].findIndex((byte, index) => restored.blocks[index] !== byte)
+      const differing = [...FIXTURE.blocks].findIndex((value, index) => restored.blocks[index] !== value)
       expect(differing).toBe(-1)
     }),
   )
@@ -186,7 +188,7 @@ describe('the chunk format round-trips', () => {
       const envelope = yield* encodeSave(CHUNK_FORMAT, FIXTURE)
 
       expect(envelope.format).toBe('@nerima-games/mc-worldgen/chunk')
-      expect(envelope.version).toBe(1)
+      expect(envelope.version).toBe(2)
     }),
   )
 
@@ -199,16 +201,42 @@ describe('the chunk format round-trips', () => {
     expect(FIXTURE.biomes.length).toBe(CHUNK_BIOME_COUNT)
   })
 
-  it.effect('CF-17: a minimal v1 persistence payload without structure metadata decodes with empty arrays', () =>
+  it.effect('CF-21: a block id above the retired Uint8Array ceiling of 255 survives encode then decode', () =>
     Effect.gen(function* () {
-      const legacyPayload = {
+      // The regression this widening exists to fix, made concrete: under the
+      // retired one-byte-per-block format a `Uint8Array` element wraps
+      // modulo 256, so a real id of 300 could only ever have been stored as
+      // 44 (300 - 256). This is impossible to pass with that storage; it
+      // passes here because `domain/chunk.ts`'s `Chunk.blocks` is now a
+      // `Uint16Array` and `domain/chunk-format.ts`'s wire format is two bytes
+      // per block.
+      const wideBlocks = new Uint16Array(FIXTURE.blocks)
+      wideBlocks[0] = 300
+      wideBlocks[1] = BLOCK_ID_MAX
+      const wideChunk = { ...FIXTURE, blocks: wideBlocks }
+
+      const envelope = yield* encodeSave(CHUNK_FORMAT, wideChunk)
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+
+      expect(restored.blocks[0]).toBe(300)
+      expect(restored.blocks[1]).toBe(BLOCK_ID_MAX)
+    }),
+  )
+
+  it.effect('CF-17: a minimal current-format payload without structure metadata decodes with empty arrays', () =>
+    Effect.gen(function* () {
+      // Not to be confused with `CHUNK_FORMAT_V1` (`chunk-format-v1.test.ts`):
+      // this "minimal" is about OPTIONAL FIELDS within one struct shape
+      // (`endFeatureIds`/`naturalStructureIds` etc. absent, defaulting to
+      // `[]`), not about the retired one-byte-per-block wire width.
+      const minimalPayload = {
         coord: ENCODED.coord,
         blocks: ENCODED.blocks,
         biomes: ENCODED.biomes,
       }
       const restored = yield* decodeSave(
         CHUNK_FORMAT,
-        saveEnvelope(CHUNK_FORMAT_NAME, 1, legacyPayload),
+        saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT.version, minimalPayload),
       )
 
       expect(restored.naturalStructureIds).toStrictEqual([])
@@ -424,10 +452,14 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
 
       expect(outcome._tag).toBe('Refused')
       expect(outcome.detail).toContain('@nerima-games/mc-worldgen/chunk')
-      expect(outcome.detail).toContain('v1')
+      expect(outcome.detail).toContain('v2')
       // The two lengths ride in the ParseError carried as `cause`, which is
-      // what makes this actionable rather than merely a refusal.
-      expect(outcome.cause).toContain('expected 65536 block bytes')
+      // what makes this actionable rather than merely a refusal. 131,072 =
+      // CHUNK_VOLUME * BYTES_PER_ELEMENT (2), the v2 wire width; 300 is
+      // unchanged from v1 because a 400-character base64 prefix always
+      // decodes to exactly 300 bytes (100 four-character groups), regardless
+      // of how wide each stored element is.
+      expect(outcome.cause).toContain('expected 131072 block bytes')
       expect(outcome.cause).toContain('received 300')
     }),
   )
@@ -442,7 +474,7 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
       const outcome = yield* decodeOutcome(envelopeWith({ blocks: doubled }))
 
       expect(outcome._tag).toBe('Refused')
-      expect(outcome.cause).toContain('received 131072')
+      expect(outcome.cause).toContain('received 262144')
     }),
   )
 
@@ -517,8 +549,8 @@ describe('the format is well-formed as a definition', () => {
   // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the migration-chain feature
   // (SaveFormat.migrations and validateMigrationChain no longer exist), so
   // CF-13 no longer has a chain to assert against; only the version survives.
-  it('CF-13: version 1 has no problems', () => {
-    expect(CHUNK_FORMAT.version).toBe(1)
+  it('CF-13: version 2 (the widened block buffer) has no problems', () => {
+    expect(CHUNK_FORMAT.version).toBe(2)
   })
 
   it('CF-14: the format name is the permanent identity and is spelled like the tag', () => {
@@ -551,10 +583,22 @@ describe('the coordinate keeps kernel’s refinement', () => {
 
   it.effect('CF-16: a negative coordinate round-trips with its sign', () =>
     Effect.gen(function* () {
-      const restored = yield* decodeSave(CHUNK_FORMAT, saveEnvelope(CHUNK_FORMAT_NAME, 1, ENCODED))
+      const restored = yield* decodeSave(CHUNK_FORMAT, saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT.version, ENCODED))
 
       expect(restored.coord.cx).toBe(3)
       expect(restored.coord.cz).toBe(-5)
     }),
   )
+})
+
+describe('the widened container is trusted instead of a redundant runtime filter', () => {
+  it('BLOCK_ID_MAX still equals the Uint16Array ceiling, which is the premise Uint16ArraySchema relies on', () => {
+    // `domain/chunk-format.ts`'s `Uint16ArraySchema` has no `blockId >
+    // BLOCK_ID_MAX` filter — a real `Uint16Array` element can never exceed
+    // 65535, so that filter could never fail and would be untestable dead
+    // code. This is the assertion that stands in for it: if kernel ever
+    // widens `BlockId` past 16 bits, THIS goes red, and a real range filter
+    // belongs back in `Uint16ArraySchema` at that point.
+    expect(BLOCK_ID_MAX).toBe(65535)
+  })
 })

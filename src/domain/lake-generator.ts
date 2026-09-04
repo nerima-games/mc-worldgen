@@ -84,7 +84,7 @@ export const shouldFreezeWaterSurface = (biome: BiomeType, temperature: number):
   biome === 'SNOW' || temperature <= ICE_FREEZE_TEMPERATURE
 
 type WaterColumnFill = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly lx: number
   readonly lz: number
   readonly biome: BiomeType

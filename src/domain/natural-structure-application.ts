@@ -25,7 +25,7 @@ export const naturalStructureSliceForChunk = (
 })
 
 type ChunkApplyAccumulator = {
-  readonly blocks: Uint8Array
+  readonly blocks: Uint16Array
   readonly ids: Array<string>
   readonly markers: Array<AppliedNaturalStructureMarker>
 }
