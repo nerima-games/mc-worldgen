@@ -30,8 +30,6 @@ type LightChunk = {
 type LightQueue = {
   readonly packed: Int32Array
   readonly source: Uint32Array
-  readonly packedView: DataView
-  readonly sourceView: DataView
   head: number
   tail: number
 }
@@ -52,9 +50,7 @@ const createQueue = (chunkCount: number): LightQueue => {
   return {
     head: 0,
     packed,
-    packedView: new DataView(packed.buffer),
     source,
-    sourceView: new DataView(source.buffer),
     tail: 0,
   }
 }
@@ -101,9 +97,8 @@ const seedBlockLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
 const LOWEST_PROPAGATABLE_LEVEL = LIGHT_LEVEL_MIN + LIGHT_DECAY_PER_HOP
 
 /** Write and enqueue an improved neighbour level. */
-const applyRelaxation = (context: PropagationContext, target: LightChunk, packed: number, next: number): void => {
+const applyRelaxation = (context: PropagationContext, target: LightChunk, voxel: number, packed: number, next: number): void => {
   const grid = context.gridOf(target.light)
-  const voxel = blockIndex(unpackX(packed), unpackY(packed), unpackZ(packed))
   if (getLightAt(grid, voxel) >= next) {
     return
   }
@@ -137,6 +132,9 @@ const seedQueues = (
 const X_OFFSET = 0
 const Y_OFFSET = 1
 const Z_OFFSET = 2
+const LIGHT_Y_STRIDE = STEP
+const LIGHT_Z_STRIDE = CHUNK_HEIGHT
+const LIGHT_X_STRIDE = CHUNK_HEIGHT * CHUNK_SIZE_XZ
 // The loop intentionally keeps scalar coordinates and no per-neighbour records.
 // oxlint-disable-next-line max-statements
 const popAndRelax = (context: PropagationContext, source: LightChunk, packed: number): void => {
@@ -144,6 +142,7 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
   if (level > LOWEST_PROPAGATABLE_LEVEL) {
     const next = level - LIGHT_DECAY_PER_HOP
     const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
+    const sourceVoxel = blockIndex(x, y, z)
     for (const offset of NEIGHBOUR_OFFSETS) {
       const ny = y + offset[Y_OFFSET]
       if (ny >= MIN_CHUNK_COORD && ny < CHUNK_HEIGHT) {
@@ -151,18 +150,20 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
         let target: LightChunk | null = source
         let targetX = nx
         let targetZ = nz
+        let targetVoxel = sourceVoxel + offset[Y_OFFSET] * LIGHT_Y_STRIDE + offset[Z_OFFSET] * LIGHT_Z_STRIDE + offset[X_OFFSET] * LIGHT_X_STRIDE
         if (nx < MIN_CHUNK_COORD || nx >= CHUNK_SIZE_XZ || nz < MIN_CHUNK_COORD || nz >= CHUNK_SIZE_XZ) {
           const adjacent = context.chunksByCoord.get(coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)))
           if (adjacent) {
             target = adjacent
             targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+            targetVoxel = blockIndex(targetX, ny, targetZ)
           } else {
             target = null
           }
         }
         if (target !== null && transmitsLight(getBlockAt(target.chunk, targetX, ny, targetZ))) {
-          applyRelaxation(context, target, packPosLevel(targetX, ny, targetZ, next), next)
+          applyRelaxation(context, target, targetVoxel, packPosLevel(targetX, ny, targetZ, next), next)
         }
       }
     }
@@ -181,8 +182,8 @@ const propagateAcrossChunks = (
   while (queue.head < queue.tail) {
     const index = queue.head
     // Source indices are assigned sequentially while building this validated table.
-    // @ts-expect-error noUncheckedIndexedAccess cannot express the validated index.
-    popAndRelax(context, sourceTable[queue.sourceView.getUint32(index * Uint32Array.BYTES_PER_ELEMENT, true)], queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
+    // @ts-expect-error noUncheckedIndexedAccess cannot express the validated queue indices.
+    popAndRelax(context, sourceTable[queue.source[index]], queue.packed[index])
     queue.head = index + STEP
   }
 }
