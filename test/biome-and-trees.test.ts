@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome, FALLBACK_BIOME } from '../src/domain/biome'
+import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import {
   cellOf,
@@ -42,7 +42,7 @@ describe('classifyBiome', () => {
 
   it.effect('falls back to plains for the temperate middle', () =>
     Effect.sync(() => {
-      expect(classifyBiome(0.5, 0.5)).toBe(FALLBACK_BIOME)
+      expect(classifyBiome(0.5, 0.5)).toBe('PLAINS')
     }),
   )
 

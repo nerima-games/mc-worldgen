@@ -20,7 +20,6 @@ import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/applicatio
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { elementAt } from '../src/domain/light-propagation'
 import {
   computeChunkLight,
   computeChunkLights,
@@ -36,12 +35,6 @@ import {
   updateChunkLights,
 } from '../src/domain/light'
 import { BlockId, blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
-
-describe('light propagation section reads', () => {
-  it('rejects an index outside a validated section', () => {
-    expect(() => elementAt([], 0)).toThrow(RangeError)
-  })
-})
 
 // ---------------------------------------------------------------------------
 // Block ids kernel names and `domain/biome.ts`'s `BLOCK` does not.

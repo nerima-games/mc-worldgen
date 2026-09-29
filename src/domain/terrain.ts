@@ -246,9 +246,6 @@ const plantTree = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number
   plantCanopy(blocks, lx, lz, surfaceY + TREE_TRUNK_HEIGHT)
 }
 
-/** Seed value for the buffer; `generateColumns` writes each column before decoration reads it. */
-const FALLBACK_DECORATION_BIOME: BiomeType = 'PLAINS'
-
 type ChunkBuffers = {
   readonly blocks: Uint16Array
   readonly biomes: Array<BiomeType>
@@ -258,7 +255,7 @@ type ChunkBuffers = {
 }
 
 const createChunkBuffers = (): ChunkBuffers => ({
-  biomes: new Array<BiomeType>(CHUNK_COLUMN_COUNT).fill(FALLBACK_DECORATION_BIOME),
+  biomes: new Array<BiomeType>(CHUNK_COLUMN_COUNT),
   blocks: emptyBlocks(),
   initialSurfaces: new Int16Array(CHUNK_COLUMN_COUNT),
   surfaces: new Int16Array(CHUNK_COLUMN_COUNT),

@@ -22,22 +22,19 @@ import {
 import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, lightEmissionOfBlockId, transmitsLight } from '@nerima-games/mc-kernel'
 
 type LightChunk = {
-  readonly index: number
   readonly chunk: Chunk
   readonly light: ChunkLight
 }
 
 type PropagationContext = {
-  readonly chunks: ReadonlyArray<LightChunk>
   readonly chunksByCoord: ReadonlyMap<string, LightChunk>
   readonly gridOf: (light: ChunkLight) => Uint8Array
-  readonly queueChunks: Array<number>
+  readonly queueChunks: Array<LightChunk>
   readonly queueCells: Array<number>
 }
 
 type FrontierCell = {
   readonly source: LightChunk
-  readonly sourceIndex: number
   readonly x: number
   readonly y: number
   readonly z: number
@@ -46,18 +43,9 @@ type FrontierCell = {
 
 type NeighbourLocation = {
   readonly target: LightChunk
-  readonly targetIndex: number
   readonly nx: number
   readonly ny: number
   readonly nz: number
-}
-
-export const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
-  const value = items[index]
-  if (typeof value === 'undefined') {
-    throw new RangeError(`light propagation index ${index} is outside the validated section`)
-  }
-  return value
 }
 
 /** Sky light enters every transmitting cell above the first opaque block. */
@@ -120,7 +108,6 @@ const resolveCrossChunkNeighbour = (
     ny: yOffset,
     nz: (zOffset + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
     target: adjacent,
-    targetIndex: adjacent.index,
   }
 }
 
@@ -139,7 +126,7 @@ const resolveNeighbour = (
   const nx = cell.x + dx
   const nz = cell.z + dz
   if (nx >= MIN_CHUNK_COORD && nx < CHUNK_SIZE_XZ && nz >= MIN_CHUNK_COORD && nz < CHUNK_SIZE_XZ) {
-    return { nx, ny, nz, target: cell.source, targetIndex: cell.sourceIndex }
+    return { nx, ny, nz, target: cell.source }
   }
 
   return resolveCrossChunkNeighbour(context, cell.source, [nx, ny, nz])
@@ -154,7 +141,7 @@ const applyRelaxation = (context: PropagationContext, neighbour: NeighbourLocati
   }
 
   setLightAt(grid, voxel, next)
-  context.queueChunks.push(neighbour.targetIndex)
+  context.queueChunks.push(neighbour.target)
   context.queueCells.push(packPosLevel(neighbour.nx, neighbour.ny, neighbour.nz, next))
 }
 
@@ -178,14 +165,13 @@ const seedQueues = (
   chunks: ReadonlyArray<LightChunk>,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
-): { readonly queueChunks: Array<number>; readonly queueCells: Array<number> } => {
-  const queueChunks: Array<number> = []
+): { readonly queueChunks: Array<LightChunk>; readonly queueCells: Array<number> } => {
+  const queueChunks: Array<LightChunk> = []
   const queueCells: Array<number> = []
 
-  for (let chunkIndex = MIN_CHUNK_COORD; chunkIndex < chunks.length; chunkIndex += STEP) {
-    const entry = elementAt(chunks, chunkIndex)
+  for (const entry of chunks) {
     for (const packed of seed(entry.chunk, gridOf(entry.light))) {
-      queueChunks.push(chunkIndex)
+      queueChunks.push(entry)
       queueCells.push(packed)
     }
   }
@@ -194,26 +180,22 @@ const seedQueues = (
 }
 
 /** Stop queue expansion once a hop cannot produce a positive light level. */
-const activeFrontierSource = (context: PropagationContext, chunkIndex: number, level: number): LightChunk | null => {
+const activeFrontierSource = (source: LightChunk, level: number): LightChunk | null => {
   if (level <= LOWEST_PROPAGATABLE_LEVEL) {
     return null
   }
-  return elementAt(context.chunks, chunkIndex)
+  return source
 }
 
-const popAndRelax = (context: PropagationContext, head: number): void => {
-  const packed = elementAt(context.queueCells, head)
-  const chunkIndex = elementAt(context.queueChunks, head)
+const popAndRelax = (context: PropagationContext, source: LightChunk, packed: number): void => {
   const level = unpackLevel(packed)
-  const source = activeFrontierSource(context, chunkIndex, level)
-  if (source === null) {
+  if (activeFrontierSource(source, level) === null) {
     return
   }
 
   const cell: FrontierCell = {
     next: level - LIGHT_DECAY_PER_HOP,
     source,
-    sourceIndex: chunkIndex,
     x: unpackX(packed),
     y: unpackY(packed),
     z: unpackZ(packed),
@@ -230,62 +212,59 @@ const propagateAcrossChunks = (
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
   const { queueChunks, queueCells } = seedQueues(chunks, gridOf, seed)
-  const context: PropagationContext = { chunks, chunksByCoord, gridOf, queueCells, queueChunks }
-
-  let head = MIN_CHUNK_COORD
-  while (head < queueCells.length) {
-    popAndRelax(context, head)
-    head += STEP
+  const context: PropagationContext = { chunksByCoord, gridOf, queueCells, queueChunks }
+  const cells = queueCells.values()
+  const sources = queueChunks.values()
+  let cell = cells.next()
+  let source = sources.next()
+  while (!cell.done && !source.done) {
+    popAndRelax(context, source.value, cell.value)
+    cell = cells.next()
+    source = sources.next()
   }
 }
 
 type IndexedChunks<Key extends string> = {
-  readonly keys: Array<Key>
-  readonly chunks: Array<LightChunk>
+  readonly entries: Array<{ readonly key: Key; readonly chunk: LightChunk }>
   readonly chunksByCoord: Map<string, LightChunk>
 }
 
 const indexChunks = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): IndexedChunks<Key> => {
-  const keys: Array<Key> = []
-  const chunks: Array<LightChunk> = []
+  const entries: Array<{ readonly key: Key; readonly chunk: LightChunk }> = []
   const chunksByCoord = new Map<string, LightChunk>()
 
   for (const [key, chunk] of loaded) {
-    keys.push(key)
-    const entry: LightChunk = { chunk, index: chunks.length, light: emptyChunkLight() }
-    chunks.push(entry)
+    const entry: LightChunk = { chunk, light: emptyChunkLight() }
+    entries.push({ chunk: entry, key })
     chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), entry)
   }
 
-  return { chunks, chunksByCoord, keys }
+  return { chunksByCoord, entries }
 }
 
 const collectLights = <Key extends string>(
-  keys: ReadonlyArray<Key>,
-  chunks: ReadonlyArray<LightChunk>,
+  entries: ReadonlyArray<{ readonly key: Key; readonly chunk: LightChunk }>,
 ): ReadonlyMap<Key, ChunkLight> => {
   const result = new Map<Key, ChunkLight>()
-  for (let index = MIN_CHUNK_COORD; index < chunks.length; index += STEP) {
-    const key = elementAt(keys, index)
-    const entry = elementAt(chunks, index)
-    result.set(key, entry.light)
+  for (const { key, chunk } of entries) {
+    result.set(key, chunk.light)
   }
   return result
 }
 
 /** Compute mutually consistent sky and block grids for resident chunks. */
 export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): ReadonlyMap<Key, ChunkLight> => {
-  const { chunks, chunksByCoord, keys } = indexChunks(loaded)
+  const { chunksByCoord, entries } = indexChunks(loaded)
 
-  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)
-  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.block, seedBlockLight)
+  propagateAcrossChunks(entries.map(({ chunk }) => chunk), chunksByCoord, (light) => light.sky, seedSkyLight)
+  propagateAcrossChunks(entries.map(({ chunk }) => chunk), chunksByCoord, (light) => light.block, seedBlockLight)
 
-  return collectLights(keys, chunks)
+  return collectLights(entries)
 }
 
 /** Single-chunk convenience wrapper with an isolated horizontal boundary. */
 export const computeChunkLight = (chunk: Chunk): ChunkLight => {
-  const entry: LightChunk = { chunk, index: MIN_CHUNK_COORD, light: emptyChunkLight() }
+  const entry: LightChunk = { chunk, light: emptyChunkLight() }
   const chunks = [entry]
   const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), entry]])
   propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)

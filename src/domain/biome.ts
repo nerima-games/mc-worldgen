@@ -35,6 +35,7 @@ import {
   TEMP_HOT,
   TEMP_JUNGLE,
 } from './biome-classifier.config.js'
+import { Option } from 'effect'
 
 export const BIOMES = [
   'PLAINS',
@@ -84,13 +85,11 @@ const BIOME_RULES: ReadonlyArray<BiomeRule> = [
   { biome: 'DESERT', when: (_temperature) => _temperature > TEMP_HOT },
   { biome: 'PLAINS', when: (_temperature, humidity) => humidity < HUM_DRY },
   { biome: 'FOREST', when: (_temperature, humidity) => humidity > HUM_WET },
+  { biome: 'PLAINS', when: () => true },
 ]
 
-/** The fallback, matching the reference's `'PLAINS'` default (`biome-classifier.ts:86`). */
-export const FALLBACK_BIOME: BiomeType = 'PLAINS'
-
 export const classifyBiome = (temperature: number, humidity: number): BiomeType =>
-  BIOME_RULES.find((rule) => rule.when(temperature, humidity))?.biome ?? FALLBACK_BIOME
+  Option.getOrThrow(Option.fromNullable(BIOME_RULES.find((rule) => rule.when(temperature, humidity))?.biome))
 
 /**
  * Surface materials for a biome.

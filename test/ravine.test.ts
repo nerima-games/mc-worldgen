@@ -583,25 +583,15 @@ describe('the pass order', () => {
   )
 })
 
-describe('defensive fallbacks — caller-supplied column data shorter than the chunk', () => {
+describe('defensive input handling — caller-supplied column data shorter than the chunk', () => {
   /**
    * R-13. `RavineTarget.surfaces`/`.biomes` are typed as `Int16Array` /
    * `ReadonlyArray<BiomeType>` with no length enforced by the type system —
-   * nothing stops a caller from handing over a partial column table. That
-   * makes `surfaces[column] ?? FALLBACK_SURFACE_Y` and
-   * `biomes[column] ?? 'PLAINS'` reachable through the public API, unlike
-   * `applyRavineCut`'s bedrock check (R-5b), which is unreachable by
-   * arithmetic and stays that way regardless of what a caller passes in.
-   *
-   * Proven rather than merely exercised: the fallback surface of 0 clamps
-   * `ravineFloorY` to `RAVINE_FLOOR_Y` (6) while the cut loop starts at
-   * `min(surfaceY, ...) = 0`, so `y > floorY` (`0 > 6`) is false on the very
-   * first check — every band column is still COUNTED, because the depth
-   * check and the water guard's biome layer only read the seed/coord and the
-   * fallback biome ('PLAINS', which the guard does not refuse), but nothing
-   * in the buffer is ever written.
+   * nothing stops a caller from handing over a partial column table. Missing
+   * entries are therefore an explicit no-data result: the column is skipped
+   * rather than assigned invented terrain state.
    */
-  it.effect('R-13: missing column data falls back to a floor of 0, so columns count but nothing is carved', () =>
+  it.effect('R-13: missing column data skips the cut without mutating the buffer', () =>
     Effect.sync(() => {
       const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
@@ -618,13 +608,7 @@ describe('defensive fallbacks — caller-supplied column data shorter than the c
         surfaces: new Int16Array(0),
       })
 
-      // Every band column is still recognised and counted — the guard and
-      // the depth check never touch `surfaces`/`biomes` for that part.
-      expect(carved).toBe(band.length)
-      // But the fallback floor of 0 makes the carve loop a no-op: nothing in
-      // the buffer moved. If `FALLBACK_SURFACE_Y` were ever raised above
-      // `RAVINE_FLOOR_Y`, this would start failing here rather than silently
-      // carving on malformed input.
+      expect(carved).toBe(0)
       expect(blocks).toStrictEqual(before)
     }),
   )

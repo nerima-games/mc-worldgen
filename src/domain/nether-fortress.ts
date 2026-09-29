@@ -36,8 +36,6 @@ const UNIT_STEP = 1
 const ZERO_OFFSET = 0
 const FORTRESS_WALL_OPENING_Y_OFFSET = 2
 const FORTRESS_MARKER_OFFSET = 2
-const FORTRESS_MAX_BLOCKS = 4096
-const FORTRESS_MAX_MARKERS = 32
 
 const keyOf = (position: NaturalStructurePosition): string =>
   `${String(position.x)},${String(position.y)},${String(position.z)}`
@@ -67,28 +65,10 @@ const candidateForRegion = (
 
 const addBlock = (mutable: MutableFortressPlan, placement: NaturalStructureBlockPlacement): void => {
   const key = keyOf(placement)
-  /**
-   * Esbuild drops a standalone inline "ignore next" comment during the TS
-   * transform (verified empirically against esbuild.transform()). Vitest
-   * 4's coverage-v8 provider reads that transformed code, so this
-   * repository uses the start/stop hint pair instead: it is read from the
-   * original source, which survives the transform.
-   */
-  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore start */
-  if (!mutable.blocks.has(key) && mutable.blocks.size >= FORTRESS_MAX_BLOCKS) {return}
-  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore stop */
   mutable.blocks.set(key, Object.freeze(placement))
 }
 
 const addMarker = (mutable: MutableFortressPlan, marker: NaturalStructureMarker): void => {
-  /** See `addBlock`'s ignore-hint comment for why this repository's ignore hints use the start/stop form. */
-  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore start */
-  if (mutable.markers.length >= FORTRESS_MAX_MARKERS) {return}
-  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore stop */
   mutable.markers.push(Object.freeze(marker))
 }
 
