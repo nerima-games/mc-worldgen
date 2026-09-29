@@ -153,17 +153,14 @@ const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerra
 
 /** Marks every villager spawn, and drops one loot chest beside the first. */
 const placeVillageSpawnsAndLoot = (mutable: MutablePlan, spawns: ReadonlyArray<VillageVillagerSpawn>): void => {
-  for (const spawn of spawns) {
+  for (const [spawnIndex, spawn] of spawns.entries()) {
     addMarker(mutable, { entity: 'villager', kind: 'entity-spawn', profession: spawn.profession, x: spawn.x, y: spawn.y, z: spawn.z })
+    if (spawnIndex === FIRST_SPAWN_INDEX) {
+      const lootX = spawn.x + VILLAGE_LOOT_CHEST_OFFSET_X
+      addBlock(mutable, { block: NATURAL_STRUCTURE_BLOCK.CHEST, x: lootX, y: spawn.y, z: spawn.z })
+      addMarker(mutable, { kind: 'loot-chest', lootTable: 'village', x: lootX, y: spawn.y, z: spawn.z })
+    }
   }
-  // Non-null assertion, not a branch: this function's only caller passes
-  // VillageVillagerSpawnsForSite's result, which is HOUSES.map(...) — a
-  // Fixed, non-empty literal array (village.ts) — so spawns can never be
-  // Empty and lootSpawn can never be undefined.
-  const lootSpawn = spawns[FIRST_SPAWN_INDEX]!
-  const lootX = lootSpawn.x + VILLAGE_LOOT_CHEST_OFFSET_X
-  addBlock(mutable, { block: NATURAL_STRUCTURE_BLOCK.CHEST, x: lootX, y: lootSpawn.y, z: lootSpawn.z })
-  addMarker(mutable, { kind: 'loot-chest', lootTable: 'village', x: lootX, y: lootSpawn.y, z: lootSpawn.z })
 }
 
 /** Plans the same village layout used by the Overworld chunk generator. */
@@ -549,7 +546,7 @@ type OverworldLandStructureKind = 'jungle-pyramid' | 'mineshaft' | 'pillager-out
 type OverworldSurfaceStructureKind = 'desert-pyramid' | 'desert-well' | 'igloo'
 
 const isCompactStructureKind = (kind: NaturalStructureKind): kind is CompactStructureKind =>
-  COMPACT_STRUCTURE_KINDS.includes(kind as CompactStructureKind)
+  COMPACT_STRUCTURE_KINDS.some((compactKind) => compactKind === kind)
 
 const planOverworldWaterKind = (
   seed: number,

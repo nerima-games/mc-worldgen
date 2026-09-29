@@ -622,6 +622,18 @@ it.effect('name', () => Effect.gen(function* () { ... }).pipe(Effect.provide(Som
 1 チャンクは 64KB である。fixture 探索が数百チャンクを走査すると数百 MB を触る。
 `test/carver.test.ts` は結果をメモ化してある。
 
+## Light propagation performance gate
+
+The light propagation hot path is assertion-free: queue reads use a checked accessor that
+throws `LightQueueUnderflowError` for an invalid index rather than using a type assertion.
+Against `origin/main`, the final variant measured `1.064x` on the low-load alternating
+five-pair protocol (`scripts/bench-light.ts`, 4 chunks, 8 edits, 5 runs per sample,
+1-minute load below 10). The measured medians were 2.347375 ms for head and 2.205375 ms
+for `origin/main`.
+
+Light queue preallocation and the benchmark baseline are separate R-C5 deliverables and
+are not part of this assertion-boundary change.
+
 ## 7. ベンチマーク（`pnpm bench`）
 
 ### 参照実装の `bench-terrain.ts` が**ここ**に来た理由

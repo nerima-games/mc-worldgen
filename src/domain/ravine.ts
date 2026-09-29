@@ -238,9 +238,6 @@ const RAVINE_TAPER_FULL = 1
 /** Exponent of the quadratic falloff from the band centre to its edges. */
 const RAVINE_TAPER_FALLOFF_EXPONENT = 2
 
-/** Surface height substituted when a column has no recorded surface. */
-const FALLBACK_SURFACE_Y = 0
-
 /** Vertical offset from a surface cell to the cell directly above it. */
 const ABOVE_SURFACE_OFFSET = 1
 
@@ -402,6 +399,19 @@ type RavineCut = {
   readonly surfaceY: number
 }
 
+const recordedColumnAt = (
+  surfaces: Int16Array,
+  biomes: ReadonlyArray<BiomeType>,
+  column: number,
+): { readonly biome: BiomeType; readonly surfaceY: number } | null => {
+  const surfaceY = surfaces[column]
+  const biome = biomes[column]
+  if (typeof surfaceY === 'undefined' || typeof biome === 'undefined') {
+    return null
+  }
+  return { biome, surfaceY }
+}
+
 /**
  * Resolves whether column `(lx, lz)` should be carved, and to what floor.
  *
@@ -409,27 +419,36 @@ type RavineCut = {
  * (`ravineDepthAt` is `RAVINE_NOT_CARVED_DEPTH`), or when the water guard
  * refuses it — see `ravineWaterGuardLayer` and DN-2 in the module header.
  */
+const resolveRavineCutAt = (
+  { biomes, blocks, guard, surfaces }: RavineCarveContext,
+  lx: number,
+  lz: number,
+  depth: number,
+): RavineCut | null => {
+  const column = columnIndex(lx, lz)
+  const recordedColumn = recordedColumnAt(surfaces, biomes, column)
+  if (recordedColumn === null) {
+    return null
+  }
+
+  if (ravineWaterGuardLayer({ biome: recordedColumn.biome, blocks, guard, lx, lz, surfaceY: recordedColumn.surfaceY }) !== null) {
+    return null
+  }
+
+  return { floorY: ravineFloorY(recordedColumn.surfaceY, depth), surfaceY: recordedColumn.surfaceY }
+}
+
 const resolveRavineCut = (
-  { biomes, blocks, coord, guard, seed, surfaces }: RavineCarveContext,
+  context: RavineCarveContext,
   lx: number,
   lz: number,
 ): RavineCut | null => {
-  const column = columnIndex(lx, lz)
-  const distance = ravineDistanceAt(seed, worldX(coord, lx), worldZ(coord, lz))
+  const distance = ravineDistanceAt(context.seed, worldX(context.coord, lx), worldZ(context.coord, lz))
   const depth = ravineDepthAt(distance)
-
   if (depth === RAVINE_NOT_CARVED_DEPTH) {
     return null
   }
-
-  const surfaceY = surfaces[column] ?? FALLBACK_SURFACE_Y
-  const biome = biomes[column] ?? 'PLAINS'
-
-  if (ravineWaterGuardLayer({ biome, blocks, guard, lx, lz, surfaceY }) !== null) {
-    return null
-  }
-
-  return { floorY: ravineFloorY(surfaceY, depth), surfaceY }
+  return resolveRavineCutAt(context, lx, lz, depth)
 }
 
 /**

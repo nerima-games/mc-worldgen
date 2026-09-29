@@ -64,6 +64,7 @@ import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 import { readBlock } from './chunk.js'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
@@ -87,6 +88,12 @@ const TOP_Y_INDEX_OFFSET = 1
  * body whose bed sits just above that padding is still detected.
  */
 const WATER_FLOOR_SCAN_HEADROOM = 16
+
+type IndexedValues<Value> = {
+  readonly [index: number]: Value
+}
+
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
 
 /** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
 const CAVE_NOISE_WAVELENGTH_BLOCKS = 24
@@ -226,8 +233,7 @@ export const carveCaves = (
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      // Asserted, not defaulted with `?? NO_WATER_FLOOR`. `waterFloors` has length `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ` (`computeWaterFloorYs` above), and for lx, lz drawn from `[0, CHUNK_SIZE_XZ)` the index `lz * CHUNK_SIZE_XZ + lx` reaches exactly `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ - 1` at its maximum — always a valid, defined element. A `?? fallback` here would be an untested, unreachable branch rather than real defensive code. `noUncheckedIndexedAccess` still types the read as possibly `undefined`, hence the assertion.
-      const waterFloorY = waterFloors[lz * CHUNK_SIZE_XZ + lx]!
+      const waterFloorY = readRequired(waterFloors, lz * CHUNK_SIZE_XZ + lx)
       carveColumn(context, waterFloorY, lx, lz)
     }
   }

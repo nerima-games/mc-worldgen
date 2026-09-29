@@ -34,6 +34,7 @@ import {
   unpackZ,
   updateChunkLights,
 } from '../src/domain/light'
+import { readQueueValue, sourceAt } from '../src/domain/light-propagation'
 import { BlockId, blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 // ---------------------------------------------------------------------------
@@ -189,6 +190,22 @@ describe('the 4-bit light grid', () => {
   )
 })
 
+describe('light propagation queue boundaries', () => {
+  it('reports invalid queue and source indexes as typed errors', () => {
+    const capture = (operation: () => unknown): unknown => {
+      try {
+        operation()
+        return null
+      } catch (error) {
+        return error
+      }
+    }
+
+    expect(capture(() => readQueueValue([], 0))).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+    expect(capture(() => sourceAt([], 0))).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Sky light
 // ---------------------------------------------------------------------------
@@ -321,6 +338,29 @@ describe('block light', () => {
       expect(getLightAt(light.block, blockIndex(6, y, 4))).toBe(12)
       expect(getLightAt(light.block, blockIndex(4, y, 6))).toBe(12)
     }),
+  )
+
+  it.effect('resolves a source after 256 loaded chunks without wrapping its id', () =>
+    Effect.sync(() => {
+      const loaded = new Map<string, Chunk>()
+      const sourceCoord = chunkCoord(256, 0)
+      const source = { coord: sourceCoord, blocks: emptyBlocks(), biomes: PLAINS_BIOMES }
+      source.blocks[blockIndex(1, SURFACE_Y + 1, 1)] = TORCH
+      for (let cx = 0; cx <= 256; cx += 1) {
+        const coord = chunkCoord(cx, 0)
+        loaded.set(`${cx},0`, cx === 256 ? source : { coord, blocks: emptyBlocks(), biomes: PLAINS_BIOMES })
+      }
+
+      const lights = computeChunkLights(loaded)
+      const light = lights.get('256,0')
+
+      if (light === undefined) {
+        throw new Error('source chunk light was not returned')
+      }
+      expect(getLightAt(light.block, blockIndex(1, SURFACE_Y + 1, 1))).toBe(14)
+      expect(getLightAt(light.block, blockIndex(2, SURFACE_Y + 1, 1))).toBe(13)
+    }),
+    180_000,
   )
 
   it.effect('an OPAQUE emitter is bright at its own cell and lights the air beside it', () =>

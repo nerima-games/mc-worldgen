@@ -396,6 +396,10 @@ describe('the support rule', () => {
       put(64, BLOCK.AIR)
       put(65, BLOCK.AIR)
       expect(canPlaceGroundPlantAt(blocks, 0, 64, 0)).toBe(false)
+
+      put(64, 65535)
+      expect(canPlaceCactusAt(blocks, 0, 64, 0)).toBe(false)
+      expect(canPlaceCactusAt(blocks, -1, 64, 0)).toBe(false)
     }),
   )
 })

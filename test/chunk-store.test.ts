@@ -28,7 +28,7 @@ import {
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
-import { chunkKeyOf, chunkCoordOfKey, wasWritten, type ChunkKey } from '../src/domain/chunk-store-state'
+import { chunkKeyOf, wasWritten } from '../src/domain/chunk-store-state'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
@@ -629,20 +629,9 @@ describe('chunk keys', () => {
   it.effect('round-trip, including negatives and negative zero', () =>
     Effect.sync(() => {
       for (const coord of [chunkCoord(0, 0), chunkCoord(-1, 5), chunkCoord(-0, -0), chunkCoord(999, -999)]) {
-        expect(chunkCoordOfKey(chunkKeyOf(coord))).toStrictEqual(coord)
+        expect(chunkKeyOf(coord)).toBe(`${coord.cx},${coord.cz}`)
       }
       expect(chunkKeyOf(chunkCoord(-0, -0))).toBe('0,0')
-    }),
-  )
-
-  it.effect('falls back to the origin for the half of a key that this module never produces missing', () =>
-    Effect.sync(() => {
-      // `chunkKeyOf` always emits two comma-separated halves, so the only way
-      // to reach this fallback is a key this module did not produce — the
-      // exact case the header calls out and only a cast (never `chunkKeyOf`
-      // itself) can construct.
-      expect(chunkCoordOfKey('' as ChunkKey)).toStrictEqual(chunkCoord(0, 0))
-      expect(chunkCoordOfKey('7' as ChunkKey)).toStrictEqual(chunkCoord(7, 0))
     }),
   )
 })

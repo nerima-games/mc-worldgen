@@ -6,7 +6,7 @@
  */
 import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome.js'
-import { type BlockId, canBlockStaySupported } from '@nerima-games/mc-kernel'
+import { type BlockId, canBlockStaySupported, isKnownBlockId } from '@nerima-games/mc-kernel'
 import {
   GROUND_PLANT_DENSITY,
   MUSHROOM_BIOMES,
@@ -171,7 +171,11 @@ const readLocalBlock = (blocks: Uint16Array, lx: number, y: number, lz: number):
     return BLOCK.AIR
   }
 
-  return readBlock(blocks, blockIndex(lx, y, lz)) as BlockId
+  const block = readBlock(blocks, blockIndex(lx, y, lz))
+  if (isKnownBlockId(block)) {
+    return block
+  }
+  return BLOCK.AIR
 }
 
 const hasHorizontalBlock = (
@@ -212,13 +216,20 @@ type SupportedPlantPlacement = {
   readonly surfaceY: number
 }
 
-const canPlaceSupportedPlantAt = ({ above = BLOCK.AIR, blocks, isSupported, lx, lz, surfaceY }: SupportedPlantPlacement): boolean =>
-  isValidColumn(lx) &&
-  isValidColumn(lz) &&
-  isValidY(surfaceY) &&
-  isValidY(surfaceY + ABOVE_SURFACE_OFFSET) &&
-  isSupported(readLocalBlock(blocks, lx, surfaceY, lz)) &&
-  readLocalBlock(blocks, lx, surfaceY + ABOVE_SURFACE_OFFSET, lz) === above
+const canPlaceSupportedPlantAt = ({ above = BLOCK.AIR, blocks, isSupported, lx, lz, surfaceY }: SupportedPlantPlacement): boolean => {
+  if (
+    !isValidColumn(lx) ||
+    !isValidColumn(lz) ||
+    !isValidY(surfaceY) ||
+    !isValidY(surfaceY + ABOVE_SURFACE_OFFSET)
+  ) {
+    return false
+  }
+
+  const support = readLocalBlock(blocks, lx, surfaceY, lz)
+  return isSupported(support) &&
+    readLocalBlock(blocks, lx, surfaceY + ABOVE_SURFACE_OFFSET, lz) === above
+}
 
 const supportsCactus = (support: BlockId): boolean => canBlockStaySupported(PLANT.CACTUS, support)
 

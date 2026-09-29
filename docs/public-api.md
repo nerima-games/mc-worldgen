@@ -236,7 +236,14 @@ Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下
 ```typescript
 export const surfaceHeightAt: (seed: number, wx: number, wz: number) => number
 export const climateAt: (seed: number, wx: number, wz: number)
-  => { readonly temperature: number; readonly humidity: number }
+  => {
+    readonly temperature: number
+    readonly humidity: number
+    readonly continentalness: number
+    readonly erosion: number
+    readonly pv: number
+    readonly riverNoise: number
+  }
 export const biomeFor: (seed: number, wx: number, wz: number, surfaceY: number, levels: TerrainLevels)
   => BiomeType
 ```
@@ -266,14 +273,13 @@ x = 16 の倍数に継ぎ目が出ない。
 ## 3. バイオーム分類
 
 ```typescript
-export const BIOMES: readonly ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW']
+export const BIOMES: readonly ['PLAINS', 'DESERT', 'FOREST', 'FLOWER_FOREST', 'OCEAN', 'MOUNTAINS', 'SNOW', 'SWAMP', 'JUNGLE', 'BEACH', 'RIVER', 'TAIGA', 'SAVANNA']
 export type BiomeType = (typeof BIOMES)[number]
-export const CHUNK_BIOMES: readonly [...typeof BIOMES, 'END']
+export const CHUNK_BIOMES: ReadonlyArray<BiomeType | 'NETHER' | 'END'>
 export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
 export type ClimateSample = { readonly temperature: number; readonly humidity: number }
-export const classifyBiome: (climate: ClimateSample) => BiomeType
-export const FALLBACK_BIOME: BiomeType   // 'PLAINS'
+export const classifyBiome: (temperature: number, humidity: number) => BiomeType
 
 export type BiomeSurface = {
   readonly top: number

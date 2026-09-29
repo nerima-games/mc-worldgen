@@ -96,6 +96,7 @@ import {
   fillWaterForColumn,
   shouldFreezeWaterSurface,
 } from './lake-generator.js'
+import { Option } from 'effect'
 import type { OverworldTerrainSample } from './structure-siting.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
@@ -245,9 +246,6 @@ const plantTree = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number
   plantCanopy(blocks, lx, lz, surfaceY + TREE_TRUNK_HEIGHT)
 }
 
-/** Seed value for the buffer; `generateColumns` writes each column before decoration reads it. */
-const FALLBACK_DECORATION_BIOME: BiomeType = 'PLAINS'
-
 type ChunkBuffers = {
   readonly blocks: Uint16Array
   readonly biomes: Array<BiomeType>
@@ -257,7 +255,7 @@ type ChunkBuffers = {
 }
 
 const createChunkBuffers = (): ChunkBuffers => ({
-  biomes: new Array<BiomeType>(CHUNK_COLUMN_COUNT).fill(FALLBACK_DECORATION_BIOME),
+  biomes: new Array<BiomeType>(CHUNK_COLUMN_COUNT),
   blocks: emptyBlocks(),
   initialSurfaces: new Int16Array(CHUNK_COLUMN_COUNT),
   surfaces: new Int16Array(CHUNK_COLUMN_COUNT),
@@ -272,28 +270,26 @@ type ChunkGenerationContext = ChunkBuffers & {
   readonly levels: TerrainLevels
 }
 
+type IndexedValues<Value> = {
+  readonly [index: number]: Value
+}
+
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
+
 /**
- * Asserted rather than defaulted with `?? fallback`: `context.surfaces` and
- * `context.biomes` are only ever read from `plantTreesPass` /
- * `plantGroundCoverPass`, both only called (via `decorateChunk`) from
- * `generateChunk` — and only AFTER `generateColumns` has already written
- * every `(lx, lz)` in `[0, CHUNK_SIZE_XZ) x [0, CHUNK_SIZE_XZ)` (see
- * `generateChunk`'s call order below). `columnIndex(lx, lz) = lz *
- * CHUNK_SIZE_XZ + lx` never exceeds `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ - 1` for
- * lx, lz in that range, which is exactly `surfaces.length - 1` /
- * `biomes.length - 1`. A `?? fallback` here would be an untested,
- * unreachable branch rather than real defensive code.
- * `noUncheckedIndexedAccess` still types both reads as possibly `undefined`,
- * hence the assertions.
+ * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
+ * for every local column before these accessors are used. `readRequired`
+ * preserves that invariant without inventing a fallback value for an invalid
+ * index.
  */
 const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number): number =>
-  context.surfaces[columnIndex(lx, lz)]!
+  readRequired(context.surfaces, columnIndex(lx, lz))
 
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
-  context.biomes[columnIndex(lx, lz)]!
+  readRequired(context.biomes, columnIndex(lx, lz))
 
 const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
-  const waterLevel = context.waterLevels[columnIndex(lx, lz)]!
+  const waterLevel = readRequired(context.waterLevels, columnIndex(lx, lz))
   if (waterLevel === NO_WATER_LEVEL) {
     return null
   }
@@ -431,8 +427,8 @@ const structureSurfaceBiomeAt = (
     return surfaceBiomeAt(context.seed, wx, wz, context.levels)
   }
   return {
-    biome: context.biomes[localColumn]!,
-    surfaceY: context.initialSurfaces[localColumn]!,
+    biome: readRequired(context.biomes, localColumn),
+    surfaceY: readRequired(context.initialSurfaces, localColumn),
   }
 }
 

@@ -42,6 +42,7 @@ import {
   chunkCoordOfBlock,
   localCoordOfBlock,
 } from '@nerima-games/mc-kernel'
+import { Brand, Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
@@ -59,46 +60,12 @@ import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } fr
  * (`coordKey`). `chunkCoord` normalises `-0` to `0`, which is what stops
  * `"-0,3"` and `"0,3"` naming one chunk twice.
  */
-export type ChunkKey = string & { readonly _tag: 'ChunkKey' }
+export type ChunkKey = string & Brand.Brand<'ChunkKey'>
 
-export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => `${coord.cx},${coord.cz}` as ChunkKey
+const makeChunkKey = Brand.nominal<ChunkKey>()
 
-/** What an unparseable half of a `ChunkKey` falls back to; see `chunkCoordOfKey`. */
-const FALLBACK_CHUNK_ORIGIN = 0
+export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => makeChunkKey(`${coord.cx},${coord.cz}`)
 
-/**
- * Inverse of `chunkKeyOf`. Total: a key this module did not produce yields
- * `chunkCoord(0, 0)` rather than failing, because the only way to obtain a
- * `ChunkKey` is from `chunkKeyOf` and a caller therefore cannot reach the
- * fallback without a cast.
- */
-export const chunkCoordOfKey = (key: ChunkKey): ChunkCoord => {
-  const [cx, cz] = key.split(',')
-  /**
-   * PROVABLY DEAD (the `cx ?? FALLBACK_CHUNK_ORIGIN` fallback only):
-   * `String.prototype.split` always returns a non-empty array — `''.split(',')`
-   * is `['']`, not `[]` — so destructuring index 0 into `cx` can never be
-   * `undefined`. Only `cz` (index 1) can be, when `key` has no comma at all;
-   * that half is real and reachable — see `test/chunk-store.test.ts`'s "falls
-   * back to the origin" case — which is why only `cx`'s half is ignored here
-   * rather than the whole line.
-   */
-  return chunkCoord(
-    /**
-     * Esbuild drops a standalone inline "ignore next" comment during the TS
-     * transform (verified empirically against esbuild.transform()). Vitest
-     * 4's coverage-v8 provider reads that transformed code, so this
-     * repository uses the start/stop hint pair instead: it is read from the
-     * original source, which survives the transform.
-     */
-    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore start */
-    Number(cx ?? FALLBACK_CHUNK_ORIGIN),
-    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore stop */
-    Number(cz ?? FALLBACK_CHUNK_ORIGIN),
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Reads and writes
@@ -207,7 +174,7 @@ export const lightReading = (sky: number, block: number): LightReading => ({ _ta
  * `unsubscribe` cannot detach a later subscriber that happened to get the same
  * number.
  */
-export type SubscriberId = number & { readonly _tag: 'SubscriberId' }
+export type SubscriberId = number
 
 /**
  * What one subscriber has not been told yet.
@@ -229,11 +196,11 @@ export type SubscriberId = number & { readonly _tag: 'SubscriberId' }
  * enforce that, so a subscriber never has to reconcile a contradiction.
  */
 export type DirtySubscriberState = {
-  readonly changed: ReadonlySet<ChunkKey>
-  readonly removed: ReadonlySet<ChunkKey>
+  readonly changed: ReadonlyMap<ChunkKey, ChunkCoord>
+  readonly removed: ReadonlyMap<ChunkKey, ChunkCoord>
 }
 
-const EMPTY_SUBSCRIBER: DirtySubscriberState = { changed: new Set(), removed: new Set() }
+const EMPTY_SUBSCRIBER: DirtySubscriberState = { changed: new Map(), removed: new Map() }
 
 /** One drain's worth of news, in coordinates the caller can use directly. */
 export type ChunkDirtyBatch = {
@@ -327,19 +294,20 @@ export const emptyChunkStoreState: ChunkStoreState = {
 const nextDirtySubscriberState = (
   state: DirtySubscriberState,
   key: ChunkKey,
+  coord: ChunkCoord,
   kind: 'changed' | 'removed',
 ): DirtySubscriberState => {
-  const changed = new Set(state.changed)
-  const removed = new Set(state.removed)
+  const changed = new Map(state.changed)
+  const removed = new Map(state.removed)
 
   if (kind === 'changed') {
     // A chunk that comes back after being unloaded is a change, not a
     // Removal — and it must not be reported as both.
     removed.delete(key)
-    changed.add(key)
+    changed.set(key, coord)
   } else {
     changed.delete(key)
-    removed.add(key)
+    removed.set(key, coord)
   }
 
   return { changed, removed }
@@ -348,12 +316,13 @@ const nextDirtySubscriberState = (
 const noteChange = (
   subscribers: ReadonlyMap<SubscriberId, DirtySubscriberState>,
   key: ChunkKey,
+  coord: ChunkCoord,
   kind: 'changed' | 'removed',
 ): ReadonlyMap<SubscriberId, DirtySubscriberState> => {
   const next = new Map<SubscriberId, DirtySubscriberState>()
 
   for (const [id, state] of subscribers) {
-    next.set(id, nextDirtySubscriberState(state, key, kind))
+    next.set(id, nextDirtySubscriberState(state, key, coord, kind))
   }
 
   return next
@@ -364,12 +333,12 @@ const NEIGHBOUR_OFFSET_STEP = 1
 /** No displacement along an axis, for the offset pairs below that only move on one axis. */
 const NEIGHBOUR_OFFSET_NONE = 0
 
-const HORIZONTAL_NEIGHBOUR_OFFSETS = [
+const HORIZONTAL_NEIGHBOUR_OFFSETS: ReadonlyArray<readonly [number, number]> = [
   [NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
   [-NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
   [NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP],
   [NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP],
-] as const
+]
 
 const lightKeysAround = (coord: ChunkCoord): ReadonlyArray<ChunkKey> => [
   chunkKeyOf(coord),
@@ -388,27 +357,7 @@ const withoutLights = (
 
 const hasCompleteLightCache = (state: ChunkStoreState): boolean => {
   if (state.lights.size !== state.loaded.size) {return false}
-  /**
-   * PROVABLY DEAD (the `return false` below): `state.lights` is a subset of
-   * `state.loaded`'s key set by construction throughout this module —
-   * `withChunk` and `withoutChunk` only ever REMOVE keys from `lights` (via
-   * `withoutLights`), never add one that is not already in `loaded`, and
-   * `computeChunkLights`/`updateChunkLights` (in `light.ts`) only ever
-   * populate entries for chunks already in the `loaded` map they are given.
-   * A finite subset with the SAME cardinality as the set it is a subset of is
-   * that set — so once the size check above has passed, every `loaded` key is
-   * already known to be in `lights`, and this loop can only ever complete and
-   * fall through to `return true`.
-   */
-  for (const key of state.loaded.keys()) {
-    /** See `chunkCoordOfKey`'s ignore-hint comment for why this repository's ignore hints use the start/stop form. */
-    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore start */
-    if (!state.lights.has(key)) {return false}
-    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore stop */
-  }
-  return true
+  return [...state.loaded.keys()].every((key) => state.lights.has(key))
 }
 
 /** Mark resident neighbours whose exposed boundary faces changed. */
@@ -420,9 +369,10 @@ const noteLoadedNeighbours = (
   let next = subscribers
 
   for (const [dcx, dcz] of HORIZONTAL_NEIGHBOUR_OFFSETS) {
-    const key = chunkKeyOf(chunkCoord(coord.cx + dcx, coord.cz + dcz))
+    const neighbourCoord = chunkCoord(coord.cx + dcx, coord.cz + dcz)
+    const key = chunkKeyOf(neighbourCoord)
     if (loaded.has(key)) {
-      next = noteChange(next, key, 'changed')
+      next = noteChange(next, key, neighbourCoord, 'changed')
     }
   }
 
@@ -442,7 +392,7 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
   const loaded = new Map(state.loaded)
   loaded.set(key, chunk)
   const subscribers = noteLoadedNeighbours(
-    noteChange(state.subscribers, key, 'changed'),
+    noteChange(state.subscribers, key, chunk.coord, 'changed'),
     state.loaded,
     chunk.coord,
   )
@@ -480,7 +430,7 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
   const loaded = new Map(state.loaded)
   loaded.delete(key)
   const subscribers = noteLoadedNeighbours(
-    noteChange(state.subscribers, key, 'removed'),
+    noteChange(state.subscribers, key, coord, 'removed'),
     loaded,
     coord,
   )
@@ -594,7 +544,7 @@ const applyBlockWrite = (
       lights: relightAfterBlockChange(state, coord, local),
       loaded: state.loaded,
       nextSubscriberId: state.nextSubscriberId,
-      subscribers: noteChange(state.subscribers, key, 'changed'),
+      subscribers: noteChange(state.subscribers, key, coord, 'changed'),
     },
   ]
 }
@@ -651,25 +601,7 @@ const lightReadingForTarget = (
   }
 
   const lights = computeChunkLights(state.loaded)
-  const computed = lights.get(target.key)
-  /**
-   * PROVABLY DEAD (this guard and its body): `target` came from
-   * `resolveLoadedChunk`, which only returns one after confirming
-   * `state.loaded.get(target.key)` is a real `Chunk` — so `target.key` is
-   * always a key of `state.loaded` here. `computeChunkLights` (`light.ts`)
-   * builds its result via `indexChunks` + `collectLights`, which push into
-   * `keys`/`chunks` together on every iteration of `for (const [key, chunk]
-   * of loaded)` and then re-key the result from those same two index-aligned
-   * arrays — so its returned map's key set is exactly `state.loaded`'s, never
-   * a subset. `lights.get(target.key)` can therefore never miss.
-   */
-  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore start */
-  if (!computed) {
-    return [LIGHT_CHUNK_NOT_LOADED, state]
-  }
-  // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-  /* v8 ignore stop */
+  const computed = Option.getOrThrow(Option.fromNullable(lights.get(target.key)))
 
   return [
     lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),
@@ -713,7 +645,7 @@ export const lightAt = (
 const SUBSCRIBER_ID_STEP = 1
 
 export const subscribed = (state: ChunkStoreState): readonly [SubscriberId, ChunkStoreState] => {
-  const id = state.nextSubscriberId as SubscriberId
+  const id: SubscriberId = state.nextSubscriberId
   const subscribers = new Map(state.subscribers)
   subscribers.set(id, EMPTY_SUBSCRIBER)
 
@@ -768,8 +700,8 @@ export const drained = (
   }
 
   const batch: ChunkDirtyBatch = {
-    changed: [...pending.changed].map(chunkCoordOfKey),
-    removed: [...pending.removed].map(chunkCoordOfKey),
+    changed: [...pending.changed.values()],
+    removed: [...pending.removed.values()],
   }
 
   const subscribers = new Map(state.subscribers)

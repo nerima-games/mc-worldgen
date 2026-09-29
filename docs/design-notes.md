@@ -489,7 +489,7 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 | --- | --- | --- |
 | インクリメンタル伝播（固定点キュー） | ✅ | 完全なライトキャッシュへのブロック変更は `updateChunkLights` が増減を同じキューで再評価する。入力キャッシュが不完全な場合は常駐チャンク全体を再計算する |
 | チャンク境界をまたぐ伝播 | ✅ | `computeChunkLights` と `updateChunkLights` が常駐する水平隣接チャンクへ伝播する。不在チャンクは閉じた境界として扱う |
-| 葉・水の数値減衰 | ⬜ | `@nerima-games/mc-kernel 0.4.0` は `opacityOfBlockId`（`opaque` / `fluid` / `transparentSolid`）、`lightEmissionOfBlockId`、`transmitsLight` を公開するが、葉・水を何レベル減衰させるかの数値は公開していない。ここで数値を発明すると kernel のテーブルを二重所有するため、数値 API が提供されるまで現行の 1 段減衰を維持する |
+| 葉・水の数値減衰 | ⬜ | `package.json` が pin する `@nerima-games/mc-kernel` は `opacityOfBlockId`（`opaque` / `fluid` / `transparentSolid`）、`lightEmissionOfBlockId`、`transmitsLight` を公開するが、葉・水を何レベル減衰させるかの数値は公開していない。ここで数値を発明すると kernel のテーブルを二重所有するため、数値 API が提供されるまで現行の 1 段減衰を維持する |
 | ライトキャッシュの永続化 | ✅（非永続） | `ChunkPersistence` と `CHUNK_FORMAT` はブロックとバイオームだけを保存し、ライトキャッシュは保存しない。ロード後のライト要求で常駐チャンク集合を再計算する |
 
 | テスト名 | 主張 |

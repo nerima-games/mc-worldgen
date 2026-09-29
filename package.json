@@ -56,9 +56,10 @@
     "preview": "tsx apps/preview-terrain/main.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:repro": "tsx scripts/verify-reproducibility.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.build.json --pretty false && tsc -p tsconfig.test.json --pretty false && tsc -p tsconfig.preview.json --pretty false",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:repro"
   },
   "dependencies": {
     "@nerima-games/mc-kernel": "0.7.0",

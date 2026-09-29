@@ -9,6 +9,7 @@ import {
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants.js'
 import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
 import type { NaturalStructureChunk } from './natural-structure.js'
+import { Option } from 'effect'
 import { setBlockAt } from './chunk.js'
 
 const END_SPIKE_COUNT = 10
@@ -86,13 +87,27 @@ const spikeForIndex = (random: () => number, index: number): EndSpike => {
   })
 }
 
+/**
+ * Read one spike at a proven in-range index.
+ *
+ * `noUncheckedIndexedAccess` widens every computed index into an array, and
+ * nothing in the type system can narrow it back: a tuple type does not help
+ * (a variable index into a fixed-length tuple is still `T | undefined`), and
+ * neither does `.at`. Destructuring an array goes through its iterator, which
+ * yields `T`, so a one-element slice is the same read with a type the checker
+ * can accept. Two of these run per swap over ten spikes, once per seed, which
+ * is cheaper than the alternatives: a fallback would be a branch no test can
+ * reach under this repository's 100% coverage gate.
+ */
+const spikeAt = (spikes: { readonly [index: number]: EndSpike }, index: number): EndSpike => Option.getOrThrow(Option.fromNullable(spikes[index]))
+
 const shuffledSpikes = (spikes: ReadonlyArray<EndSpike>, random: () => number): ReadonlyArray<EndSpike> => {
   const result = [...spikes]
 
   for (let index = result.length - ONE; index > ZERO; index -= ONE) {
     const swapIndex = randomInt(random, index + ONE)
-    const current = result[index] as EndSpike
-    result[index] = result[swapIndex] as EndSpike
+    const current = spikeAt(result, index)
+    result[index] = spikeAt(result, swapIndex)
     result[swapIndex] = current
   }
 
