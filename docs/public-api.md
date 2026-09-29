@@ -266,9 +266,9 @@ x = 16 の倍数に継ぎ目が出ない。
 ## 3. バイオーム分類
 
 ```typescript
-export const BIOMES: readonly ['OCEAN', 'BEACH', 'DESERT', 'SAVANNA', 'PLAINS', 'FOREST', 'TAIGA', 'SNOW']
+export const BIOMES: readonly ['PLAINS', 'DESERT', 'FOREST', 'FLOWER_FOREST', 'OCEAN', 'MOUNTAINS', 'SNOW', 'SWAMP', 'JUNGLE', 'BEACH', 'RIVER', 'TAIGA', 'SAVANNA']
 export type BiomeType = (typeof BIOMES)[number]
-export const CHUNK_BIOMES: readonly [...typeof BIOMES, 'END']
+export const CHUNK_BIOMES: ReadonlyArray<BiomeType | 'NETHER' | 'END'>
 export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
 export type ClimateSample = { readonly temperature: number; readonly humidity: number }
