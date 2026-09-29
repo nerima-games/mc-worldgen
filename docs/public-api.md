@@ -272,8 +272,7 @@ export const CHUNK_BIOMES: ReadonlyArray<BiomeType | 'NETHER' | 'END'>
 export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 
 export type ClimateSample = { readonly temperature: number; readonly humidity: number }
-export const classifyBiome: (climate: ClimateSample) => BiomeType
-export const FALLBACK_BIOME: BiomeType   // 'PLAINS'
+export const classifyBiome: (temperature: number, humidity: number) => BiomeType
 
 export type BiomeSurface = {
   readonly top: number
