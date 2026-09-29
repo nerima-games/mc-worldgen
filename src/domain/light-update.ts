@@ -16,6 +16,7 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
+import { Option } from 'effect'
 import { computeChunkLights } from './light-propagation.js'
 
 /** One block mutation whose cached light neighbourhood must reach a new fixed point. */
@@ -64,13 +65,7 @@ type ChunkIndexBuilder<Key extends string> = {
   readonly chunksByCoord: Map<string, number>
 }
 
-const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
-  const item = items[index]
-  if (typeof item === 'undefined') {
-    throw new Error(`Invalid light update index: ${index}`)
-  }
-  return item
-}
+const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => Option.getOrThrow(Option.fromNullable(items[index]))
 
 /** Append one cached chunk, returning false when the cache is incomplete. */
 const registerCurrentChunk = <Key extends string>(

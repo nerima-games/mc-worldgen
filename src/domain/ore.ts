@@ -184,6 +184,7 @@ import {
 import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
 import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
 import { BLOCK } from './biome.js'
+import { Option } from 'effect'
 import { readBlock } from './chunk.js'
 
 /**
@@ -480,13 +481,7 @@ type DepthBand = {
  */
 const readPackedCell = (stack: Array<number>, base: number): VeinCandidate => {
   const values = stack.slice(base, base + CELL_COMPONENT_COUNT)
-  const componentAt = (componentIndex: number): number => {
-    const value = values[componentIndex]
-    if (typeof value === 'undefined') {
-      throw new Error(`Invalid packed cell component: ${componentIndex}`)
-    }
-    return value
-  }
+  const componentAt = (componentIndex: number): number => Option.getOrThrow(Option.fromNullable(values[componentIndex]))
   return { cx: componentAt(MIN_LOCAL_COORD), cy: componentAt(Y_COMPONENT_OFFSET), cz: componentAt(Z_COMPONENT_OFFSET) }
 }
 

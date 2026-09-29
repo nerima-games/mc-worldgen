@@ -64,6 +64,7 @@ import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 import { readBlock } from './chunk.js'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
@@ -92,13 +93,7 @@ type IndexedValues<Value> = {
   readonly [index: number]: Value
 }
 
-const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => {
-  const value = values[index]
-  if (typeof value === 'undefined') {
-    throw new RangeError(`Missing value at index ${index}`)
-  }
-  return value
-}
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
 
 /** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
 const CAVE_NOISE_WAVELENGTH_BLOCKS = 24

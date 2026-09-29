@@ -20,6 +20,7 @@ import {
   coordKey,
 } from './light-common.js'
 import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, lightEmissionOfBlockId, transmitsLight } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 
 type LightChunk = {
   readonly index: number
@@ -52,13 +53,7 @@ type NeighbourLocation = {
   readonly nz: number
 }
 
-const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
-  const item = items[index]
-  if (typeof item === 'undefined') {
-    throw new Error(`Invalid light propagation index: ${index}`)
-  }
-  return item
-}
+const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => Option.getOrThrow(Option.fromNullable(items[index]))
 
 /** Sky light enters every transmitting cell above the first opaque block. */
 const seedSkyLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {

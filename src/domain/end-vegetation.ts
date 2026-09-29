@@ -12,6 +12,7 @@ import {
   END_VEGETATION_BLOCK,
 } from './end-vegetation-data.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { Option } from 'effect'
 
 export { END_VEGETATION_BLOCK } from './end-vegetation-data.js'
 
@@ -22,13 +23,7 @@ const DIRECTION_CHANNEL = 'end-chorus-direction'
 const MIN_Y = 0
 const ONE = 1
 
-const directionAt = (directions: { readonly [index: number]: readonly [number, number] }, index: number): readonly [number, number] => {
-  const direction = directions[index]
-  if (typeof direction === 'undefined') {
-    throw new Error(`Invalid chorus direction index: ${index}`)
-  }
-  return direction
-}
+const directionAt = (directions: { readonly [index: number]: readonly [number, number] }, index: number): readonly [number, number] => Option.getOrThrow(Option.fromNullable(directions[index]))
 
 export type EndSurfaceHeightAt = (seed: number, worldX: number, worldZ: number) => number | undefined
 export type EndOuterIslandAt = (worldX: number, worldZ: number) => boolean

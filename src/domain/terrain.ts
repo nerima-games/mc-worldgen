@@ -96,6 +96,7 @@ import {
   fillWaterForColumn,
   shouldFreezeWaterSurface,
 } from './lake-generator.js'
+import { Option } from 'effect'
 import type { OverworldTerrainSample } from './structure-siting.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
@@ -276,13 +277,7 @@ type IndexedValues<Value> = {
   readonly [index: number]: Value
 }
 
-const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => {
-  const value = values[index]
-  if (typeof value === 'undefined') {
-    throw new RangeError(`Missing value at index ${index}`)
-  }
-  return value
-}
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
 
 /**
  * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
