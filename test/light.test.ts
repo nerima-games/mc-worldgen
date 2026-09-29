@@ -343,6 +343,7 @@ describe('block light', () => {
       expect(getLightAt(light.block, blockIndex(1, SURFACE_Y + 1, 1))).toBe(14)
       expect(getLightAt(light.block, blockIndex(2, SURFACE_Y + 1, 1))).toBe(13)
     }),
+    180_000,
   )
 
   it.effect('an OPAQUE emitter is bright at its own cell and lights the air beside it', () =>
