@@ -10,8 +10,7 @@ import {
   saveTo,
 } from '@nerima-games/mc-save'
 import type { Chunk } from '../domain/chunk.js'
-import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import type { Dimension } from '../domain/nether-travel.js'
+import type { ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
 
 // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
 // Class from its public error surface; decode/migration failures are now

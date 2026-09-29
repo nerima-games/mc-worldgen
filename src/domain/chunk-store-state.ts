@@ -37,15 +37,19 @@ import {
   BlockId,
   type BlockPosition,
   type ChunkCoord,
+  type ChunkKey,
   type LocalBlockCoord,
+  chunkKeyOf,
   chunkCoord,
   chunkCoordOfBlock,
   localCoordOfBlock,
 } from '@nerima-games/mc-kernel'
-import { Brand, Option } from 'effect'
+import { Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
+
+export { chunkKeyOf } from '@nerima-games/mc-kernel'
 
 // ---------------------------------------------------------------------------
 // Keys
@@ -60,13 +64,6 @@ import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } fr
  * (`coordKey`). `chunkCoord` normalises `-0` to `0`, which is what stops
  * `"-0,3"` and `"0,3"` naming one chunk twice.
  */
-export type ChunkKey = string & Brand.Brand<'ChunkKey'>
-
-const makeChunkKey = Brand.nominal<ChunkKey>()
-
-export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => makeChunkKey(`${coord.cx},${coord.cz}`)
-
-
 // ---------------------------------------------------------------------------
 // Reads and writes
 // ---------------------------------------------------------------------------

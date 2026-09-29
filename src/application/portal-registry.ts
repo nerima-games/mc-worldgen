@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Option, Ref } from 'effect'
+import type { Dimension } from '@nerima-games/mc-kernel'
 import {
-  type Dimension,
   PORTAL_SEARCH_RADIUS,
   type PortalTravelPlan,
   resolveNetherTravel,

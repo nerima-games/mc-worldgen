@@ -92,48 +92,12 @@
  * runs over one world plan the same portal — the same reasoning
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
-import { type BlockPosition, type PortalAxis, type PortalLayout, generatePortalLayout } from '@nerima-games/mc-kernel'
+import { type BlockPosition, type Dimension, type PortalAxis, type PortalLayout, generatePortalLayout } from '@nerima-games/mc-kernel'
 import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link.js'
 import { Option } from 'effect'
 
-/**
- * Which world a cell is in.
- *
- * OWNED HERE. THIS REPOSITORY IS CLAIMING THE WORD, and until recently it was
- * explicitly not — the paragraph this replaces read 「DECLARED HERE
- * PROVISIONALLY, AND THIS REPOSITORY IS NOT CLAIMING THE WORD」 and nominated
- * mc-kernel. The nomination was reasonable and it was not taken.
- *
- * WHAT DECIDED IT was not a new measurement. `docs/responsibility.md` §6's
- * finding still holds exactly as recorded — 「**mc-kernel には `Dimension` 型が
- * 無い**」, re-measured again here and still returning one unrelated comment in
- * `block-registry.ts` — so kernel remained a candidate rather than an incumbent.
- * What changed is that the reference declares its `Dimension` in
- * `packages/world` (`nether-travel.ts:17`), which IS this repository, and a
- * noun's owner being the repository that already owns the rule reading it beats
- * a noun's owner being the repository everything happens to depend on.
- *
- * THE WITHHOLDING HAS THEREFORE EXPIRED. The previous paragraph justified
- * keeping this off `index.ts` on the ground that 「A consumer cannot come to
- * depend on the spelling because no consumer can see it」, which was the right
- * caution for a word with no owner and is a defect for a word with one: mc-sim
- * must record which dimension a player is in, and a name mirrored from a module
- * no barrel exports cannot be repointed. It is published — see `index.ts`.
- *
- * THE HAZARD THAT REPLACES IT is the one plan.md §3.4 describes, 「二つの綴り」,
- * and it is now this repository's to prevent rather than to avoid: the reference
- * itself declares `Dimension` TWICE (`packages/world/domain/nether/nether-travel
- * .ts:17` and `packages/worker/domain/terrain-worker-protocol.ts:18`). Consumers
- * mirror this declaration and only this one; `mc-dev-meta`'s `check:mirrors`
- * is what makes that checkable rather than hoped for.
- *
- * `'end'` is in the union and is NOT a destination of this rule — see
- * `resolveNetherTravel`. It is here because omitting it would make the union
- * describe two dimensions while the reference's `Dimension`
- * (`nether-travel.ts:17`) describes three, and a mirror of two-thirds of a type
- * is the drift every mirror header in the organisation is about.
- */
-export type Dimension = 'overworld' | 'nether' | 'end'
+/** The canonical dimension union is supplied by mc-kernel and re-exported here. */
+export type { Dimension } from '@nerima-games/mc-kernel'
 
 /** How far from the scaled destination an existing portal may be and still be reused. */
 export const PORTAL_SEARCH_RADIUS = 128
