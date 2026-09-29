@@ -40,23 +40,13 @@ type PropagationContext = {
   readonly chunksByCoord: ReadonlyMap<string, LightChunk>
   readonly gridOf: (light: ChunkLight) => Uint8Array
   readonly queue: LightQueue
-  readonly sourceTable: Record<number, LightChunk>
+  readonly sourceTable: ReadonlyArray<LightChunk>
 }
 
-type FrontierCell = {
-  readonly source: LightChunk
-  readonly x: number
-  readonly y: number
-  readonly z: number
-  readonly next: number
-}
-
-type NeighbourLocation = {
-  readonly target: LightChunk
-  readonly nx: number
-  readonly ny: number
-  readonly nz: number
-}
+const readValidatedSource = (table: ReadonlyArray<LightChunk>, index: number): LightChunk =>
+  // Source indices are assigned sequentially while building this validated table.
+  // @ts-expect-error noUncheckedIndexedAccess cannot express the validated index.
+  table[index]
 
 const QUEUE_CAPACITY_PER_CELL = LIGHT_LEVEL_MAX
 
@@ -115,61 +105,18 @@ const seedBlockLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
 
 const LOWEST_PROPAGATABLE_LEVEL = LIGHT_LEVEL_MIN + LIGHT_DECAY_PER_HOP
 
-/** Resolve a neighbour that crosses into a resident horizontal chunk. */
-const resolveCrossChunkNeighbour = (
-  context: PropagationContext,
-  source: LightChunk,
-  neighbour: readonly [number, number, number],
-): NeighbourLocation | null => {
-  const [xOffset, yOffset, zOffset] = neighbour
-  const sourceCoord = source.chunk.coord
-  const adjacent = context.chunksByCoord.get(
-    coordKey(sourceCoord.cx + axisCrossing(xOffset, CHUNK_SIZE_XZ), sourceCoord.cz + axisCrossing(zOffset, CHUNK_SIZE_XZ)),
-  )
-  if (!adjacent) {
-    return null
-  }
-  return {
-    nx: (xOffset + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
-    ny: yOffset,
-    nz: (zOffset + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
-    target: adjacent,
-  }
-}
-
-/** Resolve one face-neighbour, treating absent chunks as opaque boundaries. */
-const resolveNeighbour = (
-  context: PropagationContext,
-  cell: FrontierCell,
-  offset: readonly [number, number, number],
-): NeighbourLocation | null => {
-  const [dx, dy, dz] = offset
-  const ny = cell.y + dy
-  if (ny < MIN_CHUNK_COORD || ny >= CHUNK_HEIGHT) {
-    return null
-  }
-
-  const nx = cell.x + dx
-  const nz = cell.z + dz
-  if (nx >= MIN_CHUNK_COORD && nx < CHUNK_SIZE_XZ && nz >= MIN_CHUNK_COORD && nz < CHUNK_SIZE_XZ) {
-    return { nx, ny, nz, target: cell.source }
-  }
-
-  return resolveCrossChunkNeighbour(context, cell.source, [nx, ny, nz])
-}
-
 /** Write and enqueue an improved neighbour level. */
-const applyRelaxation = (context: PropagationContext, neighbour: NeighbourLocation, next: number): void => {
-  const grid = context.gridOf(neighbour.target.light)
-  const voxel = blockIndex(neighbour.nx, neighbour.ny, neighbour.nz)
+const applyRelaxation = (context: PropagationContext, target: LightChunk, packed: number, next: number): void => {
+  const grid = context.gridOf(target.light)
+  const voxel = blockIndex(unpackX(packed), unpackY(packed), unpackZ(packed))
   if (getLightAt(grid, voxel) >= next) {
     return
   }
 
   setLightAt(grid, voxel, next)
   const index = context.queue.tail
-  context.queue.packed[index] = packPosLevel(neighbour.nx, neighbour.ny, neighbour.nz, next)
-  context.queue.source[index] = neighbour.target.sourceIndex
+  context.queue.packed[index] = packed
+  context.queue.source[index] = target.sourceIndex
   context.queue.tail = index + STEP
 }
 
@@ -192,45 +139,46 @@ const seedQueues = (
   return queue
 }
 
-/** Relax one face-neighbour if its block transmits light. */
-const relaxNeighbour = (
-  context: PropagationContext,
-  cell: FrontierCell,
-  offset: readonly [number, number, number],
-): void => {
-  const neighbour = resolveNeighbour(context, cell, offset)
-  if (neighbour === null) {
-    return
+const X_OFFSET = 0
+const Y_OFFSET = 1
+const Z_OFFSET = 2
+
+const relaxCrossChunkNeighbour = (context: PropagationContext, source: LightChunk, packed: number, next: number, offset: readonly [number, number, number]): void => {
+  const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
+  const nx = x + offset[X_OFFSET], ny = y + offset[Y_OFFSET], nz = z + offset[Z_OFFSET]
+  const adjacent = context.chunksByCoord.get(
+    coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)),
+  )
+  if (adjacent && transmitsLight(getBlockAt(adjacent.chunk, (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ, ny, (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ))) {
+    const targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+    const targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+    applyRelaxation(context, adjacent, packPosLevel(targetX, ny, targetZ, next), next)
   }
-  if (!transmitsLight(getBlockAt(neighbour.target.chunk, neighbour.nx, neighbour.ny, neighbour.nz))) {
-    return
-  }
-  applyRelaxation(context, neighbour, cell.next)
 }
 
-/** Stop queue expansion once a hop cannot produce a positive light level. */
-const activeFrontierSource = (source: LightChunk, level: number): LightChunk | null => {
-  if (level <= LOWEST_PROPAGATABLE_LEVEL) {
-    return null
+const relaxNeighbour = (context: PropagationContext, source: LightChunk, packed: number, next: number, offset: readonly [number, number, number]): void => {
+  const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
+  const ny = y + offset[Y_OFFSET]
+  if (ny >= MIN_CHUNK_COORD && ny < CHUNK_HEIGHT) {
+    const nx = x + offset[X_OFFSET]
+    const nz = z + offset[Z_OFFSET]
+    if (nx >= MIN_CHUNK_COORD && nx < CHUNK_SIZE_XZ && nz >= MIN_CHUNK_COORD && nz < CHUNK_SIZE_XZ) {
+      if (transmitsLight(getBlockAt(source.chunk, nx, ny, nz))) {
+        applyRelaxation(context, source, packPosLevel(nx, ny, nz, next), next)
+      }
+    } else {
+      relaxCrossChunkNeighbour(context, source, packed, next, offset)
+    }
   }
-  return source
 }
 
 const popAndRelax = (context: PropagationContext, source: LightChunk, packed: number): void => {
   const level = unpackLevel(packed)
-  if (activeFrontierSource(source, level) === null) {
-    return
-  }
-
-  const cell: FrontierCell = {
-    next: level - LIGHT_DECAY_PER_HOP,
-    source,
-    x: unpackX(packed),
-    y: unpackY(packed),
-    z: unpackZ(packed),
-  }
-  for (const offset of NEIGHBOUR_OFFSETS) {
-    relaxNeighbour(context, cell, offset)
+  if (level > LOWEST_PROPAGATABLE_LEVEL) {
+    const next = level - LIGHT_DECAY_PER_HOP
+    for (const offset of NEIGHBOUR_OFFSETS) {
+      relaxNeighbour(context, source, packed, next, offset)
+    }
   }
 }
 
@@ -241,11 +189,11 @@ const propagateAcrossChunks = (
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
   const queue = seedQueues(chunks, gridOf, seed)
-  const sourceTable: Record<number, LightChunk> = Object.fromEntries(chunks.map((source) => [source.sourceIndex, source]))
+  const sourceTable: ReadonlyArray<LightChunk> = chunks
   const context: PropagationContext = { chunksByCoord, gridOf, queue, sourceTable }
   while (queue.head < queue.tail) {
     const index = queue.head
-    popAndRelax(context, Reflect.get(sourceTable, queue.sourceView.getUint32(index * Uint32Array.BYTES_PER_ELEMENT, true)), queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
+    popAndRelax(context, readValidatedSource(sourceTable, queue.sourceView.getUint32(index * Uint32Array.BYTES_PER_ELEMENT, true)), queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
     queue.head = index + STEP
   }
 }
