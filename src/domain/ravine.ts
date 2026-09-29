@@ -445,7 +445,10 @@ const resolveRavineCut = (
 ): RavineCut | null => {
   const distance = ravineDistanceAt(context.seed, worldX(context.coord, lx), worldZ(context.coord, lz))
   const depth = ravineDepthAt(distance)
-  return depth === RAVINE_NOT_CARVED_DEPTH ? null : resolveRavineCutAt(context, lx, lz, depth)
+  if (depth === RAVINE_NOT_CARVED_DEPTH) {
+    return null
+  }
+  return resolveRavineCutAt(context, lx, lz, depth)
 }
 
 /**

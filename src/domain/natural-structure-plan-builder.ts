@@ -1,4 +1,3 @@
-import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureKind,
@@ -10,6 +9,7 @@ import type {
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from './nether-travel.js'
+import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import { Option } from 'effect'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
