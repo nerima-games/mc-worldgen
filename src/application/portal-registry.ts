@@ -1,5 +1,5 @@
+import { type BlockPosition, type Dimension } from '@nerima-games/mc-kernel'
 import { Context, Effect, Layer, Option, Ref } from 'effect'
-import type { Dimension } from '@nerima-games/mc-kernel'
 import {
   PORTAL_SEARCH_RADIUS,
   type PortalTravelPlan,
@@ -20,7 +20,6 @@ import {
   loadFrom,
   saveTo,
 } from '@nerima-games/mc-save'
-import { type BlockPosition } from '@nerima-games/mc-kernel'
 import { PORTAL_REGISTRY_FORMAT } from '../domain/portal-registry-format.js'
 
 // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError

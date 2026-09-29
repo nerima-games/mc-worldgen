@@ -39,15 +39,15 @@ import {
   type ChunkCoord,
   type ChunkKey,
   type LocalBlockCoord,
-  chunkKeyOf,
   chunkCoord,
   chunkCoordOfBlock,
+  chunkKeyOf,
   localCoordOfBlock,
 } from '@nerima-games/mc-kernel'
-import { Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
+import { Option } from 'effect'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
 

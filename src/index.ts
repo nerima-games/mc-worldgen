@@ -44,7 +44,7 @@ export * from './domain/nether-fortress.js'
 export * from './domain/nether-link.js'
 export * from './domain/nether-terrain.js'
 // `Dimension` is re-exported from worldgen for its existing public API, but the
-// canonical union and guard are owned by mc-kernel 0.8.0.
+// Canonical union and guard are owned by mc-kernel 0.8.0.
 export * from './domain/nether-travel.js'
 export * from './domain/portal-registry.js'
 export * from './domain/portal-registry-format.js'

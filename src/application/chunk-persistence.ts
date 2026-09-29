@@ -1,4 +1,5 @@
 import { CHUNK_FORMAT, CHUNK_FORMAT_V1, migrateChunkV1ToV2 } from '../domain/chunk-format.js'
+import { type ChunkCoord, type Dimension } from '@nerima-games/mc-kernel'
 import { Effect, Option } from 'effect'
 import {
   type SaveDecodeError,
@@ -10,7 +11,6 @@ import {
   saveTo,
 } from '@nerima-games/mc-save'
 import type { Chunk } from '../domain/chunk.js'
-import type { ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
 
 // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
 // Class from its public error surface; decode/migration failures are now
