@@ -43,11 +43,6 @@ type PropagationContext = {
   readonly sourceTable: ReadonlyArray<LightChunk>
 }
 
-const readValidatedSource = (table: ReadonlyArray<LightChunk>, index: number): LightChunk =>
-  // Source indices are assigned sequentially while building this validated table.
-  // @ts-expect-error noUncheckedIndexedAccess cannot express the validated index.
-  table[index]
-
 const QUEUE_CAPACITY_PER_CELL = LIGHT_LEVEL_MAX
 
 const createQueue = (chunkCount: number): LightQueue => {
@@ -142,42 +137,34 @@ const seedQueues = (
 const X_OFFSET = 0
 const Y_OFFSET = 1
 const Z_OFFSET = 2
-
-const relaxCrossChunkNeighbour = (context: PropagationContext, source: LightChunk, packed: number, next: number, offset: readonly [number, number, number]): void => {
-  const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
-  const nx = x + offset[X_OFFSET], ny = y + offset[Y_OFFSET], nz = z + offset[Z_OFFSET]
-  const adjacent = context.chunksByCoord.get(
-    coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)),
-  )
-  if (adjacent && transmitsLight(getBlockAt(adjacent.chunk, (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ, ny, (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ))) {
-    const targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
-    const targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
-    applyRelaxation(context, adjacent, packPosLevel(targetX, ny, targetZ, next), next)
-  }
-}
-
-const relaxNeighbour = (context: PropagationContext, source: LightChunk, packed: number, next: number, offset: readonly [number, number, number]): void => {
-  const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
-  const ny = y + offset[Y_OFFSET]
-  if (ny >= MIN_CHUNK_COORD && ny < CHUNK_HEIGHT) {
-    const nx = x + offset[X_OFFSET]
-    const nz = z + offset[Z_OFFSET]
-    if (nx >= MIN_CHUNK_COORD && nx < CHUNK_SIZE_XZ && nz >= MIN_CHUNK_COORD && nz < CHUNK_SIZE_XZ) {
-      if (transmitsLight(getBlockAt(source.chunk, nx, ny, nz))) {
-        applyRelaxation(context, source, packPosLevel(nx, ny, nz, next), next)
-      }
-    } else {
-      relaxCrossChunkNeighbour(context, source, packed, next, offset)
-    }
-  }
-}
-
+// The loop intentionally keeps scalar coordinates and no per-neighbour records.
+// oxlint-disable-next-line max-statements
 const popAndRelax = (context: PropagationContext, source: LightChunk, packed: number): void => {
   const level = unpackLevel(packed)
   if (level > LOWEST_PROPAGATABLE_LEVEL) {
     const next = level - LIGHT_DECAY_PER_HOP
+    const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
     for (const offset of NEIGHBOUR_OFFSETS) {
-      relaxNeighbour(context, source, packed, next, offset)
+      const ny = y + offset[Y_OFFSET]
+      if (ny >= MIN_CHUNK_COORD && ny < CHUNK_HEIGHT) {
+        const nx = x + offset[X_OFFSET], nz = z + offset[Z_OFFSET]
+        let target: LightChunk | null = source
+        let targetX = nx
+        let targetZ = nz
+        if (nx < MIN_CHUNK_COORD || nx >= CHUNK_SIZE_XZ || nz < MIN_CHUNK_COORD || nz >= CHUNK_SIZE_XZ) {
+          const adjacent = context.chunksByCoord.get(coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)))
+          if (adjacent) {
+            target = adjacent
+            targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+            targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
+          } else {
+            target = null
+          }
+        }
+        if (target !== null && transmitsLight(getBlockAt(target.chunk, targetX, ny, targetZ))) {
+          applyRelaxation(context, target, packPosLevel(targetX, ny, targetZ, next), next)
+        }
+      }
     }
   }
 }
@@ -193,7 +180,9 @@ const propagateAcrossChunks = (
   const context: PropagationContext = { chunksByCoord, gridOf, queue, sourceTable }
   while (queue.head < queue.tail) {
     const index = queue.head
-    popAndRelax(context, readValidatedSource(sourceTable, queue.sourceView.getUint32(index * Uint32Array.BYTES_PER_ELEMENT, true)), queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
+    // Source indices are assigned sequentially while building this validated table.
+    // @ts-expect-error noUncheckedIndexedAccess cannot express the validated index.
+    popAndRelax(context, sourceTable[queue.sourceView.getUint32(index * Uint32Array.BYTES_PER_ELEMENT, true)], queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
     queue.head = index + STEP
   }
 }
