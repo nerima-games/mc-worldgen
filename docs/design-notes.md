@@ -729,3 +729,25 @@ surfaceY <= seaLevel + 1   -> BEACH
 | テスト名 | 主張 |
 | --- | --- |
 | ⬜ `an inland lake keeps its climate biome, so underwaterTop is reachable` | 公式の湖盆表面規則を確認した後に追加する |
+
+---
+
+<a id="dn-12"></a>
+## DN-12 ✅ バイオーム語彙と kernel 移行境界
+
+`BIOMES` の13種は worldgen が所有する Overworld の気候分類であり、
+`CHUNK_BIOMES` の15値はそこへ `NETHER` / `END` を加えたチャンク格納語彙である。
+この差は依存パッケージの版差ではなく、分類結果と次元タグを同じ配列で運ぶための
+型設計である。kernel の consumer migration を理由に、13種の分類器を15種へ拡張したり、
+kernel 側へ biome classifier を複製したりしない。
+
+一方、kernel の移行契約が求める共有値・guard・純粋計算の利用は適用する。
+`Dimension` の共有 union / guard と `BlockId` の registry・能力照会は kernel の公開 API
+へ寄せる対象で、worldgen は kernel の型を再公開する。`BlockRead`、
+`BlockWriteBatch`、`ReadView` は将来の接続境界であり、live chunk state、load/unload、
+revision、COW、STM、dirty event、実チャンクへの mutation は worldgen に残す。
+
+ブロック数値は保存・wire の安定性を理由に直接ドキュメントへ固定しない。registry 上の
+ID 67 のような個別値も kernel の registry/API を通して扱い、worldgen が意味を再定義しない。
+worldgen 固有の13種/15値 biome と kernel の67種 biome の対応表は、生成用語彙と
+canonical ID の境界をまたぐため R-W1 / P6 で扱う。現版では対応表を新設しない。
