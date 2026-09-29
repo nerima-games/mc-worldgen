@@ -52,7 +52,7 @@ type NeighbourLocation = {
   readonly nz: number
 }
 
-const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
+export const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
   const value = items[index]
   if (typeof value === 'undefined') {
     throw new RangeError(`light propagation index ${index} is outside the validated section`)
