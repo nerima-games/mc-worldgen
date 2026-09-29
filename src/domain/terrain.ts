@@ -272,28 +272,32 @@ type ChunkGenerationContext = ChunkBuffers & {
   readonly levels: TerrainLevels
 }
 
+type IndexedValues<Value> = {
+  readonly [index: number]: Value
+}
+
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => {
+  const value = values[index]
+  if (typeof value === 'undefined') {
+    throw new RangeError(`Missing value at index ${index}`)
+  }
+  return value
+}
+
 /**
- * Asserted rather than defaulted with `?? fallback`: `context.surfaces` and
- * `context.biomes` are only ever read from `plantTreesPass` /
- * `plantGroundCoverPass`, both only called (via `decorateChunk`) from
- * `generateChunk` — and only AFTER `generateColumns` has already written
- * every `(lx, lz)` in `[0, CHUNK_SIZE_XZ) x [0, CHUNK_SIZE_XZ)` (see
- * `generateChunk`'s call order below). `columnIndex(lx, lz) = lz *
- * CHUNK_SIZE_XZ + lx` never exceeds `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ - 1` for
- * lx, lz in that range, which is exactly `surfaces.length - 1` /
- * `biomes.length - 1`. A `?? fallback` here would be an untested,
- * unreachable branch rather than real defensive code.
- * `noUncheckedIndexedAccess` still types both reads as possibly `undefined`,
- * hence the assertions.
+ * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
+ * for every local column before these accessors are used. `readRequired`
+ * preserves that invariant without inventing a fallback value for an invalid
+ * index.
  */
 const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number): number =>
-  context.surfaces[columnIndex(lx, lz)]!
+  readRequired(context.surfaces, columnIndex(lx, lz))
 
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
-  context.biomes[columnIndex(lx, lz)]!
+  readRequired(context.biomes, columnIndex(lx, lz))
 
 const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
-  const waterLevel = context.waterLevels[columnIndex(lx, lz)]!
+  const waterLevel = readRequired(context.waterLevels, columnIndex(lx, lz))
   if (waterLevel === NO_WATER_LEVEL) {
     return null
   }
@@ -431,8 +435,8 @@ const structureSurfaceBiomeAt = (
     return surfaceBiomeAt(context.seed, wx, wz, context.levels)
   }
   return {
-    biome: context.biomes[localColumn]!,
-    surfaceY: context.initialSurfaces[localColumn]!,
+    biome: readRequired(context.biomes, localColumn),
+    surfaceY: readRequired(context.initialSurfaces, localColumn),
   }
 }
 

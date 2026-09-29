@@ -446,13 +446,12 @@ type DepthBand = {
 }
 
 /**
- * Reads one packed coordinate out of `stack`.
+ * Reads the packed [cx, cy, cz] cell at `base` out of `stack`.
  *
- * Asserted rather than defaulted with `?? 0`, because a fallback here would
- * be untested dead code that a coverage gate would then require a test for —
- * and no real input can reach it. PROOF: every caller passes an `index` that
- * is one of `pickIndex`, `pickIndex + {Y,Z}_COMPONENT_OFFSET`, `lastBase`, or
- * `lastBase + {Y,Z}_COMPONENT_OFFSET`.
+ * No `?? 0` fallback, because a fallback here would be untested dead code that
+ * a coverage gate would then require a test for — and no real input can reach
+ * it. PROOF: `base` is always either `pickIndex` or `lastBase`, and both are in
+ * `[0, stack.length - CELL_COMPONENT_COUNT]`.
  *
  *  - `stack.length` starts at `CELL_COMPONENT_COUNT` (the seed cell) and is
  *    only ever changed by pushing whole `CELL_COMPONENT_COUNT`-sized cells
@@ -465,18 +464,31 @@ type DepthBand = {
  *    divided by its own modulus, which is strictly `< 1` for every `t`. So
  *    `pickIndex = floor(next() * (length / 3)) * 3` is at most
  *    `length - CELL_COMPONENT_COUNT`, i.e. `<= lastBase`.
- *  - Therefore `pickIndex` and `lastBase` are both in
- *    `[0, stack.length - CELL_COMPONENT_COUNT]`, and adding
- *    `Y_COMPONENT_OFFSET` (1) or `Z_COMPONENT_OFFSET` (2) keeps every read in
- *    `[0, stack.length - 1]` — always a valid, defined index.
  *
- * `noUncheckedIndexedAccess` still types `stack[index]` as `number |
- * undefined`, so the non-null assertion below is what tells the type checker
- * what the proof above already establishes at runtime. `no-non-null-assertion`
- * is `off` project-wide (`.oxlintrc.json`), so the assertion below needs no
- * suppression comment.
+ * So the `CELL_COMPONENT_COUNT`-wide window taken here can never be short.
+ *
+ * The window is what makes the read total instead of `number | undefined`:
+ * `noUncheckedIndexedAccess` widens every computed index into `stack`,
+ * including destructuring of a fixed-length tuple type, because neither can
+ * prove the index is in range. Destructuring an ARRAY goes through its
+ * iterator instead, which yields `number` — so `slice` plus array
+ * destructuring is the same read at the cost of one three-element array per
+ * cell. A vein grows by single-digit steps, which is cheaper than what the
+ * alternatives cost: a fallback is untestable dead code, and the non-null
+ * assertion this replaces was only ever telling the type checker what this
+ * comment already establishes.
  */
-const readPackedCoord = (stack: Array<number>, index: number): number => stack[index]!
+const readPackedCell = (stack: Array<number>, base: number): VeinCandidate => {
+  const values = stack.slice(base, base + CELL_COMPONENT_COUNT)
+  const componentAt = (componentIndex: number): number => {
+    const value = values[componentIndex]
+    if (typeof value === 'undefined') {
+      throw new Error(`Invalid packed cell component: ${componentIndex}`)
+    }
+    return value
+  }
+  return { cx: componentAt(MIN_LOCAL_COORD), cy: componentAt(Y_COMPONENT_OFFSET), cz: componentAt(Z_COMPONENT_OFFSET) }
+}
 
 /**
  * Swap-remove one packed [x, y, z] cell from `stack` at `pickIndex`, keeping
@@ -486,9 +498,10 @@ const swapRemoveCell = (stack: Array<number>, pickIndex: number): void => {
   const lastBase = stack.length - CELL_COMPONENT_COUNT
 
   if (pickIndex !== lastBase) {
-    stack[pickIndex] = readPackedCoord(stack, lastBase)
-    stack[pickIndex + Y_COMPONENT_OFFSET] = readPackedCoord(stack, lastBase + Y_COMPONENT_OFFSET)
-    stack[pickIndex + Z_COMPONENT_OFFSET] = readPackedCoord(stack, lastBase + Z_COMPONENT_OFFSET)
+    const last = readPackedCell(stack, lastBase)
+    stack[pickIndex] = last.cx
+    stack[pickIndex + Y_COMPONENT_OFFSET] = last.cy
+    stack[pickIndex + Z_COMPONENT_OFFSET] = last.cz
   }
 
   stack.length = lastBase
@@ -497,13 +510,11 @@ const swapRemoveCell = (stack: Array<number>, pickIndex: number): void => {
 /** Pick one candidate cell at random from `stack` and remove it. */
 const popRandomCandidate = (stack: Array<number>, next: () => number): VeinCandidate => {
   const pickIndex = Math.floor(next() * (stack.length / CELL_COMPONENT_COUNT)) * CELL_COMPONENT_COUNT
-  const cx = readPackedCoord(stack, pickIndex)
-  const cy = readPackedCoord(stack, pickIndex + Y_COMPONENT_OFFSET)
-  const cz = readPackedCoord(stack, pickIndex + Z_COMPONENT_OFFSET)
+  const candidate = readPackedCell(stack, pickIndex)
 
   swapRemoveCell(stack, pickIndex)
 
-  return { cx, cy, cz }
+  return candidate
 }
 
 const isWithinChunkBounds = (cx: number, cz: number): boolean =>

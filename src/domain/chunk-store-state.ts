@@ -59,12 +59,14 @@ import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } fr
  * (`coordKey`). `chunkCoord` normalises `-0` to `0`, which is what stops
  * `"-0,3"` and `"0,3"` naming one chunk twice.
  */
-export type ChunkKey = string & { readonly _tag: 'ChunkKey' }
+export type ChunkKey = string
 
-export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => `${coord.cx},${coord.cz}` as ChunkKey
+export const chunkKeyOf = (coord: ChunkCoord): ChunkKey => `${coord.cx},${coord.cz}`
 
 /** What an unparseable half of a `ChunkKey` falls back to; see `chunkCoordOfKey`. */
 const FALLBACK_CHUNK_ORIGIN = 0
+const KEY_START = 0
+const KEY_PART_OFFSET = 1
 
 /**
  * Inverse of `chunkKeyOf`. Total: a key this module did not produce yields
@@ -73,31 +75,14 @@ const FALLBACK_CHUNK_ORIGIN = 0
  * fallback without a cast.
  */
 export const chunkCoordOfKey = (key: ChunkKey): ChunkCoord => {
-  const [cx, cz] = key.split(',')
-  /**
-   * PROVABLY DEAD (the `cx ?? FALLBACK_CHUNK_ORIGIN` fallback only):
-   * `String.prototype.split` always returns a non-empty array — `''.split(',')`
-   * is `['']`, not `[]` — so destructuring index 0 into `cx` can never be
-   * `undefined`. Only `cz` (index 1) can be, when `key` has no comma at all;
-   * that half is real and reachable — see `test/chunk-store.test.ts`'s "falls
-   * back to the origin" case — which is why only `cx`'s half is ignored here
-   * rather than the whole line.
-   */
-  return chunkCoord(
-    /**
-     * Esbuild drops a standalone inline "ignore next" comment during the TS
-     * transform (verified empirically against esbuild.transform()). Vitest
-     * 4's coverage-v8 provider reads that transformed code, so this
-     * repository uses the start/stop hint pair instead: it is read from the
-     * original source, which survives the transform.
-     */
-    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore start */
-    Number(cx ?? FALLBACK_CHUNK_ORIGIN),
-    // oxlint-disable-next-line capitalized-comments -- v8 coverage directive, case-sensitive
-    /* v8 ignore stop */
-    Number(cz ?? FALLBACK_CHUNK_ORIGIN),
-  )
+  const separator = key.indexOf(',')
+  let cx = key
+  let cz = FALLBACK_CHUNK_ORIGIN
+  if (separator >= KEY_START) {
+    cx = key.slice(KEY_START, separator)
+    cz = Number(key.slice(separator + KEY_PART_OFFSET))
+  }
+  return chunkCoord(Number(cx), cz)
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +192,7 @@ export const lightReading = (sky: number, block: number): LightReading => ({ _ta
  * `unsubscribe` cannot detach a later subscriber that happened to get the same
  * number.
  */
-export type SubscriberId = number & { readonly _tag: 'SubscriberId' }
+export type SubscriberId = number
 
 /**
  * What one subscriber has not been told yet.
@@ -364,12 +349,12 @@ const NEIGHBOUR_OFFSET_STEP = 1
 /** No displacement along an axis, for the offset pairs below that only move on one axis. */
 const NEIGHBOUR_OFFSET_NONE = 0
 
-const HORIZONTAL_NEIGHBOUR_OFFSETS = [
+const HORIZONTAL_NEIGHBOUR_OFFSETS: ReadonlyArray<readonly [number, number]> = [
   [NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
   [-NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
   [NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP],
   [NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP],
-] as const
+]
 
 const lightKeysAround = (coord: ChunkCoord): ReadonlyArray<ChunkKey> => [
   chunkKeyOf(coord),
@@ -713,7 +698,7 @@ export const lightAt = (
 const SUBSCRIBER_ID_STEP = 1
 
 export const subscribed = (state: ChunkStoreState): readonly [SubscriberId, ChunkStoreState] => {
-  const id = state.nextSubscriberId as SubscriberId
+  const id: SubscriberId = state.nextSubscriberId
   const subscribers = new Map(state.subscribers)
   subscribers.set(id, EMPTY_SUBSCRIBER)
 

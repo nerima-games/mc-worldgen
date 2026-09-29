@@ -32,7 +32,6 @@ const PROBE_OFFSETS = Object.freeze([
 ])
 
 const MAX_SURFACE_VARIATION = 6
-const ORIGIN_SAMPLE_INDEX = 0
 const CHEST_HEIGHT_OFFSET = 1
 const FOUNDATION_LEVEL = 0
 const STRUCTURE_STEP = 1
@@ -133,15 +132,17 @@ export const planCompactStructureForCandidate = (
   candidate: CompactStructureCandidate,
   sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<CompactStructureDraft> => {
-  const samples = PROBE_OFFSETS.map((offset) =>
-    sampleTerrain(candidate.x + offset.x, candidate.z + offset.z),
-  ) as [ReturnType<OverworldTerrainSampler>, ...ReturnType<OverworldTerrainSampler>[]]
+  const originSample = sampleTerrain(candidate.x, candidate.z)
+  const samples = [
+    originSample,
+    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(candidate.x + offset.x, candidate.z + offset.z)),
+  ]
   if (!siteIsValid(kind, samples)) {
     return Option.none()
   }
 
   const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
-  const baseY = samples[ORIGIN_SAMPLE_INDEX].surfaceY + descriptor.baseOffset
+  const baseY = originSample.surfaceY + descriptor.baseOffset
   const blocks = structureBlocksForCandidate(kind, candidate, baseY)
   const marker = addLootChest(blocks, kind, candidate, baseY)
   const origin = Object.freeze({ x: candidate.x, y: baseY, z: candidate.z })

@@ -64,6 +64,14 @@ type ChunkIndexBuilder<Key extends string> = {
   readonly chunksByCoord: Map<string, number>
 }
 
+const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
+  const item = items[index]
+  if (typeof item === 'undefined') {
+    throw new Error(`Invalid light update index: ${index}`)
+  }
+  return item
+}
+
 /** Append one cached chunk, returning false when the cache is incomplete. */
 const registerCurrentChunk = <Key extends string>(
   builder: ChunkIndexBuilder<Key>,
@@ -126,8 +134,8 @@ const commitClonedLight = <Key extends string>(
 
 /** Copy a cached chunk on its first write; untouched chunks remain shared. */
 const cloneLight = <Key extends string>(context: UpdateContext<Key>, chunkIndex: number): ChunkLight => {
-  const existing = context.lights[chunkIndex]!
-  const key = context.keys[chunkIndex]!
+  const existing = elementAt(context.lights, chunkIndex)
+  const key = elementAt(context.keys, chunkIndex)
   if (context.cloned.has(chunkIndex)) {
     return existing
   }
@@ -140,7 +148,7 @@ const crossChunkNeighbourId = <Key extends string>(
   voxel: VoxelRef,
   neighbour: readonly [number, number, number],
 ): number | null => {
-  const source = context.chunks[voxel.chunkIndex]!
+  const source = elementAt(context.chunks, voxel.chunkIndex)
   const [nx, ny, nz] = neighbour
   const adjacentIndex =
     context.chunksByCoord.get(
@@ -192,7 +200,7 @@ const isDirectSky = <Key extends string>(context: UpdateContext<Key>, voxel: Vox
     return voxel.y > cached
   }
 
-  const chunk = context.chunks[voxel.chunkIndex]!
+  const chunk = elementAt(context.chunks, voxel.chunkIndex)
   const highestOpaque = scanHighestOpaque(chunk, voxel.x, voxel.z)
   context.highestOpaqueByColumn.set(column, highestOpaque)
   return voxel.y > highestOpaque
@@ -264,7 +272,7 @@ const brightestNeighbourLevel = <Key extends string>(
     const neighbourId = neighbourIdOf(context, voxel, offset)
     if (neighbourId !== null) {
       const near = voxelOfId(neighbourId)
-      const nearLight = context.lights[near.chunkIndex]!
+      const nearLight = elementAt(context.lights, near.chunkIndex)
       next = Math.max(next, getLightAt(nearLight[channel], neighbourId % CHUNK_VOLUME) - LIGHT_DECAY_PER_HOP)
     }
   }
@@ -297,8 +305,8 @@ type RelaxationSource = {
 }
 
 const relaxationSourceOf = <Key extends string>(context: UpdateContext<Key>, voxel: VoxelRef): RelaxationSource => {
-  const chunk = context.chunks[voxel.chunkIndex]!
-  const light = context.lights[voxel.chunkIndex]!
+  const chunk = elementAt(context.chunks, voxel.chunkIndex)
+  const light = elementAt(context.lights, voxel.chunkIndex)
   return { chunk, light }
 }
 
@@ -335,7 +343,7 @@ const runChannel = <Key extends string>(
 
   let head = MIN_CHUNK_COORD
   while (head < run.queue.items.length) {
-    const id = run.queue.items[head]!
+    const id = elementAt(run.queue.items, head)
     head += STEP
     run.queue.pending.delete(id)
     relaxVoxel(run, id)

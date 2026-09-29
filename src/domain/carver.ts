@@ -88,6 +88,18 @@ const TOP_Y_INDEX_OFFSET = 1
  */
 const WATER_FLOOR_SCAN_HEADROOM = 16
 
+type IndexedValues<Value> = {
+  readonly [index: number]: Value
+}
+
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => {
+  const value = values[index]
+  if (typeof value === 'undefined') {
+    throw new RangeError(`Missing value at index ${index}`)
+  }
+  return value
+}
+
 /** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
 const CAVE_NOISE_WAVELENGTH_BLOCKS = 24
 
@@ -226,8 +238,7 @@ export const carveCaves = (
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      // Asserted, not defaulted with `?? NO_WATER_FLOOR`. `waterFloors` has length `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ` (`computeWaterFloorYs` above), and for lx, lz drawn from `[0, CHUNK_SIZE_XZ)` the index `lz * CHUNK_SIZE_XZ + lx` reaches exactly `CHUNK_SIZE_XZ * CHUNK_SIZE_XZ - 1` at its maximum — always a valid, defined element. A `?? fallback` here would be an untested, unreachable branch rather than real defensive code. `noUncheckedIndexedAccess` still types the read as possibly `undefined`, hence the assertion.
-      const waterFloorY = waterFloors[lz * CHUNK_SIZE_XZ + lx]!
+      const waterFloorY = readRequired(waterFloors, lz * CHUNK_SIZE_XZ + lx)
       carveColumn(context, waterFloorY, lx, lz)
     }
   }

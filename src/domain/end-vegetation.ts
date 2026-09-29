@@ -22,6 +22,14 @@ const DIRECTION_CHANNEL = 'end-chorus-direction'
 const MIN_Y = 0
 const ONE = 1
 
+const directionAt = (directions: { readonly [index: number]: readonly [number, number] }, index: number): readonly [number, number] => {
+  const direction = directions[index]
+  if (typeof direction === 'undefined') {
+    throw new Error(`Invalid chorus direction index: ${index}`)
+  }
+  return direction
+}
+
 export type EndSurfaceHeightAt = (seed: number, worldX: number, worldZ: number) => number | undefined
 export type EndOuterIslandAt = (worldX: number, worldZ: number) => boolean
 
@@ -119,17 +127,20 @@ const branchPlacements = (
     return []
   }
 
-  const direction = END_CHORUS_BRANCH_DIRECTIONS[Math.floor(
+  const directionIndex = Math.floor(
     latticeValue(directionSeed, worldX, worldZ) * END_CHORUS_BRANCH_DIRECTIONS.length,
-  )] as readonly [number, number]
-  const [deltaX, deltaZ] = direction
+  )
+  const placements: Array<EndChorusPlacement> = []
+
+  const [deltaX, deltaZ] = directionAt(END_CHORUS_BRANCH_DIRECTIONS, directionIndex)
   const branchX = worldX + deltaX
   const branchZ = worldZ + deltaZ
-
-  return [
+  placements.push(
     placement(END_VEGETATION_BLOCK.CHORUS_PLANT, branchX, stemTopY, branchZ),
     placement(END_VEGETATION_BLOCK.CHORUS_FLOWER, branchX, stemTopY + ONE, branchZ),
-  ]
+  )
+
+  return placements
 }
 
 const plantForCandidate = (
@@ -187,7 +198,7 @@ const candidatePlants = (
 /** Build one immutable chorus plan from the owning chunk and terrain queries. */
 export const endChorusPlanForChunk = (input: EndChorusPlanInput): EndChorusPlan =>
   Object.freeze({
-    dimension: 'end' as const,
+    dimension: 'end',
     id: `end-chorus:${String(input.seed)}:${String(input.coord.cx)}:${String(input.coord.cz)}`,
     plants: Object.freeze(candidatePlants(input, chorusSeedsFor(input.seed))),
   })

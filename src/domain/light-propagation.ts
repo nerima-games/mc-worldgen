@@ -22,13 +22,14 @@ import {
 import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, lightEmissionOfBlockId, transmitsLight } from '@nerima-games/mc-kernel'
 
 type LightChunk = {
+  readonly index: number
   readonly chunk: Chunk
   readonly light: ChunkLight
 }
 
 type PropagationContext = {
   readonly chunks: ReadonlyArray<LightChunk>
-  readonly chunksByCoord: ReadonlyMap<string, number>
+  readonly chunksByCoord: ReadonlyMap<string, LightChunk>
   readonly gridOf: (light: ChunkLight) => Uint8Array
   readonly queueChunks: Array<number>
   readonly queueCells: Array<number>
@@ -49,6 +50,14 @@ type NeighbourLocation = {
   readonly nx: number
   readonly ny: number
   readonly nz: number
+}
+
+const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => {
+  const item = items[index]
+  if (typeof item === 'undefined') {
+    throw new Error(`Invalid light propagation index: ${index}`)
+  }
+  return item
 }
 
 /** Sky light enters every transmitting cell above the first opaque block. */
@@ -98,23 +107,20 @@ const resolveCrossChunkNeighbour = (
   source: LightChunk,
   neighbour: readonly [number, number, number],
 ): NeighbourLocation | null => {
-  const [nx, ny, nz] = neighbour
+  const [xOffset, yOffset, zOffset] = neighbour
   const sourceCoord = source.chunk.coord
-  const adjacentIndex =
-    context.chunksByCoord.get(
-      coordKey(sourceCoord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), sourceCoord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)),
-    ) ?? null
-  if (adjacentIndex === null) {
+  const adjacent = context.chunksByCoord.get(
+    coordKey(sourceCoord.cx + axisCrossing(xOffset, CHUNK_SIZE_XZ), sourceCoord.cz + axisCrossing(zOffset, CHUNK_SIZE_XZ)),
+  )
+  if (!adjacent) {
     return null
   }
-
-  const adjacent = context.chunks[adjacentIndex]!
   return {
-    nx: (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
-    ny,
-    nz: (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
+    nx: (xOffset + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
+    ny: yOffset,
+    nz: (zOffset + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ,
     target: adjacent,
-    targetIndex: adjacentIndex,
+    targetIndex: adjacent.index,
   }
 }
 
@@ -177,7 +183,7 @@ const seedQueues = (
   const queueCells: Array<number> = []
 
   for (let chunkIndex = MIN_CHUNK_COORD; chunkIndex < chunks.length; chunkIndex += STEP) {
-    const entry = chunks[chunkIndex]!
+    const entry = elementAt(chunks, chunkIndex)
     for (const packed of seed(entry.chunk, gridOf(entry.light))) {
       queueChunks.push(chunkIndex)
       queueCells.push(packed)
@@ -192,12 +198,12 @@ const activeFrontierSource = (context: PropagationContext, chunkIndex: number, l
   if (level <= LOWEST_PROPAGATABLE_LEVEL) {
     return null
   }
-  return context.chunks[chunkIndex]!
+  return elementAt(context.chunks, chunkIndex)
 }
 
 const popAndRelax = (context: PropagationContext, head: number): void => {
-  const packed = context.queueCells[head]!
-  const chunkIndex = context.queueChunks[head]!
+  const packed = elementAt(context.queueCells, head)
+  const chunkIndex = elementAt(context.queueChunks, head)
   const level = unpackLevel(packed)
   const source = activeFrontierSource(context, chunkIndex, level)
   if (source === null) {
@@ -219,7 +225,7 @@ const popAndRelax = (context: PropagationContext, head: number): void => {
 
 const propagateAcrossChunks = (
   chunks: ReadonlyArray<LightChunk>,
-  chunksByCoord: ReadonlyMap<string, number>,
+  chunksByCoord: ReadonlyMap<string, LightChunk>,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
@@ -236,18 +242,19 @@ const propagateAcrossChunks = (
 type IndexedChunks<Key extends string> = {
   readonly keys: Array<Key>
   readonly chunks: Array<LightChunk>
-  readonly chunksByCoord: Map<string, number>
+  readonly chunksByCoord: Map<string, LightChunk>
 }
 
 const indexChunks = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): IndexedChunks<Key> => {
   const keys: Array<Key> = []
   const chunks: Array<LightChunk> = []
-  const chunksByCoord = new Map<string, number>()
+  const chunksByCoord = new Map<string, LightChunk>()
 
   for (const [key, chunk] of loaded) {
     keys.push(key)
-    chunks.push({ chunk, light: emptyChunkLight() })
-    chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), chunks.length - STEP)
+    const entry: LightChunk = { chunk, index: chunks.length, light: emptyChunkLight() }
+    chunks.push(entry)
+    chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), entry)
   }
 
   return { chunks, chunksByCoord, keys }
@@ -259,8 +266,8 @@ const collectLights = <Key extends string>(
 ): ReadonlyMap<Key, ChunkLight> => {
   const result = new Map<Key, ChunkLight>()
   for (let index = MIN_CHUNK_COORD; index < chunks.length; index += STEP) {
-    const key = keys[index]!
-    const entry = chunks[index]!
+    const key = elementAt(keys, index)
+    const entry = elementAt(chunks, index)
     result.set(key, entry.light)
   }
   return result
@@ -278,6 +285,10 @@ export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, 
 
 /** Single-chunk convenience wrapper with an isolated horizontal boundary. */
 export const computeChunkLight = (chunk: Chunk): ChunkLight => {
-  const key = coordKey(chunk.coord.cx, chunk.coord.cz)
-  return computeChunkLights(new Map([[key, chunk]])).get(key)!
+  const entry: LightChunk = { chunk, index: MIN_CHUNK_COORD, light: emptyChunkLight() }
+  const chunks = [entry]
+  const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), entry]])
+  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)
+  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.block, seedBlockLight)
+  return entry.light
 }
