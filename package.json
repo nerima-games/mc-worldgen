@@ -62,7 +62,7 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:repro"
   },
   "dependencies": {
-    "@nerima-games/mc-kernel": "0.7.0",
+    "@nerima-games/mc-kernel": "0.7.1",
     "@nerima-games/mc-noise": "0.3.1",
     "@nerima-games/mc-save": "0.4.1",
     "effect": "3.22.1"
