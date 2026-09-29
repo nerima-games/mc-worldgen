@@ -20,6 +20,7 @@ import {
   coordKey,
 } from './light-common.js'
 import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, lightEmissionOfBlockId, transmitsLight } from '@nerima-games/mc-kernel'
+import { Data } from 'effect'
 
 type LightChunk = {
   readonly chunk: Chunk
@@ -34,11 +35,34 @@ type LightQueue = {
   tail: number
 }
 
+type SourceTable = ReadonlyArray<LightChunk>
+
+// oxlint-disable-next-line new-cap -- Effect's tagged error factory is intentionally called as a superclass.
+class LightQueueUnderflowError extends Data.TaggedError('LightQueueUnderflowError')<{
+  readonly index: number
+}> {}
+
+export const readQueueValue = (queue: ReadonlyArray<number>, index: number): number => {
+  const value = queue[index]
+  if (typeof value !== 'number') {
+    throw new LightQueueUnderflowError({ index })
+  }
+  return value
+}
+
+export const sourceAt = (sourceTable: SourceTable, index: number): LightChunk => {
+  const source = sourceTable[index]
+  if (typeof source !== 'object') {
+    throw new LightQueueUnderflowError({ index })
+  }
+  return source
+}
+
 type PropagationContext = {
   readonly chunksByCoord: ReadonlyMap<string, number>
   readonly gridOf: (light: ChunkLight) => Uint8Array
   readonly queue: LightQueue
-  readonly sourceTable: ReadonlyArray<LightChunk>
+  readonly sourceTable: SourceTable
 }
 
 const createQueue = (): LightQueue => {
@@ -102,10 +126,9 @@ const seedQueues = (
 
   for (const entry of chunks) {
     for (const packed of seed(entry.chunk, gridOf(entry.light))) {
-      const index = queue.tail
-      queue.packed[index] = packed
-      queue.source[index] = entry.sourceIndex
-      queue.tail = index + STEP
+      queue.packed.push(packed)
+      queue.source.push(entry.sourceIndex)
+      queue.tail += STEP
     }
   }
 
@@ -137,8 +160,7 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
         if (nx < MIN_CHUNK_COORD || nx >= CHUNK_SIZE_XZ || nz < MIN_CHUNK_COORD || nz >= CHUNK_SIZE_XZ) {
           const adjacentIndex = context.chunksByCoord.get(coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)))
           if (typeof adjacentIndex === 'number') {
-            // @ts-expect-error the index comes from the validated chunk table.
-            target = context.sourceTable[adjacentIndex]
+            target = sourceAt(context.sourceTable, adjacentIndex)
             targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetVoxel = blockIndex(targetX, ny, targetZ)
@@ -150,10 +172,9 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
           const grid = context.gridOf(target.light)
           if (getLightAt(grid, targetVoxel) < next) {
             setLightAt(grid, targetVoxel, next)
-            const index = context.queue.tail
-            context.queue.packed[index] = packPosLevel(targetX, ny, targetZ, next)
-            context.queue.source[index] = target.sourceIndex
-            context.queue.tail = index + STEP
+            context.queue.packed.push(packPosLevel(targetX, ny, targetZ, next))
+            context.queue.source.push(target.sourceIndex)
+            context.queue.tail += STEP
           }
         }
       }
@@ -164,17 +185,17 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
 const propagateAcrossChunks = (
   chunks: ReadonlyArray<LightChunk>,
   chunksByCoord: ReadonlyMap<string, number>,
+  sourceTable: SourceTable,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
   const queue = seedQueues(chunks, gridOf, seed)
-  const sourceTable: ReadonlyArray<LightChunk> = chunks
   const context: PropagationContext = { chunksByCoord, gridOf, queue, sourceTable }
   while (queue.head < queue.tail) {
     const index = queue.head
-    // Source indices are assigned sequentially while building this validated table.
-    // @ts-expect-error noUncheckedIndexedAccess cannot express the validated queue indices.
-    popAndRelax(context, sourceTable[queue.source[index]], queue.packed[index])
+    const packed = readQueueValue(queue.packed, index)
+    const sourceIndex = readQueueValue(queue.source, index)
+    popAndRelax(context, sourceAt(sourceTable, sourceIndex), packed)
     queue.head = index + STEP
   }
 }
@@ -182,21 +203,25 @@ const propagateAcrossChunks = (
 type IndexedChunks<Key extends string> = {
   readonly entries: Array<{ readonly key: Key; readonly chunk: LightChunk }>
   readonly chunksByCoord: Map<string, number>
+  readonly sourceTable: SourceTable
 }
 
+// oxlint-disable-next-line max-statements
 const indexChunks = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): IndexedChunks<Key> => {
   const entries: Array<{ readonly key: Key; readonly chunk: LightChunk }> = []
   const chunksByCoord = new Map<string, number>()
+  const sourceEntries: Array<LightChunk> = []
 
   let sourceIndex = 0
   for (const [key, chunk] of loaded) {
     const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex }
     entries.push({ chunk: entry, key })
     chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), sourceIndex)
+    sourceEntries.push(entry)
     sourceIndex += STEP
   }
 
-  return { chunksByCoord, entries }
+  return { chunksByCoord, entries, sourceTable: sourceEntries }
 }
 
 const collectLights = <Key extends string>(
@@ -211,10 +236,11 @@ const collectLights = <Key extends string>(
 
 /** Compute mutually consistent sky and block grids for resident chunks. */
 export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): ReadonlyMap<Key, ChunkLight> => {
-  const { chunksByCoord, entries } = indexChunks(loaded)
+  const { chunksByCoord, entries, sourceTable } = indexChunks(loaded)
 
-  propagateAcrossChunks(entries.map(({ chunk }) => chunk), chunksByCoord, (light) => light.sky, seedSkyLight)
-  propagateAcrossChunks(entries.map(({ chunk }) => chunk), chunksByCoord, (light) => light.block, seedBlockLight)
+  const chunks = entries.map(({ chunk }) => chunk)
+  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.sky, seedSkyLight)
+  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.block, seedBlockLight)
 
   return collectLights(entries)
 }
@@ -224,7 +250,8 @@ export const computeChunkLight = (chunk: Chunk): ChunkLight => {
   const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex: 0 }
   const chunks = [entry]
   const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), MIN_CHUNK_COORD]])
-  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)
-  propagateAcrossChunks(chunks, chunksByCoord, (light) => light.block, seedBlockLight)
+  const sourceTable: SourceTable = [entry]
+  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.sky, seedSkyLight)
+  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.block, seedBlockLight)
   return entry.light
 }

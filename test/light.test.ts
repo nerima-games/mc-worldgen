@@ -34,6 +34,7 @@ import {
   unpackZ,
   updateChunkLights,
 } from '../src/domain/light'
+import { readQueueValue, sourceAt } from '../src/domain/light-propagation'
 import { BlockId, blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 
 // ---------------------------------------------------------------------------
@@ -187,6 +188,22 @@ describe('the 4-bit light grid', () => {
       }
     }),
   )
+})
+
+describe('light propagation queue boundaries', () => {
+  it('reports invalid queue and source indexes as typed errors', () => {
+    const capture = (operation: () => unknown): unknown => {
+      try {
+        operation()
+        return null
+      } catch (error) {
+        return error
+      }
+    }
+
+    expect(capture(() => readQueueValue([], 0))).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+    expect(capture(() => sourceAt([], 0))).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+  })
 })
 
 // ---------------------------------------------------------------------------
