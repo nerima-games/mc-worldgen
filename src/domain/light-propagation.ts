@@ -1,4 +1,4 @@
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt } from './chunk.js'
 import {
   type ChunkLight,
@@ -24,17 +24,23 @@ import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, lightEmissionOfBlockId, transmitsLigh
 type LightChunk = {
   readonly chunk: Chunk
   readonly light: ChunkLight
+  readonly sourceIndex: number
 }
 
-type QueuedLight = {
-  readonly source: LightChunk
-  readonly packed: number
+type LightQueue = {
+  readonly packed: Int32Array
+  readonly source: Uint8Array
+  readonly packedView: DataView
+  readonly sourceView: DataView
+  head: number
+  tail: number
 }
 
 type PropagationContext = {
   readonly chunksByCoord: ReadonlyMap<string, LightChunk>
   readonly gridOf: (light: ChunkLight) => Uint8Array
-  readonly queue: Array<QueuedLight>
+  readonly queue: LightQueue
+  readonly sourceTable: Record<number, LightChunk>
 }
 
 type FrontierCell = {
@@ -50,6 +56,22 @@ type NeighbourLocation = {
   readonly nx: number
   readonly ny: number
   readonly nz: number
+}
+
+const QUEUE_CAPACITY_PER_CELL = LIGHT_LEVEL_MAX
+
+const createQueue = (chunkCount: number): LightQueue => {
+  const capacity = CHUNK_VOLUME * chunkCount * QUEUE_CAPACITY_PER_CELL
+  const packed = new Int32Array(capacity)
+  const source = new Uint8Array(capacity)
+  return {
+    head: 0,
+    packed,
+    packedView: new DataView(packed.buffer),
+    source,
+    sourceView: new DataView(source.buffer),
+    tail: 0,
+  }
 }
 
 /** Sky light enters every transmitting cell above the first opaque block. */
@@ -145,7 +167,10 @@ const applyRelaxation = (context: PropagationContext, neighbour: NeighbourLocati
   }
 
   setLightAt(grid, voxel, next)
-  context.queue.push({ packed: packPosLevel(neighbour.nx, neighbour.ny, neighbour.nz, next), source: neighbour.target })
+  const index = context.queue.tail
+  context.queue.packed[index] = packPosLevel(neighbour.nx, neighbour.ny, neighbour.nz, next)
+  context.queue.source[index] = neighbour.target.sourceIndex
+  context.queue.tail = index + STEP
 }
 
 /** Relax one face-neighbour if its block transmits light. */
@@ -168,12 +193,15 @@ const seedQueues = (
   chunks: ReadonlyArray<LightChunk>,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
-): Array<QueuedLight> => {
-  const queue: Array<QueuedLight> = []
+): LightQueue => {
+  const queue = createQueue(chunks.length)
 
   for (const entry of chunks) {
     for (const packed of seed(entry.chunk, gridOf(entry.light))) {
-      queue.push({ packed, source: entry })
+      const index = queue.tail
+      queue.packed[index] = packed
+      queue.source[index] = entry.sourceIndex
+      queue.tail = index + STEP
     }
   }
 
@@ -213,9 +241,12 @@ const propagateAcrossChunks = (
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
   const queue = seedQueues(chunks, gridOf, seed)
-  const context: PropagationContext = { chunksByCoord, gridOf, queue }
-  for (const { source, packed } of queue) {
-    popAndRelax(context, source, packed)
+  const sourceTable: Record<number, LightChunk> = Object.fromEntries(chunks.map((source) => [source.sourceIndex, source]))
+  const context: PropagationContext = { chunksByCoord, gridOf, queue, sourceTable }
+  while (queue.head < queue.tail) {
+    const index = queue.head
+    popAndRelax(context, Reflect.get(sourceTable, queue.sourceView.getUint8(index)), queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
+    queue.head = index + STEP
   }
 }
 
@@ -228,10 +259,12 @@ const indexChunks = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): Index
   const entries: Array<{ readonly key: Key; readonly chunk: LightChunk }> = []
   const chunksByCoord = new Map<string, LightChunk>()
 
+  let sourceIndex = 0
   for (const [key, chunk] of loaded) {
-    const entry: LightChunk = { chunk, light: emptyChunkLight() }
+    const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex }
     entries.push({ chunk: entry, key })
     chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), entry)
+    sourceIndex += STEP
   }
 
   return { chunksByCoord, entries }
@@ -259,7 +292,7 @@ export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, 
 
 /** Single-chunk convenience wrapper with an isolated horizontal boundary. */
 export const computeChunkLight = (chunk: Chunk): ChunkLight => {
-  const entry: LightChunk = { chunk, light: emptyChunkLight() }
+  const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex: 0 }
   const chunks = [entry]
   const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), entry]])
   propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)
