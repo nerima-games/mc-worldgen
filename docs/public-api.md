@@ -236,7 +236,14 @@ Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下
 ```typescript
 export const surfaceHeightAt: (seed: number, wx: number, wz: number) => number
 export const climateAt: (seed: number, wx: number, wz: number)
-  => { readonly temperature: number; readonly humidity: number }
+  => {
+    readonly temperature: number
+    readonly humidity: number
+    readonly continentalness: number
+    readonly erosion: number
+    readonly pv: number
+    readonly riverNoise: number
+  }
 export const biomeFor: (seed: number, wx: number, wz: number, surfaceY: number, levels: TerrainLevels)
   => BiomeType
 ```
