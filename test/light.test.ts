@@ -323,6 +323,28 @@ describe('block light', () => {
     }),
   )
 
+  it.effect('resolves a source after 256 loaded chunks without wrapping its id', () =>
+    Effect.sync(() => {
+      const loaded = new Map<string, Chunk>()
+      const sourceCoord = chunkCoord(256, 0)
+      const source = { coord: sourceCoord, blocks: emptyBlocks(), biomes: PLAINS_BIOMES }
+      source.blocks[blockIndex(1, SURFACE_Y + 1, 1)] = TORCH
+      for (let cx = 0; cx <= 256; cx += 1) {
+        const coord = chunkCoord(cx, 0)
+        loaded.set(`${cx},0`, cx === 256 ? source : { coord, blocks: emptyBlocks(), biomes: PLAINS_BIOMES })
+      }
+
+      const lights = computeChunkLights(loaded)
+      const light = lights.get('256,0')
+
+      if (light === undefined) {
+        throw new Error('source chunk light was not returned')
+      }
+      expect(getLightAt(light.block, blockIndex(1, SURFACE_Y + 1, 1))).toBe(14)
+      expect(getLightAt(light.block, blockIndex(2, SURFACE_Y + 1, 1))).toBe(13)
+    }),
+  )
+
   it.effect('an OPAQUE emitter is bright at its own cell and lights the air beside it', () =>
     Effect.sync(() => {
       // Glowstone is `opacity: 'opaque'`. If the seeding pass respected

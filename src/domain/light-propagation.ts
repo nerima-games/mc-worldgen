@@ -29,7 +29,7 @@ type LightChunk = {
 
 type LightQueue = {
   readonly packed: Int32Array
-  readonly source: Uint8Array
+  readonly source: Uint32Array
   readonly packedView: DataView
   readonly sourceView: DataView
   head: number
@@ -63,7 +63,7 @@ const QUEUE_CAPACITY_PER_CELL = LIGHT_LEVEL_MAX
 const createQueue = (chunkCount: number): LightQueue => {
   const capacity = CHUNK_VOLUME * chunkCount * QUEUE_CAPACITY_PER_CELL
   const packed = new Int32Array(capacity)
-  const source = new Uint8Array(capacity)
+  const source = new Uint32Array(capacity)
   return {
     head: 0,
     packed,
@@ -173,22 +173,6 @@ const applyRelaxation = (context: PropagationContext, neighbour: NeighbourLocati
   context.queue.tail = index + STEP
 }
 
-/** Relax one face-neighbour if its block transmits light. */
-const relaxNeighbour = (
-  context: PropagationContext,
-  cell: FrontierCell,
-  offset: readonly [number, number, number],
-): void => {
-  const neighbour = resolveNeighbour(context, cell, offset)
-  if (neighbour === null) {
-    return
-  }
-  if (!transmitsLight(getBlockAt(neighbour.target.chunk, neighbour.nx, neighbour.ny, neighbour.nz))) {
-    return
-  }
-  applyRelaxation(context, neighbour, cell.next)
-}
-
 const seedQueues = (
   chunks: ReadonlyArray<LightChunk>,
   gridOf: (light: ChunkLight) => Uint8Array,
@@ -206,6 +190,22 @@ const seedQueues = (
   }
 
   return queue
+}
+
+/** Relax one face-neighbour if its block transmits light. */
+const relaxNeighbour = (
+  context: PropagationContext,
+  cell: FrontierCell,
+  offset: readonly [number, number, number],
+): void => {
+  const neighbour = resolveNeighbour(context, cell, offset)
+  if (neighbour === null) {
+    return
+  }
+  if (!transmitsLight(getBlockAt(neighbour.target.chunk, neighbour.nx, neighbour.ny, neighbour.nz))) {
+    return
+  }
+  applyRelaxation(context, neighbour, cell.next)
 }
 
 /** Stop queue expansion once a hop cannot produce a positive light level. */
@@ -245,7 +245,7 @@ const propagateAcrossChunks = (
   const context: PropagationContext = { chunksByCoord, gridOf, queue, sourceTable }
   while (queue.head < queue.tail) {
     const index = queue.head
-    popAndRelax(context, Reflect.get(sourceTable, queue.sourceView.getUint8(index)), queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
+    popAndRelax(context, Reflect.get(sourceTable, queue.sourceView.getUint32(index * Uint32Array.BYTES_PER_ELEMENT, true)), queue.packedView.getInt32(index * Int32Array.BYTES_PER_ELEMENT, true))
     queue.head = index + STEP
   }
 }
