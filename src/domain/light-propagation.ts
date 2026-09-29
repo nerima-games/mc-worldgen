@@ -26,11 +26,15 @@ type LightChunk = {
   readonly light: ChunkLight
 }
 
+type QueuedLight = {
+  readonly source: LightChunk
+  readonly packed: number
+}
+
 type PropagationContext = {
   readonly chunksByCoord: ReadonlyMap<string, LightChunk>
   readonly gridOf: (light: ChunkLight) => Uint8Array
-  readonly queueChunks: Array<LightChunk>
-  readonly queueCells: Array<number>
+  readonly queue: Array<QueuedLight>
 }
 
 type FrontierCell = {
@@ -141,8 +145,7 @@ const applyRelaxation = (context: PropagationContext, neighbour: NeighbourLocati
   }
 
   setLightAt(grid, voxel, next)
-  context.queueChunks.push(neighbour.target)
-  context.queueCells.push(packPosLevel(neighbour.nx, neighbour.ny, neighbour.nz, next))
+  context.queue.push({ packed: packPosLevel(neighbour.nx, neighbour.ny, neighbour.nz, next), source: neighbour.target })
 }
 
 /** Relax one face-neighbour if its block transmits light. */
@@ -165,18 +168,16 @@ const seedQueues = (
   chunks: ReadonlyArray<LightChunk>,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
-): { readonly queueChunks: Array<LightChunk>; readonly queueCells: Array<number> } => {
-  const queueChunks: Array<LightChunk> = []
-  const queueCells: Array<number> = []
+): Array<QueuedLight> => {
+  const queue: Array<QueuedLight> = []
 
   for (const entry of chunks) {
     for (const packed of seed(entry.chunk, gridOf(entry.light))) {
-      queueChunks.push(entry)
-      queueCells.push(packed)
+      queue.push({ packed, source: entry })
     }
   }
 
-  return { queueCells, queueChunks }
+  return queue
 }
 
 /** Stop queue expansion once a hop cannot produce a positive light level. */
@@ -211,12 +212,10 @@ const propagateAcrossChunks = (
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
-  const { queueChunks, queueCells } = seedQueues(chunks, gridOf, seed)
-  const context: PropagationContext = { chunksByCoord, gridOf, queueCells, queueChunks }
-  let sourceIndex = 0
-  for (const packed of queueCells) {
-    popAndRelax(context, queueChunks[sourceIndex]!, packed)
-    sourceIndex += STEP
+  const queue = seedQueues(chunks, gridOf, seed)
+  const context: PropagationContext = { chunksByCoord, gridOf, queue }
+  for (const { source, packed } of queue) {
+    popAndRelax(context, source, packed)
   }
 }
 
