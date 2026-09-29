@@ -213,14 +213,13 @@ const propagateAcrossChunks = (
 ): void => {
   const { queueChunks, queueCells } = seedQueues(chunks, gridOf, seed)
   const context: PropagationContext = { chunksByCoord, gridOf, queueCells, queueChunks }
-  const cells = queueCells.values()
   const sources = queueChunks.values()
-  let cell = cells.next()
-  let source = sources.next()
-  while (!cell.done && !source.done) {
-    popAndRelax(context, source.value, cell.value)
-    cell = cells.next()
-    source = sources.next()
+  for (const packed of queueCells) {
+    const source = sources.next()
+    if (source.done) {
+      break
+    }
+    popAndRelax(context, source.value, packed)
   }
 }
 
