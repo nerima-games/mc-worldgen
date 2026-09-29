@@ -1,14 +1,14 @@
 # バージョニングと公開
 
-## 1. 現在: `0.1.14`、未公開
+## 1. 現在: 未公開
 
-`package.json`:
+バージョンをこのドキュメントには書かない。**`package.json` の `version` が唯一の正**で、
+`pnpm changeset version` がそれと CHANGELOG.md を同時に更新する。ここに数字を書くと
+リリースのたびに古くなる。
 
-```json
-"version": "0.1.14"
-```
-
-`publishConfig` は書いてあるが、**publish はまだ一度も行っていない**。
+公開済みかどうかは `package.json` の `publishConfig` と
+`.github/workflows/release.yaml`、および公開履歴そのもので判定する。
+§2 の節は、依存パッケージの版に追従した**日付付きの履歴**として読む。
 
 ## 2. なぜまだ公開しないのか
 
@@ -189,16 +189,18 @@ docs/testing.md §4-b の F-1 と F-2 の修正は、**上の表の 2 行を同�
 
 なぜこの 5 つが動いたことに気づけるか:
 
-1. `api-lock.md` に**リテラル型として現れる**。`const CONTINENTALNESS_CONTRAST = 2.6`
-   が `= 1.15` になるのは、`pnpm api:check`（= `pnpm verify`）が落ちる差分である。
-   数値定数を `export const` にしてある副産物であり、狙って残す価値がある性質である
+1. `export const` にした数値定数は**公開宣言にリテラル型として現れる**。
+   `const CONTINENTALNESS_CONTRAST = 2.6` が `= 1.15` になるのは、
+   `tsconfig.base.json` の `isolatedDeclarations` と `pnpm typecheck` が落ちる差分である
+   （`export const` に型注釈を付けると注釈が型になるため、この性質は
+   「定数を公開する」という判断の副作用として得られる）
 2. `test/terrain-distribution.test.ts` と `test/tree-canopy.test.ts` が
    分布そのものを固定している
 3. `scripts/bench-baseline.json` が生成コストの変化を記録している
 
-**ゴールデンハッシュ（完了条件 3）はまだ無い。** あればこの 2 件は
-「ハッシュが変わった」という 1 行で表現できたはずである。
-今回は分布テストと api-lock がその代役をした。
+この 2 件の時点では**ゴールデンハッシュ（完了条件 3）がまだ無かった**。
+今は `test/golden/chunk-goldens.json`（seed 20260726）があり、`pnpm goldens:update`
+だけが書き換える ([testing.md](./testing.md) §3、DN-9)。
 
 plan.md §3.2 は mc-noise について同じことを言っている:
 
