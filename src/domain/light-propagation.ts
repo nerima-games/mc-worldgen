@@ -1,4 +1,4 @@
-import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt } from './chunk.js'
 import {
   type ChunkLight,
@@ -28,25 +28,22 @@ type LightChunk = {
 }
 
 type LightQueue = {
-  readonly packed: Int32Array
-  readonly source: Uint32Array
+  readonly packed: Array<number>
+  readonly source: Array<number>
   head: number
   tail: number
 }
 
 type PropagationContext = {
-  readonly chunksByCoord: ReadonlyMap<string, LightChunk>
+  readonly chunksByCoord: ReadonlyMap<string, number>
   readonly gridOf: (light: ChunkLight) => Uint8Array
   readonly queue: LightQueue
   readonly sourceTable: ReadonlyArray<LightChunk>
 }
 
-const QUEUE_CAPACITY_PER_CELL = LIGHT_LEVEL_MAX
-
-const createQueue = (chunkCount: number): LightQueue => {
-  const capacity = CHUNK_VOLUME * chunkCount * QUEUE_CAPACITY_PER_CELL
-  const packed = new Int32Array(capacity)
-  const source = new Uint32Array(capacity)
+const createQueue = (): LightQueue => {
+  const packed: Array<number> = []
+  const source: Array<number> = []
   return {
     head: 0,
     packed,
@@ -96,26 +93,12 @@ const seedBlockLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
 
 const LOWEST_PROPAGATABLE_LEVEL = LIGHT_LEVEL_MIN + LIGHT_DECAY_PER_HOP
 
-/** Write and enqueue an improved neighbour level. */
-const applyRelaxation = (context: PropagationContext, target: LightChunk, voxel: number, packed: number, next: number): void => {
-  const grid = context.gridOf(target.light)
-  if (getLightAt(grid, voxel) >= next) {
-    return
-  }
-
-  setLightAt(grid, voxel, next)
-  const index = context.queue.tail
-  context.queue.packed[index] = packed
-  context.queue.source[index] = target.sourceIndex
-  context.queue.tail = index + STEP
-}
-
 const seedQueues = (
   chunks: ReadonlyArray<LightChunk>,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): LightQueue => {
-  const queue = createQueue(chunks.length)
+  const queue = createQueue()
 
   for (const entry of chunks) {
     for (const packed of seed(entry.chunk, gridOf(entry.light))) {
@@ -152,9 +135,10 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
         let targetZ = nz
         let targetVoxel = sourceVoxel + offset[Y_OFFSET] * LIGHT_Y_STRIDE + offset[Z_OFFSET] * LIGHT_Z_STRIDE + offset[X_OFFSET] * LIGHT_X_STRIDE
         if (nx < MIN_CHUNK_COORD || nx >= CHUNK_SIZE_XZ || nz < MIN_CHUNK_COORD || nz >= CHUNK_SIZE_XZ) {
-          const adjacent = context.chunksByCoord.get(coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)))
-          if (adjacent) {
-            target = adjacent
+          const adjacentIndex = context.chunksByCoord.get(coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)))
+          if (typeof adjacentIndex === 'number') {
+            // @ts-expect-error the index comes from the validated chunk table.
+            target = context.sourceTable[adjacentIndex]
             targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetVoxel = blockIndex(targetX, ny, targetZ)
@@ -163,7 +147,14 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
           }
         }
         if (target !== null && transmitsLight(getBlockAt(target.chunk, targetX, ny, targetZ))) {
-          applyRelaxation(context, target, targetVoxel, packPosLevel(targetX, ny, targetZ, next), next)
+          const grid = context.gridOf(target.light)
+          if (getLightAt(grid, targetVoxel) < next) {
+            setLightAt(grid, targetVoxel, next)
+            const index = context.queue.tail
+            context.queue.packed[index] = packPosLevel(targetX, ny, targetZ, next)
+            context.queue.source[index] = target.sourceIndex
+            context.queue.tail = index + STEP
+          }
         }
       }
     }
@@ -172,7 +163,7 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
 
 const propagateAcrossChunks = (
   chunks: ReadonlyArray<LightChunk>,
-  chunksByCoord: ReadonlyMap<string, LightChunk>,
+  chunksByCoord: ReadonlyMap<string, number>,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
 ): void => {
@@ -190,18 +181,18 @@ const propagateAcrossChunks = (
 
 type IndexedChunks<Key extends string> = {
   readonly entries: Array<{ readonly key: Key; readonly chunk: LightChunk }>
-  readonly chunksByCoord: Map<string, LightChunk>
+  readonly chunksByCoord: Map<string, number>
 }
 
 const indexChunks = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): IndexedChunks<Key> => {
   const entries: Array<{ readonly key: Key; readonly chunk: LightChunk }> = []
-  const chunksByCoord = new Map<string, LightChunk>()
+  const chunksByCoord = new Map<string, number>()
 
   let sourceIndex = 0
   for (const [key, chunk] of loaded) {
     const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex }
     entries.push({ chunk: entry, key })
-    chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), entry)
+    chunksByCoord.set(coordKey(chunk.coord.cx, chunk.coord.cz), sourceIndex)
     sourceIndex += STEP
   }
 
@@ -232,7 +223,7 @@ export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, 
 export const computeChunkLight = (chunk: Chunk): ChunkLight => {
   const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex: 0 }
   const chunks = [entry]
-  const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), entry]])
+  const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), MIN_CHUNK_COORD]])
   propagateAcrossChunks(chunks, chunksByCoord, (light) => light.sky, seedSkyLight)
   propagateAcrossChunks(chunks, chunksByCoord, (light) => light.block, seedBlockLight)
   return entry.light
