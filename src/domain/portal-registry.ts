@@ -1,5 +1,4 @@
-import { type BlockPosition, blockPositionKeyOf } from '@nerima-games/mc-kernel'
-import type { Dimension } from '@nerima-games/mc-kernel'
+import { type BlockPosition, type Dimension, blockPositionKeyOf } from '@nerima-games/mc-kernel'
 
 export type PortalRegistryState = {
   readonly overworld: ReadonlyArray<BlockPosition>

@@ -2,8 +2,7 @@
 
 import { type Option, Option as OptionValue, Schema } from 'effect'
 import { BLOCK } from './biome.js'
-import { BlockAxis, type BlockId, type BlockPosition, blockIdOf, blockPosition } from '@nerima-games/mc-kernel'
-import type { Dimension } from '@nerima-games/mc-kernel'
+import { BlockAxis, type BlockId, type BlockPosition, type Dimension, blockIdOf, blockPosition } from '@nerima-games/mc-kernel'
 import { STRONGHOLD_BLOCK } from './stronghold.js'
 import { STRONGHOLD_FLOOR_Y } from './structure-siting.js'
 
