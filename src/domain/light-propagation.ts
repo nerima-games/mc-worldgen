@@ -216,7 +216,7 @@ const propagateAcrossChunks = (
   let sourceIndex = 0
   for (const packed of queueCells) {
     popAndRelax(context, queueChunks[sourceIndex]!, packed)
-    sourceIndex += 1
+    sourceIndex += STEP
   }
 }
 
