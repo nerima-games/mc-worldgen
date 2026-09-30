@@ -45,7 +45,7 @@ import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pi
 import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck.js'
 import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village.js'
 import { CHUNK_HEIGHT } from './constants.js'
-import type { Dimension } from './nether-travel.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 import { planEndCityForRegion } from './natural-structure-end-city.js'
 import { planNetherFortressForRegion } from './nether-fortress.js'

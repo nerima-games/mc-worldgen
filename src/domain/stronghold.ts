@@ -1,8 +1,7 @@
-import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import { type BlockId, type Dimension, blockIdOf } from '@nerima-games/mc-kernel'
 import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import { BLOCK } from './biome.js'
-import type { Dimension } from './nether-travel.js'
 
 const STRONGHOLD_WALL_THICKNESS = 1
 const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1

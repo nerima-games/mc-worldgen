@@ -514,22 +514,15 @@ plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動�
 
   `PortalRegistry.resolveTravel` はこの規約を内部で満たす。純粋な
   `resolveNetherTravel` を直接呼ぶ場合だけ、呼び出し側が行き先次元の候補を渡す。
-- **`Dimension` は借り物ではなくなった —— 本リポジトリが所有する。**
-  この箇条書きは以前「借りているだけである」「barrel に出していないので consumer は
-  綴りに依存できず、所有者が現れた日に import へ差し替わる」と書いていた。
-  所有者は現れず、**決めた**。決め手は新しい実測ではない ——
-  §6 本体の実測（mc-kernel に `Dimension` 型は無い）は今も正しく、再実測しても
-  `block-registry.ts` の無関係なコメント 1 件だけである。変わったのは論拠のほうで、
-  参照実装が `Dimension` を `packages/world`（= 本リポジトリ）に宣言していること、
-  そして**その union を読むルールを既に所有しているのは本リポジトリだ**ということ。
-  「全員が依存しているから」は所有の理由にならない。
-  したがって `index.ts` に出してある（`resolveNetherTravel` も同じ理由で一緒に出た）。
-  **出さないことのほうが欠陥になった**からである: mc-sim は
-  プレイヤーがどの次元に居るかを記録せねばならず、
-  どの barrel も出していない module から取ったミラーは repoint できない。
-  代わりに引き受けた危険は plan.md §3.4 の「二つの綴り」であり、
-  参照実装自身が 2 回宣言している（`packages/worker/domain/terrain-worker-protocol.ts:18`）。
-  消費側は本宣言だけをミラーし、`mc-dev-meta` の `check:mirrors` がそれを機械で固定する。
+- **`Dimension` は kernel consumer migration の対象である。**
+  現行実装は kernel の公開 union を利用し、`index.ts` から再公開している。
+  下流移行契約では、共有される union と外部入力の guard は kernel の公開 API を
+  正本にする。
+  移行時に互換 union を増やさず、ポータル台帳、チャンク状態、ロード・アンロード、
+  dirty event、ワールド mutation の所有権は本リポジトリに残す。
+
+  同じ契約で、`BlockId` とブロック能力の照会も kernel の registry を正本にする。
+  registry 上の ID 67 を含め、worldgen 側で数値 ID の意味を複製しない。
 
 **「移動そのもの」を止めている名詞も、これで名前がついた。**
 mx-gameplay の `docs/testing.md` §3-1 は 3 本目を

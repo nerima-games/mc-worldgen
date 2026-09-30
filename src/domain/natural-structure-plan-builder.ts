@@ -8,7 +8,7 @@ import type {
 } from './natural-structure-types.js'
 import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
 import { CHUNK_HEIGHT } from './constants.js'
-import type { Dimension } from './nether-travel.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import { Option } from 'effect'
 

@@ -43,25 +43,8 @@ export * from './domain/natural-structure.js'
 export * from './domain/nether-fortress.js'
 export * from './domain/nether-link.js'
 export * from './domain/nether-terrain.js'
-// `Dimension` is published from here, and that is a DECISION rather than a
-// Widening. `domain/nether-travel.ts` declared the union 「PROVISIONALLY」 and
-// Deliberately kept it off this barrel so that no consumer could depend on the
-// Spelling while its owner was undecided. The owner is now decided and it is
-// This repository, so the reason for withholding it has expired — and the
-// Withholding had become the blocker: mc-sim cannot record which dimension a
-// Player is in without a name for one, and a name mirrored from a module no
-// Barrel exports cannot be repointed. `resolveNetherTravel` comes with it for
-// The same reason, so that mx-gameplay has something to mirror.
-//
-// WHERE TO REOPEN THIS. The argument that put the word here rather than in
-// Mc-kernel is that this repository owns every rule that READS the union, and
-// That mc-kernel had no `Dimension` of its own — a candidate rather than an
-// Incumbent, which is a weaker claim than the one that makes it the owner of
-// `BlockType`. If a consumer ever needs `Dimension` WITHOUT needing
-// Mc-worldgen, that argument stops holding and the word should move to
-// Mc-kernel. This comment is the place to reopen it; the mirrors in mc-sim and
-// Mx-gameplay are transcriptions, so moving it is a repoint rather than a
-// Rewrite.
+// `Dimension` is re-exported from worldgen for its existing public API, but the
+// Canonical union and guard are owned by mc-kernel 0.8.0.
 export * from './domain/nether-travel.js'
 export * from './domain/portal-registry.js'
 export * from './domain/portal-registry-format.js'

@@ -14,7 +14,7 @@ import type {
 } from './natural-structure-types.js'
 import { CHUNK_SIZE_XZ } from './constants.js'
 import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data.js'
-import type { Dimension } from './nether-travel.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
 import { plansInStableOrder } from './natural-structure-order.js'
 

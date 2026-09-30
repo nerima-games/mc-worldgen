@@ -73,7 +73,7 @@
  * refs and deadlocked. Every read-modify-write is one `Ref.modify`.
  */
 import * as Store from '../domain/chunk-store-state.js'
-import type { BlockId, BlockPosition, ChunkCoord } from '@nerima-games/mc-kernel'
+import type { BlockId, BlockPosition, ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
 import {
   type ChunkPersistence,
   type ChunkPersistenceContext,
@@ -83,7 +83,6 @@ import {
 import { Context, Effect, Layer, Option, Ref } from 'effect'
 import { type GenerateOptions, generateChunk } from '../domain/terrain.js'
 import type { Chunk } from '../domain/chunk.js'
-import type { Dimension } from '../domain/nether-travel.js'
 import type { StoragePort } from '@nerima-games/mc-save'
 import { generateEndChunk } from '../domain/end-terrain.js'
 import { generateNetherChunk } from '../domain/nether-terrain.js'

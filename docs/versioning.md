@@ -76,6 +76,24 @@ changeset で記録している（§3 の「semver: 0.x なので minor bump で
 publish 開始時に、ボトムアップ（kernel → 各 tier1 → worldgen → …）で
 **publish してから pin する**。
 
+### kernel の consumer migration を適用する範囲
+
+依存先の移行文書にある下流契約は、依存パッケージの数字をこの文書へ転記するための
+ものではない。更新時は解決された依存の公開 API を読み、次の境界だけを適用する。
+
+| 対象 | mc-worldgen での扱い |
+| --- | --- |
+| `Dimension` の共有 union / guard | ローカル定義を増やさず、kernel の公開 API を worldgen も利用・再公開する |
+| `BlockId`、registry、能力照会 | kernel を正本にする。ブロック数値を直書きせず、`blockIdOf` / `BLOCK_IDS` / registry query を使う。ID 67 も例外ではない |
+| `BlockRead` / `BlockWriteBatch` / `ReadView` | 将来の接続先。worldgen の live chunk state、load/unload、revision、COW、STM、dirty event は移さない |
+| recipe、item、fluid、redstone などの純粋共有計算 | worldgen の公開面へ取り込まない。該当する下流が kernel の API を直接利用する |
+| worldgen の13種の Overworld biome | kernel migration の対象外。`BIOMES` の13種は本リポジトリの分類器が所有する |
+| chunk の15値の biome 語彙 | `NETHER` / `END` を含む格納用の閉じた値集合。13種の Overworld 分類と混同しない |
+
+移行の完了を宣言する条件は、重複した共有型・guard・定数配列を削除し、公開 export
+だけを import し、既存の保存・wire 値を変えず、型検査・lint・テストを通すことである。
+この節は依存の移行計画を記録するもので、現行ソースの未移行箇所を完了済みとは扱わない。
+
 ## 3. `0.x` の間の約束
 
 | 項目 | 方針 |

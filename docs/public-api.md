@@ -290,6 +290,11 @@ export const BIOME_SURFACES: Record<BiomeType, BiomeSurface>
 export const BIOME_TREE_DENSITY: Record<BiomeType, number>
 ```
 
+`BIOMES` の13種は Overworld の気候分類語彙である。チャンクへ格納できる
+`CHUNK_BIOMES` はこれに `NETHER` と `END` を加えた15値なので、13種と15値を
+別の分類器や別の依存版として扱わない。`NETHER` / `END` はそれぞれの次元の
+生成結果を表すタグであり、Overworld の `classifyBiome` が返す値ではない。
+
 `domain/biome.ts`。ルールテーブル駆動・first-match-wins・`PLAINS` フォールバック。
 参照実装の構造（`CLASSIFY_BIOME_RULES`,
 `packages/world/domain/biome-classifier.ts:44-79`、フォールバック `:86`）と同じ。
@@ -352,6 +357,24 @@ getBiomesAndPropertiesForChunk: (chunkX: number, chunkZ: number)
 このリポジトリのジェネレータは参照実装の `BiomeService` を依存先にせず、
 `domain/biome.ts` の分類関数と、各ジェネレータが必要とする狭い値だけを直接使う。
 サービス互換の API を追加すると、mc-worldgen の責務をアプリケーション層へ戻すため採用しない。
+
+### kernel consumer migration との境界
+
+下流が kernel の移行契約を適用するとき、`Dimension` の union / guard、ブロック値と
+能力照会、`BlockRead` / `BlockWriteBatch` / `ReadView` のような共有語彙は kernel の
+公開 barrel または公開 subpath を使う。mc-worldgen の `ChunkStore`、ロード・アンロード、
+revision、COW、STM、dirty event、実チャンクへの mutation はここが所有し、kernel の
+値オブジェクトへ移さない。`Dimension` は kernel の公開型を利用・再公開し、同名の
+互換型を新たに増やさない。
+
+ブロックの数値 ID は公開契約として直書きしない。生成側は kernel の `BlockId`、
+`blockIdOf`、`BLOCK_IDS`、registry query を使う。たとえば registry 上の ID 67 の意味を
+worldgen 側で定義・複製せず、kernel の registry を正本とする。保存・wire の ID と
+乱数の責務は変更しない。
+
+worldgen 固有の13種/15値 biome と kernel の67種 biome の対応表は、生成用語彙と
+canonical ID の境界をまたぐため R-W1 / P6 で扱う。現版では対応表を新設せず、
+`BIOMES` / `CHUNK_BIOMES` の生成用語彙を kernel の biome roster と同一視しない。
 
 ---
 
@@ -683,6 +706,12 @@ resident state → `ChunkPersistence.load` → `ChunkSource`
 入口は `ChunkStoreApi.load` で、常駐していればその値を返し、
 永続化層があれば `mc-save` の `StoragePort` から読み、見つからなければ `ChunkSource` を実行する。
 `unload` は永続化層がある場合に snapshot を保存してから常駐集合から外す。
+
+`ChunkKey` は `@nerima-games/mc-kernel` の canonical coordinate API が所有する branded
+string である。worldgen の root export から `ChunkKey` は削除されたため、消費側は
+`import type { ChunkKey } from '@nerima-games/mc-kernel'` へ移行する。`chunkKeyOf` は
+worldgen から引き続き利用できる。mc-sim、mc-render、mc-playground-kit、mc-compose の
+監査した `src` には worldgen からの `ChunkKey` import は無かった。
 
 LRU、プレイヤー周辺のロード、生成キューの並行度はこのパッケージの API に含めない。
 描画距離・退避順・worker pool の実行媒体を知るホストが決める。
