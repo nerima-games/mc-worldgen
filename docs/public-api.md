@@ -707,6 +707,12 @@ resident state → `ChunkPersistence.load` → `ChunkSource`
 永続化層があれば `mc-save` の `StoragePort` から読み、見つからなければ `ChunkSource` を実行する。
 `unload` は永続化層がある場合に snapshot を保存してから常駐集合から外す。
 
+`ChunkKey` は `@nerima-games/mc-kernel` の canonical coordinate API が所有する branded
+string である。worldgen の root export から `ChunkKey` は削除されたため、消費側は
+`import type { ChunkKey } from '@nerima-games/mc-kernel'` へ移行する。`chunkKeyOf` は
+worldgen から引き続き利用できる。mc-sim、mc-render、mc-playground-kit、mc-compose の
+監査した `src` には worldgen からの `ChunkKey` import は無かった。
+
 LRU、プレイヤー周辺のロード、生成キューの並行度はこのパッケージの API に含めない。
 描画距離・退避順・worker pool の実行媒体を知るホストが決める。
 
