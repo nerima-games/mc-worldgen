@@ -1,5 +1,13 @@
 # @nerima-games/mc-worldgen
 
+## 0.5.0
+
+### Minor Changes
+
+- [#35](https://github.com/nerima-games/mc-worldgen/pull/35) [`9d785ec`](https://github.com/nerima-games/mc-worldgen/commit/9d785ec65fb56e07666d4cd8735730091cd06af3) Thanks [@takeokunn](https://github.com/takeokunn)! - Enforce assertion-free TypeScript boundaries and align the supporting documentation. `ChunkKey` is now a branded string constructed by the chunk-key factory, so consumers can no longer pass arbitrary strings where a validated chunk key is required.
+
+- [#36](https://github.com/nerima-games/mc-worldgen/pull/36) [`ea1e9f4`](https://github.com/nerima-games/mc-worldgen/commit/ea1e9f43d4673e61281ea0133191bbfe9fd2138a) Thanks [@takeokunn](https://github.com/takeokunn)! - Follow the published mc-kernel, mc-noise, and mc-save contracts and adopt the kernel-owned dimension and chunk-key brands. This is a breaking public-type migration: `ChunkKey` is removed from the `@nerima-games/mc-worldgen` root export and consumers must import it from `@nerima-games/mc-kernel`; `chunkKeyOf` remains exported by worldgen. The public generation buffer and worldgen-specific biome vocabulary remain unchanged. The audited downstream source trees (mc-sim, mc-render, mc-playground-kit, and mc-compose) contain no `ChunkKey` import from worldgen.
+
 ## 0.4.0
 
 ### Minor Changes
