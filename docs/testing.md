@@ -9,13 +9,14 @@
 | `pnpm lint` | oxlint + `ast-grep scan`。oxlint はこのリポジトリ唯一の JS/TS フォーマット設定（prettier も biome も .editorconfig も置かない）で、**`--deny-warnings` 付きで走る**ため `warn` のルールもビルドを落とす。`ast-grep scan` は `.ast-grep/rules/`（`no-type-assertion`、`no-wall-clock-read`）を評価する——oxlint が実装しない `no-restricted-syntax` 系の代替 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API） |
 | `pnpm test:coverage` | Vitest + V8 によるカバレッジ計測。branches / functions / lines / statements の 100% を必須化 |
-| `pnpm verify` | typecheck、lint、test の 3 段。CI と同じ品質ゲート。coverage と配布物検証は別ゲート(下記) |
+| `pnpm test:repro` | 固定した seed と座標で地形と光計算を実行し、出力が既知の SHA-256 と一致するか検査する |
+| `pnpm verify` | typecheck、lint、test、test:repro の 4 段。CI もこのコマンドを実行する。カバレッジ計測と配布物検証は個別に実行する(下記) |
 | `pnpm package:verify` | `pnpm build` で `dist/` を生成し、`scripts/verify-package.mjs` が生成物を実際に import して公開 API と pack 境界を検査する |
 | `pnpm preview` | 内蔵地形プレビュー。**`verify` には入らない**（後述） |
 | `pnpm bench` | ベンチマーク（`scripts/bench-terrain.ts`）。**`verify` には入らない**（§7） |
 | `pnpm goldens:update` | `test/golden/chunk-goldens.json` を書き直す。**`verify` には入らないし、入れてはならない**——検証がゴールデンを更新できたら、それはゴールデンではない |
 
-`pnpm` は PATH に無い場合がある。`corepack pnpm <cmd>` で、`package.json` が指定する pnpm 11 系を起動する。
+`pnpm` は PATH に無い場合がある。`corepack pnpm <cmd>` で、`package.json` が指定する pnpm 12 系を起動する。
 
 ### 配布成果物の検査
 

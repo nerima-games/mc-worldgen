@@ -34,7 +34,7 @@
           pkgs = pkgsFor system;
         in
         {
-          # Node 24 matches the `engines` field and the CI runner. pnpm comes
+          # Node 26 matches the `engines` field and the CI runner. pnpm comes
           # from corepack rather than nixpkgs so that the version is decided by
           # the `packageManager` field in package.json — one source of truth
           # instead of two that can drift.
@@ -55,8 +55,8 @@
           # mechanical gate.
           default = pkgs.mkShell {
             packages = [
-              pkgs.nodejs_24
-              pkgs.corepack_24
+              pkgs.nodejs_26
+              (pkgs.corepack.override { nodejs-slim = pkgs.nodejs-slim_26; })
               pkgs.typescript-language-server
               pkgs.oxlint
               pkgs.ast-grep

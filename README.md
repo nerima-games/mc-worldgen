@@ -83,11 +83,11 @@ plan.md §3.7 はこれを「参照実装の重大バグ」と書いているが
 ### セットアップ
 
 ```console
-$ direnv allow          # flake.nix の devShell で nodejs_24 + corepack が入る
+$ direnv allow          # flake.nix の devShell で nodejs_26 + corepack が入る
 $ pnpm install
 ```
 
-Nix を使わない場合は Node.js 24 以上と pnpm 11（`corepack` 推奨）を用意する。
+Nix を使わない場合は Node.js 24 以上と pnpm 12（`corepack` 推奨）を用意する。
 
 > **注意**: ツールチェーンは `devenv.nix` から `flake.nix` + `flake.lock` に移行済みである。
 > `flake.lock` はコミットされているので、`nix develop`（`.envrc` は `use flake`）は
@@ -104,7 +104,9 @@ Nix を使わない場合は Node.js 24 以上と pnpm 11（`corepack` 推奨）
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect`） |
 | `pnpm test:watch` | vitest watch |
 | `pnpm test:coverage` | Vitest + V8 カバレッジ。branches / functions / lines / statements の 100% を要求 |
-| `pnpm verify` | `typecheck`、`lint`、`test:coverage`、`build`。CI と同じ品質ゲート |
+| `pnpm test:repro` | 固定した seed と座標で地形と光計算を実行し、出力が既知の SHA-256 と一致するか検査する |
+| `pnpm verify` | `typecheck`、`lint`、`test`、`test:repro` を順に実行し、CI もこのコマンドを実行する。カバレッジ計測と配布物検証は個別に実行する |
+| `pnpm package:verify` | 配布ビルドを生成・import し、公開 API と pack 対象を検査する |
 | `pnpm preview` | **内蔵地形プレビュー**（下記）。`verify` には入らない |
 
 ### 地形プレビュー
