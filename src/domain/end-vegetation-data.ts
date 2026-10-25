@@ -1,6 +1,7 @@
 /* oxlint-disable no-magic-numbers */
 
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 
 /** Block roster used by the deterministic End vegetation pass. */
 export const END_VEGETATION_BLOCK: Readonly<
@@ -17,7 +18,6 @@ export const END_CHORUS_CANDIDATE_OFFSETS: ReadonlyArray<number> = Object.freeze
 export const END_CHORUS_PLACEMENT_CHANCE = 0.2
 export const END_CHORUS_MIN_HEIGHT = 2
 export const END_CHORUS_HEIGHT_VARIATION = 4
-import { Option } from 'effect'
 export const END_CHORUS_BRANCH_CHANCE = 0.4
 
 export const END_CHORUS_BRANCH_DIRECTIONS: ReadonlyArray<readonly [number, number]> = Object.freeze([

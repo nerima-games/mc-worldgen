@@ -1,5 +1,6 @@
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 import type { BiomeType } from './biome.js'
+import { Option } from 'effect'
 
 /** Block ids that can be written by the vegetation passes. */
 export const PLANT: Readonly<
@@ -42,7 +43,6 @@ export const GROUND_COVER_IDS: ReadonlyArray<number> = [
 
 export const MUSHROOM_IDS: ReadonlyArray<number> = [PLANT.BROWN_MUSHROOM, PLANT.RED_MUSHROOM]
 
-import { Option } from 'effect'
 export const AQUATIC_PLANT_IDS: ReadonlyArray<number> = [PLANT.SEAGRASS, PLANT.KELP, PLANT.LILY_PAD]
 
 export const STACKED_PLANT_IDS: ReadonlyArray<number> = [PLANT.CACTUS, PLANT.SUGAR_CANE, PLANT.KELP]

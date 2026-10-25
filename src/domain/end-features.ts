@@ -1,6 +1,4 @@
 /** Deterministic End spikes, crystals, and their chunk-local projections. */
-import { blockAxis, localAxis } from './coordinate-compatibility.js'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   type BlockId,
   type BlockPosition,
@@ -9,10 +7,12 @@ import {
   blockPosition,
 } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants.js'
-import { mulberry32, type NoiseSeed } from '@nerima-games/mc-noise'
-import { channelSeed } from './noise-compatibility.js'
+import { type NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NaturalStructureChunk } from './natural-structure.js'
 import { Option } from 'effect'
+import { channelSeed } from './noise-compatibility.js'
 import { setBlockAt } from './chunk.js'
 
 const END_SPIKE_COUNT = 10

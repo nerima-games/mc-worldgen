@@ -60,11 +60,11 @@
  * asserting that today's code does what today's code does.
  */
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, valueNoise2D } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
 import { readBlock } from './chunk.js'
 

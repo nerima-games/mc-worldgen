@@ -1,7 +1,6 @@
 /** Deterministic, absolute-coordinate terrain generation for the Nether. */
-import { blockAxis } from './coordinate-compatibility.js'
-import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
 import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, emptyBlocks } from './chunk.js'
 import {
@@ -10,10 +9,12 @@ import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
-import type { NaturalStructurePositionDraft } from './natural-structure-types.js'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, fbm2D, latticeValue } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
+import type { NaturalStructurePositionDraft } from './natural-structure-types.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 /** Advances a loop counter, or steps to the adjacent lattice point, by one unit. */
 const UNIT_STEP = 1
@@ -125,7 +126,6 @@ const netherDensityAt = (seed: NoiseSeed, x: number, y: number, z: number): numb
 const NETHER_BEDROCK_BASE_THICKNESS = 1
 const NETHER_BEDROCK_THICKNESS_VARIATION = 5
 
-import { Option } from 'effect'
 const bedrockChannelName = (top: boolean): string => {
   if (top) {
     return 'nether-bedrock-top'

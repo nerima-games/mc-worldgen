@@ -1,12 +1,12 @@
-import { Result } from 'effect'
 import {
   BlockAxis,
-  ChunkAxis,
-  LocalAxis,
   type BlockAxis as BlockAxisValue,
+  ChunkAxis,
   type ChunkAxis as ChunkAxisValue,
+  LocalAxis,
   type LocalAxis as LocalAxisValue,
 } from '@nerima-games/mc-kernel/domain/coordinates'
+import { Result } from 'effect'
 
 export const blockAxis = (value: number): BlockAxisValue => Result.getOrThrow(BlockAxis.result(value))
 

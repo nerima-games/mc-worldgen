@@ -5,6 +5,7 @@ import {
   blockIdOf,
   blockPosition,
 } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 export const END_GATEWAY_BLOCK: Readonly<Record<'BEDROCK' | 'GATEWAY', BlockId>> = Object.freeze({
@@ -100,7 +101,6 @@ export const moveEndGatewayPlacement = (
 ): EndGatewayPlacement => createEndGatewayPlacement(position, placement.configuration)
 
 /** Replace a gateway's configuration while retaining its current position. */
-import { Option } from 'effect'
 export const configureEndGatewayPlacement = (
   placement: EndGatewayPlacement,
   configuration: EndGatewayConfiguration,

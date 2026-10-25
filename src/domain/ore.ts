@@ -183,8 +183,8 @@ import {
 } from './constants.js'
 import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
 import { NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
-import { BLOCK } from './biome.js'
 import { Option, Result } from 'effect'
+import { BLOCK } from './biome.js'
 import { channelSeed } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
 

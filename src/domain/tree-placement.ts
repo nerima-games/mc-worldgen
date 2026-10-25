@@ -81,9 +81,9 @@
  * cell from 4×4 to 8×8 does not change their tree counts at all.
  */
 import { BIOME_TREE_DENSITY, type BiomeType } from './biome.js'
-import { blockAxis } from './coordinate-compatibility.js'
-import type { TerrainLevels } from './constants.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { TerrainLevels } from './constants.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 /**
  * Cell edge in blocks.

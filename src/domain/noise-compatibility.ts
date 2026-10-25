@@ -1,16 +1,16 @@
-import { Result } from 'effect'
 import {
   LatticeCoordinate,
   NoiseChannelLabel,
   NoiseFrequency,
+  type NoiseSeed,
   OctaveAmplitude,
   OctaveCount,
   channelSeed as deriveChannelSeed,
   fbm2D as sampleFbm2D,
   latticeValue as sampleLatticeValue,
   valueNoise2D as sampleValueNoise2D,
-  type NoiseSeed,
 } from '@nerima-games/mc-noise'
+import { Result } from 'effect'
 
 export type { NoiseSeed } from '@nerima-games/mc-noise'
 

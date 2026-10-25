@@ -12,10 +12,10 @@ import {
   MUSHROOM_BIOMES,
   PLANT,
 } from './vegetation-data.js'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
-import { readBlock } from './chunk.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Result } from 'effect'
+import { readBlock } from './chunk.js'
 
 export {
   AQUATIC_PLANT_IDS,

@@ -59,10 +59,8 @@ import {
   type TerrainLevels,
   blockIndex,
 } from './constants.js'
-import {
-  BLOCK,
-  type BiomeType,
-} from './biome.js'
+import { BLOCK, type BiomeType } from './biome.js'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -78,8 +76,6 @@ import {
   readBlock,
 } from './chunk.js'
 import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
-import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
@@ -87,6 +83,7 @@ import {
 } from './natural-structure.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumn, biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,

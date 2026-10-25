@@ -1,6 +1,6 @@
 /** Deterministic terrain generation for the End dimension. */
-import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
 import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
 import { CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, emptyBlocks } from './chunk.js'
 import {
@@ -13,10 +13,11 @@ import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, fbm2D } from './noise-compatibility.js'
-import { blockAxis } from './coordinate-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 export const END_STONE_BLOCK_ID: BlockId = Option.getOrThrow(blockIdOf('end_stone'))
 export const END_BASE_Y = 64
@@ -37,7 +38,6 @@ const CENTRAL_ISLAND_HEIGHT_BOOST = 8
 /** Amplitude of the surface-noise wobble on the central island. */
 const CENTRAL_ISLAND_SURFACE_NOISE_AMPLITUDE = 6
 /** Central island thickness at the outer edge (`strength` = 0). */
-import { Option } from 'effect'
 const CENTRAL_ISLAND_BASE_THICKNESS = 8
 /** Extra thickness the central island gains as `strength` rises to 1. */
 const CENTRAL_ISLAND_THICKNESS_STRENGTH_SCALE = 20

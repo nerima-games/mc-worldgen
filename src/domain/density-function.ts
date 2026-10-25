@@ -1,7 +1,7 @@
+import { channelSeed, fbm2D } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { blockAxis } from './coordinate-compatibility.js'
-import { channelSeed, fbm2D } from './noise-compatibility.js'
 
 /** Lowest and highest surface the local terrain shaper produces. */
 export const MIN_SURFACE_Y = 38
