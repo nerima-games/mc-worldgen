@@ -1,44 +1,89 @@
-import {
-  LatticeCoordinate,
-  NoiseChannelLabel,
-  NoiseFrequency,
-  type NoiseSeed,
-  OctaveAmplitude,
-  OctaveCount,
-  channelSeed as deriveChannelSeed,
-  fbm2D as sampleFbm2D,
-  latticeValue as sampleLatticeValue,
-  valueNoise2D as sampleValueNoise2D,
-} from '@nerima-games/mc-noise'
-import { Result } from 'effect'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 
 export type { NoiseSeed } from '@nerima-games/mc-noise'
 
-export const channelSeed = (seed: NoiseSeed, channel: string): NoiseSeed =>
-  deriveChannelSeed(seed, Result.getOrThrow(NoiseChannelLabel.result(channel)))
+const UINT32_COERCION_SHIFT = 0
+const FNV_PRIME_32 = 0x01000193
+const LATTICE_MIX_X = 0x85ebca6b
+const LATTICE_MIX_Z = 0xc2b2ae35
+const LATTICE_MIX_X_HIGH = 0x27d4eb2f
+const HIGH_HALF_SHIFT = 16
+const FINAL_MIX_SHIFT = 15
+const UINT32_MODULUS = 4294967296
+const LOOP_STEP = 1
+const LATTICE_NEIGHBOR_OFFSET = 1
+const INITIAL_AMPLITUDE = 1
+const FREQUENCY_MULTIPLIER = 2
+const ZERO_NORMALISATION = 0
+const SMOOTHSTEP_QUADRATIC_COEFFICIENT = 3
+const SMOOTHSTEP_CUBIC_COEFFICIENT = 2
 
-export const latticeValue = (seed: NoiseSeed, x: number, z: number): number =>
-  sampleLatticeValue(
-    seed,
-    Result.getOrThrow(LatticeCoordinate.result(x)),
-    Result.getOrThrow(LatticeCoordinate.result(z)),
-  )
+const asUint32 = (value: number): number => value >>> UINT32_COERCION_SHIFT
+
+const latticeValueAt = (seed: NoiseSeed, x: number, z: number): number => {
+  let hash = asUint32(seed)
+  hash = asUint32(Math.imul(hash ^ asUint32(x), LATTICE_MIX_X))
+  hash = asUint32(Math.imul(hash ^ asUint32(z), LATTICE_MIX_Z))
+  hash = asUint32(Math.imul(hash ^ (x >>> HIGH_HALF_SHIFT), LATTICE_MIX_X_HIGH))
+  hash ^= hash >>> FINAL_MIX_SHIFT
+  return asUint32(hash) / UINT32_MODULUS
+}
+
+const smoothstep = (amount: number): number =>
+  amount * amount * (SMOOTHSTEP_QUADRATIC_COEFFICIENT - SMOOTHSTEP_CUBIC_COEFFICIENT * amount)
+
+const lerp = (start: number, end: number, amount: number): number => start + (end - start) * amount
+
+const sampleValueNoise2D = (seed: NoiseSeed, x: number, z: number, frequency: number): number => {
+  const sx = x * frequency
+  const sz = z * frequency
+  const x0 = Math.floor(sx)
+  const z0 = Math.floor(sz)
+  const tx = smoothstep(sx - x0)
+  const tz = smoothstep(sz - z0)
+  const top = lerp(latticeValueAt(seed, x0, z0), latticeValueAt(seed, x0 + LATTICE_NEIGHBOR_OFFSET, z0), tx)
+  const bottom = lerp(latticeValueAt(seed, x0, z0 + LATTICE_NEIGHBOR_OFFSET), latticeValueAt(seed, x0 + LATTICE_NEIGHBOR_OFFSET, z0 + LATTICE_NEIGHBOR_OFFSET), tx)
+  return lerp(top, bottom, tz)
+}
+
+export const channelSeed = (seed: NoiseSeed, channel: string): NoiseSeed => {
+  let hash = asUint32(seed)
+  for (let index = 0; index < channel.length; index += LOOP_STEP) {
+    hash = asUint32(Math.imul(hash ^ channel.charCodeAt(index), FNV_PRIME_32))
+  }
+  return asUint32(hash) as NoiseSeed
+}
+
+export const latticeValue = (seed: NoiseSeed, x: number, z: number): number => latticeValueAt(seed, x, z)
 
 export const valueNoise2D = (seed: NoiseSeed, x: number, z: number, frequency: number): number =>
-  Result.getOrThrow(
-    sampleValueNoise2D(seed, x, z, Result.getOrThrow(NoiseFrequency.result(frequency))),
-  )
+  sampleValueNoise2D(seed, x, z, frequency)
+
+const normaliseFbmSample = (total: number, normalisation: number): number => {
+  if (normalisation === ZERO_NORMALISATION) {
+    return ZERO_NORMALISATION
+  }
+  return total / normalisation
+}
 
 export const fbm2D = (
   seed: NoiseSeed,
   x: number,
   z: number,
   options: Readonly<{ frequency: number; octaves: number; persistence: number }>,
-): number =>
-  Result.getOrThrow(
-    sampleFbm2D(seed, x, z, {
-      frequency: Result.getOrThrow(NoiseFrequency.result(options.frequency)),
-      octaves: Result.getOrThrow(OctaveCount.result(options.octaves)),
-      persistence: Result.getOrThrow(OctaveAmplitude.result(options.persistence)),
-    }),
-  )
+): number => {
+  let total = ZERO_NORMALISATION
+  let amplitude = INITIAL_AMPLITUDE
+  let normalisation = ZERO_NORMALISATION
+  let { frequency } = options
+
+  for (let octave = ZERO_NORMALISATION; octave < options.octaves; octave += LOOP_STEP) {
+    total +=
+      sampleValueNoise2D(channelSeed(seed, `octave-${String(octave)}`), x, z, frequency) * amplitude
+    normalisation += amplitude
+    amplitude *= options.persistence
+    frequency *= FREQUENCY_MULTIPLIER
+  }
+
+  return normaliseFbmSample(total, normalisation)
+}
