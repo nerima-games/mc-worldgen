@@ -1,3 +1,4 @@
+import { CHUNK_SIZE_XZ } from './constants.js'
 import { blockAxis } from './coordinate-compatibility.js'
 import {
   COMPACT_STRUCTURE_BLOCK,
@@ -133,10 +134,19 @@ export const planCompactStructureForCandidate = (
   candidate: CompactStructureCandidate,
   sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<CompactStructureDraft> => {
-  const originSample = sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z))
+  const placementCandidate = kind === 'woodland-mansion-single-chunk'
+    ? {
+        x: Math.floor(candidate.x / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ / 2,
+        z: Math.floor(candidate.z / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ / 2,
+      }
+    : candidate
+  const originSample = sampleTerrain(blockAxis(placementCandidate.x), blockAxis(placementCandidate.z))
   const samples = [
     originSample,
-    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(blockAxis(candidate.x + offset.x), blockAxis(candidate.z + offset.z))),
+    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(
+      blockAxis(placementCandidate.x + offset.x),
+      blockAxis(placementCandidate.z + offset.z),
+    )),
   ]
   if (!siteIsValid(kind, samples)) {
     return Option.none()
@@ -144,9 +154,9 @@ export const planCompactStructureForCandidate = (
 
   const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
   const baseY = originSample.surfaceY + descriptor.baseOffset
-  const blocks = structureBlocksForCandidate(kind, candidate, baseY)
-  const marker = addLootChest(blocks, kind, candidate, baseY)
-  const origin = Object.freeze({ x: candidate.x, y: baseY, z: candidate.z })
+  const blocks = structureBlocksForCandidate(kind, placementCandidate, baseY)
+  const marker = addLootChest(blocks, kind, placementCandidate, baseY)
+  const origin = Object.freeze({ x: placementCandidate.x, y: baseY, z: placementCandidate.z })
   return Option.some(
     Object.freeze({
       blocks: Object.freeze([...blocks.values()]),

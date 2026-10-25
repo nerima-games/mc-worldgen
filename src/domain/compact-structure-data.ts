@@ -9,6 +9,7 @@ export const COMPACT_STRUCTURE_KINDS = [
   'trail-ruins',
   'trial-chambers',
   'woodland-mansion',
+  'woodland-mansion-single-chunk',
 ] as const
 
 export type CompactStructureKind = (typeof COMPACT_STRUCTURE_KINDS)[number]
@@ -69,6 +70,7 @@ export const COMPACT_STRUCTURE_GRID: Readonly<
   'trail-ruins': { separation: 256, spacing: 512, spawnPermille: 80 },
   'trial-chambers': { separation: 256, spacing: 512, spawnPermille: 80 },
   'woodland-mansion': { separation: 512, spacing: 1024, spawnPermille: 40 },
+  'woodland-mansion-single-chunk': { separation: 512, spacing: 1024, spawnPermille: 40 },
 })
 
 export const COMPACT_STRUCTURE_DESCRIPTORS: Readonly<
@@ -125,6 +127,16 @@ export const COMPACT_STRUCTURE_DESCRIPTORS: Readonly<
     wall: COMPACT_STRUCTURE_BLOCK.IRON_BLOCK,
   },
   'woodland-mansion': {
+    allowedBiomes: ['FOREST', 'FLOWER_FOREST', 'TAIGA'],
+    baseOffset: 0,
+    foundation: COMPACT_STRUCTURE_BLOCK.OAK_PLANKS,
+    height: 4,
+    minSurfaceDelta: 1,
+    radius: 5,
+    roof: COMPACT_STRUCTURE_BLOCK.OAK_STAIRS,
+    wall: COMPACT_STRUCTURE_BLOCK.OAK_LOG,
+  },
+  'woodland-mansion-single-chunk': {
     allowedBiomes: ['FOREST', 'FLOWER_FOREST', 'TAIGA'],
     baseOffset: 0,
     foundation: COMPACT_STRUCTURE_BLOCK.OAK_PLANKS,

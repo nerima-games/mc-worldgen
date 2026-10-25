@@ -52,21 +52,19 @@ const findAbsentRegion = (seed: number, kind: CompactStructureKind): readonly [n
   throw new Error(`compact structure absence search exhausted for ${kind}`)
 }
 
-const findCrossChunkPlan = (seed: number): NaturalStructurePlan => {
-  for (const kind of COMPACT_STRUCTURE_KINDS) {
-    const sampler = flatSamplerFor(kind)
-    for (let regionX = -32; regionX <= 32; regionX += 1) {
-      for (let regionZ = -32; regionZ <= 32; regionZ += 1) {
-        const option = planCompactStructureForRegion(noiseSeed(seed), kind, regionX, regionZ, sampler)
-        if (Option.isNone(option)) continue
-        const plan = option.value
-        const spansX = Math.floor(plan.bounds.minX / CHUNK_SIZE_XZ) !== Math.floor(plan.bounds.maxX / CHUNK_SIZE_XZ)
-        const spansZ = Math.floor(plan.bounds.minZ / CHUNK_SIZE_XZ) !== Math.floor(plan.bounds.maxZ / CHUNK_SIZE_XZ)
-        if (spansX || spansZ) return plan
-      }
+const findCrossChunkPlan = (seed: number, kind: CompactStructureKind): NaturalStructurePlan => {
+  const sampler = flatSamplerFor(kind)
+  for (let regionX = -32; regionX <= 32; regionX += 1) {
+    for (let regionZ = -32; regionZ <= 32; regionZ += 1) {
+      const option = planCompactStructureForRegion(noiseSeed(seed), kind, regionX, regionZ, sampler)
+      if (Option.isNone(option)) continue
+      const plan = option.value
+      const spansX = Math.floor(plan.bounds.minX / CHUNK_SIZE_XZ) !== Math.floor(plan.bounds.maxX / CHUNK_SIZE_XZ)
+      const spansZ = Math.floor(plan.bounds.minZ / CHUNK_SIZE_XZ) !== Math.floor(plan.bounds.maxZ / CHUNK_SIZE_XZ)
+      if (spansX || spansZ) return plan
     }
   }
-  throw new Error('compact structure cross-chunk search range exhausted')
+  throw new Error(`compact structure cross-chunk search range exhausted for ${kind}`)
 }
 
 describe('compact structure plans', () => {
@@ -75,16 +73,18 @@ describe('compact structure plans', () => {
     for (const kind of COMPACT_STRUCTURE_KINDS) {
       const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
       const baseY = 70 + descriptor.baseOffset
-      const draft = unwrapDraft(planCompactStructureForCandidate(kind, { x: 0, z: 0 }, flatSamplerFor(kind)))
+      const candidate = kind === 'woodland-mansion-single-chunk' ? { x: -1, z: -17 } : { x: 0, z: 0 }
+      const placement = kind === 'woodland-mansion-single-chunk' ? { x: -8, z: -24 } : candidate
+      const draft = unwrapDraft(planCompactStructureForCandidate(kind, candidate, flatSamplerFor(kind)))
 
       expect(Object.isFrozen(draft)).toBe(true)
       expect(Object.isFrozen(draft.origin)).toBe(true)
       expect(Object.isFrozen(draft.blocks)).toBe(true)
       expect(Object.isFrozen(draft.markers)).toBe(true)
-      expect(draft.blocks).toContainEqual({ block: descriptor.foundation, x: 0, y: baseY, z: 0 })
-      expect(draft.blocks).toContainEqual({ block: descriptor.wall, x: -descriptor.radius, y: baseY + 1, z: 0 })
-      expect(draft.blocks).toContainEqual({ block: descriptor.roof, x: 0, y: baseY + descriptor.height, z: 1 })
-      expect(draft.blocks).toContainEqual({ block: COMPACT_STRUCTURE_BLOCK.CHEST, x: 0, y: baseY + 1, z: 0 })
+      expect(draft.blocks).toContainEqual({ block: descriptor.foundation, x: placement.x, y: baseY, z: placement.z })
+      expect(draft.blocks).toContainEqual({ block: descriptor.wall, x: placement.x - descriptor.radius, y: baseY + 1, z: placement.z })
+      expect(draft.blocks).toContainEqual({ block: descriptor.roof, x: placement.x, y: baseY + descriptor.height, z: placement.z + 1 })
+      expect(draft.blocks).toContainEqual({ block: COMPACT_STRUCTURE_BLOCK.CHEST, x: placement.x, y: baseY + 1, z: placement.z })
       expect(draft.markers).toContainEqual(expect.objectContaining({ kind: 'loot-chest', lootTable: kind }))
       for (const block of draft.blocks) expect(registered.has(block.block)).toBe(true)
       for (const marker of draft.markers) expect(Object.isFrozen(marker)).toBe(true)
@@ -131,7 +131,7 @@ describe('compact structure plans', () => {
   })
 
   it('splits a compact plan across chunk boundaries without changing its content', () => {
-    const plan = findCrossChunkPlan(20260820)
+    const plan = findCrossChunkPlan(20260820, 'woodland-mansion')
     const minChunkX = Math.floor(plan.bounds.minX / CHUNK_SIZE_XZ)
     const maxChunkX = Math.floor(plan.bounds.maxX / CHUNK_SIZE_XZ)
     const minChunkZ = Math.floor(plan.bounds.minZ / CHUNK_SIZE_XZ)
@@ -143,6 +143,7 @@ describe('compact structure plans', () => {
     const blocks = slices.flatMap((slice) => slice.blocks)
     const markers = slices.flatMap((slice) => slice.markers)
 
+    expect(plan.kind).toBe('woodland-mansion')
     expect(slices.filter((slice) => slice.blocks.length > 0).length).toBeGreaterThan(1)
     const blockKey = (block: (typeof plan.blocks)[number]): string => `${block.x},${block.y},${block.z}:${block.block}`
     expect(blocks.map(blockKey).sort()).toStrictEqual(plan.blocks.map(blockKey).sort())
@@ -156,5 +157,29 @@ describe('compact structure plans', () => {
         expect(Math.floor(block.z / CHUNK_SIZE_XZ)).toBe(slice.chunkZ)
       }
     }
+  })
+
+  it('keeps the single-chunk mansion variant within one chunk', () => {
+    const plan = findPlan(20260820, 'woodland-mansion-single-chunk')
+    const chunkX = Math.floor(plan.origin.x / CHUNK_SIZE_XZ)
+    const chunkZ = Math.floor(plan.origin.z / CHUNK_SIZE_XZ)
+
+    expect(plan.kind).toBe('woodland-mansion-single-chunk')
+    expect(Math.floor(plan.bounds.minX / CHUNK_SIZE_XZ)).toBe(chunkX)
+    expect(Math.floor(plan.bounds.maxX / CHUNK_SIZE_XZ)).toBe(chunkX)
+    expect(Math.floor(plan.bounds.minZ / CHUNK_SIZE_XZ)).toBe(chunkZ)
+    expect(Math.floor(plan.bounds.maxZ / CHUNK_SIZE_XZ)).toBe(chunkZ)
+    for (const block of plan.blocks) {
+      expect(Math.floor(block.x / CHUNK_SIZE_XZ)).toBe(chunkX)
+      expect(Math.floor(block.z / CHUNK_SIZE_XZ)).toBe(chunkZ)
+    }
+    for (const marker of plan.markers) {
+      expect(Math.floor(marker.x / CHUNK_SIZE_XZ)).toBe(chunkX)
+      expect(Math.floor(marker.z / CHUNK_SIZE_XZ)).toBe(chunkZ)
+    }
+
+    const slice = naturalStructureSliceForChunk(plan, chunkAxis(chunkX), chunkAxis(chunkZ))
+    expect(slice.blocks).toStrictEqual(plan.blocks)
+    expect(slice.markers).toStrictEqual(plan.markers)
   })
 })
