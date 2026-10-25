@@ -47,6 +47,7 @@ import {
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { Option } from 'effect'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
@@ -124,7 +125,7 @@ export const wasWritten = (outcome: BlockWriteOutcome): boolean => outcome['_tag
 const WORLD_MIN_Y = 0
 
 /** Is this Y inside the world column a chunk represents? */
-export const isWorldY = (y: number): boolean => Number.isInteger(y) && y >= WORLD_MIN_Y && y < CHUNK_HEIGHT
+export const isWorldY = (y: BlockAxis): boolean => y >= WORLD_MIN_Y && y < CHUNK_HEIGHT
 
 // ---------------------------------------------------------------------------
 // Light
@@ -598,7 +599,7 @@ const lightReadingForTarget = (
   }
 
   const lights = computeChunkLights(state.loaded)
-  const computed = Option.getOrThrow(Option.fromNullable(lights.get(target.key)))
+  const computed = Option.getOrThrow(Option.fromNullishOr(lights.get(target.key)))
 
   return [
     lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),

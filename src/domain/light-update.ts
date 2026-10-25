@@ -65,7 +65,7 @@ type ChunkIndexBuilder<Key extends string> = {
   readonly chunksByCoord: Map<string, number>
 }
 
-const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => Option.getOrThrow(Option.fromNullable(items[index]))
+const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => Option.getOrThrow(Option.fromNullishOr(items[index]))
 
 /** Append one cached chunk, returning false when the cache is incomplete. */
 const registerCurrentChunk = <Key extends string>(
