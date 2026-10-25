@@ -13,6 +13,8 @@ import { AIR_BLOCK_ID, BLOCK_ID_MAX, BlockId, chunkCoord } from '@nerima-games/m
 import { BLOCK } from '../src/domain/biome'
 import { biomeAt, emptyBlocks, readBlock, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from '../src/domain/constants'
+import { blockAxis, localAxis } from '../src/domain/coordinate-compatibility'
+import { chunkAxis } from './fixtures/validated-inputs'
 
 describe('readBlock', () => {
   it('answers the stored id for every in-range index', () => {
@@ -44,7 +46,7 @@ describe('the widened block-id ceiling', () => {
 
     // 300 could never have survived a `Uint8Array` write: element assignment
     // there wraps modulo 256, so this would have been stored as 44.
-    setBlockAt(blocks, 2, 5, 9, BlockId(300))
+    setBlockAt(blocks, localAxis(2), blockAxis(5), localAxis(9), BlockId(300))
 
     expect(readBlock(blocks, index)).toBe(300)
   })
@@ -53,7 +55,7 @@ describe('the widened block-id ceiling', () => {
     const blocks = emptyBlocks()
     const index = blockIndex(0, 0, 0)
 
-    setBlockAt(blocks, 0, 0, 0, BlockId(BLOCK_ID_MAX))
+    setBlockAt(blocks, localAxis(0), blockAxis(0), localAxis(0), BlockId(BLOCK_ID_MAX))
 
     expect(readBlock(blocks, index)).toBe(BLOCK_ID_MAX)
   })
@@ -66,13 +68,13 @@ describe('biomeAt', () => {
       () => 'PLAINS',
     )
     biomes[lz * CHUNK_SIZE_XZ + lx] = biome
-    return { biomes, blocks: emptyBlocks(), coord: chunkCoord(0, 0) }
+    return { biomes, blocks: emptyBlocks(), coord: chunkCoord(chunkAxis(0), chunkAxis(0)) }
   }
 
   it('answers the stored biome for every in-range column', () => {
     const chunk = chunkWithBiome(3, 9, 'DESERT')
 
-    expect(biomeAt(chunk, 3, 9)).toBe('DESERT')
+    expect(biomeAt(chunk, localAxis(3), localAxis(9))).toBe('DESERT')
   })
 
   it('is total: an out-of-range column falls back to PLAINS rather than reading undefined', () => {
@@ -82,7 +84,9 @@ describe('biomeAt', () => {
     // the other direction.
     const chunk = chunkWithBiome(0, 0, 'DESERT')
 
+    // @ts-expect-error The runtime fallback remains total for legacy invalid calls.
     expect(biomeAt(chunk, 0, CHUNK_SIZE_XZ)).toBe('PLAINS')
+    // @ts-expect-error The runtime fallback remains total for legacy invalid calls.
     expect(biomeAt(chunk, -1, 0)).toBe('PLAINS')
   })
 })

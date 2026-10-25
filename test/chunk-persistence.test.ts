@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as validated from './fixtures/validated-inputs'
 import {
   makeInMemoryStorage,
   saveEnvelope,
@@ -7,14 +8,14 @@ import {
   StoragePort,
   type StorageService,
 } from '@nerima-games/mc-save'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import { makePersistentChunkStore, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1 } from '../src/domain/chunk-format'
 import { blockIndex, CHUNK_VOLUME } from '../src/domain/constants'
-import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 
 const context: ChunkPersistenceContext = { worldId: 'world/one', dimension: 'overworld' }
 
@@ -31,7 +32,7 @@ const makeStoreWith = (storage: StorageService, chunkSource: ChunkSource = sourc
 
 describe('chunk persistence', () => {
     it('builds stable keys from typed world and dimension components', () => {
-      const coord = chunkCoord(-2, 7)
+      const coord = validated.validatedChunkCoord(-2, 7)
       expect(chunkSaveKey({ worldId: 'a/b', dimension: 'overworld' }, coord)).toBe(
         'chunk/a%2Fb/overworld/-2/7',
       )
@@ -47,9 +48,9 @@ describe('chunk persistence', () => {
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
       const first = yield* makeStoreWith(storage)
-      const coord = chunkCoord(3, -4)
+      const coord = validated.validatedChunkCoord(3, -4)
       yield* first.load(coord)
-      yield* first.setBlock(blockPosition(48, 10, -64), BLOCK.STONE)
+      yield* first.setBlock(validated.validatedBlockPosition(48, 10, -64), BLOCK.STONE)
       yield* first.unload(coord)
 
       let generated = false
@@ -74,7 +75,7 @@ describe('chunk persistence', () => {
         put: (key) => Effect.fail(new StorageError({ operation: 'test.put', key })),
       }
       const store = yield* makeStoreWith(failing)
-      const coord = chunkCoord(0, 0)
+      const coord = validated.validatedChunkCoord(0, 0)
       yield* store.load(coord)
 
       const failure = yield* Effect.flip(store.unload(coord))
@@ -86,10 +87,14 @@ describe('chunk persistence', () => {
   it.effect('surfaces corrupt stored chunks instead of regenerating over them', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
-      const coord = chunkCoord(1, 2)
+      const coord = validated.validatedChunkCoord(1, 2)
       yield* storage.put(
         chunkSaveKey(context, coord),
-        sealSaveEnvelope(saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT.version, { blocks: 'not-a-chunk' })),
+        Result.getOrThrow(
+          sealSaveEnvelope(
+            saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT.version, { blocks: 'not-a-chunk' }),
+          ),
+        ),
       )
       const store = yield* makeStoreWith(storage)
 
@@ -103,7 +108,7 @@ describe('chunk persistence', () => {
   it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v2 on the next save', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
-      const coord = chunkCoord(5, -9)
+      const coord = validated.validatedChunkCoord(5, -9)
 
       // A save exactly as a build before the widening would have written:
       // one byte per block, base64 on the wire, stamped with CHUNK_FORMAT_V1's
@@ -114,12 +119,14 @@ describe('chunk persistence', () => {
 
       yield* storage.put(
         chunkSaveKey(context, coord),
-        sealSaveEnvelope(
-          saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT_V1.version, {
-            biomes: Array.from({ length: CHUNK_BIOME_COUNT }, () => 'PLAINS' as const),
-            blocks: Buffer.from(legacyBlocks).toString('base64'),
-            coord: { cx: coord.cx, cz: coord.cz },
-          }),
+        Result.getOrThrow(
+          sealSaveEnvelope(
+            saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT_V1.version, {
+              biomes: Array.from({ length: CHUNK_BIOME_COUNT }, () => 'PLAINS' as const),
+              blocks: Buffer.from(legacyBlocks).toString('base64'),
+              coord: { cx: coord.cx, cz: coord.cz },
+            }),
+          ),
         ),
       )
 
@@ -146,9 +153,9 @@ describe('chunk persistence', () => {
   it.effect('treats a missing key as generation rather than an error', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
-      expect(yield* storage.get(chunkSaveKey(context, chunkCoord(9, 9)))).toStrictEqual(Option.none())
+      expect(yield* storage.get(chunkSaveKey(context, validated.validatedChunkCoord(9, 9)))).toStrictEqual(Option.none())
       const store = yield* makeStoreWith(storage)
-      expect((yield* store.load(chunkCoord(9, 9))).coord).toStrictEqual(chunkCoord(9, 9))
+      expect((yield* store.load(validated.validatedChunkCoord(9, 9))).coord).toStrictEqual(validated.validatedChunkCoord(9, 9))
     }),
   )
 
@@ -156,7 +163,7 @@ describe('chunk persistence', () => {
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
       const store = yield* makeStoreWith(storage)
-      const coord = chunkCoord(40, -40)
+      const coord = validated.validatedChunkCoord(40, -40)
 
       expect(yield* store.unload(coord)).toBe(false)
       // Nothing was resident, so nothing should have been written either.
@@ -176,7 +183,7 @@ describe('chunk persistence', () => {
   it.effect('retries the save when a write races the unload, and persists the newer content', () =>
     Effect.gen(function* () {
       const backing = yield* makeInMemoryStorage
-      const coord = chunkCoord(0, 0)
+      const coord = validated.validatedChunkCoord(0, 0)
       let putCount = 0
 
       // A mutable property rather than a reassigned variable, so
@@ -184,7 +191,7 @@ describe('chunk persistence', () => {
       // back into exists — can reach it without a forward reference to a
       // not-yet-declared binding. `cell` itself is declared and never
       // rebound; only the property is filled in once the store is built.
-      const cell: { store?: Effect.Effect.Success<ReturnType<typeof makeStoreWith>> } = {}
+      const cell: { store?: Effect.Success<ReturnType<typeof makeStoreWith>> } = {}
 
       const racyDuringSave: StorageService = {
         ...backing,
@@ -195,7 +202,7 @@ describe('chunk persistence', () => {
               // Races a write into the middle of the FIRST save attempt, so
               // that attempt's snapshot goes stale before its own
               // compare-and-remove runs.
-              yield* cell.store.setBlock(blockPosition(0, 10, 0), BLOCK.SAND)
+              yield* cell.store.setBlock(validated.validatedBlockPosition(0, 10, 0), BLOCK.SAND)
             }
             return yield* backing.put(key, envelope)
           }),

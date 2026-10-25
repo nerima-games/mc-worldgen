@@ -14,8 +14,9 @@ import {
   planMineshaftForRegion,
 } from '../src/domain/natural-structure'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
+const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 
 type LocatedMineshaft = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<MineshaftDraft>): MineshaftDraft => {
 const findMineshaft = (seed: number): LocatedMineshaft => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planMineshaftForRegion(seed, regionX, regionZ, FLAT_PLAINS)
+      const plan = planMineshaftForRegion(noiseSeed(seed), regionX, regionZ, FLAT_PLAINS)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findMineshaft = (seed: number): LocatedMineshaft => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planMineshaftForRegion(seed, regionX, regionZ, FLAT_PLAINS))) return [regionX, regionZ]
+      if (Option.isNone(planMineshaftForRegion(noiseSeed(seed), regionX, regionZ, FLAT_PLAINS))) return [regionX, regionZ]
     }
   }
   throw new Error('mineshaft absent-region search range exhausted')
@@ -75,17 +76,17 @@ describe('mineshaft plans', () => {
   })
 
   it('rejects unsuitable terrain and accepts the maximum supported relief', () => {
-    const lowSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 20 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: CHUNK_HEIGHT + 20 })
+    const lowSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(20) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(CHUNK_HEIGHT + 20) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'PLAINS',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 70 : 77,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 77),
     })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'PLAINS',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 70 : 76,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 76),
     })
 
     expect(Option.isNone(planMineshaftForCandidate({ x: 0, z: 0 }, lowSite))).toBe(true)
@@ -97,19 +98,19 @@ describe('mineshaft plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findMineshaft(seed)
-    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 20 })
-    const repeated = planMineshaftForRegion(seed, located.regionX, located.regionZ, FLAT_PLAINS)
+    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(20) })
+    const repeated = planMineshaftForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_PLAINS)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_PLAINS })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_PLAINS })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planMineshaftForRegion(seed, located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
-    expect(Option.isNone(planMineshaftForRegion(seed, absentX, absentZ, FLAT_PLAINS))).toBe(true)
+    expect(Option.isNone(planMineshaftForRegion(noiseSeed(seed), located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
+    expect(Option.isNone(planMineshaftForRegion(noiseSeed(seed), absentX, absentZ, FLAT_PLAINS))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID.mineshaft).toStrictEqual({ separation: 96, spacing: 256, spawnPermille: 150 })
     expect(located.plan.kind).toBe('mineshaft')
     expect(located.plan.dimension).toBe('overworld')

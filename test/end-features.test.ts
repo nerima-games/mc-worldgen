@@ -12,9 +12,10 @@ import {
 import { generateEndTerrainChunk } from '../src/domain/end-terrain'
 import type { NaturalStructureChunk } from '../src/domain/natural-structure'
 import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const emptyNaturalChunk = (coord: ChunkCoord): NaturalStructureChunk => {
-  const terrain = generateEndTerrainChunk(0, coord)
+  const terrain = generateEndTerrainChunk(noiseSeed(0), coord)
   return {
     ...terrain,
     naturalStructureIds: Object.freeze([]),
@@ -32,9 +33,9 @@ const planFor = (id: string, spikes: ReadonlyArray<EndSpike>, crystalInvulnerabl
 
 describe('End features', () => {
   it('creates a deterministic, immutable set of ten spikes', () => {
-    const first = endFeaturePlanForSeed(42)
-    const second = endFeaturePlanForSeed(42)
-    const sampled = Array.from({ length: 8 }, (_, seed) => endFeaturePlanForSeed(seed))
+    const first = endFeaturePlanForSeed(noiseSeed(42))
+    const second = endFeaturePlanForSeed(noiseSeed(42))
+    const sampled = Array.from({ length: 8 }, (_, seed) => endFeaturePlanForSeed(noiseSeed(seed)))
     const positions = new Set(first.spikes.map(({ centerX, centerZ }) => `${centerX},${centerZ}`))
 
     expect(first).toStrictEqual(second)
@@ -53,11 +54,11 @@ describe('End features', () => {
 
   it('writes pillars only where they intersect a chunk and emits one marker set per owner chunk', () => {
     const plan = planFor('spanning', [
-      { centerX: 1, centerZ: 1, radius: 1, height: 2, guarded: true },
-      { centerX: 16, centerZ: 0, radius: 1, height: 2, guarded: false },
-      { centerX: 100, centerZ: 100, radius: 1, height: 1, guarded: false },
+      { centerX: blockAxis(1), centerZ: blockAxis(1), radius: 1, height: 2, guarded: true },
+      { centerX: blockAxis(16), centerZ: blockAxis(0), radius: 1, height: 2, guarded: false },
+      { centerX: blockAxis(100), centerZ: blockAxis(100), radius: 1, height: 1, guarded: false },
     ])
-    const source = emptyNaturalChunk(chunkCoord(0, 0))
+    const source = emptyNaturalChunk(chunkCoord(chunkAxis(0), chunkAxis(0)))
     const applied = applyEndFeaturePlansToChunk(source, [plan])
     const crystal = applied.endFeatureMarkers.find((marker) => marker.kind === 'end-crystal')
     const cage = applied.endFeatureMarkers.find((marker) => marker.kind === 'end-crystal-cage')
@@ -70,14 +71,14 @@ describe('End features', () => {
     expect(crystal).toStrictEqual({
       kind: 'end-crystal',
       featureId: 'spanning',
-      at: blockPosition(1, 3, 1),
+      at: blockPosition(blockAxis(1), blockAxis(3), blockAxis(1)),
       block: END_FEATURE_BLOCK.CRYSTAL,
       invulnerable: true,
     })
     expect(cage).toStrictEqual({
       kind: 'end-crystal-cage',
       featureId: 'spanning',
-      center: blockPosition(1, 3, 1),
+      center: blockPosition(blockAxis(1), blockAxis(3), blockAxis(1)),
       radius: 2,
       minY: 1,
       maxY: 5,
@@ -89,10 +90,10 @@ describe('End features', () => {
     expect(Object.isFrozen(crystal)).toBe(true)
     expect(Object.isFrozen(cage)).toBe(true)
 
-    const neighbor = applyEndFeaturePlansToChunk(emptyNaturalChunk(chunkCoord(1, 0)), [plan])
+    const neighbor = applyEndFeaturePlansToChunk(emptyNaturalChunk(chunkCoord(chunkAxis(1), chunkAxis(0))), [plan])
     expect(neighbor.endFeatureIds).toStrictEqual(['spanning'])
     expect(neighbor.endFeatureMarkers).toStrictEqual([{
-      at: blockPosition(16, 3, 0),
+      at: blockPosition(blockAxis(16), blockAxis(3), blockAxis(0)),
       block: END_FEATURE_BLOCK.CRYSTAL,
       featureId: 'spanning',
       invulnerable: true,
@@ -103,13 +104,13 @@ describe('End features', () => {
 
   it('clamps cage metadata at the world height and keeps distant chunks unchanged', () => {
     const plan = planFor('clamped', [
-      { centerX: 1, centerZ: 1, radius: 0, height: CHUNK_HEIGHT + 2, guarded: true },
-      { centerX: 2, centerZ: 2, radius: 0, height: 0, guarded: true },
+      { centerX: blockAxis(1), centerZ: blockAxis(1), radius: 0, height: CHUNK_HEIGHT + 2, guarded: true },
+      { centerX: blockAxis(2), centerZ: blockAxis(2), radius: 0, height: 0, guarded: true },
     ])
-    const source = emptyNaturalChunk(chunkCoord(0, 0))
+    const source = emptyNaturalChunk(chunkCoord(chunkAxis(0), chunkAxis(0)))
     const applied = applyEndFeaturePlansToChunk(source, [plan])
     const cages = applied.endFeatureMarkers.filter((marker) => marker.kind === 'end-crystal-cage')
-    const distant = emptyNaturalChunk(chunkCoord(20, 20))
+    const distant = emptyNaturalChunk(chunkCoord(chunkAxis(20), chunkAxis(20)))
     const untouched = applyEndFeaturePlansToChunk(distant, [plan])
 
     expect(applied.blocks[blockIndex(1, CHUNK_HEIGHT - 1, 1)]).toBe(END_FEATURE_BLOCK.OBSIDIAN)
@@ -123,13 +124,16 @@ describe('End features', () => {
   })
 
   it('deduplicates plans by id and returns touched ids in stable order', () => {
-    const firstB = planFor('b', [{ centerX: 2, centerZ: 2, radius: 0, height: 1, guarded: false }])
-    const replacementB = planFor('b', [{ centerX: 3, centerZ: 3, radius: 0, height: 1, guarded: false }])
-    const planA = planFor('a', [{ centerX: 1, centerZ: 1, radius: 0, height: 1, guarded: false }])
-    const applied = applyEndFeaturePlansToChunk(emptyNaturalChunk(chunkCoord(0, 0)), [firstB, planA, replacementB])
+    const firstB = planFor('b', [{ centerX: blockAxis(2), centerZ: blockAxis(2), radius: 0, height: 1, guarded: false }])
+    const replacementB = planFor('b', [{ centerX: blockAxis(3), centerZ: blockAxis(3), radius: 0, height: 1, guarded: false }])
+    const planA = planFor('a', [{ centerX: blockAxis(1), centerZ: blockAxis(1), radius: 0, height: 1, guarded: false }])
+    const applied = applyEndFeaturePlansToChunk(emptyNaturalChunk(chunkCoord(chunkAxis(0), chunkAxis(0))), [firstB, planA, replacementB])
     const crystals = applied.endFeatureMarkers.filter((marker) => marker.kind === 'end-crystal')
 
     expect(applied.endFeatureIds).toStrictEqual(['a', 'b'])
-    expect(crystals.map(({ at }) => at)).toStrictEqual([blockPosition(1, 2, 1), blockPosition(3, 2, 3)])
+    expect(crystals.map(({ at }) => at)).toStrictEqual([
+      blockPosition(blockAxis(1), blockAxis(2), blockAxis(1)),
+      blockPosition(blockAxis(3), blockAxis(2), blockAxis(3)),
+    ])
   })
 })

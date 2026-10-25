@@ -61,11 +61,13 @@
  * worldgen-golden-matrix-coverage.
  */
 import { describe, expect, it } from '@effect/vitest'
+import * as validated from './fixtures/validated-inputs'
 import { Effect } from 'effect'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
+
 import {
   BEDROCK_Y,
   blockIndex,
@@ -273,8 +275,8 @@ describe('the golden matrix', () => {
    */
   it.effect('isolates the decoration pass: the two FOREST rows differ only in vegetation', () =>
     Effect.sync(() => {
-      const decorated = generateChunkAt(GOLDEN_SEED, 5, -12, { decorate: true })
-      const bare = generateChunkAt(GOLDEN_SEED, 5, -12, { decorate: false })
+      const decorated = generateChunkAt(GOLDEN_SEED, validated.chunkAxis(5), validated.chunkAxis(-12), { decorate: true })
+      const bare = generateChunkAt(GOLDEN_SEED, validated.chunkAxis(5), validated.chunkAxis(-12), { decorate: false })
 
       const changed: Array<number> = []
       for (let index = 0; index < decorated.blocks.length; index += 1) {
@@ -530,8 +532,8 @@ describe('what backs the block digest', () => {
 
   it.effect('I-4b: and the guard is what does it — without it, 200+ columns of (4, 9) go hollow', () =>
     Effect.sync(() => {
-      const guarded = generateChunkAt(GOLDEN_SEED, 4, 9, { decorate: false })
-      const unguarded = generateChunkAt(GOLDEN_SEED, 4, 9, {
+      const guarded = generateChunkAt(GOLDEN_SEED, validated.chunkAxis(4), validated.chunkAxis(9), { decorate: false })
+      const unguarded = generateChunkAt(GOLDEN_SEED, validated.chunkAxis(4), validated.chunkAxis(9), {
         decorate: false,
         carve: { waterFloorMargin: 0 },
       })
@@ -590,14 +592,14 @@ describe('what backs the biome digest', () => {
             const wz = spec.cz * CHUNK_SIZE_XZ + lz
             const expected = biomeFor(
               GOLDEN_SEED,
-              wx,
-              wz,
-              surfaceHeightAt(GOLDEN_SEED, wx, wz),
+              validated.blockAxis(wx),
+              validated.blockAxis(wz),
+              surfaceHeightAt(GOLDEN_SEED, validated.blockAxis(wx), validated.blockAxis(wz)),
               DEFAULT_TERRAIN_LEVELS,
             )
 
             expect(
-              chunk.biomes[columnIndex(lx, lz)],
+              chunk.biomes[columnIndex(validated.localAxis(lx), validated.localAxis(lz))],
               `${describeSpec(spec)} disagrees at column (${String(lx)}, ${String(lz)})`,
             ).toBe(expected)
           }

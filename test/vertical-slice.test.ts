@@ -39,22 +39,26 @@
  * table about it.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import type { ChunkDirtyBatch } from '../src/domain/chunk-store-state'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
-  blockPosition,
   capabilityOfBlockId,
-  chunkCoord,
   type BlockId,
   type BlockPosition,
 } from '@nerima-games/mc-kernel'
+import {
+  blockAxis,
+  chunkAxis,
+  validatedBlockPosition as blockPosition,
+  validatedChunkCoord as chunkCoord,
+} from './fixtures/validated-inputs'
 
-const fallsWhenUnsupported = (id: number): boolean => capabilityOfBlockId(id, 'fallsWhenUnsupported')
-const replaceable = (id: number): boolean => capabilityOfBlockId(id, 'replaceable')
+const fallsWhenUnsupported = (id: BlockId): boolean => Result.getOrThrow(capabilityOfBlockId(id, 'fallsWhenUnsupported'))
+const replaceable = (id: BlockId): boolean => Result.getOrThrow(capabilityOfBlockId(id, 'replaceable'))
 
 // ---------------------------------------------------------------------------
 // The world
@@ -94,7 +98,7 @@ const slabChunk = (): Chunk => {
   blocks[blockIndex(2, SAND_Y, 3)] = BLOCK.SAND
 
   return {
-    coord: chunkCoord(0, 0),
+    coord: chunkCoord(chunkAxis(0), chunkAxis(0)),
     blocks,
     biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const),
   }
@@ -120,7 +124,7 @@ const slabSource: ChunkSource = () => Effect.sync(slabChunk)
  * tick moves nothing.
  */
 const fallingBlockTick = (
-  store: Effect.Effect.Success<typeof ChunkStore>,
+  store: Effect.Success<typeof ChunkStore>,
   batch: ChunkDirtyBatch,
 ): Effect.Effect<number> =>
   Effect.gen(function* () {
@@ -130,13 +134,13 @@ const fallingBlockTick = (
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
           for (let y = 1; y < SCAN_CEILING_Y; y += 1) {
-            const here: BlockPosition = blockPosition(coord.cx * CHUNK_SIZE_XZ + lx, y, coord.cz * CHUNK_SIZE_XZ + lz)
+            const here: BlockPosition = blockPosition(blockAxis(coord.cx * CHUNK_SIZE_XZ + lx), blockAxis(y), coord.cz * CHUNK_SIZE_XZ + lz)
             const reading = yield* store.getBlock(here)
             if (reading._tag !== 'Block' || !fallsWhenUnsupported(reading.block)) {
               continue
             }
 
-            const below = blockPosition(here.x, here.y - 1, here.z)
+            const below = blockPosition(here.x, blockAxis(here.y - 1), here.z)
             const under = yield* store.getBlock(below)
             // `ChunkNotLoaded` is NOT air: sand at the edge of the loaded area
             // must not fall into ungenerated space. This is the whole reason
@@ -168,15 +172,15 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       const renderer = yield* store.subscribeDirty
       const gameplay = yield* store.subscribeDirty
 
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), chunkAxis(0)))
 
       // Loading is itself news; clear it so the assertions below are about the
       // player's action and nothing else.
       yield* renderer.drain
       yield* gameplay.drain
 
-      const support = blockPosition(2, SUPPORT_Y, 3)
-      const sandAt = blockPosition(2, SAND_Y, 3)
+      const support = blockPosition(blockAxis(2), blockAxis(SUPPORT_Y), 3)
+      const sandAt = blockPosition(blockAxis(2), blockAxis(SAND_Y), 3)
 
       // ---- 1. break the block ------------------------------------------------
       const broken = yield* store.setBlock(support, BLOCK.AIR)
@@ -184,7 +188,7 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       expect(broken).toStrictEqual({
         _tag: 'Written',
         previous: BLOCK.STONE,
-        chunk: chunkCoord(0, 0),
+        chunk: chunkCoord(chunkAxis(0), chunkAxis(0)),
       })
 
       // ---- 2. it is removed from the store -----------------------------------
@@ -198,7 +202,7 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
 
       // ---- 3. the chunk is reported dirty ------------------------------------
       const gameplayBatch = yield* gameplay.drain
-      expect(gameplayBatch.changed).toStrictEqual([chunkCoord(0, 0)])
+      expect(gameplayBatch.changed).toStrictEqual([chunkCoord(chunkAxis(0), chunkAxis(0))])
       expect(gameplayBatch.removed).toStrictEqual([])
 
       // ---- 4. a falling-block rule observes it -------------------------------
@@ -212,7 +216,7 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       // Three writes happened (the break, and the sand's two-step move). The
       // renderer meshes the chunk once.
       const rendererBatch = yield* renderer.drain
-      expect(rendererBatch.changed).toStrictEqual([chunkCoord(0, 0)])
+      expect(rendererBatch.changed).toStrictEqual([chunkCoord(chunkAxis(0), chunkAxis(0))])
 
       // ---- 6. and then the world goes quiet ON ITS OWN -----------------------
       // The rule's own writes dirtied the chunk again, which is correct: the
@@ -220,8 +224,8 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       // what `settled` does in mx-gameplay's queue. One more tick finds the
       // sand resting on stone, moves nothing, and dirties nothing — so the
       // loop terminates without anyone deciding it should.
-      expect((yield* gameplay.drain).changed).toStrictEqual([chunkCoord(0, 0)])
-      expect(yield* fallingBlockTick(store, { changed: [chunkCoord(0, 0)], removed: [] })).toBe(0)
+      expect((yield* gameplay.drain).changed).toStrictEqual([chunkCoord(chunkAxis(0), chunkAxis(0))])
+      expect(yield* fallingBlockTick(store, { changed: [chunkCoord(chunkAxis(0), chunkAxis(0))], removed: [] })).toBe(0)
 
       expect(yield* gameplay.drain).toStrictEqual({ changed: [], removed: [] })
       expect(yield* renderer.drain).toStrictEqual({ changed: [], removed: [] })
@@ -235,17 +239,17 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
     Effect.gen(function* () {
       const store = yield* ChunkStore
       const subscription = yield* store.subscribeDirty
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), chunkAxis(0)))
       yield* subscription.drain
 
       // Replace the sand with gravel — a DIFFERENT block that carries the same
       // capability — and the rule behaves identically without being told.
-      yield* store.setBlock(blockPosition(2, SAND_Y, 3), BLOCK.GRAVEL)
-      yield* store.setBlock(blockPosition(2, SUPPORT_Y, 3), BLOCK.AIR)
+      yield* store.setBlock(blockPosition(blockAxis(2), blockAxis(SAND_Y), 3), BLOCK.GRAVEL)
+      yield* store.setBlock(blockPosition(blockAxis(2), blockAxis(SUPPORT_Y), 3), BLOCK.AIR)
 
       const moved = yield* fallingBlockTick(store, yield* subscription.drain)
       expect(moved).toBe(1)
-      expect(yield* store.getBlock(blockPosition(2, SUPPORT_Y, 3))).toStrictEqual({
+      expect(yield* store.getBlock(blockPosition(blockAxis(2), blockAxis(SUPPORT_Y), 3))).toStrictEqual({
         _tag: 'Block',
         block: BLOCK.GRAVEL,
       })
@@ -256,14 +260,14 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
     Effect.gen(function* () {
       const store = yield* ChunkStore
       const subscription = yield* store.subscribeDirty
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), chunkAxis(0)))
       yield* subscription.drain
 
       // Break the support, then unload the chunk below the rule's feet — the
       // shape of a streaming world where the player walked away.
-      yield* store.setBlock(blockPosition(2, SUPPORT_Y, 3), BLOCK.AIR)
+      yield* store.setBlock(blockPosition(blockAxis(2), blockAxis(SUPPORT_Y), 3), BLOCK.AIR)
       const batch = yield* subscription.drain
-      yield* store.unload(chunkCoord(0, 0))
+      yield* store.unload(chunkCoord(chunkAxis(0), chunkAxis(0)))
 
       // The rule reads `ChunkNotLoaded`, which is not air, and declines to move
       // anything. With a two-valued read that returned an AIR sentinel — the
@@ -277,18 +281,18 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
     Effect.gen(function* () {
       const store = yield* ChunkStore
       const subscription = yield* store.subscribeDirty
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), chunkAxis(0)))
 
       // A three-block sand column with an air gap beneath it, at (5, 5).
       for (let y = SAND_Y + 1; y <= SAND_Y + 3; y += 1) {
-        yield* store.setBlock(blockPosition(5, y, 5), BLOCK.SAND)
+        yield* store.setBlock(blockPosition(blockAxis(5), blockAxis(y), 5), BLOCK.SAND)
       }
       yield* subscription.drain
 
       // Kick it off by mining the ground under the gap, then run until quiet.
       // The loop terminates because a settled column produces no further work,
       // not because the loop counts to something.
-      yield* store.setBlock(blockPosition(5, SUPPORT_Y, 5), BLOCK.AIR)
+      yield* store.setBlock(blockPosition(blockAxis(5), blockAxis(SUPPORT_Y), 5), BLOCK.AIR)
 
       let ticks = 0
       let totalMoved = 0
@@ -309,11 +313,11 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       expect(totalMoved).toBeGreaterThan(0)
 
       // The column has come to rest on the stone at SUPPORT_Y - 1.
-      expect(yield* store.getBlock(blockPosition(5, SUPPORT_Y, 5))).toStrictEqual({
+      expect(yield* store.getBlock(blockPosition(blockAxis(5), blockAxis(SUPPORT_Y), 5))).toStrictEqual({
         _tag: 'Block',
         block: BLOCK.SAND,
       })
-      expect(yield* store.getBlock(blockPosition(5, SAND_Y + 3, 5))).toStrictEqual({
+      expect(yield* store.getBlock(blockPosition(blockAxis(5), blockAxis(SAND_Y + 3), 5))).toStrictEqual({
         _tag: 'Block',
         block: BLOCK.AIR,
       })

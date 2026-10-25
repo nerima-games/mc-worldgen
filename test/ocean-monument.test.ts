@@ -14,8 +14,9 @@ import {
   planOceanMonumentForRegion,
 } from '../src/domain/natural-structure'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_OCEAN: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: 63, surfaceY: 50 })
+const FLAT_OCEAN: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(63), surfaceY: blockAxis(50) })
 
 type LocatedOceanMonument = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<OceanMonumentDraft>): OceanMonumentDr
 const findOceanMonument = (seed: number): LocatedOceanMonument => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planOceanMonumentForRegion(seed, regionX, regionZ, FLAT_OCEAN)
+      const plan = planOceanMonumentForRegion(noiseSeed(seed), regionX, regionZ, FLAT_OCEAN)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findOceanMonument = (seed: number): LocatedOceanMonument => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planOceanMonumentForRegion(seed, regionX, regionZ, FLAT_OCEAN))) return [regionX, regionZ]
+      if (Option.isNone(planOceanMonumentForRegion(noiseSeed(seed), regionX, regionZ, FLAT_OCEAN))) return [regionX, regionZ]
     }
   }
   throw new Error('ocean-monument absent-region search range exhausted')
@@ -76,24 +77,24 @@ describe('ocean-monument plans', () => {
   })
 
   it('rejects unsuitable ocean sites and accepts the maximum supported relief', () => {
-    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 50 })
-    const shallow: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: 63, surfaceY: 54 })
+    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(50) })
+    const shallow: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(63), surfaceY: blockAxis(54) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'OCEAN',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 50 : 53,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 50 : 53),
     })
-    const lowSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: 8, surfaceY: -2 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: CHUNK_HEIGHT + 10, surfaceY: CHUNK_HEIGHT - 2 })
+    const lowSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(8), surfaceY: blockAxis(-2) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(CHUNK_HEIGHT + 10), surfaceY: blockAxis(CHUNK_HEIGHT - 2) })
     const exposedTower: OverworldTerrainSampler = (x, z) => ({
       biome: 'OCEAN',
-      seaLevel: x === -OCEAN_MONUMENT_LAYOUT.halfExtent && z === 0 ? 49 : 63,
-      surfaceY: x === -OCEAN_MONUMENT_LAYOUT.halfExtent && z === 0 ? 39 : 40,
+      seaLevel: blockAxis(x === -OCEAN_MONUMENT_LAYOUT.halfExtent && z === 0 ? 49 : 63),
+      surfaceY: blockAxis(x === -OCEAN_MONUMENT_LAYOUT.halfExtent && z === 0 ? 39 : 40),
     })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'OCEAN',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 50 : 52,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 50 : 52),
     })
 
     expect(Option.isNone(planOceanMonumentForCandidate({ x: 0, z: 0 }, plains))).toBe(true)
@@ -108,17 +109,17 @@ describe('ocean-monument plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findOceanMonument(seed)
-    const repeated = planOceanMonumentForRegion(seed, located.regionX, located.regionZ, FLAT_OCEAN)
+    const repeated = planOceanMonumentForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_OCEAN)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_OCEAN })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_OCEAN })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planOceanMonumentForRegion(seed, absentX, absentZ, FLAT_OCEAN))).toBe(true)
+    expect(Option.isNone(planOceanMonumentForRegion(noiseSeed(seed), absentX, absentZ, FLAT_OCEAN))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID['ocean-monument']).toStrictEqual({ separation: 160, spacing: 512, spawnPermille: 80 })
     expect(located.plan.kind).toBe('ocean-monument')
     expect(located.plan.dimension).toBe('overworld')

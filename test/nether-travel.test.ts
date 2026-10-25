@@ -54,8 +54,9 @@ import {
   resolveNetherTravel,
   type Dimension,
 } from '../src/domain/nether-travel'
+import { blockAxis } from './fixtures/validated-inputs'
 
-const at = (x: number, y: number, z: number): BlockPosition => blockPosition(x, y, z)
+const at = (x: number, y: number, z: number): BlockPosition => blockPosition(blockAxis(x), blockAxis(y), blockAxis(z))
 
 const plain = (p: BlockPosition): { x: number; y: number; z: number } => ({ x: p.x, y: p.y, z: p.z })
 

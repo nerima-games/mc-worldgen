@@ -20,10 +20,11 @@
  * half of the move. None of them reads `test/golden/chunk-goldens.json`.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { blockIdOf } from '@nerima-games/mc-kernel'
 import { BIOMES, BIOME_SURFACES, BLOCK, type BiomeType } from '../src/domain/biome'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
+import { localAxis } from '../src/domain/coordinate-compatibility'
 import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { generateChunkAt } from '../src/domain/terrain'
 import {
@@ -46,6 +47,7 @@ import {
   shouldPlaceGroundPlant,
 } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
+import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const PLANT_ID_SET = new Set<number>(PLANT_IDS)
 
@@ -78,7 +80,7 @@ const chunkFor = (biome: BiomeType): Chunk => {
   if (at === undefined) {
     throw new Error(`no golden chunk for ${biome}`)
   }
-  return generateChunkAt(GOLDEN_SEED, at.cx, at.cz)
+  return generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz))
 }
 
 const countPlants = (chunk: Chunk): number => {
@@ -110,7 +112,7 @@ const specialInput = (
   lz: 8,
   surfaceY,
   waterLevel,
-  seed,
+  seed: noiseSeed(seed),
   worldX: 8,
   worldZ: 8,
 })
@@ -119,17 +121,17 @@ describe('the plant id table', () => {
   it.effect('carries the kernel ids for every supported natural plant', () =>
     Effect.sync(() => {
       expect(PLANT).toStrictEqual({
-        BROWN_MUSHROOM: blockIdOf('brown_mushroom'),
-        CACTUS: blockIdOf('cactus'),
-        DANDELION: blockIdOf('dandelion'),
-        FERN: blockIdOf('fern'),
-        KELP: blockIdOf('kelp'),
-        LILY_PAD: blockIdOf('lily_pad'),
-        POPPY: blockIdOf('poppy'),
-        RED_MUSHROOM: blockIdOf('red_mushroom'),
-        SEAGRASS: blockIdOf('seagrass'),
-        SUGAR_CANE: blockIdOf('sugar_cane'),
-        TALL_GRASS: blockIdOf('tall_grass'),
+        BROWN_MUSHROOM: Option.getOrThrow(blockIdOf('brown_mushroom')),
+        CACTUS: Option.getOrThrow(blockIdOf('cactus')),
+        DANDELION: Option.getOrThrow(blockIdOf('dandelion')),
+        FERN: Option.getOrThrow(blockIdOf('fern')),
+        KELP: Option.getOrThrow(blockIdOf('kelp')),
+        LILY_PAD: Option.getOrThrow(blockIdOf('lily_pad')),
+        POPPY: Option.getOrThrow(blockIdOf('poppy')),
+        RED_MUSHROOM: Option.getOrThrow(blockIdOf('red_mushroom')),
+        SEAGRASS: Option.getOrThrow(blockIdOf('seagrass')),
+        SUGAR_CANE: Option.getOrThrow(blockIdOf('sugar_cane')),
+        TALL_GRASS: Option.getOrThrow(blockIdOf('tall_grass')),
       })
       expect(new Set(PLANT_IDS).size).toBe(PLANT_IDS.length)
       expect(new Set([...GROUND_COVER_IDS, ...MUSHROOM_IDS, ...AQUATIC_PLANT_IDS, ...STACKED_PLANT_IDS])).toStrictEqual(
@@ -178,7 +180,7 @@ describe('the placement roll', () => {
       let differing = 0
       for (let wx = 0; wx < 64; wx += 1) {
         for (let wz = 0; wz < 64; wz += 1) {
-          if (plantRoll(1, wx, wz, 'ground-plant-placement') !== plantRoll(2, wx, wz, 'ground-plant-placement')) {
+          if (plantRoll(noiseSeed(1), wx, wz, 'ground-plant-placement') !== plantRoll(noiseSeed(2), wx, wz, 'ground-plant-placement')) {
             differing += 1
           }
         }
@@ -659,13 +661,13 @@ describe('what backs the vegetation half of the golden move', () => {
         if (at === undefined) {
           continue
         }
-        expect(countPlants(generateChunkAt(GOLDEN_SEED, at.cx, at.cz, { decorate: false }))).toBe(0)
+        expect(countPlants(generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz), { decorate: false }))).toBe(0)
       }
 
       // ... and it is not vacuous: the same coordinate decorated does carry some.
       const forest = CHUNK_FOR_BIOME.get('FOREST')
       expect(forest).toBeDefined()
-      expect(countPlants(generateChunkAt(GOLDEN_SEED, forest?.cx ?? 0, forest?.cz ?? 0))).toBeGreaterThan(0)
+      expect(countPlants(generateChunkAt(GOLDEN_SEED, chunkAxis(forest?.cx ?? 0), chunkAxis(forest?.cz ?? 0)))).toBeGreaterThan(0)
     }),
   )
 
@@ -690,7 +692,7 @@ describe('what backs the vegetation half of the golden move', () => {
       const survey: Array<{ readonly biome: string; readonly chunk: Chunk }> = []
       for (let cx = -5; cx < 5; cx += 1) {
         for (let cz = -5; cz < 5; cz += 1) {
-          survey.push({ biome: `(${String(cx)}, ${String(cz)})`, chunk: generateChunkAt(GOLDEN_SEED, cx, cz) })
+          survey.push({ biome: `(${String(cx)}, ${String(cz)})`, chunk: generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz)) })
         }
       }
 
@@ -732,10 +734,10 @@ describe('what backs the vegetation half of the golden move', () => {
         if (at === undefined) {
           continue
         }
-        const decorated = generateChunkAt(GOLDEN_SEED, at.cx, at.cz, { decorate: true })
-        const bare = generateChunkAt(GOLDEN_SEED, at.cx, at.cz, { decorate: false })
+        const decorated = generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz), { decorate: true })
+        const bare = generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz), { decorate: false })
         expect(decorated.biomes).toStrictEqual(bare.biomes)
-        expect(decorated.biomes[columnIndex(0, 0)]).toBe(biome)
+        expect(decorated.biomes[columnIndex(localAxis(0), localAxis(0))]).toBe(biome)
       }
     }),
   )

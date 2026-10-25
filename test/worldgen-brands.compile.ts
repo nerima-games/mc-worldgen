@@ -1,3 +1,4 @@
+import { Result } from 'effect'
 import {
   BlockAxis,
   ChunkAxis,
@@ -14,12 +15,12 @@ import {
 import { NoiseSeed, type NoiseSeed as NoiseSeedType } from '@nerima-games/mc-noise'
 import { SaveKey, type SaveKey as SaveKeyType } from '@nerima-games/mc-save'
 
-const blockAxis = BlockAxis(1)
-const chunkAxis = ChunkAxis(1)
-const localAxis = LocalAxis(1)
-const chunkHeight = ChunkHeight(256)
-const chunkKey = chunkKeyOf(chunkCoord(0, 0))
-const noiseSeed = NoiseSeed(1)
+const blockAxis = Result.getOrThrow(BlockAxis.result(1))
+const chunkAxis = Result.getOrThrow(ChunkAxis.result(1))
+const localAxis = Result.getOrThrow(LocalAxis.result(1))
+const chunkHeight = Result.getOrThrow(ChunkHeight(256))
+const chunkKey = chunkKeyOf(chunkCoord(Result.getOrThrow(ChunkAxis.result(0)), Result.getOrThrow(ChunkAxis.result(0))))
+const noiseSeed = Result.getOrThrow(NoiseSeed.result(1))
 const saveKey = SaveKey('world/chunk')
 
 const acceptedBlockAxis: BlockAxisType = blockAxis

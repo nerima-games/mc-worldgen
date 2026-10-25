@@ -1,8 +1,16 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
+import {
+  channelSeed,
+  fbm2D,
+  NoiseChannelLabel,
+  NoiseFrequency,
+  OctaveAmplitude,
+  OctaveCount,
+} from '@nerima-games/mc-noise'
 import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from '../src/domain/terrain'
+import { blockAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
  * ---------------------------------------------------------------------------
@@ -53,11 +61,16 @@ const NARROW_STRIDE = 4
 const SEED = 20260726
 
 const rawContinentalness = (seed: number, wx: number, wz: number): number =>
-  fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
-    octaves: 4,
-    frequency: 1 / CONTINENTALNESS_WAVELENGTH,
-    persistence: 0.5,
-  })
+  Result.getOrThrow(fbm2D(
+    channelSeed(noiseSeed(seed), Result.getOrThrow(NoiseChannelLabel.result('continentalness'))),
+    wx,
+    wz,
+    {
+      octaves: Result.getOrThrow(OctaveCount.result(4)),
+      frequency: Result.getOrThrow(NoiseFrequency.result(1 / CONTINENTALNESS_WAVELENGTH)),
+      persistence: Result.getOrThrow(OctaveAmplitude.result(0.5)),
+    },
+  ))
 
 type Survey = {
   readonly total: number
@@ -86,7 +99,7 @@ const survey = (seed: number, span: number, stride: number): Survey => {
       const wx = dx - half
       const wz = dz - half
       const raw = rawContinentalness(seed, wx, wz)
-      const height = surfaceHeightAt(seed, wx, wz)
+      const height = surfaceHeightAt(noiseSeed(seed), blockAxis(wx), blockAxis(wz))
 
       total += 1
       rawMin = Math.min(rawMin, raw)

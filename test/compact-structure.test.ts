@@ -18,11 +18,12 @@ import {
   type NaturalStructurePlan,
 } from '../src/domain/natural-structure'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const flatSamplerFor = (kind: CompactStructureKind): OverworldTerrainSampler => {
   const [biome] = COMPACT_STRUCTURE_DESCRIPTORS[kind].allowedBiomes
   if (biome === undefined) throw new Error(`missing biome for ${kind}`)
-  return () => ({ biome, seaLevel: 63, surfaceY: 70 })
+  return () => ({ biome, seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 }
 
 const unwrapDraft = <T>(option: Option.Option<T>): T => {
@@ -34,7 +35,7 @@ const findPlan = (seed: number, kind: CompactStructureKind): NaturalStructurePla
   const sampler = flatSamplerFor(kind)
   for (let regionX = -32; regionX <= 32; regionX += 1) {
     for (let regionZ = -32; regionZ <= 32; regionZ += 1) {
-      const plan = planCompactStructureForRegion(seed, kind, regionX, regionZ, sampler)
+      const plan = planCompactStructureForRegion(noiseSeed(seed), kind, regionX, regionZ, sampler)
       if (Option.isSome(plan)) return plan.value
     }
   }
@@ -45,7 +46,7 @@ const findAbsentRegion = (seed: number, kind: CompactStructureKind): readonly [n
   const sampler = flatSamplerFor(kind)
   for (let regionX = -8; regionX <= 8; regionX += 1) {
     for (let regionZ = -8; regionZ <= 8; regionZ += 1) {
-      if (Option.isNone(planCompactStructureForRegion(seed, kind, regionX, regionZ, sampler))) return [regionX, regionZ]
+      if (Option.isNone(planCompactStructureForRegion(noiseSeed(seed), kind, regionX, regionZ, sampler))) return [regionX, regionZ]
     }
   }
   throw new Error(`compact structure absence search exhausted for ${kind}`)
@@ -56,7 +57,7 @@ const findCrossChunkPlan = (seed: number): NaturalStructurePlan => {
     const sampler = flatSamplerFor(kind)
     for (let regionX = -32; regionX <= 32; regionX += 1) {
       for (let regionZ = -32; regionZ <= 32; regionZ += 1) {
-        const option = planCompactStructureForRegion(seed, kind, regionX, regionZ, sampler)
+        const option = planCompactStructureForRegion(noiseSeed(seed), kind, regionX, regionZ, sampler)
         if (Option.isNone(option)) continue
         const plan = option.value
         const spansX = Math.floor(plan.bounds.minX / CHUNK_SIZE_XZ) !== Math.floor(plan.bounds.maxX / CHUNK_SIZE_XZ)
@@ -95,17 +96,17 @@ describe('compact structure plans', () => {
     expect(Option.isNone(planCompactStructureForCandidate(
       'buried-treasure',
       candidate,
-      () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 }),
+      () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) }),
     ))).toBe(true)
     expect(Option.isNone(planCompactStructureForCandidate(
       'ancient-city',
       candidate,
-      () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 64 }),
+      () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(64) }),
     ))).toBe(true)
     expect(Option.isNone(planCompactStructureForCandidate(
       'trail-ruins',
       candidate,
-      (x) => ({ biome: 'FOREST', seaLevel: 63, surfaceY: x === 0 ? 70 : 80 }),
+      (x) => ({ biome: 'FOREST', seaLevel: blockAxis(63), surfaceY: blockAxis(x === 0 ? 70 : 80) }),
     ))).toBe(true)
   })
 
@@ -113,7 +114,7 @@ describe('compact structure plans', () => {
     const seed = 20260820
     for (const kind of COMPACT_STRUCTURE_KINDS) {
       const [regionX, regionZ] = findAbsentRegion(seed, kind)
-      expect(Option.isNone(planCompactStructureForRegion(seed, kind, regionX, regionZ, flatSamplerFor(kind)))).toBe(true)
+      expect(Option.isNone(planCompactStructureForRegion(noiseSeed(seed), kind, regionX, regionZ, flatSamplerFor(kind)))).toBe(true)
     }
   })
 
@@ -121,8 +122,8 @@ describe('compact structure plans', () => {
     const plans = COMPACT_STRUCTURE_KINDS.map((kind) => findPlan(20260820, kind))
     expect(plans.map((plan) => plan.kind)).toStrictEqual([...COMPACT_STRUCTURE_KINDS])
     for (const plan of plans) {
-      const coord = chunkCoord(Math.floor(plan.origin.x / CHUNK_SIZE_XZ), Math.floor(plan.origin.z / CHUNK_SIZE_XZ))
-      const sharedPlans = naturalStructurePlansForChunk(20260820, 'overworld', coord, { overworld: flatSamplerFor(plan.kind as CompactStructureKind) })
+      const coord = chunkCoord(chunkAxis(Math.floor(plan.origin.x / CHUNK_SIZE_XZ)), chunkAxis(Math.floor(plan.origin.z / CHUNK_SIZE_XZ)))
+      const sharedPlans = naturalStructurePlansForChunk(noiseSeed(20260820), 'overworld', coord, { overworld: flatSamplerFor(plan.kind as CompactStructureKind) })
       expect(sharedPlans).toContainEqual(plan)
       expect(plan.markers).toContainEqual(expect.objectContaining({ kind: 'loot-chest', lootTable: plan.kind }))
       expect(naturalStructureSliceForChunk(plan, coord.cx, coord.cz).blocks.length).toBeGreaterThan(0)
@@ -137,7 +138,7 @@ describe('compact structure plans', () => {
     const maxChunkZ = Math.floor(plan.bounds.maxZ / CHUNK_SIZE_XZ)
     const slices = []
     for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX += 1) {
-      for (let chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ += 1) slices.push(naturalStructureSliceForChunk(plan, chunkX, chunkZ))
+      for (let chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ += 1) slices.push(naturalStructureSliceForChunk(plan, chunkAxis(chunkX), chunkAxis(chunkZ)))
     }
     const blocks = slices.flatMap((slice) => slice.blocks)
     const markers = slices.flatMap((slice) => slice.markers)

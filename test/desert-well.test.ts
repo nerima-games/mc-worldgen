@@ -14,8 +14,9 @@ import {
   planDesertWellForRegion,
 } from '../src/domain/natural-structure'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_DESERT: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })
+const FLAT_DESERT: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 
 type LocatedDesertWell = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<DesertWellDraft>): DesertWellDraft =>
 const findDesertWell = (seed: number): LocatedDesertWell => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planDesertWellForRegion(seed, regionX, regionZ, FLAT_DESERT)
+      const plan = planDesertWellForRegion(noiseSeed(seed), regionX, regionZ, FLAT_DESERT)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findDesertWell = (seed: number): LocatedDesertWell => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planDesertWellForRegion(seed, regionX, regionZ, FLAT_DESERT))) return [regionX, regionZ]
+      if (Option.isNone(planDesertWellForRegion(noiseSeed(seed), regionX, regionZ, FLAT_DESERT))) return [regionX, regionZ]
     }
   }
   throw new Error('desert-well absent-region search range exhausted')
@@ -74,19 +75,19 @@ describe('desert well plans', () => {
   })
 
   it('rejects unsuitable desert sites and accepts the maximum supported relief', () => {
-    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
-    const wetDesert: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 70, surfaceY: 71 })
+    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const wetDesert: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(70), surfaceY: blockAxis(71) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'DESERT',
-      seaLevel: 0,
-      surfaceY: x === 0 && z === 0 ? 80 : 70,
+      seaLevel: blockAxis(0),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 80 : 70),
     })
-    const lowSite: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: -100, surfaceY: -2 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: 0, surfaceY: CHUNK_HEIGHT - 5 })
+    const lowSite: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(-100), surfaceY: blockAxis(-2) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(0), surfaceY: blockAxis(CHUNK_HEIGHT - 5) })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'DESERT',
-      seaLevel: 0,
-      surfaceY: x === 0 && z === 0 ? 70 : 73,
+      seaLevel: blockAxis(0),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 73),
     })
 
     expect(Option.isNone(planDesertWellForCandidate({ x: 0, z: 0 }, plains))).toBe(true)
@@ -100,17 +101,17 @@ describe('desert well plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findDesertWell(seed)
-    const repeated = planDesertWellForRegion(seed, located.regionX, located.regionZ, FLAT_DESERT)
+    const repeated = planDesertWellForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_DESERT)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_DESERT })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_DESERT })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planDesertWellForRegion(seed, absentX, absentZ, FLAT_DESERT))).toBe(true)
+    expect(Option.isNone(planDesertWellForRegion(noiseSeed(seed), absentX, absentZ, FLAT_DESERT))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID['desert-well']).toStrictEqual({ separation: 64, spacing: 128, spawnPermille: 200 })
     expect(located.plan.kind).toBe('desert-well')
     expect(located.plan.dimension).toBe('overworld')

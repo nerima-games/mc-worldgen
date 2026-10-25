@@ -5,6 +5,7 @@ import { CAVE_CEILING_Y, computeWaterFloorYs } from '../src/domain/carver'
 import { biomeAt, readBlock } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../src/domain/constants'
 import { generateChunkAt } from '../src/domain/terrain'
+import { chunkAxis, localAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
  * ---------------------------------------------------------------------------
@@ -93,14 +94,14 @@ const submergedFixture = (): SubmergedFixture => {
 
   for (let cx = -16; cx <= 16; cx += 1) {
     for (let cz = -16; cz <= 16; cz += 1) {
-      const guarded = generateChunkAt(SEED, cx, cz, { decorate: false }).blocks
+      const guarded = generateChunkAt(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), { decorate: false }).blocks
       const columns = submergedColumns(guarded)
 
       if (columns.length === 0) {
         continue
       }
 
-      const unguarded = generateChunkAt(SEED, cx, cz, {
+      const unguarded = generateChunkAt(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), {
         decorate: false,
         carve: { waterFloorMargin: 0 },
       }).blocks
@@ -160,9 +161,9 @@ describe('carver water-floor guard', () => {
   it.effect('protects a submerged column whatever its biome, because it probes blocks not biomes', () =>
     Effect.sync(() => {
       const { coord, guarded, columns } = submergedFixture()
-      const chunk = generateChunkAt(SEED, coord[0], coord[1], { decorate: false })
+      const chunk = generateChunkAt(noiseSeed(SEED), chunkAxis(coord[0]), chunkAxis(coord[1]), { decorate: false })
 
-      const biomesProtected = new Set(columns.map(({ lx, lz }) => biomeAt(chunk, lx, lz)))
+      const biomesProtected = new Set(columns.map(({ lx, lz }) => biomeAt(chunk, localAxis(lx), localAxis(lz))))
       expect(biomesProtected.size).toBeGreaterThan(0)
 
       // Every protected column is protected, including any that is not OCEAN.

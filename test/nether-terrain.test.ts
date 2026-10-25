@@ -14,13 +14,14 @@ import {
   netherStructureTerrainAt,
 } from '../src/domain/nether-terrain'
 import { planRuinedNetherPortalForRegion } from '../src/domain/natural-structure'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 describe('Nether terrain', () => {
   it('is deterministic, seed-dependent, bounded, and labels every column as NETHER', () => {
-    const coord = chunkCoord(-3, 4)
-    const first = generateNetherTerrainChunk(314_159, coord)
-    const repeated = generateNetherTerrainChunk(314_159, coord)
-    const changedSeed = generateNetherTerrainChunk(271_828, coord)
+    const coord = chunkCoord(chunkAxis(-3), chunkAxis(4))
+    const first = generateNetherTerrainChunk(noiseSeed(314_159), coord)
+    const repeated = generateNetherTerrainChunk(noiseSeed(314_159), coord)
+    const changedSeed = generateNetherTerrainChunk(noiseSeed(271_828), coord)
 
     expect(first).toStrictEqual(repeated)
     expect(first.blocks).toHaveLength(CHUNK_VOLUME)
@@ -31,25 +32,25 @@ describe('Nether terrain', () => {
   })
 
   it('shares one absolute-coordinate query across negative chunk boundaries', () => {
-    for (const coord of [chunkCoord(-1, -1), chunkCoord(0, 0)]) {
-      const chunk = generateNetherTerrainChunk(77, coord)
+    for (const coord of [chunkCoord(chunkAxis(-1), chunkAxis(-1)), chunkCoord(chunkAxis(0), chunkAxis(0))]) {
+      const chunk = generateNetherTerrainChunk(noiseSeed(77), coord)
       for (const [lx, y, lz] of [[0, 0, 0], [15, 31, 15], [0, 64, 15], [15, 255, 0]] as const) {
         const x = coord.cx * CHUNK_SIZE_XZ + lx
         const z = coord.cz * CHUNK_SIZE_XZ + lz
-        expect(chunk.blocks[blockIndex(lx, y, lz)]).toBe(netherBlockAt(77, x, y, z))
+        expect(chunk.blocks[blockIndex(lx, y, lz)]).toBe(netherBlockAt(noiseSeed(77), blockAxis(x), blockAxis(y), blockAxis(z)))
       }
     }
   })
 
   it('seals the roof and floor with bedrock and creates caves, lava, and soul sand', () => {
     const blocks = [
-      ...generateNetherTerrainChunk(1, chunkCoord(0, 0)).blocks,
-      ...generateNetherTerrainChunk(1, chunkCoord(-8, -4)).blocks,
+      ...generateNetherTerrainChunk(noiseSeed(1), chunkCoord(chunkAxis(0), chunkAxis(0))).blocks,
+      ...generateNetherTerrainChunk(noiseSeed(1), chunkCoord(chunkAxis(-8), chunkAxis(-4))).blocks,
     ]
     for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
       for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-        expect(netherBlockAt(1, lx, 0, lz)).toBe(NETHER_BLOCK.BEDROCK)
-        expect(netherBlockAt(1, lx, CHUNK_HEIGHT - 1, lz)).toBe(NETHER_BLOCK.BEDROCK)
+        expect(netherBlockAt(noiseSeed(1), blockAxis(lx), blockAxis(0), blockAxis(lz))).toBe(NETHER_BLOCK.BEDROCK)
+        expect(netherBlockAt(noiseSeed(1), blockAxis(lx), blockAxis(CHUNK_HEIGHT - 1), blockAxis(lz))).toBe(NETHER_BLOCK.BEDROCK)
       }
     }
     expect(blocks).toContain(NETHER_BLOCK.NETHERRACK)
@@ -60,23 +61,23 @@ describe('Nether terrain', () => {
 
   it('reports an actual solid floor with seven blocks of air headroom', () => {
     for (const [x, z] of [[0, 0], [-2_241, 668], [81, -49]] as const) {
-      const sample = netherStructureTerrainAt(1, x, z)
+      const sample = netherStructureTerrainAt(noiseSeed(1), blockAxis(x), blockAxis(z))
       if (sample === undefined) {
       throw new Error('expected a valid Nether structure surface')
     }
       expect(sample.surfaceY).toBeGreaterThan(NETHER_LAVA_LEVEL)
-      expect(netherBlockAt(1, x, sample.surfaceY, z)).not.toBe(NETHER_BLOCK.AIR)
+      expect(netherBlockAt(noiseSeed(1), blockAxis(x), sample.surfaceY, blockAxis(z))).not.toBe(NETHER_BLOCK.AIR)
       for (let y = sample.surfaceY + 1; y <= sample.surfaceY + 7; y += 1) {
-        expect(netherBlockAt(1, x, y, z)).toBe(NETHER_BLOCK.AIR)
+        expect(netherBlockAt(noiseSeed(1), blockAxis(x), blockAxis(y), blockAxis(z))).toBe(NETHER_BLOCK.AIR)
       }
       if (sample.ceilingY < CHUNK_HEIGHT) {
-        expect(netherBlockAt(1, x, sample.ceilingY, z)).not.toBe(NETHER_BLOCK.AIR)
+        expect(netherBlockAt(noiseSeed(1), blockAxis(x), sample.ceilingY, blockAxis(z))).not.toBe(NETHER_BLOCK.AIR)
       }
     }
   })
 
   it('returns no sample when the column has no valid structure floor', () => {
-    expect(netherStructureTerrainAt(0, -256, 0)).toBeUndefined()
+    expect(netherStructureTerrainAt(noiseSeed(0), blockAxis(-256), blockAxis(0))).toBeUndefined()
   })
 
   it('answers air above and below the world column, the same guard `isWorldY` names elsewhere', () => {
@@ -85,8 +86,8 @@ describe('Nether terrain', () => {
     // — nothing else in this repository ever calls it with `y < 0` or
     // `y >= CHUNK_HEIGHT`, but a caller (structure siting probing a neighbour,
     // or an external consumer) legitimately can.
-    expect(netherBlockAt(1, 0, -1, 0)).toBe(NETHER_BLOCK.AIR)
-    expect(netherBlockAt(1, 0, CHUNK_HEIGHT, 0)).toBe(NETHER_BLOCK.AIR)
+    expect(netherBlockAt(noiseSeed(1), blockAxis(0), blockAxis(-1), blockAxis(0))).toBe(NETHER_BLOCK.AIR)
+    expect(netherBlockAt(noiseSeed(1), blockAxis(0), blockAxis(CHUNK_HEIGHT), blockAxis(0))).toBe(NETHER_BLOCK.AIR)
   })
 
   it('generateNetherChunkAt is the raw-coordinate form of generateNetherChunk', () => {
@@ -96,16 +97,16 @@ describe('Nether terrain', () => {
     // pinned rather than merely implied by the two having near-identical
     // bodies.
     const seed = 5150
-    expect(generateNetherChunkAt(seed, -2, 7)).toStrictEqual(generateNetherChunk(seed, chunkCoord(-2, 7)))
+    expect(generateNetherChunkAt(noiseSeed(seed), chunkAxis(-2), chunkAxis(7))).toStrictEqual(generateNetherChunk(noiseSeed(seed), chunkCoord(chunkAxis(-2), chunkAxis(7))))
   })
 
   it('applies a real ruined portal across all touched chunks and preserves markers', () => {
     const seed = 1
     const planOption = planRuinedNetherPortalForRegion(
-      seed,
+      noiseSeed(seed),
       -12,
       3,
-      (x, z) => netherStructureTerrainAt(seed, x, z),
+      (x, z) => netherStructureTerrainAt(noiseSeed(seed), x, z),
     )
     if (Option.isNone(planOption)) throw new Error('expected the known portal candidate to fit real terrain')
     const plan = planOption.value
@@ -116,7 +117,7 @@ describe('Nether terrain', () => {
     const chunks = new Map<string, ReturnType<typeof generateNetherChunk>>()
     for (let cx = minChunkX; cx <= maxChunkX; cx += 1) {
       for (let cz = minChunkZ; cz <= maxChunkZ; cz += 1) {
-        chunks.set(`${String(cx)},${String(cz)}`, generateNetherChunk(seed, chunkCoord(cx, cz)))
+        chunks.set(`${String(cx)},${String(cz)}`, generateNetherChunk(noiseSeed(seed), chunkCoord(chunkAxis(cx), chunkAxis(cz))))
       }
     }
 

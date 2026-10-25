@@ -3,6 +3,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS, chunkCoord } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 import { BASTION_REMNANT_BLOCK, BASTION_REMNANT_GRID, BASTION_REMNANT_LAYOUT } from '../src/domain/bastion-remnant-data'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
@@ -13,7 +14,7 @@ import {
   type NetherStructureTerrainSampler,
 } from '../src/domain/natural-structure'
 
-const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: 96, surfaceY: 48 })
+const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(48) })
 
 type LocatedPlan = {
   readonly plan: NaturalStructurePlan
@@ -24,7 +25,7 @@ type LocatedPlan = {
 const findBastion = (seed: number): LocatedPlan => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planBastionRemnantForRegion(seed, regionX, regionZ, FLAT_NETHER)
+      const plan = planBastionRemnantForRegion(noiseSeed(seed), regionX, regionZ, FLAT_NETHER)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -34,7 +35,7 @@ const findBastion = (seed: number): LocatedPlan => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planBastionRemnantForRegion(seed, regionX, regionZ, FLAT_NETHER))) return [regionX, regionZ]
+      if (Option.isNone(planBastionRemnantForRegion(noiseSeed(seed), regionX, regionZ, FLAT_NETHER))) return [regionX, regionZ]
     }
   }
   throw new Error('bastion remnant absent-region search range exhausted')
@@ -44,7 +45,7 @@ describe('Bastion remnant plans', () => {
   it('are deterministic, immutable, sparse, and registry-safe', () => {
     const seed = 0x1234
     const located = findBastion(seed)
-    const repeatedOption = planBastionRemnantForRegion(seed, located.regionX, located.regionZ, FLAT_NETHER)
+    const repeatedOption = planBastionRemnantForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_NETHER)
     if (Option.isNone(repeatedOption)) throw new Error('expected repeated bastion remnant plan')
     const { plan } = located
 
@@ -111,28 +112,28 @@ describe('Bastion remnant plans', () => {
     const located = findBastion(seed)
     const [absentX, absentZ] = findAbsentRegion(seed)
 
-    expect(Option.isNone(planBastionRemnantForRegion(seed, absentX, absentZ, FLAT_NETHER))).toBe(true)
-    expect(Option.isNone(planBastionRemnantForRegion(seed, located.regionX, located.regionZ, () => undefined))).toBe(true)
-    expect(Option.isNone(planBastionRemnantForRegion(seed, located.regionX, located.regionZ, () => ({ ceilingY: 96, surfaceY: -1 })))).toBe(true)
-    expect(Option.isNone(planBastionRemnantForRegion(seed, located.regionX, located.regionZ, () => ({ ceilingY: 96, surfaceY: CHUNK_HEIGHT })))).toBe(true)
+    expect(Option.isNone(planBastionRemnantForRegion(noiseSeed(seed), absentX, absentZ, FLAT_NETHER))).toBe(true)
+    expect(Option.isNone(planBastionRemnantForRegion(noiseSeed(seed), located.regionX, located.regionZ, () => undefined))).toBe(true)
+    expect(Option.isNone(planBastionRemnantForRegion(noiseSeed(seed), located.regionX, located.regionZ, () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(-1) })))).toBe(true)
+    expect(Option.isNone(planBastionRemnantForRegion(noiseSeed(seed), located.regionX, located.regionZ, () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(CHUNK_HEIGHT) })))).toBe(true)
     expect(Option.isNone(planBastionRemnantForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
       (x, z) => Math.abs(x - located.plan.origin.x) === BASTION_REMNANT_LAYOUT.halfExtent
         || Math.abs(z - located.plan.origin.z) === BASTION_REMNANT_LAYOUT.halfExtent
-        ? { ceilingY: 96, surfaceY: 53 }
+        ? { ceilingY: blockAxis(96), surfaceY: blockAxis(53) }
         : FLAT_NETHER(x, z),
     ))).toBe(true)
-    expect(Option.isNone(planBastionRemnantForRegion(seed, located.regionX, located.regionZ, () => ({ ceilingY: 58, surfaceY: 48 })))).toBe(true)
+    expect(Option.isNone(planBastionRemnantForRegion(noiseSeed(seed), located.regionX, located.regionZ, () => ({ ceilingY: blockAxis(58), surfaceY: blockAxis(48) })))).toBe(true)
     expect(Option.isNone(planBastionRemnantForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
-      () => ({ ceilingY: CHUNK_HEIGHT * 2, surfaceY: CHUNK_HEIGHT - BASTION_REMNANT_LAYOUT.centralTowerHeight }),
+      () => ({ ceilingY: blockAxis(CHUNK_HEIGHT * 2), surfaceY: blockAxis(CHUNK_HEIGHT - BASTION_REMNANT_LAYOUT.centralTowerHeight) }),
     ))).toBe(true)
 
-    const raised = planBastionRemnantForRegion(seed, located.regionX, located.regionZ, () => ({ ceilingY: 96, surfaceY: 64 }))
+    const raised = planBastionRemnantForRegion(noiseSeed(seed), located.regionX, located.regionZ, () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(64) }))
     if (Option.isNone(raised)) throw new Error('expected raised bastion remnant plan')
     expect(raised.value.origin.y).toBe(65)
   })
@@ -141,10 +142,10 @@ describe('Bastion remnant plans', () => {
     const seed = 0x2468
     const located = findBastion(seed)
     const coordinate = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'nether', coordinate, { nether: FLAT_NETHER })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'nether', coordinate, { nether: FLAT_NETHER })
     const bastion = plans.find(({ id }) => id === located.plan.id)
     if (bastion === undefined) throw new Error('expected bastion remnant in Nether chunk plans')
 

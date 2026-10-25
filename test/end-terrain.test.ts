@@ -15,11 +15,12 @@ import {
 } from '../src/domain/end-terrain'
 import { planEndCityForRegion } from '../src/domain/natural-structure'
 import { chunkCoord } from '@nerima-games/mc-kernel'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 describe('End terrain', () => {
   it('builds a solid central island and labels every column as END', () => {
-    const chunk = generateEndChunkAt(42, 0, 0)
-    const surface = endSurfaceHeightAt(42, 0, 0)
+    const chunk = generateEndChunkAt(noiseSeed(42), chunkAxis(0), chunkAxis(0))
+    const surface = endSurfaceHeightAt(noiseSeed(42), blockAxis(0), blockAxis(0))
 
     expect(chunk.blocks).toHaveLength(CHUNK_VOLUME)
     expect(surface).toBeGreaterThanOrEqual(END_BASE_Y)
@@ -28,22 +29,22 @@ describe('End terrain', () => {
   })
 
   it('leaves the ring between the central and outer islands as void', () => {
-    expect(endSurfaceHeightAt(42, 200, 0)).toBeUndefined()
-    expect(generateEndChunkAt(42, 12, 0).blocks.every((block) => block === 0)).toBe(true)
+    expect(endSurfaceHeightAt(noiseSeed(42), blockAxis(200), blockAxis(0))).toBeUndefined()
+    expect(generateEndChunkAt(noiseSeed(42), chunkAxis(12), chunkAxis(0)).blocks.every((block) => block === 0)).toBe(true)
   })
 
   it('creates seed-dependent outer islands beyond the void ring', () => {
     const columns = Array.from({ length: 512 }, (_, index) => END_OUTER_ISLAND_START + index)
-    const first = columns.map((x) => endSurfaceHeightAt(1, x, 0))
-    const second = columns.map((x) => endSurfaceHeightAt(2, x, 0))
+    const first = columns.map((x) => endSurfaceHeightAt(noiseSeed(1), blockAxis(x), blockAxis(0)))
+    const second = columns.map((x) => endSurfaceHeightAt(noiseSeed(2), blockAxis(x), blockAxis(0)))
 
     expect(first.some((height) => height !== undefined)).toBe(true)
     expect(first).not.toStrictEqual(second)
   })
 
   it('is deterministic and writes only air or end stone within chunk bounds', () => {
-    const first = generateEndTerrainChunk(20260801, chunkCoord(40, -18))
-    const second = generateEndTerrainChunk(20260801, chunkCoord(40, -18))
+    const first = generateEndTerrainChunk(noiseSeed(20260801), chunkCoord(chunkAxis(40), chunkAxis(-18)))
+    const second = generateEndTerrainChunk(noiseSeed(20260801), chunkCoord(chunkAxis(40), chunkAxis(-18)))
 
     expect(first).toStrictEqual(second)
     expect(first.blocks.every((block) => block === 0 || block === END_STONE_BLOCK_ID)).toBe(true)
@@ -52,12 +53,12 @@ describe('End terrain', () => {
 
   it('projects the generated spike plan into the owning chunk', () => {
     const seed = 42
-    const plan = endFeaturePlanForSeed(seed)
+    const plan = endFeaturePlanForSeed(noiseSeed(seed))
     const spike = plan.spikes[0]
     if (!spike) throw new Error('expected the generated End plan to contain spikes')
     const cx = Math.floor(spike.centerX / 16)
     const cz = Math.floor(spike.centerZ / 16)
-    const chunk = generateEndChunk(seed, chunkCoord(cx, cz))
+    const chunk = generateEndChunk(noiseSeed(seed), chunkCoord(chunkAxis(cx), chunkAxis(cz)))
     const localX = spike.centerX - cx * 16
     const localZ = spike.centerZ - cz * 16
 
@@ -70,7 +71,7 @@ describe('End terrain', () => {
 
   it('applies every city and ship slice with marker provenance across chunk boundaries', () => {
     const seed = 1
-    const planOption = planEndCityForRegion(seed, -12, -7, (x, z) => endSurfaceHeightAt(seed, x, z))
+    const planOption = planEndCityForRegion(noiseSeed(seed), -12, -7, (x, z) => endSurfaceHeightAt(noiseSeed(seed), x, z))
     if (Option.isNone(planOption)) throw new Error('expected the known End city candidate to fit real terrain')
     const plan = planOption.value
     const minChunkX = Math.floor(plan.bounds.minX / 16)
@@ -81,7 +82,7 @@ describe('End terrain', () => {
 
     for (let cx = minChunkX; cx <= maxChunkX; cx += 1) {
       for (let cz = minChunkZ; cz <= maxChunkZ; cz += 1) {
-        chunks.set(`${String(cx)},${String(cz)}`, generateEndChunk(seed, chunkCoord(cx, cz)))
+        chunks.set(`${String(cx)},${String(cz)}`, generateEndChunk(noiseSeed(seed), chunkCoord(chunkAxis(cx), chunkAxis(cz))))
       }
     }
 

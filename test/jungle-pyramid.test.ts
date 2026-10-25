@@ -14,8 +14,9 @@ import {
   planJunglePyramidForRegion,
 } from '../src/domain/natural-structure'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_JUNGLE: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: 63, surfaceY: 70 })
+const FLAT_JUNGLE: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 
 type LocatedJunglePyramid = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<JunglePyramidDraft>): JunglePyramidDr
 const findJunglePyramid = (seed: number): LocatedJunglePyramid => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planJunglePyramidForRegion(seed, regionX, regionZ, FLAT_JUNGLE)
+      const plan = planJunglePyramidForRegion(noiseSeed(seed), regionX, regionZ, FLAT_JUNGLE)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findJunglePyramid = (seed: number): LocatedJunglePyramid => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planJunglePyramidForRegion(seed, regionX, regionZ, FLAT_JUNGLE))) return [regionX, regionZ]
+      if (Option.isNone(planJunglePyramidForRegion(noiseSeed(seed), regionX, regionZ, FLAT_JUNGLE))) return [regionX, regionZ]
     }
   }
   throw new Error('jungle pyramid absent-region search range exhausted')
@@ -76,20 +77,20 @@ describe('jungle pyramid plans', () => {
   })
 
   it('rejects unsuitable sites and accepts the maximum supported relief', () => {
-    const invalidBiome: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: 63, surfaceY: 70 })
-    const wetSite: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: 69, surfaceY: 70 })
-    const belowWorld: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: -100, surfaceY: -98 })
-    const chamberBelowWorld: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: -1, surfaceY: 1 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: -10, surfaceY: CHUNK_HEIGHT })
+    const invalidBiome: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const wetSite: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: blockAxis(69), surfaceY: blockAxis(70) })
+    const belowWorld: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: blockAxis(-100), surfaceY: blockAxis(-98) })
+    const chamberBelowWorld: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: blockAxis(-1), surfaceY: blockAxis(1) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'JUNGLE', seaLevel: blockAxis(-10), surfaceY: blockAxis(CHUNK_HEIGHT) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'JUNGLE',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 70 : 74,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 74),
     })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'JUNGLE',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 70 : 73,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 73),
     })
 
     expect(Option.isNone(planJunglePyramidForCandidate({ x: 0, z: 0 }, invalidBiome))).toBe(true)
@@ -104,19 +105,19 @@ describe('jungle pyramid plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findJunglePyramid(seed)
-    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: 63, surfaceY: 70 })
-    const repeated = planJunglePyramidForRegion(seed, located.regionX, located.regionZ, FLAT_JUNGLE)
+    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const repeated = planJunglePyramidForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_JUNGLE)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_JUNGLE })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_JUNGLE })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planJunglePyramidForRegion(seed, located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
-    expect(Option.isNone(planJunglePyramidForRegion(seed, absentX, absentZ, FLAT_JUNGLE))).toBe(true)
+    expect(Option.isNone(planJunglePyramidForRegion(noiseSeed(seed), located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
+    expect(Option.isNone(planJunglePyramidForRegion(noiseSeed(seed), absentX, absentZ, FLAT_JUNGLE))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID['jungle-pyramid']).toStrictEqual({ separation: 96, spacing: 256, spawnPermille: 160 })
     expect(located.plan.kind).toBe('jungle-pyramid')
     expect(located.plan.dimension).toBe('overworld')
