@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Result } from 'effect'
-import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
+import { ChunkCapacity, ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
@@ -88,6 +88,7 @@ const flatChunk = (coord: ChunkCoord, surfaceY: number): Chunk => {
 }
 
 const SURFACE_Y = 63
+const TEST_CHUNK_CAPACITY = Result.getOrThrow(ChunkCapacity.result(64))
 
 // ---------------------------------------------------------------------------
 // Packing
@@ -817,7 +818,7 @@ describe('ChunkStore.getLight', () => {
 
       expect((yield* store.getLight(blockPosition(blockAxis(0), -1, 0)))._tag).toBe('OutOfWorld')
       expect((yield* store.getLight(blockPosition(blockAxis(0), CHUNK_HEIGHT, 0)))._tag).toBe('OutOfWorld')
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('answers ChunkNotLoaded rather than darkness for a chunk nobody loaded', () =>
@@ -828,7 +829,7 @@ describe('ChunkStore.getLight', () => {
       // into 0 would read as pitch dark, and the spawn rule would put a hostile
       // at the edge of the loaded area in broad daylight.
       expect((yield* store.getLight(blockPosition(blockAxis(0), ROOM_Y, 0)))._tag).toBe('ChunkNotLoaded')
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('reports sky and block light separately for a loaded chunk', () =>
@@ -841,7 +842,7 @@ describe('ChunkStore.getLight', () => {
 
       const open = yield* store.getLight(blockPosition(blockAxis(4), ROOF_Y + 1, 4))
       expect(open).toStrictEqual({ _tag: 'Light', sky: 15, block: 0 })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('A BLOCK WRITE INVALIDATES LIGHT — the claim the store header rests on', () =>
@@ -861,7 +862,7 @@ describe('ChunkStore.getLight', () => {
 
       const opened = yield* store.getLight(blockPosition(blockAxis(4), ROOM_Y, 4))
       expect(opened).toStrictEqual({ _tag: 'Light', sky: 15, block: 0 })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('a placed torch is visible to the very next read', () =>
@@ -882,7 +883,7 @@ describe('ChunkStore.getLight', () => {
         sky: 0,
         block: 13,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('is load-order invariant and relights both sides after a boundary write', () =>
@@ -905,7 +906,7 @@ describe('ChunkStore.getLight', () => {
       expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('relights both sides of a Z boundary write too, not only the X boundary above', () =>
@@ -927,7 +928,7 @@ describe('ChunkStore.getLight', () => {
       expect(yield* store.getLight(blockPosition(blockAxis(8), ROOM_Y, 16))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('spreads sky light sideways through an opening at a resident seam', () =>
@@ -940,7 +941,7 @@ describe('ChunkStore.getLight', () => {
       expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 14, block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('treats an unloaded seam as closed and relights it after reload', () =>
@@ -959,7 +960,7 @@ describe('ChunkStore.getLight', () => {
       expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('an Unchanged write does not invalidate, for the reason it does not dirty', () =>
@@ -978,7 +979,7 @@ describe('ChunkStore.getLight', () => {
       expect(again._tag).toBe('Unchanged')
 
       expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual(lit)
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('a write to ANOTHER chunk does not invalidate this one', () =>
@@ -1001,7 +1002,7 @@ describe('ChunkStore.getLight', () => {
         sky: 15,
         block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('unloading drops the grid, and reloading recomputes it', () =>
@@ -1027,7 +1028,7 @@ describe('ChunkStore.getLight', () => {
         sky: 0,
         block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('reset drops every grid along with every chunk', () =>
@@ -1047,6 +1048,6 @@ describe('ChunkStore.getLight', () => {
         sky: 0,
         block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 })

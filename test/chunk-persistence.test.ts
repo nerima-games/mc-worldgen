@@ -10,7 +10,7 @@ import {
 } from '@nerima-games/mc-save'
 import { Effect, Option, Result } from 'effect'
 import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
-import { makePersistentChunkStore, type ChunkSource } from '../src/application/chunk-store'
+import { ChunkCapacity, makePersistentChunkStore, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1 } from '../src/domain/chunk-format'
@@ -27,8 +27,12 @@ const generatedChunk = (coord: ChunkCoord): Chunk => ({
 
 const source: ChunkSource = (coord) => Effect.succeed(generatedChunk(coord))
 
-const makeStoreWith = (storage: StorageService, chunkSource: ChunkSource = source) =>
-  makePersistentChunkStore(chunkSource, context).pipe(Effect.provideService(StoragePort, storage))
+const capacity = (value: number) => Result.getOrThrow(ChunkCapacity.result(value))
+const TEST_CAPACITY = capacity(32)
+const ONE_CHUNK_CAPACITY = capacity(1)
+
+const makeStoreWith = (storage: StorageService, chunkCapacity: ChunkCapacity, chunkSource: ChunkSource = source) =>
+  makePersistentChunkStore(chunkSource, context, chunkCapacity).pipe(Effect.provideService(StoragePort, storage))
 
 describe('chunk persistence', () => {
     it('builds stable keys from typed world and dimension components', () => {
@@ -47,14 +51,14 @@ describe('chunk persistence', () => {
   it.effect('loads storage before invoking the generator', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
-      const first = yield* makeStoreWith(storage)
+      const first = yield* makeStoreWith(storage, TEST_CAPACITY)
       const coord = validated.validatedChunkCoord(3, -4)
       yield* first.load(coord)
       yield* first.setBlock(validated.validatedBlockPosition(48, 10, -64), BLOCK.STONE)
       yield* first.unload(coord)
 
       let generated = false
-      const second = yield* makeStoreWith(storage, (missing) =>
+      const second = yield* makeStoreWith(storage, TEST_CAPACITY, (missing) =>
         Effect.sync(() => {
           generated = true
           return generatedChunk(missing)
@@ -74,13 +78,55 @@ describe('chunk persistence', () => {
         ...backing,
         put: (key) => Effect.fail(new StorageError({ operation: 'test.put', key })),
       }
-      const store = yield* makeStoreWith(failing)
+      const store = yield* makeStoreWith(failing, TEST_CAPACITY)
       const coord = validated.validatedChunkCoord(0, 0)
       yield* store.load(coord)
 
       const failure = yield* Effect.flip(store.unload(coord))
       expect(failure._tag).toBe('StorageError')
       expect(yield* store.isLoaded(coord)).toBe(true)
+    }),
+  )
+
+  it.effect('keeps a dirty chunk resident when eviction persistence fails, then retries the eviction', () =>
+    Effect.gen(function* () {
+      const backing = yield* makeInMemoryStorage
+      let failWrites = true
+      let putCount = 0
+      const intermittentlyFailing: StorageService = {
+        ...backing,
+        put: (key, envelope) => {
+          putCount += 1
+          return failWrites
+            ? Effect.fail(new StorageError({ operation: 'test.put', key }))
+            : backing.put(key, envelope)
+        },
+      }
+      const store = yield* makeStoreWith(intermittentlyFailing, ONE_CHUNK_CAPACITY)
+      const firstCoord = validated.validatedChunkCoord(0, 0)
+      const secondCoord = validated.validatedChunkCoord(1, 0)
+      const changedPosition = validated.validatedBlockPosition(0, 10, 0)
+
+      yield* store.load(firstCoord)
+      yield* store.setBlock(changedPosition, BLOCK.SAND)
+
+      const failure = yield* Effect.flip(store.load(secondCoord))
+      expect(failure._tag).toBe('StorageError')
+      expect(putCount).toBe(1)
+      expect(yield* store.isLoaded(firstCoord)).toBe(true)
+      expect((yield* store.peek(firstCoord))?.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+      expect(yield* store.isLoaded(secondCoord)).toBe(false)
+
+      failWrites = false
+      yield* store.load(secondCoord)
+
+      expect(putCount).toBe(2)
+      expect(yield* store.isLoaded(firstCoord)).toBe(false)
+      expect(yield* store.isLoaded(secondCoord)).toBe(true)
+
+      const reloaded = yield* makeStoreWith(backing, TEST_CAPACITY)
+      const restored = yield* reloaded.load(firstCoord)
+      expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
     }),
   )
 
@@ -96,7 +142,7 @@ describe('chunk persistence', () => {
           ),
         ),
       )
-      const store = yield* makeStoreWith(storage)
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
 
       const failure = yield* Effect.flip(store.load(coord))
       expect(failure._tag).toBe('SaveDecodeError')
@@ -154,7 +200,7 @@ describe('chunk persistence', () => {
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
       expect(yield* storage.get(chunkSaveKey(context, validated.validatedChunkCoord(9, 9)))).toStrictEqual(Option.none())
-      const store = yield* makeStoreWith(storage)
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
       expect((yield* store.load(validated.validatedChunkCoord(9, 9))).coord).toStrictEqual(validated.validatedChunkCoord(9, 9))
     }),
   )
@@ -162,7 +208,7 @@ describe('chunk persistence', () => {
   it.effect('unloading a coordinate that was never loaded is a no-op, with persistence enabled', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
-      const store = yield* makeStoreWith(storage)
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
       const coord = validated.validatedChunkCoord(40, -40)
 
       expect(yield* store.unload(coord)).toBe(false)
@@ -208,7 +254,7 @@ describe('chunk persistence', () => {
           }),
       }
 
-      const store = yield* makeStoreWith(racyDuringSave)
+      const store = yield* makeStoreWith(racyDuringSave, TEST_CAPACITY)
       cell.store = store
       yield* store.load(coord)
 
@@ -222,7 +268,7 @@ describe('chunk persistence', () => {
 
       // The retried save captured the block written during the race, not the
       // stale pre-race snapshot: reload from storage through a fresh store.
-      const reloaded = yield* makeStoreWith(backing)
+      const reloaded = yield* makeStoreWith(backing, TEST_CAPACITY)
       const restored = yield* reloaded.load(coord)
       expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
     }),

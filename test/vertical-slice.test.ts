@@ -40,7 +40,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result } from 'effect'
-import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
+import { ChunkCapacity, ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import type { ChunkDirtyBatch } from '../src/domain/chunk-store-state'
@@ -66,6 +66,7 @@ const replaceable = (id: BlockId): boolean => Result.getOrThrow(capabilityOfBloc
 
 const SUPPORT_Y = 64
 const SAND_Y = 65
+const TEST_CHUNK_CAPACITY = Result.getOrThrow(ChunkCapacity.result(4))
 
 /**
  * How high the miniature rule below scans a dirty column.
@@ -232,7 +233,7 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       // An idle tick is not "a scan that finds nothing" — the rule is never
       // asked, because there is nothing in the batch to ask it about.
       expect(yield* fallingBlockTick(store, { changed: [], removed: [] })).toBe(0)
-    }).pipe(Effect.provide(ChunkStoreLayer(slabSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(slabSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('the rule reads a capability, never a block name', () =>
@@ -253,7 +254,7 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
         _tag: 'Block',
         block: BLOCK.GRAVEL,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(slabSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(slabSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('REGRESSION: sand does not fall into an unloaded chunk', () =>
@@ -274,7 +275,7 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       // reading mc-meshing correctly uses for DRAWING — the sand would have
       // fallen out of the world.
       expect(yield* fallingBlockTick(store, batch)).toBe(0)
-    }).pipe(Effect.provide(ChunkStoreLayer(slabSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(slabSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('a cascade settles one cell per tick, and stops on its own', () =>
@@ -321,6 +322,6 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
         _tag: 'Block',
         block: BLOCK.AIR,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(slabSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(slabSource, TEST_CHUNK_CAPACITY))),
   )
 })

@@ -12,12 +12,13 @@
  *      reconcile "mesh it" with "dispose it".
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Deferred, Effect, Fiber, Layer } from 'effect'
+import { Deferred, Effect, Fiber, Layer, Result } from 'effect'
 import { makeInMemoryStorage, StoragePort } from '@nerima-games/mc-save'
-import type { ChunkPersistenceContext, ChunkPersistenceError } from '../src/application/chunk-persistence'
+import type { ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import {
   ChunkStore,
   ChunkStoreLayer,
+  ChunkCapacity,
   GeneratedChunkStoreLayer,
   GeneratedDimensionChunkStoreLayer,
   PersistentGeneratedChunkStoreLayer,
@@ -25,6 +26,7 @@ import {
   generatedChunkSource,
   generatedDimensionChunkSource,
   type ChunkSource,
+  type ChunkStoreError,
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
@@ -73,11 +75,15 @@ const FLAT_SURFACE_Y = 63
 
 const flatSource: ChunkSource = (coord) => Effect.sync(() => flatChunk(coord, FLAT_SURFACE_Y))
 
-const flatWorld = ChunkStoreLayer(flatSource)
+const capacity = (value: number) => Result.getOrThrow(ChunkCapacity.result(value))
+const TEST_CAPACITY = capacity(64)
+const TWO_CHUNK_CAPACITY = capacity(2)
+
+const flatWorld = ChunkStoreLayer(flatSource, TEST_CAPACITY)
 
 /** Run an Effect against a fresh store. Each test gets its own — no singleton. */
 const withStore = <A>(
-  body: (store: Effect.Success<typeof ChunkStore>) => Effect.Effect<A, ChunkPersistenceError>,
+  body: (store: Effect.Success<typeof ChunkStore>) => Effect.Effect<A, ChunkStoreError>,
 ) =>
   Effect.flatMap(ChunkStore, body).pipe(Effect.provide(flatWorld))
 
@@ -99,8 +105,11 @@ describe('generated chunk sources', () => {
 
   it.effect('GeneratedChunkStoreLayer wires the deterministic generator into a store', () =>
     Effect.gen(function* () {
-      const viaLayer = yield* Effect.provide(ChunkStore, GeneratedChunkStoreLayer(noiseSeed(1234)))
-      const viaManualComposition = yield* Effect.provide(ChunkStore, ChunkStoreLayer(generatedChunkSource(noiseSeed(1234))))
+      const viaLayer = yield* Effect.provide(ChunkStore, GeneratedChunkStoreLayer(noiseSeed(1234), TEST_CAPACITY))
+      const viaManualComposition = yield* Effect.provide(
+        ChunkStore,
+        ChunkStoreLayer(generatedChunkSource(noiseSeed(1234)), TEST_CAPACITY),
+      )
 
       const coord = chunkCoord(chunkAxis(2), -3)
       const fromLayer = yield* viaLayer.load(coord)
@@ -115,8 +124,14 @@ describe('generated chunk sources', () => {
 
   it.effect('GeneratedDimensionChunkStoreLayer selects terrain by dimension through the Layer', () =>
     Effect.gen(function* () {
-      const netherStore = yield* Effect.provide(ChunkStore, GeneratedDimensionChunkStoreLayer(noiseSeed(7), 'nether'))
-      const endStore = yield* Effect.provide(ChunkStore, GeneratedDimensionChunkStoreLayer(noiseSeed(7), 'end'))
+      const netherStore = yield* Effect.provide(
+        ChunkStore,
+        GeneratedDimensionChunkStoreLayer(noiseSeed(7), 'nether', TEST_CAPACITY),
+      )
+      const endStore = yield* Effect.provide(
+        ChunkStore,
+        GeneratedDimensionChunkStoreLayer(noiseSeed(7), 'end', TEST_CAPACITY),
+      )
 
       const nether = yield* netherStore.load(chunkCoord(chunkAxis(0), 0))
       const end = yield* endStore.load(chunkCoord(chunkAxis(0), 0))
@@ -133,7 +148,9 @@ describe('generated chunk sources', () => {
       const coord = chunkCoord(chunkAxis(5), 5)
 
       const provideStore = (): Layer.Layer<ChunkStore> =>
-        PersistentGeneratedChunkStoreLayer(noiseSeed(999), context).pipe(Layer.provide(Layer.succeed(StoragePort, storage)))
+        PersistentGeneratedChunkStoreLayer(noiseSeed(999), context, TEST_CAPACITY).pipe(
+          Layer.provide(Layer.succeed(StoragePort, storage)),
+        )
 
       // `coord` is chunk (5, 5), so the write must land inside its own
       // world-coordinate range — (0, 10, 0) is a different, unloaded chunk
@@ -164,6 +181,7 @@ describe('generated chunk sources', () => {
         noiseSeed(42),
         'nether',
         { dimension: 'end', worldId: 'test-world' },
+        TEST_CAPACITY,
       ),
     ).toThrow(/does not match persistence dimension/u)
     expect(() =>
@@ -171,6 +189,7 @@ describe('generated chunk sources', () => {
         noiseSeed(42),
         'nether',
         { dimension: 'nether', worldId: 'test-world' },
+        TEST_CAPACITY,
       ),
     ).not.toThrow()
   })
@@ -248,7 +267,7 @@ describe('residency', () => {
           return { biomes: [], blocks: emptyBlocks(), coord: c }
         })
 
-      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(racySource))
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(racySource, TEST_CAPACITY))
 
       const losingFiber = yield* store.load(coord).pipe(Effect.forkChild)
       // Deterministic, not timing-dependent: waits exactly until the loser
@@ -309,6 +328,61 @@ describe('residency', () => {
         expect('zPos' in neighbours).toBe(false)
       }),
     ),
+  )
+
+  it.effect('a load hit refreshes recency before the next chunk is inserted', () =>
+    Effect.gen(function* () {
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, TWO_CHUNK_CAPACITY))
+      const first = chunkCoord(chunkAxis(0), chunkAxis(0))
+      const second = chunkCoord(chunkAxis(1), chunkAxis(0))
+      const third = chunkCoord(chunkAxis(2), chunkAxis(0))
+
+      yield* store.load(first)
+      yield* store.load(second)
+      yield* store.load(first)
+      yield* store.load(third)
+
+      expect(yield* store.isLoaded(first)).toBe(true)
+      expect(yield* store.isLoaded(second)).toBe(false)
+      expect(yield* store.isLoaded(third)).toBe(true)
+    }),
+  )
+
+  it.effect('peek and snapshot do not refresh recency', () =>
+    Effect.gen(function* () {
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, TWO_CHUNK_CAPACITY))
+      const first = chunkCoord(chunkAxis(0), chunkAxis(0))
+      const second = chunkCoord(chunkAxis(1), chunkAxis(0))
+      const third = chunkCoord(chunkAxis(2), chunkAxis(0))
+
+      yield* store.load(first)
+      yield* store.load(second)
+      expect(yield* store.peek(first)).toBeDefined()
+      expect(yield* store.snapshot(first)).toBeDefined()
+      yield* store.load(third)
+
+      expect(yield* store.isLoaded(first)).toBe(false)
+      expect(yield* store.isLoaded(second)).toBe(true)
+      expect(yield* store.isLoaded(third)).toBe(true)
+    }),
+  )
+
+  it.effect('neighbours refresh recency for the chunks they return', () =>
+    Effect.gen(function* () {
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, TWO_CHUNK_CAPACITY))
+      const first = chunkCoord(chunkAxis(0), chunkAxis(0))
+      const second = chunkCoord(chunkAxis(1), chunkAxis(0))
+      const third = chunkCoord(chunkAxis(2), chunkAxis(0))
+
+      yield* store.load(first)
+      yield* store.load(second)
+      expect((yield* store.neighbours(second)).xNeg?.coord).toStrictEqual(first)
+      yield* store.load(third)
+
+      expect(yield* store.isLoaded(first)).toBe(true)
+      expect(yield* store.isLoaded(second)).toBe(false)
+      expect(yield* store.isLoaded(third)).toBe(true)
+    }),
   )
 })
 
@@ -590,8 +664,8 @@ describe('re-entrancy', () => {
 
   it.effect('two stores are two worlds', () =>
     Effect.gen(function* () {
-      const first = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource))
-      const second = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource))
+      const first = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, TEST_CAPACITY))
+      const second = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, TEST_CAPACITY))
 
       yield* first.load(chunkCoord(chunkAxis(0), 0))
       yield* first.setBlock(blockPosition(blockAxis(0), 10, 0), BLOCK.SAND)
@@ -649,7 +723,7 @@ describe('the default source is this repository generator', () => {
     Effect.gen(function* () {
       const store = yield* Effect.provide(
         ChunkStore,
-        Layer.merge(ChunkStoreLayer(generatedChunkSource(noiseSeed(1234))), Layer.empty),
+        Layer.merge(ChunkStoreLayer(generatedChunkSource(noiseSeed(1234)), TEST_CAPACITY), Layer.empty),
       )
 
       const chunk = yield* store.load(chunkCoord(chunkAxis(0), 0))
@@ -659,7 +733,7 @@ describe('the default source is this repository generator', () => {
       const snapshot = yield* store.snapshot(chunkCoord(chunkAxis(0), 0))
       const again = yield* Effect.provide(
         Effect.flatMap(ChunkStore, (other) => other.load(chunkCoord(chunkAxis(0), 0))),
-        ChunkStoreLayer(generatedChunkSource(noiseSeed(1234))),
+        ChunkStoreLayer(generatedChunkSource(noiseSeed(1234)), TEST_CAPACITY),
       )
       expect(again.blocks).toStrictEqual(snapshot?.blocks)
     }),

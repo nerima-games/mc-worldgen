@@ -1,9 +1,12 @@
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt } from './chunk.js'
 import {
+  BlockAxis,
+  BlockId,
   type ChunkCoord,
   LIGHT_LEVEL_MAX,
   LIGHT_LEVEL_MIN,
+  LocalAxis,
   lightEmissionOfBlockId,
   transmitsLight,
 } from '@nerima-games/mc-kernel'
@@ -16,7 +19,7 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { computeChunkLights } from './light-propagation.js'
 
 /** One block mutation whose cached light neighbourhood must reach a new fixed point. */
@@ -178,9 +181,21 @@ const neighbourIdOf = <Key extends string>(
 
 const NO_OPAQUE_BLOCK_FOUND = -1
 
+const blockIdAt = (chunk: Chunk, x: number, y: number, z: number) =>
+  Result.getOrThrow(
+    BlockId.result(
+      getBlockAt(
+        chunk,
+        Result.getOrThrow(LocalAxis.result(x)),
+        Result.getOrThrow(BlockAxis.result(y)),
+        Result.getOrThrow(LocalAxis.result(z)),
+      ),
+    ),
+  )
+
 const scanHighestOpaque = (chunk: Chunk, x: number, z: number): number => {
   for (let scanY = CHUNK_HEIGHT - STEP; scanY >= MIN_CHUNK_COORD; scanY -= STEP) {
-    if (!transmitsLight(getBlockAt(chunk, x, scanY, z))) {
+    if (!Result.getOrThrow(transmitsLight(blockIdAt(chunk, x, scanY, z)))) {
       return scanY
     }
   }
@@ -280,12 +295,12 @@ const nextLightLevel = <Key extends string>(
   voxel: VoxelRef,
   chunk: Chunk,
 ): number => {
-  const block = getBlockAt(chunk, voxel.x, voxel.y, voxel.z)
+  const block = blockIdAt(chunk, voxel.x, voxel.y, voxel.z)
   let next = LIGHT_LEVEL_MIN
   if (channel === 'block') {
-    next = lightEmissionOfBlockId(block)
+    next = Result.getOrThrow(lightEmissionOfBlockId(block))
   }
-  if (!transmitsLight(block)) {
+  if (!Result.getOrThrow(transmitsLight(block))) {
     return next
   }
   if (channel === 'sky' && isDirectSky(context, voxel)) {
