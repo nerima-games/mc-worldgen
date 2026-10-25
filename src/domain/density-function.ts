@@ -1,6 +1,7 @@
 import { channelSeed, fbm2D } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
 
 /** Lowest and highest surface the local terrain shaper produces. */
 export const MIN_SURFACE_Y = 38
@@ -21,6 +22,11 @@ const UNIT_INTERVAL_MAX = 1
 const UNIT_INTERVAL_MIDPOINT = 0.5
 const NOISE_FREQUENCY_UNIT = 1
 const CONTINENTALNESS_WAVELENGTH_BLOCKS = 180
+const SURFACE_HEIGHT_INCLUSIVE_END = 1
+const SURFACE_HEIGHT_COUNT = MAX_SURFACE_Y - MIN_SURFACE_Y + SURFACE_HEIGHT_INCLUSIVE_END
+const VALID_SURFACE_HEIGHTS = Array.from({ length: SURFACE_HEIGHT_COUNT }, (_unused, surfaceHeightOffset) =>
+  blockAxis(MIN_SURFACE_Y + surfaceHeightOffset),
+)
 
 const stretch = (value: number): number =>
   Math.min(
@@ -37,8 +43,13 @@ export const continentalnessAt = (seed: NoiseSeed, wx: number, wz: number): numb
   })
 
 /** Convert one sampled continentalness value into the generated surface Y. */
-export const surfaceHeightFromContinentalness = (continentalness: number): BlockAxis =>
-  Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness)) as BlockAxis
+export const surfaceHeightFromContinentalness = (continentalness: number): BlockAxis => {
+  const height = Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
+  if (Number.isNaN(height)) {
+    return blockAxis(height)
+  }
+  return VALID_SURFACE_HEIGHTS[height - MIN_SURFACE_Y] ?? blockAxis(height)
+}
 
 /**
  * Cheap column query used by callers that need terrain height without a chunk.

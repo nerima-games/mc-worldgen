@@ -11,7 +11,7 @@ import { Option } from 'effect'
 import { BLOCK } from './biome.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { CHUNK_SIZE_XZ } from './constants.js'
-import { asBlockAxis } from './coordinate-compatibility.js'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 export const VILLAGE_BLOCK: Readonly<Record<'FOUNDATION' | 'ROAD' | 'TIMBER', BlockId>> = {
   FOUNDATION: Option.getOrThrow(blockIdOf('cobblestone')),
   ROAD: BLOCK.GRAVEL,
@@ -67,7 +67,7 @@ const houseFloorY = (site: VillageSite, house: House, sample: OverworldTerrainSa
   for (let dx = -HOUSE_HALF_X; dx <= HOUSE_HALF_X; dx += 1) {
     // eslint-disable-next-line id-length, no-magic-numbers -- dz is the conventional local z offset.
     for (let dz = -HOUSE_HALF_Z; dz <= HOUSE_HALF_Z; dz += 1) {
-      highest = Math.max(highest, sample(asBlockAxis(site.x + house.x + dx), asBlockAxis(site.z + house.z + dz)).surfaceY)
+      highest = Math.max(highest, sample(blockAxisFromKnownSafeInteger(site.x + house.x + dx), blockAxisFromKnownSafeInteger(site.z + house.z + dz)).surfaceY)
     }
   }
   // eslint-disable-next-line no-magic-numbers -- The floor sits one block above the highest ground.
@@ -85,11 +85,11 @@ export const villageVillagerSpawnsForSite = (
   profession: house.profession,
   villageSite: site,
   // eslint-disable-next-line id-length -- x is the canonical world axis.
-  x: asBlockAxis(site.x + house.x),
+  x: blockAxisFromKnownSafeInteger(site.x + house.x),
   // eslint-disable-next-line id-length, no-magic-numbers -- y is the canonical axis; feet occupy air above the floor.
-  y: asBlockAxis(houseFloorY(site, house, sampleTerrain) + 1),
+  y: blockAxisFromKnownSafeInteger(houseFloorY(site, house, sampleTerrain) + 1),
   // eslint-disable-next-line id-length -- z is the canonical world axis.
-  z: asBlockAxis(site.z + house.z),
+  z: blockAxisFromKnownSafeInteger(site.z + house.z),
 }))
 
 /** Enumerates only the stable village spawns owned by this chunk. */

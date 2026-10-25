@@ -60,7 +60,7 @@ import {
   blockIndex,
 } from './constants.js'
 import { BLOCK, type BiomeType } from './biome.js'
-import type { BlockAxis, ChunkAxis, LocalAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -83,7 +83,7 @@ import {
 } from './natural-structure.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumn, biomeFor, climateAt, resolveTerrainColumn, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
-import { asBlockAxis, blockAxis } from './coordinate-compatibility.js'
+import { blockAxis, blockAxisFromKnownSafeInteger, localAxisFromKnownRange } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
@@ -281,7 +281,10 @@ const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => 
   if (!Object.hasOwn(options, 'terrainLevels')) {
     return DEFAULT_TERRAIN_LEVELS
   }
-  const levels = options.terrainLevels as TerrainLevels
+  const levels = options.terrainLevels
+  if (!levels || typeof levels !== 'object') {
+    throw new TypeError('terrainLevels must be an object when provided')
+  }
   blockAxis(levels.seaLevel)
   blockAxis(levels.lakeLevel)
   return levels
@@ -318,13 +321,13 @@ const createChunkGenerationContext = (
  * index.
  */
 const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number): number =>
-  readRequired(context.surfaces, columnIndex(lx as LocalAxis, lz as LocalAxis))
+  readRequired(context.surfaces, columnIndex(localAxisFromKnownRange(lx), localAxisFromKnownRange(lz)))
 
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
-  readRequired(context.biomes, columnIndex(lx as LocalAxis, lz as LocalAxis))
+  readRequired(context.biomes, columnIndex(localAxisFromKnownRange(lx), localAxisFromKnownRange(lz)))
 
 const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
-  const waterLevel = readRequired(context.waterLevels, columnIndex(lx as LocalAxis, lz as LocalAxis))
+  const waterLevel = readRequired(context.waterLevels, columnIndex(localAxisFromKnownRange(lx), localAxisFromKnownRange(lz)))
   if (waterLevel === NO_WATER_LEVEL) {
     return null
   }
@@ -345,9 +348,9 @@ const writeColumnBuffers = (
 
 const generateColumns = (context: ChunkGenerationContext): void => {
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
-    const localX = lx as LocalAxis
+    const localX = localAxisFromKnownRange(lx)
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      const localZ = lz as LocalAxis
+      const localZ = localAxisFromKnownRange(lz)
       const index = columnIndex(localX, localZ)
       const wx = context.minBlockX + lx
       const wz = context.minBlockZ + lz
@@ -373,10 +376,10 @@ const plantTreesPass = (context: ChunkGenerationContext): void => {
       if (
         shouldPlaceTree({
           biome,
-          surfaceY: asBlockAxis(surfaceY),
+          surfaceY: blockAxisFromKnownSafeInteger(surfaceY),
           terrainLevels: context.levels,
-          worldX: asBlockAxis(context.minBlockX + lx),
-          worldZ: asBlockAxis(context.minBlockZ + lz),
+          worldX: blockAxisFromKnownSafeInteger(context.minBlockX + lx),
+          worldZ: blockAxisFromKnownSafeInteger(context.minBlockZ + lz),
         })
       ) {
         plantTree(context.blocks, lx, lz, surfaceY)
@@ -451,7 +454,7 @@ const localColumnFor = (
   if (lx < LOCAL_COLUMN_MIN || lx >= CHUNK_SIZE_XZ || lz < LOCAL_COLUMN_MIN || lz >= CHUNK_SIZE_XZ) {
     return null
   }
-  return columnIndex(lx as LocalAxis, lz as LocalAxis)
+  return columnIndex(localAxisFromKnownRange(lx), localAxisFromKnownRange(lz))
 }
 
 const structureSurfaceBiomeAt = (
@@ -466,7 +469,7 @@ const structureSurfaceBiomeAt = (
   }
   return {
     biome: readRequired(context.biomes, localColumn),
-    surfaceY: asBlockAxis(readRequired(context.initialSurfaces, localColumn)),
+    surfaceY: blockAxisFromKnownSafeInteger(readRequired(context.initialSurfaces, localColumn)),
   }
 }
 
@@ -497,7 +500,7 @@ const structureTerrainSampleAt = (
   }
   const localColumn = localColumnFor(context, wx, wz)
   const resolved = structureSurfaceBiomeAt(context, localColumn, wx, wz)
-  const sample = { biome: resolved.biome, seaLevel: asBlockAxis(context.levels.seaLevel), surfaceY: resolved.surfaceY }
+  const sample = { biome: resolved.biome, seaLevel: blockAxisFromKnownSafeInteger(context.levels.seaLevel), surfaceY: resolved.surfaceY }
   cacheTerrainSample(terrainSamples, wx, wz, sample)
   return sample
 }

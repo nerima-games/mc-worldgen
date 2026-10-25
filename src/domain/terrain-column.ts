@@ -13,6 +13,7 @@ import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants.js'
 import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config.js'
 import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config.js'
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeed, fbm2D, valueNoise2D } from './noise-compatibility.js'
 import {
   computeLakeBasin,
@@ -25,9 +26,6 @@ import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
-import { blockAxis } from './coordinate-compatibility.js'
-
-const asBlockAxis = (value: number): BlockAxis => value as BlockAxis
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
 const NOISE_FREQUENCY_UNIT = 1
@@ -204,7 +202,7 @@ export const resolveTerrainColumn = (
   const lakeBasinY = computeLakeBasin(biome, lakeNoiseValue, initialSurfaceY, levels)
   const surfaceY = resolveSurfaceY(biome, initialSurfaceY, lakeBasinY)
   const waterLevel = Option.getOrNull(
-    Option.map(determineWaterLevel(biome, surfaceY, lakeBasinY, levels), asBlockAxis),
+    Option.map(determineWaterLevel(biome, surfaceY, lakeBasinY, levels), blockAxisFromKnownSafeInteger),
   )
   const surface = resolveSurfaceMaterial(biome, surfaceY, waterLevel ?? levels.seaLevel, {
     hasLakeBasin: Option.isSome(lakeBasinY),
@@ -214,9 +212,9 @@ export const resolveTerrainColumn = (
   return {
     biome,
     initialSurfaceY,
-    lakeBasinY: Option.map(lakeBasinY, asBlockAxis),
+    lakeBasinY: Option.map(lakeBasinY, blockAxisFromKnownSafeInteger),
     surface,
-    surfaceY: asBlockAxis(surfaceY),
+    surfaceY: blockAxisFromKnownSafeInteger(surfaceY),
     temperature: climate.temperature,
     waterLevel,
   }

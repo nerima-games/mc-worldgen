@@ -10,7 +10,7 @@ import type {
   NaturalStructurePositionDraft,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { asBlockAxis, blockAxis } from './coordinate-compatibility.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
@@ -105,9 +105,9 @@ export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockP
   if (y < NATURAL_STRUCTURE_WORLD_MIN_Y || y >= CHUNK_HEIGHT) {return}
   const brandedPlacement: NaturalStructureBlockPlacement = Object.freeze({
     block,
-    x: asBlockAxis(x),
-    y: asBlockAxis(y),
-    z: asBlockAxis(z),
+    x: blockAxisFromKnownSafeInteger(x),
+    y: blockAxisFromKnownSafeInteger(y),
+    z: blockAxisFromKnownSafeInteger(z),
   })
   mutable.blocks.set(keyOf(x, y, z), brandedPlacement)
 }
@@ -115,9 +115,9 @@ export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockP
 export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarkerDraft): void => {
   mutable.markers.push(Object.freeze({
     ...marker,
-    x: asBlockAxis(marker.x),
-    y: asBlockAxis(marker.y),
-    z: asBlockAxis(marker.z),
+    x: blockAxisFromKnownSafeInteger(marker.x),
+    y: blockAxisFromKnownSafeInteger(marker.y),
+    z: blockAxisFromKnownSafeInteger(marker.z),
   }))
 }
 
@@ -201,15 +201,15 @@ export const finishPlanFromValidatedPlacements = (
 ): NaturalStructurePlan => {
   const blocks = Object.freeze(placements.map((placement): NaturalStructureBlockPlacement => Object.freeze({
     ...placement,
-    x: asBlockAxis(placement.x),
-    y: asBlockAxis(placement.y),
-    z: asBlockAxis(placement.z),
+    x: blockAxisFromKnownSafeInteger(placement.x),
+    y: blockAxisFromKnownSafeInteger(placement.y),
+    z: blockAxisFromKnownSafeInteger(placement.z),
   })))
   const frozenMarkers = Object.freeze(markers.map((marker): NaturalStructureMarker => Object.freeze({
     ...marker,
-    x: asBlockAxis(marker.x),
-    y: asBlockAxis(marker.y),
-    z: asBlockAxis(marker.z),
+    x: blockAxisFromKnownSafeInteger(marker.x),
+    y: blockAxisFromKnownSafeInteger(marker.y),
+    z: blockAxisFromKnownSafeInteger(marker.z),
   })))
   const bounds = boundsFor(blocks, frozenMarkers)
   return Object.freeze({

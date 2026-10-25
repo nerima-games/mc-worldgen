@@ -1,3 +1,4 @@
+import { Brand } from 'effect'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 
 export type { NoiseSeed } from '@nerima-games/mc-noise'
@@ -19,6 +20,8 @@ const SMOOTHSTEP_QUADRATIC_COEFFICIENT = 3
 const SMOOTHSTEP_CUBIC_COEFFICIENT = 2
 
 const asUint32 = (value: number): number => value >>> UINT32_COERCION_SHIFT
+/** `asUint32` already guarantees the input range required by `NoiseSeed`. */
+const noiseSeedFromUint32 = Brand.nominal<NoiseSeed>()
 
 const latticeValueAt = (seed: NoiseSeed, x: number, z: number): number => {
   let hash = asUint32(seed)
@@ -51,7 +54,7 @@ export const channelSeed = (seed: NoiseSeed, channel: string): NoiseSeed => {
   for (let index = 0; index < channel.length; index += LOOP_STEP) {
     hash = asUint32(Math.imul(hash ^ channel.charCodeAt(index), FNV_PRIME_32))
   }
-  return asUint32(hash) as NoiseSeed
+  return noiseSeedFromUint32(asUint32(hash))
 }
 
 export const latticeValue = (seed: NoiseSeed, x: number, z: number): number => latticeValueAt(seed, x, z)
