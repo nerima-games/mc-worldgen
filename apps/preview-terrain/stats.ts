@@ -61,7 +61,8 @@ import {
   MIN_SURFACE_Y,
   surfaceHeightAt,
 } from '../../src/domain/terrain'
-import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
+import { channelSeed, fbm2D, type NoiseSeed } from '../../src/domain/noise-compatibility'
+import { blockAxis } from '../../src/domain/coordinate-compatibility'
 import { TREE_CROWN_RADIUS, TREE_GRID_SIZE, TREE_MIN_SPACING } from '../../src/domain/tree-placement'
 import { chunkFor, sampleColumn, type ChunkCache, type WorldParams } from './sampler'
 
@@ -109,7 +110,7 @@ const describeSpread = (values: ReadonlyArray<number>, digits = 3): string => {
   )
 }
 
-const rawContinentalness = (seed: number, wx: number, wz: number): number =>
+const rawContinentalness = (seed: NoiseSeed, wx: number, wz: number): number =>
   fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
     octaves: 4,
     frequency: 1 / CONTINENTALNESS_WAVELENGTH,
@@ -140,7 +141,7 @@ const surveyReport = (params: WorldParams, options: StatsOptions): ReadonlyArray
       const wx = options.originX + dx - Math.floor(options.surveySpan / 2)
       const wz = options.originZ + dz - Math.floor(options.surveySpan / 2)
       const sample = sampleColumn(params, wx, wz)
-      const climate = climateAt(params.seed, wx, wz)
+      const climate = climateAt(params.seed, blockAxis(wx), blockAxis(wz))
 
       heights.push(sample.surfaceY)
       continentalness.push(rawContinentalness(params.seed, wx, wz))
@@ -390,7 +391,7 @@ const localReport = (params: WorldParams, options: StatsOptions): ReadonlyArray<
         treesByBiome.set(sample.biome, (treesByBiome.get(sample.biome) ?? 0) + 1)
       }
 
-      const delta = Math.abs(sample.surfaceY - surfaceHeightAt(params.seed, wx + 1, wz))
+      const delta = Math.abs(sample.surfaceY - surfaceHeightAt(params.seed, blockAxis(wx + 1), blockAxis(wz)))
       if (((((wx + 1) % CHUNK_SIZE_XZ) + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ) === 0) {
         borderDeltaSum += delta
         borderDeltaCount += 1

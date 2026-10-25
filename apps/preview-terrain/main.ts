@@ -47,6 +47,8 @@
  *  - `pnpm verify` does not run this app. `tsconfig.preview.json` typechecks it
  *    and `pnpm lint` lints it, but `pnpm preview` is not a gate.
  */
+import { Result } from 'effect'
+import { NoiseSeed, type NoiseSeed as NoiseSeedValue } from '@nerima-games/mc-noise'
 import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from '../../src/domain/constants'
 import { ANSI_STYLE, buildHud, HUD_ROWS, PLAIN_STYLE } from './hud'
 import { parseArguments, USAGE, type PreviewOptions } from './options'
@@ -74,7 +76,7 @@ import {
 import { renderView, VIEW_MODES, type Camera, type ViewMode, type ViewToggles } from './views'
 
 type State = {
-  seed: number
+  seed: NoiseSeedValue
   view: ViewMode
   camera: Camera
   decorate: boolean
@@ -187,6 +189,13 @@ const clampZoom = (zoom: number): number => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM
 
 const panStep = (state: State): number => Math.max(1, state.camera.zoom * 8)
 
+const adjustSeed = (state: State, delta: number): void => {
+  const seed = NoiseSeed.result(state.seed + delta)
+  if (Result.isSuccess(seed)) {
+    state.seed = seed.success
+  }
+}
+
 const move = (state: State, dx: number, dz: number, dy: number): void => {
   state.camera = {
     x: state.camera.x + dx,
@@ -283,16 +292,16 @@ const handleKey = (state: State, key: string, options: PreviewOptions): boolean 
     }
 
     case '[':
-      state.seed -= 1
+      adjustSeed(state, -1)
       break
     case ']':
-      state.seed += 1
+      adjustSeed(state, 1)
       break
     case '{':
-      state.seed -= 1000
+      adjustSeed(state, -1000)
       break
     case '}':
-      state.seed += 1000
+      adjustSeed(state, 1000)
       break
 
     case 'g':
@@ -431,9 +440,15 @@ const main = (): number => {
     return 0
   }
 
+  const seed = NoiseSeed.result(options.seed)
+  if (Result.isFailure(seed)) {
+    writeLine('preview-terrain: --seed must be a safe integer')
+    return 1
+  }
+
   const levels = levelsFor(options)
   const state: State = {
-    seed: options.seed,
+    seed: seed.success,
     view: options.view,
     camera: {
       x: options.x,

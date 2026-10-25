@@ -227,7 +227,7 @@ export const parseArguments = (argv: ReadonlyArray<string>): PreviewOptions => {
     }
   }
 
-  return { ...accumulator, seed: Math.trunc(accumulator.seed) }
+  return { ...accumulator }
 }
 
 export const USAGE: ReadonlyArray<string> = [

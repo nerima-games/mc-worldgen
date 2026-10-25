@@ -29,15 +29,18 @@ import { BLOCK } from '../../src/domain/biome'
 import type { CarveOptions } from '../../src/domain/carver'
 import type { Chunk } from '../../src/domain/chunk'
 import { readBlock } from '../../src/domain/chunk'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import { BlockId, type BlockId as BlockIdValue, chunkCoord } from '@nerima-games/mc-kernel'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { Result } from 'effect'
 import type { TerrainLevels } from '../../src/domain/constants'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../src/domain/constants'
 import { ravineDepthAt, ravineDistanceAt } from '../../src/domain/ravine'
 import { biomeFor, generateChunk, surfaceHeightAt } from '../../src/domain/terrain'
 import { shouldPlaceTree } from '../../src/domain/tree-placement'
+import { blockAxis, chunkAxis, localAxis } from '../../src/domain/coordinate-compatibility'
 
 export type WorldParams = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly levels: TerrainLevels
   readonly carve: CarveOptions
   readonly decorate: boolean
@@ -73,8 +76,10 @@ export type ColumnSample = {
 }
 
 export const sampleColumn = (params: WorldParams, wx: number, wz: number): ColumnSample => {
-  const surfaceY = surfaceHeightAt(params.seed, wx, wz)
-  const biome = biomeFor(params.seed, wx, wz, surfaceY, params.levels)
+  const worldX = blockAxis(wx)
+  const worldZ = blockAxis(wz)
+  const surfaceY = surfaceHeightAt(params.seed, worldX, worldZ)
+  const biome = biomeFor(params.seed, worldX, worldZ, surfaceY, params.levels)
   const submerged = surfaceY < params.levels.seaLevel
   const ravineDepth = ravineDepthAt(ravineDistanceAt(params.seed, wx, wz))
 
@@ -95,8 +100,8 @@ export const sampleColumn = (params: WorldParams, wx: number, wz: number): Colum
     hasTree:
       params.decorate &&
       shouldPlaceTree({
-        worldX: wx,
-        worldZ: wz,
+        worldX,
+        worldZ,
         surfaceY,
         biome,
         terrainLevels: params.levels,
@@ -148,7 +153,7 @@ export const chunkFor = (
     return cached
   }
 
-  const chunk = generateChunk(params.seed, chunkCoord(chunkX, chunkZ), {
+  const chunk = generateChunk(params.seed, chunkCoord(chunkAxis(chunkX), chunkAxis(chunkZ)), {
     terrainLevels: params.levels,
     carve: params.carve,
     decorate: params.decorate,
@@ -173,14 +178,19 @@ export const blockAt = (
   wx: number,
   wy: number,
   wz: number,
-): number => {
+): BlockIdValue => {
   if (wy < 0 || wy >= CHUNK_HEIGHT) {
     return BLOCK.AIR
   }
-  const chunk = chunkFor(cache, params, floorDiv(wx, CHUNK_SIZE_XZ), floorDiv(wz, CHUNK_SIZE_XZ))
-  const lx = positiveMod(wx, CHUNK_SIZE_XZ)
-  const lz = positiveMod(wz, CHUNK_SIZE_XZ)
-  return readBlock(chunk.blocks, blockIndex(lx, wy, lz))
+  const worldX = blockAxis(wx)
+  const worldY = blockAxis(wy)
+  const worldZ = blockAxis(wz)
+  const chunk = chunkFor(cache, params, floorDiv(worldX, CHUNK_SIZE_XZ), floorDiv(worldZ, CHUNK_SIZE_XZ))
+  const lx = positiveMod(worldX, CHUNK_SIZE_XZ)
+  const lz = positiveMod(worldZ, CHUNK_SIZE_XZ)
+  return Result.getOrThrow(
+    BlockId.result(readBlock(chunk.blocks, blockIndex(localAxis(lx), worldY, localAxis(lz)))),
+  )
 }
 
 export { floorDiv, positiveMod }
