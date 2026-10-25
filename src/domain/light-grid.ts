@@ -1,5 +1,6 @@
 import { CHUNK_VOLUME } from './constants.js'
-import { clampLightLevel } from '@nerima-games/mc-kernel'
+import { LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
+import { Result } from 'effect'
 
 /** Two voxels share one packed light byte, low nibble first. */
 const VOXELS_PER_BYTE = 2
@@ -25,7 +26,7 @@ export const getLightAt = (grid: Uint8Array, voxel: number): number => {
 /** Write one voxel's packed light nibble, clamped to the kernel's range. */
 export const setLightAt = (grid: Uint8Array, voxel: number, level: number): void => {
   const index = voxel >> BYTE_TO_VOXEL_SHIFT
-  const clamped = clampLightLevel(level)
+  const clamped = clampLightLevel(Result.getOrThrow(LightLevelCandidate.result(level)))
   const byte = grid[index] ?? EMPTY_BYTE
 
   if ((voxel & PARITY_MASK) === EVEN_VOXEL_REMAINDER) {
