@@ -48,10 +48,10 @@ import {
   CHUNK_SIZE_XZ,
   climateAt,
   DEFAULT_TERRAIN_LEVELS,
-  emptyBlocks,
   generateChunk,
   surfaceHeightAt,
 } from '../src/index'
+import { emptyBlocks } from '../src/testing'
 import { Result } from 'effect'
 import { chunkCoord as createChunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { blockAxis, chunkAxis } from '../src/domain/coordinate-compatibility'

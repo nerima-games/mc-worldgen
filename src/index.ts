@@ -27,11 +27,48 @@
 export * from './domain/biome.js'
 export * from './domain/biome-classifier.js'
 export * from './domain/carver.js'
-export * from './domain/chunk.js'
+export { biomeAt, columnIndex, getBlockAt, readBlock } from './domain/chunk.js'
+export type { Chunk } from './domain/chunk.js'
 export { chunkCoord } from '@nerima-games/mc-kernel'
+export { chunkKeyOf } from '@nerima-games/mc-kernel'
 export type { ChunkCoord } from '@nerima-games/mc-kernel'
+export { NoiseSeed } from '@nerima-games/mc-noise'
 export { CHUNK_FORMAT } from './domain/chunk-format.js'
-export * from './domain/chunk-store-state.js'
+export {
+  CHUNK_NOT_LOADED,
+  EMPTY_DIRTY_BATCH,
+  LIGHT_CHUNK_NOT_LOADED,
+  LIGHT_OUT_OF_WORLD,
+  OUT_OF_WORLD,
+  WRITE_CHUNK_NOT_LOADED,
+  WRITE_OUT_OF_WORLD,
+  blockAt,
+  blockReading,
+  chunkSnapshotOf,
+  drained,
+  emptyChunkStoreState,
+  isWorldY,
+  lightAt,
+  lightReading,
+  neighboursOf,
+  residentChunk,
+  residentCoords,
+  subscribed,
+  unsubscribed,
+  wasWritten,
+  withBlockAt,
+  withChunk,
+  withoutChunk,
+} from './domain/chunk-store-state.js'
+export type {
+  BlockReading,
+  BlockWriteOutcome,
+  ChunkDirtyBatch,
+  ChunkNeighbours,
+  ChunkStoreState,
+  DirtySubscriberState,
+  LightReading,
+} from './domain/chunk-store-state.js'
 export * from './domain/constants.js'
 export * from './domain/end-features.js'
 export * from './domain/end-gateway.js'
@@ -44,8 +81,9 @@ export * from './domain/nether-fortress.js'
 export * from './domain/nether-link.js'
 export * from './domain/nether-terrain.js'
 // `Dimension` is re-exported from worldgen for its existing public API, but the
-// Canonical union and guard are owned by mc-kernel 0.8.0.
+// Canonical union and guard are owned by mc-kernel 0.9.0.
 export * from './domain/nether-travel.js'
+export * from './domain/portal-frame.js'
 export * from './domain/portal-registry.js'
 export * from './domain/portal-registry-format.js'
 export * from './domain/structure-siting.js'

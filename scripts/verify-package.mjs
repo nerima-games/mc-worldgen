@@ -22,6 +22,15 @@ import { pathToFileURL } from 'node:url'
 // artifact's exports actually work) without that registry dependency.
 const root = process.cwd()
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+
+const testingExport = packageJson.exports?.['./testing']
+if (
+  testingExport?.types !== './dist/testing.d.ts' ||
+  testingExport?.import !== './dist/testing.js' ||
+  testingExport?.default !== './dist/testing.js'
+) {
+  throw new Error('package.json does not expose the testing entry')
+}
 const temporaryDirectory = mkdtempSync(join(tmpdir(), 'mc-worldgen-package-'))
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
 
@@ -40,12 +49,23 @@ const run = (command, args) => {
 
 try {
   const runtime = await import(pathToFileURL(join(root, 'dist/index.js')).href)
+  const testing = await import(pathToFileURL(join(root, 'dist/testing.js')).href)
   const seed = Result.getOrThrow(NoiseSeed.result(1))
   const chunkAxis = (value) => Result.getOrThrow(ChunkAxis.result(value))
   const blockAxis = (value) => Result.getOrThrow(BlockAxis.result(value))
   const blockPositionFor = (x, y, z) => blockPosition(blockAxis(x), blockAxis(y), blockAxis(z))
   if (Object.keys(runtime).length === 0) {
     throw new Error('dist/index.js has no runtime exports')
+  }
+  if ('emptyBlocks' in runtime || 'setBlockAt' in runtime) {
+    throw new Error('dist/index.js exposes testing helpers from the production root')
+  }
+  if (typeof testing.emptyBlocks !== 'function' || typeof testing.setBlockAt !== 'function') {
+    throw new Error('dist/testing.js does not expose the testing helpers')
+  }
+  const testBlocks = testing.emptyBlocks()
+  if (!(testBlocks instanceof Uint16Array) || testBlocks.length !== runtime.CHUNK_VOLUME) {
+    throw new Error('dist/testing.js emptyBlocks returned an invalid block buffer')
   }
 
   // --- Chunk generation: overworld, nether, end -------------------------------
@@ -137,7 +157,12 @@ try {
 
   const archive = join(temporaryDirectory, archiveName)
   const entries = new Set(run('tar', ['-tzf', archive]).split('\n').filter(Boolean))
-  for (const entry of ['package/dist/index.js', 'package/dist/index.d.ts']) {
+  for (const entry of [
+    'package/dist/index.js',
+    'package/dist/index.d.ts',
+    'package/dist/testing.js',
+    'package/dist/testing.d.ts',
+  ]) {
     if (!entries.has(entry)) {
       throw new Error(`package archive is missing ${entry}`)
     }
