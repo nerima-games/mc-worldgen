@@ -134,13 +134,15 @@ import {
 } from '@nerima-games/mc-kernel'
 import { CHUNK_BIOMES, type ChunkBiomeType } from './biome.js'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants.js'
+import { Effect, Result, Schema, SchemaGetter } from 'effect'
 import {
   type EndFeatureChunk,
   type EndFeatureMarker,
 } from './end-features.js'
 import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
 import { type Chunk } from './chunk.js'
-import { Effect, Result, Schema, SchemaGetter } from 'effect'
+
+const literals = Schema.Literals
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
 export const CHUNK_BIOME_COUNT: number = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
@@ -321,7 +323,7 @@ const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
  * `mc-save` exists for exactly this and runs on the raw payload
  * before any schema sees it.
  */
-const ChunkBiomesSchema = Schema.Array(Schema.Literals(CHUNK_BIOMES)).pipe(
+const ChunkBiomesSchema = Schema.Array(literals(CHUNK_BIOMES)).pipe(
   Schema.check(Schema.makeFilter((biomes: ReadonlyArray<ChunkBiomeType>) => {
     if (biomes.length === CHUNK_BIOME_COUNT) {
       return
@@ -330,7 +332,7 @@ const ChunkBiomesSchema = Schema.Array(Schema.Literals(CHUNK_BIOMES)).pipe(
   })),
 )
 
-const NaturalStructureKindSchema = Schema.Literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city'])
+const NaturalStructureKindSchema = literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city'])
 
 const NaturalStructureMarkerFields = {
   structureId: Schema.String,
@@ -341,8 +343,8 @@ const NaturalStructureMarkerFields = {
 }
 
 /** Closed union of every semantic marker that generation can attach to a chunk. */
-type UnbrandedMarkerCoordinates<T> = T extends AppliedNaturalStructureMarker
-  ? Omit<T, 'x' | 'y' | 'z'> & { readonly x: number; readonly y: number; readonly z: number }
+type UnbrandedMarkerCoordinates<Marker> = Marker extends AppliedNaturalStructureMarker
+  ? Omit<Marker, 'x' | 'y' | 'z'> & { readonly x: number; readonly y: number; readonly z: number }
   : never
 type AppliedNaturalStructureMarkerEncoded = UnbrandedMarkerCoordinates<AppliedNaturalStructureMarker>
 
@@ -350,13 +352,13 @@ const AppliedNaturalStructureMarkerSchema: Schema.Codec<AppliedNaturalStructureM
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     kind: Schema.Literal('loot-chest'),
-    lootTable: Schema.Literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship']),
+    lootTable: literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship']),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     entity: Schema.Literal('villager'),
     kind: Schema.Literal('entity-spawn'),
-    profession: Schema.Literals(['farmer', 'toolsmith']),
+    profession: literals(['farmer', 'toolsmith']),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
@@ -370,29 +372,29 @@ const AppliedNaturalStructureMarkerSchema: Schema.Codec<AppliedNaturalStructureM
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literals(['blaze', 'wither-skeleton']),
+    entity: literals(['blaze', 'wither-skeleton']),
     kind: Schema.Literal('entity-spawn'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literals(['piglin', 'piglin-brute']),
+    entity: literals(['piglin', 'piglin-brute']),
     kind: Schema.Literal('entity-spawn'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literals(['shulker', 'blaze']),
+    entity: literals(['shulker', 'blaze']),
     kind: Schema.Literal('spawner'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    axis: Schema.Literals(['x', 'z']),
+    axis: literals(['x', 'z']),
     complete: Schema.Literal(false),
     kind: Schema.Literal('portal-frame'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     eye: Schema.Boolean,
-    facing: Schema.Literals(['north', 'east', 'south', 'west']),
+    facing: literals(['north', 'east', 'south', 'west']),
     kind: Schema.Literal('end-portal-frame'),
   }),
   Schema.Struct({

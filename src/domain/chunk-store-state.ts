@@ -35,8 +35,8 @@
  */
 import {
   BlockId,
-  ChunkAxis,
   type BlockPosition,
+  ChunkAxis,
   type ChunkCoord,
   type ChunkKey,
   type LocalBlockCoord,
@@ -384,12 +384,11 @@ const noteLoadedNeighbours = (
 
   for (const [dcx, dcz] of HORIZONTAL_NEIGHBOUR_OFFSETS) {
     const neighbourCoord = chunkCoordAtOffset(coord, dcx, dcz)
-    if (!neighbourCoord) {
-      continue
-    }
-    const key = chunkKeyOf(neighbourCoord)
-    if (loaded.has(key)) {
-      next = noteChange(next, key, neighbourCoord, 'changed')
+    if (neighbourCoord) {
+      const key = chunkKeyOf(neighbourCoord)
+      if (loaded.has(key)) {
+        next = noteChange(next, key, neighbourCoord, 'changed')
+      }
     }
   }
 
@@ -516,12 +515,11 @@ const affectedLightKeys = (coord: ChunkCoord, local: LocalBlockCoord): ReadonlyA
     [local.lz === CHUNK_LOCAL_MAX_XZ, NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP],
   ]
   for (const [affected, dcx, dcz] of offsets) {
-    if (!affected) {
-      continue
-    }
-    const adjacent = chunkCoordAtOffset(coord, dcx, dcz)
-    if (adjacent) {
-      keys.push(chunkKeyOf(adjacent))
+    if (affected) {
+      const adjacent = chunkCoordAtOffset(coord, dcx, dcz)
+      if (adjacent) {
+        keys.push(chunkKeyOf(adjacent))
+      }
     }
   }
   return keys

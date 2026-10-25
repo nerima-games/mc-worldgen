@@ -22,6 +22,8 @@ import {
 } from '@nerima-games/mc-save'
 import { PORTAL_REGISTRY_FORMAT } from '../domain/portal-registry-format.js'
 
+const makeService = Context.Service
+
 // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
 // Class from its public error surface; decode/migration failures are now
 // Reported as SaveDecodeError. This union tracks mc-save's actual exports.
@@ -80,7 +82,7 @@ const PortalRegistryBase: Context.ServiceClass<
   PortalRegistry,
   '@nerima-games/mc-worldgen/PortalRegistry',
   PortalRegistryApi
-> = Context.Service<PortalRegistry, PortalRegistryApi>()('@nerima-games/mc-worldgen/PortalRegistry')
+> = makeService<PortalRegistry, PortalRegistryApi>()('@nerima-games/mc-worldgen/PortalRegistry')
 
 export class PortalRegistry extends PortalRegistryBase {}
 

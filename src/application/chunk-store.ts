@@ -74,13 +74,13 @@
  */
 import * as Store from '../domain/chunk-store-state.js'
 import type { BlockId, BlockPosition, ChunkCoord, ChunkKey, Dimension } from '@nerima-games/mc-kernel'
+import { Brand, Context, Data, Effect, Layer, Option, Ref, Semaphore } from 'effect'
 import {
   type ChunkPersistence,
   type ChunkPersistenceContext,
   type ChunkPersistenceError,
   makeChunkPersistence,
 } from './chunk-persistence.js'
-import { Brand, Context, Data, Effect, Layer, Option, Ref, Semaphore } from 'effect'
 import { type GenerateOptions, generateChunk } from '../domain/terrain.js'
 import type { Chunk } from '../domain/chunk.js'
 import type { StoragePort } from '@nerima-games/mc-save'
@@ -88,11 +88,16 @@ import { generateEndChunk } from '../domain/end-terrain.js'
 import { generateNetherChunk } from '../domain/nether-terrain.js'
 import { makeChunkStoreLru } from '../domain/chunk-store-lru.js'
 
+const makeService = Context.Service
+const taggedError = Data.TaggedError
+const MIN_CHUNK_CAPACITY = 1
+const CHUNK_STORE_PERMITS = 1
+
 export type ChunkCapacity = number & Brand.Brand<'ChunkCapacity'>
 
 /** A required positive safe-integer capacity for every resident-chunk cache. */
 export const ChunkCapacity: Brand.Constructor<ChunkCapacity> = Brand.make<ChunkCapacity>(
-  (value) => Number.isSafeInteger(value) && value > 0 || 'ChunkCapacity must be a positive safe integer',
+  (value) => Number.isSafeInteger(value) && value >= MIN_CHUNK_CAPACITY || 'ChunkCapacity must be a positive safe integer',
 )
 
 /**
@@ -232,7 +237,7 @@ type DirtyChunkEvictionFailure = {
 
 export type ChunkStoreError = ChunkPersistenceError | DirtyChunkEvictionFailure
 
-class DirtyChunkEvictionError extends Data.TaggedError('DirtyChunkEvictionError')<{
+class DirtyChunkEvictionError extends taggedError('DirtyChunkEvictionError')<{
   readonly coord: ChunkCoord
 }> {}
 
@@ -247,7 +252,7 @@ export type ChunkStoreRegistryApi = ChunkStoreRegistry
 export const ChunkStoreRegistry: Context.Service<
   '@nerima-games/mc-worldgen/ChunkStoreRegistry',
   ChunkStoreRegistry
-> = Context.Service<'@nerima-games/mc-worldgen/ChunkStoreRegistry', ChunkStoreRegistry>(
+> = makeService<'@nerima-games/mc-worldgen/ChunkStoreRegistry', ChunkStoreRegistry>(
   '@nerima-games/mc-worldgen/ChunkStoreRegistry',
 )
 
@@ -267,7 +272,7 @@ const ChunkStoreBase: Context.ServiceClass<
   ChunkStore,
   '@nerima-games/mc-worldgen/ChunkStore',
   ChunkStoreApi
-> = Context.Service<ChunkStore, ChunkStoreApi>()('@nerima-games/mc-worldgen/ChunkStore')
+> = makeService<ChunkStore, ChunkStoreApi>()('@nerima-games/mc-worldgen/ChunkStore')
 
 export class ChunkStore extends ChunkStoreBase {}
 
@@ -308,11 +313,155 @@ type ChunkStoreRuntimeState = {
 }
 
 type EvictionAction =
-  | { readonly _tag: 'evicted' }
-  | { readonly _tag: 'inconsistent' }
-  | { readonly _tag: 'fail'; readonly error: DirtyChunkEvictionError }
-  | { readonly _tag: 'persist'; readonly coord: ChunkCoord; readonly key: ChunkKey; readonly snapshot: Chunk }
-  | { readonly _tag: 'retry' }
+  | { readonly kind: 'evicted' }
+  | { readonly kind: 'inconsistent' }
+  | { readonly error: DirtyChunkEvictionError; readonly kind: 'fail' }
+  | { readonly coord: ChunkCoord; readonly key: ChunkKey; readonly kind: 'persist'; readonly snapshot: Chunk }
+  | { readonly kind: 'retry' }
+
+type PersistEvictionAction = Extract<EvictionAction, { readonly kind: 'persist' }>
+type EvictionPlan = (latest: ChunkStoreRuntimeState) => readonly [EvictionAction, ChunkStoreRuntimeState]
+type ChunkStoreStateRef = Ref.Ref<ChunkStoreRuntimeState>
+type ChunkStoreLru = ReturnType<typeof makeChunkStoreLru>
+
+const makeEvictionPlanner = (
+  lru: ChunkStoreLru,
+  persistence?: ChunkPersistence,
+): EvictionPlan => {
+  const evictMissingChunk = (
+    latest: ChunkStoreRuntimeState,
+    key: ChunkKey,
+  ): readonly [EvictionAction, ChunkStoreRuntimeState] => {
+    lru.delete(key)
+    const dirty = new Set(latest.dirty)
+    dirty.delete(key)
+    return [{ kind: 'retry' }, { ...latest, dirty }]
+  }
+
+  const evictDirtyChunk = (
+    latest: ChunkStoreRuntimeState,
+    key: ChunkKey,
+    chunk: Chunk,
+  ): readonly [EvictionAction, ChunkStoreRuntimeState] => {
+    if (!persistence) {
+      return [{ error: new DirtyChunkEvictionError({ coord: chunk.coord }), kind: 'fail' }, latest]
+    }
+
+    return [
+      {
+        coord: chunk.coord,
+        key,
+        kind: 'persist',
+        snapshot: Store.chunkSnapshotOf(chunk),
+      },
+      latest,
+    ]
+  }
+
+  const evictCleanChunk = (
+    latest: ChunkStoreRuntimeState,
+    key: ChunkKey,
+    chunk: Chunk,
+  ): readonly [EvictionAction, ChunkStoreRuntimeState] => {
+    const [, chunks] = Store.withoutChunk(latest.chunks, chunk.coord)
+    lru.delete(key)
+    const dirty = new Set(latest.dirty)
+    dirty.delete(key)
+    return [{ kind: 'evicted' }, { chunks, dirty }]
+  }
+
+  return (latest) => {
+    const key = lru.oldest()
+    if (key === null) {
+      return [{ kind: 'inconsistent' }, latest]
+    }
+
+    const chunk = latest.chunks.loaded.get(key)
+    if (!chunk) {
+      return evictMissingChunk(latest, key)
+    }
+    if (latest.dirty.has(key)) {
+      return evictDirtyChunk(latest, key, chunk)
+    }
+    return evictCleanChunk(latest, key, chunk)
+  }
+}
+
+const makeEvictionRuntime = (
+  state: ChunkStoreStateRef,
+  lru: ChunkStoreLru,
+  capacity: ChunkCapacity,
+  persistence?: ChunkPersistence,
+): (() => Effect.Effect<void, ChunkStoreError>) => {
+  const planEviction = makeEvictionPlanner(lru, persistence)
+
+  const removeSavedChunk = (
+    latest: ChunkStoreRuntimeState,
+    action: PersistEvictionAction,
+  ): readonly [boolean, ChunkStoreRuntimeState] => {
+    const resident = Store.residentChunk(latest.chunks, action.coord)
+    if (resident && !chunksEqual(resident, action.snapshot)) {
+      return [false, latest]
+    }
+
+    lru.delete(action.key)
+    const dirty = new Set(latest.dirty)
+    dirty.delete(action.key)
+    if (!resident) {
+      return [true, { ...latest, dirty }]
+    }
+
+    const [, chunks] = Store.withoutChunk(latest.chunks, action.coord)
+    return [true, { chunks, dirty }]
+  }
+
+  const persistEviction = (action: PersistEvictionAction): Effect.Effect<void, ChunkStoreError> =>
+    Effect.gen(function* persist() {
+      if (!persistence) {
+        return yield* Effect.fail(new DirtyChunkEvictionError({ coord: action.coord }))
+      }
+
+      yield* persistence.save(action.snapshot)
+      yield* Ref.modify(state, (latest) => removeSavedChunk(latest, action))
+    })
+
+  const processEvictionAction = (action: EvictionAction): Effect.Effect<void, ChunkStoreError> =>
+    Effect.gen(function* processAction() {
+      if (action.kind === 'inconsistent') {
+        return yield* Effect.die('ChunkStore LRU does not contain every resident chunk')
+      }
+      if (action.kind === 'fail') {
+        return yield* Effect.fail(action.error)
+      }
+      if (action.kind === 'persist') {
+        yield* persistEviction(action)
+      }
+    })
+
+  const evictOne = (): Effect.Effect<boolean, ChunkStoreError> =>
+    Effect.gen(function* evictOnce() {
+      const current = yield* Ref.get(state)
+      if (current.chunks.loaded.size < capacity) {
+        return true
+      }
+
+      const action = yield* Ref.modify(state, planEviction)
+      yield* processEvictionAction(action)
+      return false
+    })
+
+  const evictUntilRoom = (): Effect.Effect<void, ChunkStoreError> =>
+    Effect.gen(function* evict() {
+      while (true) {
+        const hasRoom = yield* evictOne()
+        if (hasRoom) {
+          return
+        }
+      }
+    })
+
+  return evictUntilRoom
+}
 
 const makeChunkStoreInternal = (
   source: ChunkSource,
@@ -325,7 +474,8 @@ const makeChunkStoreInternal = (
       dirty: new Set<ChunkKey>(),
     })
     const lru = makeChunkStoreLru()
-    const evictionLock = yield* Semaphore.make(1)
+    const evictionLock = yield* Semaphore.make(CHUNK_STORE_PERMITS)
+    const evictUntilRoom = makeEvictionRuntime(state, lru, capacity, persistence)
 
     const drainFor = (id: Store.SubscriberId): Effect.Effect<Store.ChunkDirtyBatch> =>
       Ref.modify(state, (current) => {
@@ -346,94 +496,6 @@ const makeChunkStoreInternal = (
       }),
       (id) => ({ drain: drainFor(id), id, unsubscribe: unsubscribeFor(id) }),
     )
-
-    const evictUntilRoom = (): Effect.Effect<void, ChunkStoreError> =>
-      Effect.gen(function* evict() {
-        while (true) {
-          const current = yield* Ref.get(state)
-          if (current.chunks.loaded.size < capacity) {
-            return
-          }
-
-          const action = yield* Ref.modify(state, (latest): readonly [EvictionAction, ChunkStoreRuntimeState] => {
-            const key = lru.oldest()
-            if (key === undefined) {
-              return [{ _tag: 'inconsistent' }, latest]
-            }
-
-            const chunk = latest.chunks.loaded.get(key)
-            if (!chunk) {
-              lru.delete(key)
-              const dirty = new Set(latest.dirty)
-              dirty.delete(key)
-              return [{ _tag: 'retry' }, { ...latest, dirty }]
-            }
-
-            if (latest.dirty.has(key) && !persistence) {
-              return [{ _tag: 'fail', error: new DirtyChunkEvictionError({ coord: chunk.coord }) }, latest]
-            }
-
-            if (!latest.dirty.has(key)) {
-              const [, chunks] = Store.withoutChunk(latest.chunks, chunk.coord)
-              lru.delete(key)
-              const dirty = new Set(latest.dirty)
-              dirty.delete(key)
-              return [{ _tag: 'evicted' }, { chunks, dirty }]
-            }
-
-            return [
-              {
-                _tag: 'persist',
-                coord: chunk.coord,
-                key,
-                snapshot: Store.chunkSnapshotOf(chunk),
-              },
-              latest,
-            ]
-          })
-
-          if (action._tag === 'inconsistent') {
-            return yield* Effect.die('ChunkStore LRU does not contain every resident chunk')
-          }
-
-          if (action._tag === 'fail') {
-            return yield* Effect.fail(action.error)
-          }
-
-          if (action._tag === 'persist') {
-            if (!persistence) {
-              return yield* Effect.fail(new DirtyChunkEvictionError({ coord: action.coord }))
-            }
-
-            // The dirty entry stays resident until the save succeeds and its snapshot is current.
-            yield* persistence.save(action.snapshot)
-
-            const removed = yield* Ref.modify(state, (latest) => {
-              const resident = Store.residentChunk(latest.chunks, action.coord)
-              if (!resident) {
-                lru.delete(action.key)
-                const dirty = new Set(latest.dirty)
-                dirty.delete(action.key)
-                return [true, { ...latest, dirty }]
-              }
-
-              if (!chunksEqual(resident, action.snapshot)) {
-                return [false, latest]
-              }
-
-              const [, chunks] = Store.withoutChunk(latest.chunks, action.coord)
-              lru.delete(action.key)
-              const dirty = new Set(latest.dirty)
-              dirty.delete(action.key)
-              return [true, { chunks, dirty }]
-            })
-
-            if (!removed) {
-              continue
-            }
-          }
-        }
-      })
 
     const loadOrTouch = (coord: ChunkCoord): Effect.Effect<Chunk | undefined> =>
       Ref.modify(state, (current) => {
@@ -527,7 +589,7 @@ const makeChunkStoreInternal = (
       setBlock: (position, block) =>
         Ref.modify(state, (current): readonly [Store.BlockWriteOutcome, ChunkStoreRuntimeState] => {
           const [outcome, chunks] = Store.withBlockAt(current.chunks, position, block)
-          if (outcome._tag !== 'Written') {
+          if (!('chunk' in outcome)) {
             return [outcome, current]
           }
 
@@ -671,10 +733,7 @@ export const ChunkStoreRegistryLayer = (
       const overworld = yield* makeChunkStoreInternal(sourceForDimension('overworld'), capacity)
       const nether = yield* makeChunkStoreInternal(sourceForDimension('nether'), capacity)
       const end = yield* makeChunkStoreInternal(sourceForDimension('end'), capacity)
-      const stores = Object.create(null) as Record<Dimension, ChunkStoreApi>
-      stores.overworld = overworld
-      stores.nether = nether
-      stores.end = end
+      const stores = Object.setPrototypeOf({ end, nether, overworld }, null)
       return { forDimension: (dimension) => stores[dimension] }
     }),
   )
@@ -703,10 +762,7 @@ export const PersistentChunkStoreRegistryLayer = (
         { dimension: 'end', worldId },
         capacity,
       )
-      const stores = Object.create(null) as Record<Dimension, ChunkStoreApi>
-      stores.overworld = overworld
-      stores.nether = nether
-      stores.end = end
+      const stores = Object.setPrototypeOf({ end, nether, overworld }, null)
       return { forDimension: (dimension) => stores[dimension] }
     }),
   )

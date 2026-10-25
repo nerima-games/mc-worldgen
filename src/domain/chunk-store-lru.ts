@@ -2,15 +2,15 @@ import type { ChunkKey } from '@nerima-games/mc-kernel'
 
 type Entry = {
   readonly key: ChunkKey
-  previous: Entry | undefined
-  next: Entry | undefined
+  previous: Entry | null
+  next: Entry | null
 }
 
 export type ChunkStoreLru = {
   readonly add: (key: ChunkKey) => void
   readonly clear: () => void
   readonly delete: (key: ChunkKey) => void
-  readonly oldest: () => ChunkKey | undefined
+  readonly oldest: () => ChunkKey | null
   readonly size: () => number
   readonly touch: (key: ChunkKey) => void
 }
@@ -18,8 +18,8 @@ export type ChunkStoreLru = {
 /** A mutable, O(1) least-recently-used ordering owned by one ChunkStore. */
 export const makeChunkStoreLru = (): ChunkStoreLru => {
   const entries = new Map<ChunkKey, Entry>()
-  let oldest: Entry | undefined
-  let newest: Entry | undefined
+  let oldest: Entry | null = null
+  let newest: Entry | null = null
 
   const detach = (entry: Entry): void => {
     if (entry.previous) {
@@ -34,13 +34,13 @@ export const makeChunkStoreLru = (): ChunkStoreLru => {
       newest = entry.previous
     }
 
-    entry.previous = undefined
-    entry.next = undefined
+    entry.previous = null
+    entry.next = null
   }
 
   const append = (entry: Entry): void => {
     entry.previous = newest
-    entry.next = undefined
+    entry.next = null
 
     if (newest) {
       newest.next = entry
@@ -68,15 +68,15 @@ export const makeChunkStoreLru = (): ChunkStoreLru => {
         return
       }
 
-      const entry: Entry = { key, next: undefined, previous: undefined }
+      const entry: Entry = { key, next: null, previous: null }
       entries.set(key, entry)
       append(entry)
     },
 
     clear: () => {
       entries.clear()
-      oldest = undefined
-      newest = undefined
+      oldest = null
+      newest = null
     },
 
     delete: (key) => {
@@ -88,7 +88,7 @@ export const makeChunkStoreLru = (): ChunkStoreLru => {
       entries.delete(key)
     },
 
-    oldest: () => oldest?.key,
+    oldest: () => oldest?.key ?? null,
     size: () => entries.size,
     touch,
   }

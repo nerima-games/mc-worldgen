@@ -1,3 +1,12 @@
+import {
+  BlockAxis,
+  BlockId,
+  LIGHT_LEVEL_MAX,
+  LIGHT_LEVEL_MIN,
+  LocalAxis,
+  lightEmissionOfBlockId,
+  transmitsLight,
+} from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt } from './chunk.js'
 import {
@@ -11,6 +20,7 @@ import {
   unpackY,
   unpackZ,
 } from './light-grid.js'
+import { Data, Result } from 'effect'
 import {
   LIGHT_DECAY_PER_HOP,
   MIN_CHUNK_COORD,
@@ -19,16 +29,6 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
-import {
-  BlockAxis,
-  BlockId,
-  LIGHT_LEVEL_MAX,
-  LIGHT_LEVEL_MIN,
-  LocalAxis,
-  lightEmissionOfBlockId,
-  transmitsLight,
-} from '@nerima-games/mc-kernel'
-import { Data, Result } from 'effect'
 
 type LightChunk = {
   readonly chunk: Chunk

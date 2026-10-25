@@ -1,5 +1,5 @@
-import { CHUNK_VOLUME } from './constants.js'
 import { LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
+import { CHUNK_VOLUME } from './constants.js'
 import { Result } from 'effect'
 
 /** Two voxels share one packed light byte, low nibble first. */

@@ -1,7 +1,7 @@
 import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
+import { Result, Schema, SchemaGetter } from 'effect'
 import { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { PortalRegistryState } from './portal-registry.js'
-import { Result, Schema, SchemaGetter } from 'effect'
 
 type PortalPosition = PortalRegistryState['end'][number]
 type PortalPositionEncoded = { readonly x: number; readonly y: number; readonly z: number }
