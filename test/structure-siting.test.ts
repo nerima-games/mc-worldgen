@@ -17,12 +17,14 @@ import { BEDROCK_Y, blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   STRONGHOLD_FLOOR_Y,
   STRONGHOLD_REGION_SIZE,
+  STRONGHOLD_SEARCH_RADIUS,
   STRONGHOLD_REGION_SPAWN_PERMILLE,
   STRONGHOLD_SITE_MARGIN,
   locateStronghold,
   nearestStrongholdSite,
   strongholdSiteForRegion,
   strongholdSitesNearChunk,
+  type StrongholdSite,
 } from '../src/domain/structure-siting'
 import { MIN_SURFACE_Y, generateChunkAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
@@ -257,26 +259,29 @@ describe('the ranked list — locateStronghold', () => {
       // this is a tie between two candidates `locateStronghold` would
       // actually produce, not two points the comparator was never meant to
       // see.
-      const sites: Array<{ x: number; z: number }> = []
-      for (let regionX = 0; regionX < 60 && sites.length < 2; regionX += 1) {
+      const sites: Array<{ regionX: number; value: StrongholdSite }> = []
+      let pair: readonly [StrongholdSite, StrongholdSite] | undefined
+      for (let regionX = 0; regionX < 60 && pair === undefined; regionX += 1) {
         const candidate = strongholdSiteForRegion(GOLDEN_SEED, regionX, 0)
         if (Option.isSome(candidate)) {
-          const first = sites[0]
-          if (
-            first === undefined ||
-            (candidate.value.x !== first.x &&
-              Math.abs(candidate.value.x - first.x) % 2 === 0 &&
-              Math.abs(candidate.value.z - first.z) % 2 === 0)
-          ) {
-            sites.push(candidate.value)
+          const first = sites.find(({ regionX: firstRegionX, value }) =>
+            regionX - firstRegionX <= STRONGHOLD_SEARCH_RADIUS * 2 &&
+            candidate.value.x !== value.x &&
+            Math.abs(candidate.value.x - value.x) % 2 === 0 &&
+            Math.abs(candidate.value.z - value.z) % 2 === 0,
+          )
+          if (first === undefined) {
+            sites.push({ regionX, value: candidate.value })
+          } else {
+            pair = [first.value, candidate.value]
           }
         }
       }
-      const [a, b] = sites
-      expect(sites, 'need two real stronghold sites to construct a tie').toHaveLength(2)
-      if (a === undefined || b === undefined) {
+      expect(pair, 'need two searchable real stronghold sites to construct a tie').toBeDefined()
+      if (pair === undefined) {
         return
       }
+      const [a, b] = pair
       expect(a.x, 'the two sites must differ in x for this to be a meaningful x tie-break').not.toBe(b.x)
 
       // The exact midpoint: equidistant from `a` and `b` by construction.
