@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process'
+import { Result } from 'effect'
+import { BlockAxis, ChunkAxis, blockPosition, chunkCoord } from '@nerima-games/mc-kernel'
+import { NoiseSeed } from '@nerima-games/mc-noise'
 import {
   mkdtempSync,
   readFileSync,
@@ -37,6 +40,10 @@ const run = (command, args) => {
 
 try {
   const runtime = await import(pathToFileURL(join(root, 'dist/index.js')).href)
+  const seed = Result.getOrThrow(NoiseSeed.result(1))
+  const chunkAxis = (value) => Result.getOrThrow(ChunkAxis.result(value))
+  const blockAxis = (value) => Result.getOrThrow(BlockAxis.result(value))
+  const blockPositionFor = (x, y, z) => blockPosition(blockAxis(x), blockAxis(y), blockAxis(z))
   if (Object.keys(runtime).length === 0) {
     throw new Error('dist/index.js has no runtime exports')
   }
@@ -50,7 +57,7 @@ try {
   ) {
     throw new Error('dist/index.js does not expose the chunk generation API')
   }
-  const coord = runtime.chunkCoord(0, 0)
+  const coord = chunkCoord(chunkAxis(0), chunkAxis(0))
   const expectChunk = (chunk, label) => {
     if (chunk.coord !== coord) {
       throw new Error(`dist/index.js ${label} returned a chunk with the wrong coord`)
@@ -65,9 +72,9 @@ try {
       throw new Error(`dist/index.js ${label} did not return natural structure arrays`)
     }
   }
-  expectChunk(runtime.generateChunk(1, coord, { decorate: false }), 'generateChunk')
-  expectChunk(runtime.generateNetherChunk(1, coord), 'generateNetherChunk')
-  expectChunk(runtime.generateEndChunk(1, coord), 'generateEndChunk')
+  expectChunk(runtime.generateChunk(seed, coord, { decorate: false }), 'generateChunk')
+  expectChunk(runtime.generateNetherChunk(seed, coord), 'generateNetherChunk')
+  expectChunk(runtime.generateEndChunk(seed, coord), 'generateEndChunk')
 
   // --- Persistence format -------------------------------------------------------
   if (typeof runtime.CHUNK_FORMAT !== 'object' || runtime.CHUNK_FORMAT === null) {
@@ -82,11 +89,11 @@ try {
   ) {
     throw new Error('dist/index.js does not expose the Nether travel API')
   }
-  const netherPosition = runtime.overworldToNether({ x: -1, y: 64, z: 8 })
+  const netherPosition = runtime.overworldToNether(blockPositionFor(-1, 64, 8))
   if (netherPosition.x !== -1 || netherPosition.y !== 64 || netherPosition.z !== 1) {
     throw new Error('dist/index.js overworldToNether returned an invalid position')
   }
-  const travel = runtime.resolveNetherTravel('overworld', { x: 0, y: 64, z: 0 }, [])
+  const travel = runtime.resolveNetherTravel('overworld', blockPositionFor(0, 64, 0), [])
   if (travel.toDimension !== 'nether') {
     throw new Error('dist/index.js resolveNetherTravel returned an invalid result')
   }
@@ -105,11 +112,11 @@ try {
   ) {
     throw new Error('dist/index.js does not expose the End feature API')
   }
-  const plan = runtime.endFeaturePlanForSeed(1)
+  const plan = runtime.endFeaturePlanForSeed(seed)
   if (plan.spikes.length !== 10) {
     throw new Error('dist/index.js endFeaturePlanForSeed returned an invalid plan')
   }
-  const placement = runtime.createEndGatewayPlacement({ x: 0, y: 64, z: 0 })
+  const placement = runtime.createEndGatewayPlacement(blockPositionFor(0, 64, 0))
   if (!placement.blocks.some(({ block }) => block === runtime.END_GATEWAY_BLOCK.GATEWAY)) {
     throw new Error('dist/index.js createEndGatewayPlacement returned no gateway block')
   }

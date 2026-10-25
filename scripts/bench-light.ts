@@ -6,6 +6,7 @@
  * a sealed room and observes its neighbour after every edit.
  */
 import { performance } from 'node:perf_hooks'
+import { Option } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
@@ -16,13 +17,14 @@ import {
   withChunk,
   type ChunkStoreState,
 } from '../src/domain/chunk-store-state'
-import { blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { blockIdOf, blockPosition as createBlockPosition, chunkCoord as createChunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { blockAxis, chunkAxis } from '../src/domain/coordinate-compatibility'
 
 const PLAINS = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const)
 const SURFACE_Y = 63
 const ROOF_Y = SURFACE_Y + 2
 const ROOM_Y = SURFACE_Y + 1
-const TORCH = blockIdOf('torch')
+const TORCH = Option.getOrThrow(blockIdOf('torch'))
 const EDITS = 8
 const RUNS = 5
 
@@ -40,17 +42,17 @@ const roofedChunk = (coord: ChunkCoord): Chunk => {
 
 const makeState = (): ChunkStoreState => {
   let state = emptyChunkStoreState
-  for (const coord of [chunkCoord(0, 0), chunkCoord(1, 0), chunkCoord(0, 1), chunkCoord(1, 1)]) {
+  for (const coord of [createChunkCoord(chunkAxis(0), chunkAxis(0)), createChunkCoord(chunkAxis(1), chunkAxis(0)), createChunkCoord(chunkAxis(0), chunkAxis(1)), createChunkCoord(chunkAxis(1), chunkAxis(1))]) {
     state = withChunk(state, roofedChunk(coord))
   }
-  return lightAt(state, blockPosition(4, ROOM_Y, 4))[1]
+  return lightAt(state, createBlockPosition(blockAxis(4), blockAxis(ROOM_Y), blockAxis(4)))[1]
 }
 
 let sink = 0
 const workload = (): number => {
   let state = makeState()
-  const source = blockPosition(4, ROOM_Y, 4)
-  const target = blockPosition(5, ROOM_Y, 4)
+  const source = createBlockPosition(blockAxis(4), blockAxis(ROOM_Y), blockAxis(4))
+  const target = createBlockPosition(blockAxis(5), blockAxis(ROOM_Y), blockAxis(4))
   const started = performance.now()
 
   for (let edit = 0; edit < EDITS; edit += 1) {

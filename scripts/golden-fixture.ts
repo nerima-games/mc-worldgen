@@ -83,10 +83,13 @@
  * directions: the suite passes whether the pass works or does nothing at all.
  */
 import { createHash } from 'node:crypto'
+import { Result } from 'effect'
+import { NoiseSeed, type NoiseSeed as NoiseSeedValue } from '@nerima-games/mc-noise'
 import path from 'node:path'
 import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../src/domain/carver'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
+import { chunkAxis, localAxis } from '../src/domain/coordinate-compatibility'
 import { packBlocksV2 } from '../src/domain/chunk-format'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, SEA_LEVEL } from '../src/domain/constants'
 import { DEEPSLATE_ORE_BLOCK, ORE_BLOCK } from '../src/domain/ore'
@@ -101,7 +104,7 @@ import { PLANT } from '../src/domain/vegetation'
  * with `pnpm preview --seed 20260726` without translating coordinates between
  * two different worlds.
  */
-export const GOLDEN_SEED = 20260726
+export const GOLDEN_SEED: NoiseSeedValue = Result.getOrThrow(NoiseSeed.result(20260726))
 
 export type GoldenSpec = {
   /** The biome all 256 columns of this chunk classify as. Documentation, and asserted. */
@@ -315,7 +318,7 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      const biome = chunk.biomes[columnIndex(lx, lz)]
+      const biome = chunk.biomes[columnIndex(localAxis(lx), localAxis(lz))]
       if (biome !== undefined) {
         biomeCounts[biome] = (biomeCounts[biome] ?? 0) + 1
       }
@@ -367,7 +370,7 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
 }
 
 export const generateGoldenChunk = (spec: GoldenSpec): Chunk =>
-  generateChunkAt(GOLDEN_SEED, spec.cx, spec.cz, { decorate: spec.decorate })
+  generateChunkAt(GOLDEN_SEED, chunkAxis(spec.cx), chunkAxis(spec.cz), { decorate: spec.decorate })
 
 export const goldenEntry = (spec: GoldenSpec): GoldenEntry => {
   const chunk = generateGoldenChunk(spec)
