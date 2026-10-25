@@ -60,7 +60,8 @@
  * asserting that today's code does what today's code does.
  */
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
-import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, valueNoise2D } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
@@ -93,7 +94,7 @@ type IndexedValues<Value> = {
   readonly [index: number]: Value
 }
 
-const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
 
 /** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
 const CAVE_NOISE_WAVELENGTH_BLOCKS = 24
@@ -157,7 +158,7 @@ const carveVoxelIfClearable = (blocks: Uint16Array, index: number): void => {
 type CarveContext = {
   readonly blocks: Uint16Array
   readonly margin: number
-  readonly caveSeed: number
+  readonly caveSeed: NoiseSeed
   readonly coord: ChunkCoord
 }
 
@@ -222,7 +223,7 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
  */
 export const carveCaves = (
   blocks: Uint16Array,
-  seed: number,
+  seed: NoiseSeed,
   coord: ChunkCoord,
   options: CarveOptions = {},
 ): void => {

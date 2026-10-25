@@ -19,14 +19,15 @@ export const OCEAN_RUIN_LAYOUT: Readonly<{
   wallHeight: 4,
 })
 
+import { Option } from 'effect'
 export const OCEAN_RUIN_BLOCK: Readonly<
   Record<'CHEST' | 'COBBLESTONE' | 'GRAVEL' | 'PRISMARINE' | 'SAND' | 'SANDSTONE' | 'STONE', BlockId>
 > = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  COBBLESTONE: blockIdOf('cobblestone'),
-  GRAVEL: blockIdOf('gravel'),
-  PRISMARINE: blockIdOf('prismarine'),
-  SAND: blockIdOf('sand'),
-  SANDSTONE: blockIdOf('sandstone'),
-  STONE: blockIdOf('stone'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  COBBLESTONE: Option.getOrThrow(blockIdOf('cobblestone')),
+  GRAVEL: Option.getOrThrow(blockIdOf('gravel')),
+  PRISMARINE: Option.getOrThrow(blockIdOf('prismarine')),
+  SAND: Option.getOrThrow(blockIdOf('sand')),
+  SANDSTONE: Option.getOrThrow(blockIdOf('sandstone')),
+  STONE: Option.getOrThrow(blockIdOf('stone')),
 })

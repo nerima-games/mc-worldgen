@@ -28,7 +28,8 @@ export const DESERT_WELL_LAYOUT: Readonly<
   waterHalfExtent: 1,
 })
 
+import { Option } from 'effect'
 export const DESERT_WELL_BLOCK: Readonly<Record<'SANDSTONE' | 'WATER', BlockId>> = Object.freeze({
-  SANDSTONE: blockIdOf('sandstone'),
-  WATER: blockIdOf('water'),
+  SANDSTONE: Option.getOrThrow(blockIdOf('sandstone')),
+  WATER: Option.getOrThrow(blockIdOf('water')),
 })

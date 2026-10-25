@@ -1,15 +1,18 @@
 /** Deterministic, absolute-coordinate terrain generation for the Nether. */
+import { blockAxis } from './coordinate-compatibility.js'
 import { type BlockId, type ChunkCoord, blockIdOf, chunkCoord } from '@nerima-games/mc-kernel'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, emptyBlocks } from './chunk.js'
 import {
   type NaturalStructureChunk,
-  type NaturalStructurePosition,
   type NetherStructureTerrainSample,
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
-import { channelSeed, fbm2D, latticeValue } from '@nerima-games/mc-noise'
+import type { NaturalStructurePositionDraft } from './natural-structure-types.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, fbm2D, latticeValue } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 
 /** Advances a loop counter, or steps to the adjacent lattice point, by one unit. */
@@ -18,11 +21,11 @@ const UNIT_STEP = 1
 export const NETHER_BLOCK: Readonly<
   Record<'AIR' | 'BEDROCK' | 'LAVA' | 'NETHERRACK' | 'SOUL_SAND', BlockId>
 > = Object.freeze({
-  AIR: blockIdOf('air'),
-  BEDROCK: blockIdOf('bedrock'),
-  LAVA: blockIdOf('lava'),
-  NETHERRACK: blockIdOf('netherrack'),
-  SOUL_SAND: blockIdOf('soul_sand'),
+  AIR: Option.getOrThrow(blockIdOf('air')),
+  BEDROCK: Option.getOrThrow(blockIdOf('bedrock')),
+  LAVA: Option.getOrThrow(blockIdOf('lava')),
+  NETHERRACK: Option.getOrThrow(blockIdOf('netherrack')),
+  SOUL_SAND: Option.getOrThrow(blockIdOf('soul_sand')),
 })
 
 export const NETHER_LAVA_LEVEL = 31
@@ -35,7 +38,7 @@ const smoothstep = (value: number): number =>
 
 const interpolate = (left: number, right: number, amount: number): number => left + (right - left) * amount
 
-const latticeValue3D = (seed: number, x: number, y: number, z: number): number =>
+const latticeValue3D = (seed: NoiseSeed, x: number, y: number, z: number): number =>
   latticeValue(channelSeed(seed, `nether-y:${String(y)}`), x, z)
 
 /** The scaled lattice cell a sample position falls in, and its smoothstep weight within it. */
@@ -48,7 +51,7 @@ type ScaledLatticeCell = {
   readonly z0: number
 }
 
-const scaledLatticeCell = (position: NaturalStructurePosition, frequency: number): ScaledLatticeCell => {
+const scaledLatticeCell = (position: NaturalStructurePositionDraft, frequency: number): ScaledLatticeCell => {
   const sx = position.x * frequency
   const sy = position.y * frequency
   const sz = position.z * frequency
@@ -58,7 +61,7 @@ const scaledLatticeCell = (position: NaturalStructurePosition, frequency: number
   return { tx: smoothstep(sx - x0), ty: smoothstep(sy - y0), tz: smoothstep(sz - z0), x0, y0, z0 }
 }
 
-const valueNoise3D = (seed: number, position: NaturalStructurePosition, frequency: number): number => {
+const valueNoise3D = (seed: NoiseSeed, position: NaturalStructurePositionDraft, frequency: number): number => {
   const { tx, ty, tz, x0, y0, z0 } = scaledLatticeCell(position, frequency)
   const plane = (iy: number): number => {
     const north = interpolate(latticeValue3D(seed, x0, iy, z0), latticeValue3D(seed, x0 + UNIT_STEP, iy, z0), tx)
@@ -105,7 +108,7 @@ const netherShellAt = (y: number, floor: number, ceiling: number): number => {
 const NETHER_DENSITY_BROAD_WEIGHT = 0.65
 const NETHER_DENSITY_DETAIL_WEIGHT = 0.35
 
-const netherDensityAt = (seed: number, x: number, y: number, z: number): number => {
+const netherDensityAt = (seed: NoiseSeed, x: number, y: number, z: number): number => {
   const position = { x, y, z }
   const broad = valueNoise3D(channelSeed(seed, 'nether-density-broad'), position, NETHER_DENSITY_BROAD_FREQUENCY)
   const detail = valueNoise3D(channelSeed(seed, 'nether-density-detail'), position, NETHER_DENSITY_DETAIL_FREQUENCY)
@@ -122,6 +125,7 @@ const netherDensityAt = (seed: number, x: number, y: number, z: number): number 
 const NETHER_BEDROCK_BASE_THICKNESS = 1
 const NETHER_BEDROCK_THICKNESS_VARIATION = 5
 
+import { Option } from 'effect'
 const bedrockChannelName = (top: boolean): string => {
   if (top) {
     return 'nether-bedrock-top'
@@ -129,7 +133,7 @@ const bedrockChannelName = (top: boolean): string => {
   return 'nether-bedrock-bottom'
 }
 
-const bedrockThicknessAt = (seed: number, x: number, z: number, top: boolean): number =>
+const bedrockThicknessAt = (seed: NoiseSeed, x: number, z: number, top: boolean): number =>
   NETHER_BEDROCK_BASE_THICKNESS +
   Math.floor(latticeValue(channelSeed(seed, bedrockChannelName(top)), x, z) * NETHER_BEDROCK_THICKNESS_VARIATION)
 
@@ -145,7 +149,7 @@ const NETHER_SOLID_DENSITY_THRESHOLD = 0.55
 const NETHER_SOUL_SAND_CHANCE = 0.16
 
 /** Authoritative block query shared by generation and structure siting. */
-export const netherBlockAt = (seed: number, x: number, y: number, z: number): BlockId => {
+export const netherBlockAt = (seed: NoiseSeed, x: BlockAxis, y: BlockAxis, z: BlockAxis): BlockId => {
   if (y < NETHER_WORLD_MIN_Y || y >= CHUNK_HEIGHT) {return NETHER_BLOCK.AIR}
   if (y < bedrockThicknessAt(seed, x, z, false) || y >= CHUNK_HEIGHT - bedrockThicknessAt(seed, x, z, true)) {
     return NETHER_BLOCK.BEDROCK
@@ -163,9 +167,9 @@ const NETHER_STRUCTURE_HEADROOM = 8
 const NETHER_STRUCTURE_MIN_CLEARANCE = 7
 
 /** Whether every block from one above `floorY` up through the minimum clearance is air. */
-const hasOpenHeadroom = (seed: number, x: number, floorY: number, z: number): boolean => {
+const hasOpenHeadroom = (seed: NoiseSeed, x: number, floorY: number, z: number): boolean => {
   for (let y = floorY + UNIT_STEP; y <= floorY + NETHER_STRUCTURE_MIN_CLEARANCE; y += UNIT_STEP) {
-    if (netherBlockAt(seed, x, y, z) !== NETHER_BLOCK.AIR) {
+    if (netherBlockAt(seed, blockAxis(x), blockAxis(y), blockAxis(z)) !== NETHER_BLOCK.AIR) {
       return false
     }
   }
@@ -173,9 +177,9 @@ const hasOpenHeadroom = (seed: number, x: number, floorY: number, z: number): bo
 }
 
 /** The first solid block at or above the headroom, scanning up from `floorY`. */
-const firstSolidCeilingAbove = (seed: number, x: number, floorY: number, z: number): number => {
+const firstSolidCeilingAbove = (seed: NoiseSeed, x: number, floorY: number, z: number): number => {
   let ceilingY = floorY + NETHER_STRUCTURE_HEADROOM
-  while (ceilingY < CHUNK_HEIGHT && netherBlockAt(seed, x, ceilingY, z) === NETHER_BLOCK.AIR) {
+  while (ceilingY < CHUNK_HEIGHT && netherBlockAt(seed, blockAxis(x), blockAxis(ceilingY), blockAxis(z)) === NETHER_BLOCK.AIR) {
     ceilingY += UNIT_STEP
   }
   return ceilingY
@@ -183,39 +187,39 @@ const firstSolidCeilingAbove = (seed: number, x: number, floorY: number, z: numb
 
 /** Finds a real solid floor and the first solid ceiling above its open headroom. */
 export const netherStructureTerrainAt = (
-  seed: number,
-  x: number,
-  z: number,
+  seed: NoiseSeed,
+  x: BlockAxis,
+  z: BlockAxis,
 ): NetherStructureTerrainSample | undefined => {
   for (let floorY = NETHER_LAVA_LEVEL + UNIT_STEP; floorY < CHUNK_HEIGHT - NETHER_STRUCTURE_HEADROOM; floorY += UNIT_STEP) {
-    if (netherBlockAt(seed, x, floorY, z) !== NETHER_BLOCK.AIR && hasOpenHeadroom(seed, x, floorY, z)) {
-      return Object.freeze({ ceilingY: firstSolidCeilingAbove(seed, x, floorY, z), surfaceY: floorY })
+    if (netherBlockAt(seed, x, blockAxis(floorY), z) !== NETHER_BLOCK.AIR && hasOpenHeadroom(seed, x, floorY, z)) {
+      return Object.freeze({ ceilingY: blockAxis(firstSolidCeilingAbove(seed, x, floorY, z)), surfaceY: blockAxis(floorY) })
     }
   }
   return
 }
 
 /** Generates Nether terrain without natural structures. */
-export const generateNetherTerrainChunk = (seed: number, coord: ChunkCoord): Chunk => {
+export const generateNetherTerrainChunk = (seed: NoiseSeed, coord: ChunkCoord): Chunk => {
   const blocks = emptyBlocks()
   const biomes = Array.from<'NETHER'>({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }).fill('NETHER')
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += UNIT_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += UNIT_STEP) {
-      const x = worldX(coord, lx)
-      const z = worldZ(coord, lz)
-      for (let y = 0; y < CHUNK_HEIGHT; y += UNIT_STEP) {blocks[blockIndex(lx, y, lz)] = netherBlockAt(seed, x, y, z)}
+      const x = blockAxis(worldX(coord, lx))
+      const z = blockAxis(worldZ(coord, lz))
+      for (let y = 0; y < CHUNK_HEIGHT; y += UNIT_STEP) {blocks[blockIndex(lx, y, lz)] = netherBlockAt(seed, blockAxis(x), blockAxis(y), blockAxis(z))}
     }
   }
   return { biomes, blocks, coord }
 }
 
 /** Generates Nether terrain and applies every cross-boundary portal plan touching the chunk. */
-export const generateNetherChunk = (seed: number, coord: ChunkCoord): NaturalStructureChunk => {
+export const generateNetherChunk = (seed: NoiseSeed, coord: ChunkCoord): NaturalStructureChunk => {
   const terrain = generateNetherTerrainChunk(seed, coord)
   const sampler = (x: number, z: number): NetherStructureTerrainSample | undefined =>
-    netherStructureTerrainAt(seed, x, z)
+    netherStructureTerrainAt(seed, blockAxis(x), blockAxis(z))
   return applyNaturalStructurePlansToChunk(terrain, naturalStructurePlansForChunk(seed, 'nether', coord, { nether: sampler }))
 }
 
-export const generateNetherChunkAt = (seed: number, cx: number, cz: number): NaturalStructureChunk =>
+export const generateNetherChunkAt = (seed: NoiseSeed, cx: ChunkAxis, cz: ChunkAxis): NaturalStructureChunk =>
   generateNetherChunk(seed, chunkCoord(cx, cz))

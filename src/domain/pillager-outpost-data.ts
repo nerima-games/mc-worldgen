@@ -27,13 +27,14 @@ export const PILLAGER_OUTPOST_LAYOUT: Readonly<{
   towerHalfExtent: 2,
 })
 
+import { Option } from 'effect'
 export const PILLAGER_OUTPOST_BLOCK: Readonly<
   Record<'CHEST' | 'COBBLESTONE' | 'OAK_LOG' | 'OAK_PLANKS' | 'OAK_STAIRS' | 'TORCH', BlockId>
 > = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  COBBLESTONE: blockIdOf('cobblestone'),
-  OAK_LOG: blockIdOf('oak_log'),
-  OAK_PLANKS: blockIdOf('oak_planks'),
-  OAK_STAIRS: blockIdOf('oak_stairs'),
-  TORCH: blockIdOf('torch'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  COBBLESTONE: Option.getOrThrow(blockIdOf('cobblestone')),
+  OAK_LOG: Option.getOrThrow(blockIdOf('oak_log')),
+  OAK_PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
+  OAK_STAIRS: Option.getOrThrow(blockIdOf('oak_stairs')),
+  TORCH: Option.getOrThrow(blockIdOf('torch')),
 })

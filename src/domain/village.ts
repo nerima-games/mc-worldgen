@@ -1,3 +1,4 @@
+import { blockAxis } from './coordinate-compatibility.js'
 import {
   type OverworldTerrainSampler,
   type VillageSite,
@@ -9,9 +10,10 @@ import { BLOCK } from './biome.js'
 import { CHUNK_SIZE_XZ } from './constants.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { blockIdOf, type BlockId } from '@nerima-games/mc-kernel'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 
 export const VILLAGE_BLOCK: Readonly<Record<'FOUNDATION' | 'ROAD' | 'TIMBER', BlockId>> = {
-  FOUNDATION: blockIdOf('cobblestone'),
+  FOUNDATION: Option.getOrThrow(blockIdOf('cobblestone')),
   ROAD: BLOCK.GRAVEL,
   TIMBER: BLOCK.LOG,
 } as const
@@ -24,22 +26,24 @@ export type VillageVillagerSpawn = {
   readonly profession: VillageVillagerProfession
   readonly villageSite: VillageSite
   // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-  readonly x: number
+  readonly x: BlockAxis
   // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-  readonly y: number
+  readonly y: BlockAxis
   // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
-  readonly z: number
+  readonly z: BlockAxis
 }
 
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { Option } from 'effect'
 type House = { readonly x: number; readonly z: number; readonly profession: VillageVillagerProfession }
 
 type HouseBlockRequest = {
   readonly site: VillageSite
   readonly house: House
-  readonly wx: number
-  readonly y: number
-  readonly wz: number
+  readonly wx: BlockAxis
+  readonly y: BlockAxis
+  readonly wz: BlockAxis
   readonly sampleTerrain: OverworldTerrainSampler
 }
 
@@ -63,7 +67,7 @@ const houseFloorY = (site: VillageSite, house: House, sample: OverworldTerrainSa
   for (let dx = -HOUSE_HALF_X; dx <= HOUSE_HALF_X; dx += 1) {
     // eslint-disable-next-line id-length, no-magic-numbers -- dz is the conventional local z offset.
     for (let dz = -HOUSE_HALF_Z; dz <= HOUSE_HALF_Z; dz += 1) {
-      highest = Math.max(highest, sample(site.x + house.x + dx, site.z + house.z + dz).surfaceY)
+      highest = Math.max(highest, sample(blockAxis(site.x + house.x + dx), blockAxis(site.z + house.z + dz)).surfaceY)
     }
   }
   // eslint-disable-next-line no-magic-numbers -- The floor sits one block above the highest ground.
@@ -73,7 +77,7 @@ const houseFloorY = (site: VillageSite, house: House, sample: OverworldTerrainSa
 /** One stable spawn per generated house, standing on that house's actual floor. */
 // eslint-disable-next-line id-length -- Spawn descriptors expose canonical world axes.
 export const villageVillagerSpawnsForSite = (
-  seed: number,
+  seed: NoiseSeed,
   site: VillageSite,
   sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<VillageVillagerSpawn> => HOUSES.map((house, houseIndex) => ({
@@ -81,19 +85,19 @@ export const villageVillagerSpawnsForSite = (
   profession: house.profession,
   villageSite: site,
   // eslint-disable-next-line id-length -- x is the canonical world axis.
-  x: site.x + house.x,
+  x: blockAxis(site.x + house.x),
   // eslint-disable-next-line id-length, no-magic-numbers -- y is the canonical axis; feet occupy air above the floor.
-  y: houseFloorY(site, house, sampleTerrain) + 1,
+  y: blockAxis(houseFloorY(site, house, sampleTerrain) + 1),
   // eslint-disable-next-line id-length -- z is the canonical world axis.
-  z: site.z + house.z,
+  z: blockAxis(site.z + house.z),
 }))
 
 /** Enumerates only the stable village spawns owned by this chunk. */
 // eslint-disable-next-line max-params -- Chunk lookup requires its seed, two coordinates and terrain sampler.
 export const villageVillagerSpawnsForChunk = (
-  seed: number,
-  chunkX: number,
-  chunkZ: number,
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
   sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<VillageVillagerSpawn> => villageSitesNearChunk(seed, chunkX, chunkZ, sampleTerrain)
   .flatMap((site) => villageVillagerSpawnsForSite(seed, site, sampleTerrain))
@@ -167,10 +171,10 @@ const houseBlockAt = ({ site, house, wx, y, wz, sampleTerrain }: HouseBlockReque
 // eslint-disable-next-line max-params, max-statements -- Public point sampling requires world axes and terrain context.
 export const villageBlockAt = (
   site: VillageSite,
-  wx: number,
+  wx: BlockAxis,
   // eslint-disable-next-line id-length -- y is the canonical vertical axis.
-  y: number,
-  wz: number,
+  y: BlockAxis,
+  wz: BlockAxis,
   sample: OverworldTerrainSampler,
 ): BlockId | undefined => {
   for (const house of HOUSES) {

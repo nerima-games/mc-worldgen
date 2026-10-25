@@ -1,9 +1,11 @@
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import type {
   AppliedNaturalStructureMarker,
   NaturalStructureChunk,
   NaturalStructureChunkSlice,
   NaturalStructurePlan,
 } from './natural-structure-types.js'
+import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { type Chunk, setBlockAt } from './chunk.js'
 import { CHUNK_SIZE_XZ } from './constants.js'
 import { plansInStableOrder } from './natural-structure-order.js'
@@ -11,8 +13,8 @@ import { plansInStableOrder } from './natural-structure-order.js'
 /** Projects a plan without observing or mutating loaded neighbouring chunks. */
 export const naturalStructureSliceForChunk = (
   plan: NaturalStructurePlan,
-  chunkX: number,
-  chunkZ: number,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
 ): NaturalStructureChunkSlice => Object.freeze({
   blocks: Object.freeze(plan.blocks.filter((block) =>
     Math.floor(block.x / CHUNK_SIZE_XZ) === chunkX && Math.floor(block.z / CHUNK_SIZE_XZ) === chunkZ,
@@ -63,9 +65,9 @@ const writePlanBlocks = (
       hasSlice = true
       setBlockAt(
         accumulator.blocks,
-        placement.x - window.minX,
-        placement.y,
-        placement.z - window.minZ,
+        localAxis(placement.x - window.minX),
+        blockAxis(placement.y),
+        localAxis(placement.z - window.minZ),
         placement.block,
       )
     }

@@ -8,13 +8,15 @@ import {
   candidateForRegion,
   finishPlan,
 } from './natural-structure-plan-builder.js'
+import { blockAxis } from './coordinate-compatibility.js'
 import type {
   NaturalStructurePlan,
   NaturalStructureRegion,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 
 const PORTAL_PROBE_OFFSET = 3
@@ -26,12 +28,13 @@ const portalTerrainFits = (
   candidate: Candidate,
   sample: NetherStructureTerrainSampler,
 ): Option.Option<number> => {
+  const sampleAt = (x: number, z: number) => sample(blockAxis(x), blockAxis(z))
   const probes = [
-    sample(candidate.x, candidate.z),
-    sample(candidate.x - PORTAL_PROBE_OFFSET, candidate.z),
-    sample(candidate.x + PORTAL_PROBE_OFFSET, candidate.z),
-    sample(candidate.x, candidate.z - PORTAL_PROBE_OFFSET),
-    sample(candidate.x, candidate.z + PORTAL_PROBE_OFFSET),
+    sampleAt(candidate.x, candidate.z),
+    sampleAt(candidate.x - PORTAL_PROBE_OFFSET, candidate.z),
+    sampleAt(candidate.x + PORTAL_PROBE_OFFSET, candidate.z),
+    sampleAt(candidate.x, candidate.z - PORTAL_PROBE_OFFSET),
+    sampleAt(candidate.x, candidate.z + PORTAL_PROBE_OFFSET),
   ]
   const validProbes = probes.filter(Predicate.isNotUndefined)
   if (validProbes.length !== probes.length) {return Option.none()}
@@ -39,8 +42,8 @@ const portalTerrainFits = (
   const surfaces = validProbes.map((probe) => probe.surfaceY)
   const baseY = Math.max(...surfaces) + PORTAL_BASE_Y_CLEARANCE
   if (
-    Math.max(...surfaces) - Math.min(...surfaces) > PORTAL_MAX_SURFACE_VARIATION
-    || validProbes.some((probe) => probe.ceilingY - baseY < PORTAL_MIN_CEILING_CLEARANCE)
+    Math.max(...surfaces) - Math.min(...surfaces) > PORTAL_MAX_SURFACE_VARIATION ||
+    validProbes.some((probe) => probe.ceilingY - baseY < PORTAL_MIN_CEILING_CLEARANCE)
   ) {
     return Option.none()
   }
@@ -129,7 +132,7 @@ const placePortalRuinLoot = (mutable: MutablePlan, candidate: Candidate, baseY: 
 type PortalRuinSite = { readonly candidate: Candidate; readonly baseY: number }
 
 const portalRuinSiteForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
@@ -144,7 +147,7 @@ const portalRuinSiteForRegion = (
 
 /** Plans an intentionally incomplete, unlit Nether portal ruin. */
 export const planRuinedNetherPortalForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: NetherStructureTerrainSampler,

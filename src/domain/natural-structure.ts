@@ -1,4 +1,5 @@
 /** Deterministic, immutable plans for cross-chunk natural structures. */
+import { blockAxis } from './coordinate-compatibility.js'
 import { type BastionRemnantDraft, planBastionRemnantForCandidate } from './bastion-remnant.js'
 import {
   COMPACT_STRUCTURE_KINDS,
@@ -45,7 +46,7 @@ import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pi
 import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck.js'
 import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village.js'
 import { CHUNK_HEIGHT } from './constants.js'
-import type { Dimension } from '@nerima-games/mc-kernel'
+import type { ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 import { planEndCityForRegion } from './natural-structure-end-city.js'
 import { planNetherFortressForRegion } from './nether-fortress.js'
@@ -58,7 +59,23 @@ export {
   MAX_NATURAL_STRUCTURE_MARKERS,
   NATURAL_STRUCTURE_GRID,
 } from './natural-structure-grid-data.js'
-export * from './natural-structure-types.js'
+export type {
+  AppliedNaturalStructureMarker,
+  EndStructureTerrainSampler,
+  NaturalStructureBlockPlacement,
+  NaturalStructureBounds,
+  NaturalStructureChunk,
+  NaturalStructureChunkSlice,
+  NaturalStructureGrid,
+  NaturalStructureKind,
+  NaturalStructureMarker,
+  NaturalStructurePlan,
+  NaturalStructurePosition,
+  NaturalStructureRegion,
+  NaturalStructureSamplers,
+  NetherStructureTerrainSample,
+  NetherStructureTerrainSampler,
+} from './natural-structure-types.js'
 export {
   applyNaturalStructurePlansToChunk,
   naturalStructureSliceForChunk,
@@ -68,7 +85,7 @@ export { planRuinedNetherPortalForRegion } from './natural-structure-portal.js'
 export { planStrongholdForRegion } from './stronghold-structure.js'
 
 const finishCompactStructurePlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   kind: CompactStructureKind,
@@ -91,7 +108,7 @@ const finishCompactStructurePlan = (
 
 /** Plans a compact deterministic representation for an overworld structure kind. */
 type CompactStructureRegionPlanRequest = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly kind: CompactStructureKind
   readonly regionX: number
   readonly regionZ: number
@@ -121,7 +138,7 @@ const planCompactStructureForRegionWithPresence = ({
 }
 
 export const planCompactStructureForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   kind: CompactStructureKind,
   regionX: number,
   regionZ: number,
@@ -139,12 +156,13 @@ const VILLAGE_LOOT_CHEST_OFFSET_X = 1
 const FIRST_SPAWN_INDEX = 0
 
 /** Carves one village's building interiors and exteriors into `mutable`. */
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerrain: OverworldTerrainSampler): void => {
   for (let x = site.x - VILLAGE_HALF_EXTENT; x <= site.x + VILLAGE_HALF_EXTENT; x += UNIT_STEP) {
     for (let z = site.z - VILLAGE_HALF_EXTENT; z <= site.z + VILLAGE_HALF_EXTENT; z += UNIT_STEP) {
-      const { surfaceY } = sampleTerrain(x, z)
-      for (let y = surfaceY; y < Math.min(CHUNK_HEIGHT, surfaceY + VILLAGE_STRUCTURE_HEIGHT); y += UNIT_STEP) {
-        const block = villageBlockAt(site, x, y, z, sampleTerrain)
+      const { surfaceY } = sampleTerrain(blockAxis(x), blockAxis(z))
+      for (let y = Number(surfaceY); y < Math.min(CHUNK_HEIGHT, surfaceY + VILLAGE_STRUCTURE_HEIGHT); y += UNIT_STEP) {
+        const block = villageBlockAt(site, blockAxis(x), blockAxis(y), blockAxis(z), sampleTerrain)
         if (Predicate.isNotUndefined(block)) {addBlock(mutable, { block, x, y, z })}
       }
     }
@@ -165,7 +183,7 @@ const placeVillageSpawnsAndLoot = (mutable: MutablePlan, spawns: ReadonlyArray<V
 
 /** Plans the same village layout used by the Overworld chunk generator. */
 export const planVillageForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -189,7 +207,7 @@ export const planVillageForRegion = (
 }
 
 const finishDesertPyramidPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: DesertPyramidDraft,
@@ -211,7 +229,7 @@ const finishDesertPyramidPlan = (
 
 /** Plans the supported desert-pyramid geometry on a dry, level desert site. */
 export const planDesertPyramidForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -225,7 +243,7 @@ export const planDesertPyramidForRegion = (
 }
 
 const finishDesertWellPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: DesertWellDraft,
@@ -246,7 +264,7 @@ const finishDesertWellPlan = (
 
 /** Plans the supported desert-well geometry on a dry, level desert site. */
 export const planDesertWellForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -260,7 +278,7 @@ export const planDesertWellForRegion = (
 }
 
 const finishIglooPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: IglooDraft,
@@ -282,7 +300,7 @@ const finishIglooPlan = (
 
 /** Plans the supported igloo geometry on a dry, level snow site. */
 export const planIglooForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -296,7 +314,7 @@ export const planIglooForRegion = (
 }
 
 const finishJunglePyramidPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: JunglePyramidDraft,
@@ -318,7 +336,7 @@ const finishJunglePyramidPlan = (
 
 /** Plans the supported compact jungle-pyramid geometry on a dry, level jungle site. */
 export const planJunglePyramidForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -332,7 +350,7 @@ export const planJunglePyramidForRegion = (
 }
 
 const finishMineshaftPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: MineshaftDraft,
@@ -350,7 +368,7 @@ const finishMineshaftPlan = (
 
 /** Plans the supported underground mineshaft network on a level terrain site. */
 export const planMineshaftForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -364,7 +382,7 @@ export const planMineshaftForRegion = (
 }
 
 const finishOceanRuinPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: OceanRuinDraft,
@@ -381,7 +399,7 @@ const finishOceanRuinPlan = (
   )
 
 const finishOceanMonumentPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: OceanMonumentDraft,
@@ -403,7 +421,7 @@ const finishOceanMonumentPlan = (
 
 /** Plans the supported compact ocean-monument geometry on a deep ocean floor. */
 export const planOceanMonumentForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -418,7 +436,7 @@ export const planOceanMonumentForRegion = (
 
 /** Plans the supported submerged ocean-ruin geometry on a dry-free, level ocean floor. */
 export const planOceanRuinForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -432,7 +450,7 @@ export const planOceanRuinForRegion = (
 }
 
 const finishShipwreckPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: ShipwreckDraft,
@@ -454,7 +472,7 @@ const finishShipwreckPlan = (
 
 /** Plans the supported submerged shipwreck geometry on a level ocean floor. */
 export const planShipwreckForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -468,7 +486,7 @@ export const planShipwreckForRegion = (
 }
 
 const finishPillagerOutpostPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: PillagerOutpostDraft,
@@ -490,7 +508,7 @@ const finishPillagerOutpostPlan = (
 
 /** Plans the supported dry pillager outpost geometry. */
 export const planPillagerOutpostForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -504,7 +522,7 @@ export const planPillagerOutpostForRegion = (
 }
 
 const finishBastionRemnantPlan = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: BastionRemnantDraft,
@@ -526,7 +544,7 @@ const finishBastionRemnantPlan = (
 
 /** Plans the supported compact bastion remnant geometry. */
 export const planBastionRemnantForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: NetherStructureTerrainSampler,
@@ -549,7 +567,7 @@ const isCompactStructureKind = (kind: NaturalStructureKind): kind is CompactStru
   COMPACT_STRUCTURE_KINDS.some((compactKind) => compactKind === kind)
 
 const planOverworldWaterKind = (
-  seed: number,
+  seed: NoiseSeed,
   kind: OverworldWaterStructureKind,
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
@@ -565,7 +583,7 @@ const planOverworldWaterKind = (
 }
 
 const planOverworldLandKind = (
-  seed: number,
+  seed: NoiseSeed,
   kind: OverworldLandStructureKind,
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
@@ -581,7 +599,7 @@ const planOverworldLandKind = (
 }
 
 const planOverworldSurfaceKind = (
-  seed: number,
+  seed: NoiseSeed,
   kind: OverworldSurfaceStructureKind,
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
@@ -597,7 +615,7 @@ const planOverworldSurfaceKind = (
 }
 
 const planOverworldKind = (
-  seed: number,
+  seed: NoiseSeed,
   kind: NaturalStructureKind,
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
@@ -626,7 +644,7 @@ const planOverworldKind = (
 }
 
 const planOverworldRegion = (
-  seed: number,
+  seed: NoiseSeed,
   kind: NaturalStructureKind,
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler | undefined,
@@ -643,7 +661,7 @@ const planOverworldRegion = (
 
 const netherFortressPresenceChannelSeedFor = (
   candidateChannelInput?: CandidateChannelInput,
-): number | undefined => {
+): NoiseSeed | undefined => {
   if (typeof candidateChannelInput === 'number') {
     return candidateChannelInput
   }
@@ -651,7 +669,7 @@ const netherFortressPresenceChannelSeedFor = (
 }
 
 const planNetherRegion = (
-  seed: number,
+  seed: NoiseSeed,
   kind: NaturalStructureKind,
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler | undefined,
@@ -701,9 +719,9 @@ export const planNaturalStructureForRegion = ({
  * coordinates through floor division.
  */
 export const naturalStructurePlansForChunk = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
-  coord: { readonly cx: number; readonly cz: number },
+  coord: ChunkCoord,
   samplers: NaturalStructureSamplers = {},
 ): ReadonlyArray<NaturalStructurePlan> =>
   enumerateNaturalStructurePlansForChunk(seed, dimension, coord, samplers, planNaturalStructureForRegion)

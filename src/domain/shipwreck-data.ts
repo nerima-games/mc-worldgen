@@ -8,6 +8,7 @@ export const SHIPWRECK_GRID: NaturalStructureGrid = Object.freeze({
 })
 
 const LOOT_OFFSET_FORWARD = 4
+import { Option } from 'effect'
 const LOOT_OFFSET_AFT = -LOOT_OFFSET_FORWARD
 
 export const SHIPWRECK_LAYOUT: Readonly<{
@@ -37,8 +38,8 @@ export const SHIPWRECK_LAYOUT: Readonly<{
 })
 
 export const SHIPWRECK_BLOCK: Readonly<Record<'CHEST' | 'OAK_LOG' | 'OAK_PLANKS' | 'OAK_STAIRS', BlockId>> = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  OAK_LOG: blockIdOf('oak_log'),
-  OAK_PLANKS: blockIdOf('oak_planks'),
-  OAK_STAIRS: blockIdOf('oak_stairs'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  OAK_LOG: Option.getOrThrow(blockIdOf('oak_log')),
+  OAK_PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
+  OAK_STAIRS: Option.getOrThrow(blockIdOf('oak_stairs')),
 })

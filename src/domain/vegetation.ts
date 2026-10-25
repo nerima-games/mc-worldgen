@@ -6,14 +6,16 @@
  */
 import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome.js'
-import { type BlockId, canBlockStaySupported, isKnownBlockId } from '@nerima-games/mc-kernel'
+import { BlockId, canBlockStaySupported, isKnownBlockId } from '@nerima-games/mc-kernel'
 import {
   GROUND_PLANT_DENSITY,
   MUSHROOM_BIOMES,
   PLANT,
 } from './vegetation-data.js'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
+import { Result } from 'effect'
 
 export {
   AQUATIC_PLANT_IDS,
@@ -52,12 +54,12 @@ const HORIZONTAL_DELTAS: ReadonlyArray<readonly [number, number]> = [
 ]
 
 /** A deterministic, seeded, independent draw in [0, 1) for one world column. */
-export const plantRoll = (seed: number, wx: number, wz: number, channel: string): number =>
+export const plantRoll = (seed: NoiseSeed, wx: number, wz: number, channel: string): number =>
   latticeValue(channelSeed(seed, channel), wx, wz)
 
 /** Does the density roll pass for this column? */
 export const shouldPlaceGroundPlant = (input: {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly worldX: number
   readonly worldZ: number
   readonly biome: BiomeType
@@ -112,7 +114,7 @@ const GROUND_PLANT_VARIANT_TABLE: Partial<Record<BiomeType, ReadonlyArray<Varian
 }
 
 /** Select the single-block ground-cover variant for a world column. */
-export const groundPlantAt = (seed: number, wx: number, wz: number, biome: BiomeType): BlockId => {
+export const groundPlantAt = (seed: NoiseSeed, wx: number, wz: number, biome: BiomeType): BlockId => {
   const variant = plantRoll(seed, wx, wz, VARIANT_CHANNEL)
   const table = GROUND_PLANT_VARIANT_TABLE[biome] ?? []
 
@@ -157,7 +159,7 @@ export type SpecialVegetationInput = {
   readonly lz: number
   readonly surfaceY: number
   readonly waterLevel: number
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly worldX: number
   readonly worldZ: number
 }
@@ -171,8 +173,8 @@ const readLocalBlock = (blocks: Uint16Array, lx: number, y: number, lz: number):
     return BLOCK.AIR
   }
 
-  const block = readBlock(blocks, blockIndex(lx, y, lz))
-  if (isKnownBlockId(block)) {
+  const block = Result.getOrThrow(BlockId.result(readBlock(blocks, blockIndex(lx, y, lz))))
+  if (Result.getOrThrow(isKnownBlockId(block))) {
     return block
   }
   return BLOCK.AIR
@@ -231,9 +233,9 @@ const canPlaceSupportedPlantAt = ({ above = BLOCK.AIR, blocks, isSupported, lx, 
     readLocalBlock(blocks, lx, surfaceY + ABOVE_SURFACE_OFFSET, lz) === above
 }
 
-const supportsCactus = (support: BlockId): boolean => canBlockStaySupported(PLANT.CACTUS, support)
+const supportsCactus = (support: BlockId): boolean => Result.getOrThrow(canBlockStaySupported(PLANT.CACTUS, support))
 
-const supportsSugarCane = (support: BlockId): boolean => canBlockStaySupported(PLANT.SUGAR_CANE, support)
+const supportsSugarCane = (support: BlockId): boolean => Result.getOrThrow(canBlockStaySupported(PLANT.SUGAR_CANE, support))
 
 const supportsAquaticPlant = (support: BlockId): boolean => AQUATIC_SUPPORTS.includes(support)
 
@@ -323,7 +325,7 @@ const placeWaterStack = ({ blocks, height, lx, lz, plant, surfaceY }: WaterStack
   return placed
 }
 
-const specialPlantHeight = (seed: number, wx: number, wz: number): number =>
+const specialPlantHeight = (seed: NoiseSeed, wx: number, wz: number): number =>
   Math.floor(plantRoll(seed, wx, wz, SPECIAL_HEIGHT_CHANNEL) * MAX_NATURAL_PLANT_HEIGHT) + ABOVE_SURFACE_OFFSET
 
 const plantAquaticColumn = (input: SpecialVegetationInput): void => {

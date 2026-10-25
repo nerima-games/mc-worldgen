@@ -140,7 +140,7 @@ import {
 } from './end-features.js'
 import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
 import { type Chunk } from './chunk.js'
-import { Schema } from 'effect'
+import { Effect, Result, Schema, SchemaGetter } from 'effect'
 
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
 export const CHUNK_BIOME_COUNT: number = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
@@ -165,11 +165,11 @@ export const CHUNK_FORMAT_NAME = '@nerima-games/mc-worldgen/chunk'
  * declare a rival under the same key. The two predicates agree TODAY — the
  * header records the measurement and why that is not a reason to rely on it.
  */
-const ChunkAxisFromNumber = Schema.Number.pipe(Schema.fromBrand(ChunkAxis))
-const BlockAxisFromNumber = Schema.Number.pipe(Schema.fromBrand(BlockAxis))
-const BlockIdFromNumber = Schema.Number.pipe(Schema.fromBrand(BlockId))
+const ChunkAxisFromNumber = Schema.Number.pipe(Schema.fromBrand('ChunkAxis', ChunkAxis))
+const BlockAxisFromNumber = Schema.Number.pipe(Schema.fromBrand('BlockAxis', BlockAxis))
+const BlockIdFromNumber = Schema.Number.pipe(Schema.fromBrand('BlockId', BlockId))
 
-const ChunkCoordSchema: Schema.Schema<ChunkCoord, { readonly cx: number; readonly cz: number }> =
+const ChunkCoordSchema: Schema.Codec<ChunkCoord, { readonly cx: number; readonly cz: number }> =
   Schema.Struct({ cx: ChunkAxisFromNumber, cz: ChunkAxisFromNumber })
 
 /**
@@ -274,20 +274,21 @@ const Uint16ArraySchema = Schema.declare(
  * authoritative (`domain/chunk.ts`'s total `readBlock`).
  */
 const ChunkBlocksBytesSchema = Schema.Uint8ArrayFromBase64.pipe(
-  Schema.filter((bytes) => {
+  Schema.check(Schema.makeFilter((bytes: Uint8Array) => {
     const expected = CHUNK_VOLUME * CHUNK_BLOCK_ELEMENT_BYTES
     if (bytes.length === expected) {
       return
     }
     return `expected ${String(expected)} block bytes, received ${String(bytes.length)}`
-  }),
+  })),
 )
 
-const ChunkBlocksSchema = Schema.transform(ChunkBlocksBytesSchema, Uint16ArraySchema, {
-  decode: unpackBlocksV2,
-  encode: packBlocksV2,
-  strict: true,
-})
+const ChunkBlocksSchema = ChunkBlocksBytesSchema.pipe(
+  Schema.decodeTo(Uint16ArraySchema, {
+    decode: SchemaGetter.transform<Uint16Array, Uint8Array>(unpackBlocksV2),
+    encode: SchemaGetter.transform<Uint8Array, Uint16Array>(packBlocksV2),
+  }),
+)
 
 /**
  * The v1 block buffer: one byte per block, `BLOCK_ID_MAX` was 255 under the
@@ -296,12 +297,12 @@ const ChunkBlocksSchema = Schema.transform(ChunkBlocksBytesSchema, Uint16ArraySc
  * so `CHUNK_FORMAT_V1` below can read a save written before this widening.
  */
 const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
-  Schema.filter((blocks) => {
+  Schema.check(Schema.makeFilter((blocks: Uint8Array) => {
     if (blocks.length === CHUNK_VOLUME) {
       return
     }
     return `expected ${String(CHUNK_VOLUME)} block bytes, received ${String(blocks.length)}`
-  }),
+  })),
 )
 
 /**
@@ -320,37 +321,42 @@ const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
  * `mc-save` exists for exactly this and runs on the raw payload
  * before any schema sees it.
  */
-const ChunkBiomesSchema = Schema.Array(Schema.Literal(...CHUNK_BIOMES)).pipe(
-  Schema.filter((biomes) => {
+const ChunkBiomesSchema = Schema.Array(Schema.Literals(CHUNK_BIOMES)).pipe(
+  Schema.check(Schema.makeFilter((biomes: ReadonlyArray<ChunkBiomeType>) => {
     if (biomes.length === CHUNK_BIOME_COUNT) {
       return
     }
     return `expected ${String(CHUNK_BIOME_COUNT)} biome columns, received ${String(biomes.length)}`
-  }),
+  })),
 )
 
-const NaturalStructureKindSchema = Schema.Literal('ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city')
+const NaturalStructureKindSchema = Schema.Literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city'])
 
 const NaturalStructureMarkerFields = {
   structureId: Schema.String,
   structureKind: NaturalStructureKindSchema,
-  x: Schema.Number,
-  y: Schema.Number,
-  z: Schema.Number,
+  x: BlockAxisFromNumber,
+  y: BlockAxisFromNumber,
+  z: BlockAxisFromNumber,
 }
 
 /** Closed union of every semantic marker that generation can attach to a chunk. */
-const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructureMarker> = Schema.Union(
+type UnbrandedMarkerCoordinates<T> = T extends AppliedNaturalStructureMarker
+  ? Omit<T, 'x' | 'y' | 'z'> & { readonly x: number; readonly y: number; readonly z: number }
+  : never
+type AppliedNaturalStructureMarkerEncoded = UnbrandedMarkerCoordinates<AppliedNaturalStructureMarker>
+
+const AppliedNaturalStructureMarkerSchema: Schema.Codec<AppliedNaturalStructureMarker, AppliedNaturalStructureMarkerEncoded> = Schema.Union([
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     kind: Schema.Literal('loot-chest'),
-    lootTable: Schema.Literal('ancient-city', 'buried-treasure', 'desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship'),
+    lootTable: Schema.Literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city', 'end-ship']),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     entity: Schema.Literal('villager'),
     kind: Schema.Literal('entity-spawn'),
-    profession: Schema.Literal('farmer', 'toolsmith'),
+    profession: Schema.Literals(['farmer', 'toolsmith']),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
@@ -364,38 +370,38 @@ const AppliedNaturalStructureMarkerSchema: Schema.Schema<AppliedNaturalStructure
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literal('blaze', 'wither-skeleton'),
+    entity: Schema.Literals(['blaze', 'wither-skeleton']),
     kind: Schema.Literal('entity-spawn'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literal('piglin', 'piglin-brute'),
+    entity: Schema.Literals(['piglin', 'piglin-brute']),
     kind: Schema.Literal('entity-spawn'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    entity: Schema.Literal('shulker', 'blaze'),
+    entity: Schema.Literals(['shulker', 'blaze']),
     kind: Schema.Literal('spawner'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
-    axis: Schema.Literal('x', 'z'),
+    axis: Schema.Literals(['x', 'z']),
     complete: Schema.Literal(false),
     kind: Schema.Literal('portal-frame'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     eye: Schema.Boolean,
-    facing: Schema.Literal('north', 'east', 'south', 'west'),
+    facing: Schema.Literals(['north', 'east', 'south', 'west']),
     kind: Schema.Literal('end-portal-frame'),
   }),
   Schema.Struct({
     ...NaturalStructureMarkerFields,
     kind: Schema.Literal('end-ship'),
   }),
-)
+] as const)
 
-const BlockPositionSchema: Schema.Schema<BlockPosition, { readonly x: number; readonly y: number; readonly z: number }> =
+const BlockPositionSchema: Schema.Codec<BlockPosition, { readonly x: number; readonly y: number; readonly z: number }> =
   Schema.Struct({ x: BlockAxisFromNumber, y: BlockAxisFromNumber, z: BlockAxisFromNumber })
 
 /** Closed union for entity-like End feature markers attached to a chunk. */
@@ -417,7 +423,7 @@ type EndFeatureMarkerEncoded =
       readonly radius: number
     }
 
-const EndFeatureMarkerSchema: Schema.Schema<EndFeatureMarker, EndFeatureMarkerEncoded> = Schema.Union(
+const EndFeatureMarkerSchema: Schema.Codec<EndFeatureMarker, EndFeatureMarkerEncoded> = Schema.Union([
   Schema.Struct({
     at: BlockPositionSchema,
     block: BlockIdFromNumber,
@@ -430,11 +436,11 @@ const EndFeatureMarkerSchema: Schema.Schema<EndFeatureMarker, EndFeatureMarkerEn
     featureId: Schema.String,
     kind: Schema.Literal('end-crystal-cage'),
     material: Schema.Literal('iron_bars'),
-    maxY: Schema.Number,
-    minY: Schema.Number,
+    maxY: BlockAxisFromNumber,
+    minY: BlockAxisFromNumber,
     radius: Schema.Number,
   }),
-)
+] as const)
 
 /**
  * `coord` is stored even though the storage KEY already carries it.
@@ -446,7 +452,7 @@ const EndFeatureMarkerSchema: Schema.Schema<EndFeatureMarker, EndFeatureMarkerEn
  * (`storage-idb-model.ts:27-28`), had no way to notice either. Two integers per
  * save buys a check that the block buffer cannot perform on itself.
  */
-const CHUNK_STRUCT: Schema.Schema<
+const CHUNK_STRUCT: Schema.Codec<
   {
     readonly biomes: ReadonlyArray<ChunkBiomeType>
     readonly blocks: Uint16Array
@@ -463,20 +469,16 @@ const CHUNK_STRUCT: Schema.Schema<
     readonly endFeatureIds?: ReadonlyArray<string> | undefined
     readonly endFeatureMarkers?: ReadonlyArray<EndFeatureMarkerEncoded> | undefined
     readonly naturalStructureIds?: ReadonlyArray<string> | undefined
-    readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarker> | undefined
+    readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarkerEncoded> | undefined
   }
 > = Schema.Struct({
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksSchema,
   coord: ChunkCoordSchema,
-  endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
-  endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), {
-    default: (): ReadonlyArray<EndFeatureMarker> => [],
-  }),
-  naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
-  naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
-    default: (): ReadonlyArray<AppliedNaturalStructureMarker> => [],
-  }),
+  endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
 
 /**
@@ -488,7 +490,7 @@ const CHUNK_STRUCT: Schema.Schema<
  * `SaveFormat` it can hand to mc-save's own `loadFrom` for a save whose
  * envelope names version 1.
  */
-const CHUNK_STRUCT_V1: Schema.Schema<
+const CHUNK_STRUCT_V1: Schema.Codec<
   {
     readonly biomes: ReadonlyArray<ChunkBiomeType>
     readonly blocks: Uint8Array
@@ -505,20 +507,16 @@ const CHUNK_STRUCT_V1: Schema.Schema<
     readonly endFeatureIds?: ReadonlyArray<string> | undefined
     readonly endFeatureMarkers?: ReadonlyArray<EndFeatureMarkerEncoded> | undefined
     readonly naturalStructureIds?: ReadonlyArray<string> | undefined
-    readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarker> | undefined
+    readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarkerEncoded> | undefined
   }
 > = Schema.Struct({
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksV1Schema,
   coord: ChunkCoordSchema,
-  endFeatureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
-  endFeatureMarkers: Schema.optionalWith(Schema.Array(EndFeatureMarkerSchema), {
-    default: (): ReadonlyArray<EndFeatureMarker> => [],
-  }),
-  naturalStructureIds: Schema.optionalWith(Schema.Array(Schema.String), { default: (): ReadonlyArray<string> => [] }),
-  naturalStructureMarkers: Schema.optionalWith(Schema.Array(AppliedNaturalStructureMarkerSchema), {
-    default: (): ReadonlyArray<AppliedNaturalStructureMarker> => [],
-  }),
+  endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
 
 /**
@@ -533,24 +531,26 @@ const PersistableChunkSchema = Schema.declare(
   (value: unknown): value is PersistableChunk => typeof value === 'object' && value !== null,
 )
 
-const ChunkSchema = Schema.transform(CHUNK_STRUCT, PersistableChunkSchema, {
-  decode: (chunk) => chunk,
-  encode: (chunk) => ({
-    biomes: chunk.biomes,
-    blocks: chunk.blocks,
-    coord: chunk.coord,
-    endFeatureIds: chunk.endFeatureIds ?? [],
-    endFeatureMarkers: chunk.endFeatureMarkers ?? [],
-    naturalStructureIds: chunk.naturalStructureIds ?? [],
-    naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+const ChunkSchema = CHUNK_STRUCT.pipe(
+  Schema.decodeTo(PersistableChunkSchema, {
+    decode: SchemaGetter.transform<PersistableChunk, Schema.Schema.Type<typeof CHUNK_STRUCT>>((chunk) => chunk),
+    encode: SchemaGetter.transform<Schema.Schema.Type<typeof CHUNK_STRUCT>, PersistableChunk>((chunk) => ({
+      biomes: chunk.biomes,
+      blocks: chunk.blocks,
+      coord: chunk.coord,
+      endFeatureIds: chunk.endFeatureIds ?? [],
+      endFeatureMarkers: chunk.endFeatureMarkers ?? [],
+      naturalStructureIds: chunk.naturalStructureIds ?? [],
+      naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+    })),
   }),
-})
+)
 
 /**
  * The wire shape, DERIVED from the struct rather than transcribed beside it.
  * See this file's header on why only the decoded side is annotated.
  */
-export type ChunkEncoded = Schema.Schema.Encoded<typeof CHUNK_STRUCT>
+export type ChunkEncoded = Schema.Codec.Encoded<typeof CHUNK_STRUCT>
 
 /**
  * The annotation pins the accepted decoded domain to `PersistableChunk`.
@@ -560,7 +560,7 @@ export type ChunkEncoded = Schema.Schema.Encoded<typeof CHUNK_STRUCT>
  * does assert is the half with an independent definition: every value remains
  * a `Chunk`, with natural-structure metadata accepted when present.
  */
-export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = ChunkSchema
+export const CHUNK_SCHEMA: Schema.Codec<PersistableChunk, ChunkEncoded> = ChunkSchema
 
 /**
  * Version 2, the widened block buffer. `defineFormat` (`@nerima-games/mc-save`
@@ -587,11 +587,11 @@ export const CHUNK_SCHEMA: Schema.Schema<PersistableChunk, ChunkEncoded> = Chunk
  */
 const CHUNK_FORMAT_VERSION = 2
 
-export const CHUNK_FORMAT: SaveFormat<PersistableChunk, ChunkEncoded> = defineFormat({
+export const CHUNK_FORMAT: SaveFormat<PersistableChunk, ChunkEncoded> = Result.getOrThrow(defineFormat({
   name: CHUNK_FORMAT_NAME,
   schema: CHUNK_SCHEMA,
   version: CHUNK_FORMAT_VERSION,
-})
+}))
 
 /**
  * The pre-widening domain shape: `PersistableChunk` with `blocks` narrowed
@@ -603,22 +603,24 @@ const PersistableChunkV1Schema = Schema.declare(
   (value: unknown): value is PersistableChunkV1 => typeof value === 'object' && value !== null,
 )
 
-const ChunkSchemaV1 = Schema.transform(CHUNK_STRUCT_V1, PersistableChunkV1Schema, {
-  decode: (chunk) => chunk,
-  encode: (chunk) => ({
-    biomes: chunk.biomes,
-    blocks: chunk.blocks,
-    coord: chunk.coord,
-    endFeatureIds: chunk.endFeatureIds ?? [],
-    endFeatureMarkers: chunk.endFeatureMarkers ?? [],
-    naturalStructureIds: chunk.naturalStructureIds ?? [],
-    naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+const ChunkSchemaV1 = CHUNK_STRUCT_V1.pipe(
+  Schema.decodeTo(PersistableChunkV1Schema, {
+    decode: SchemaGetter.transform<PersistableChunkV1, Schema.Schema.Type<typeof CHUNK_STRUCT_V1>>((chunk) => chunk),
+    encode: SchemaGetter.transform<Schema.Schema.Type<typeof CHUNK_STRUCT_V1>, PersistableChunkV1>((chunk) => ({
+      biomes: chunk.biomes,
+      blocks: chunk.blocks,
+      coord: chunk.coord,
+      endFeatureIds: chunk.endFeatureIds ?? [],
+      endFeatureMarkers: chunk.endFeatureMarkers ?? [],
+      naturalStructureIds: chunk.naturalStructureIds ?? [],
+      naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+    })),
   }),
-})
+)
 
-type ChunkEncodedV1 = Schema.Schema.Encoded<typeof CHUNK_STRUCT_V1>
+type ChunkEncodedV1 = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V1>
 
-const CHUNK_SCHEMA_V1: Schema.Schema<PersistableChunkV1, ChunkEncodedV1> = ChunkSchemaV1
+const CHUNK_SCHEMA_V1: Schema.Codec<PersistableChunkV1, ChunkEncodedV1> = ChunkSchemaV1
 
 /**
  * Version 1, the pre-widening format, kept forever as a READ path.
@@ -629,11 +631,11 @@ const CHUNK_SCHEMA_V1: Schema.Schema<PersistableChunkV1, ChunkEncodedV1> = Chunk
  * widens the result with `migrateChunkV1ToV2` before handing it to a caller
  * that only ever sees the current `Chunk` shape.
  */
-export const CHUNK_FORMAT_V1: SaveFormat<PersistableChunkV1, ChunkEncodedV1> = defineFormat({
+export const CHUNK_FORMAT_V1: SaveFormat<PersistableChunkV1, ChunkEncodedV1> = Result.getOrThrow(defineFormat({
   name: CHUNK_FORMAT_NAME,
   schema: CHUNK_SCHEMA_V1,
   version: FIRST_VERSION,
-})
+}))
 
 /**
  * The consumer-side upgrade mc-save does not provide (see `CHUNK_FORMAT`'s

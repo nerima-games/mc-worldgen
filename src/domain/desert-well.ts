@@ -1,8 +1,9 @@
+import { blockAxis } from './coordinate-compatibility.js'
 import { DESERT_WELL_BLOCK, DESERT_WELL_LAYOUT } from './desert-well-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
@@ -11,8 +12,8 @@ import { Option } from 'effect'
 type DesertWellCandidate = { readonly x: number; readonly z: number }
 
 export type DesertWellDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
   readonly markers: readonly []
 }
 
@@ -23,7 +24,7 @@ const CENTER_OFFSET = 0
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -38,11 +39,11 @@ const terrainProbesFor = (
 ): ReadonlyArray<OverworldTerrainSample> => {
   const probeExtent = DESERT_WELL_LAYOUT.baseHalfExtent
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - probeExtent, candidate.z),
-    sampleTerrain(candidate.x + probeExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - probeExtent),
-    sampleTerrain(candidate.x, candidate.z + probeExtent),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
 }
 
@@ -81,7 +82,7 @@ const isBoundary = (x: number, z: number, halfExtent: number): boolean =>
   Math.abs(x) === halfExtent || Math.abs(z) === halfExtent
 
 const addFoundation = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertWellCandidate,
   baseY: number,
 ): void => {
@@ -93,7 +94,7 @@ const addFoundation = (
 }
 
 const addWater = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertWellCandidate,
   baseY: number,
 ): void => {
@@ -105,7 +106,7 @@ const addWater = (
 }
 
 const addPillars = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertWellCandidate,
   baseY: number,
 ): void => {
@@ -120,7 +121,7 @@ const addPillars = (
 }
 
 const addRoof = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertWellCandidate,
   baseY: number,
 ): void => {
@@ -136,7 +137,7 @@ const addRoof = (
 }
 
 const buildWell = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertWellCandidate,
   baseY: number,
 ): void => {
@@ -156,7 +157,7 @@ export const planDesertWellForCandidate = (
     return Option.none()
   }
 
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
   buildWell(blocks, candidate, baseYOption.value)
   return Option.some(Object.freeze({
     blocks: Object.freeze([...blocks.values()]),

@@ -8,8 +8,9 @@ import { Option } from 'effect'
 import { finishPlanFromValidatedPlacements } from './natural-structure-plan-builder.js'
 import { generateStrongholdPlan } from './stronghold.js'
 
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 export const planStrongholdForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
 ): Option.Option<NaturalStructurePlan> => {
@@ -19,7 +20,7 @@ export const planStrongholdForRegion = (
   }
 
   return Option.map(
-    Option.fromNullable(generateStrongholdPlan(seed, siteOption.value)),
+    Option.fromNullishOr(generateStrongholdPlan(seed, siteOption.value)),
     (stronghold) => {
       const blocks = stronghold.mutations.map((mutation): NaturalStructureBlockPlacement =>
         Object.freeze({

@@ -18,17 +18,17 @@ export const PLANT: Readonly<
     BlockId
   >
 > = {
-  BROWN_MUSHROOM: blockIdOf('brown_mushroom'),
-  CACTUS: blockIdOf('cactus'),
-  DANDELION: blockIdOf('dandelion'),
-  FERN: blockIdOf('fern'),
-  KELP: blockIdOf('kelp'),
-  LILY_PAD: blockIdOf('lily_pad'),
-  POPPY: blockIdOf('poppy'),
-  RED_MUSHROOM: blockIdOf('red_mushroom'),
-  SEAGRASS: blockIdOf('seagrass'),
-  SUGAR_CANE: blockIdOf('sugar_cane'),
-  TALL_GRASS: blockIdOf('tall_grass'),
+  BROWN_MUSHROOM: Option.getOrThrow(blockIdOf('brown_mushroom')),
+  CACTUS: Option.getOrThrow(blockIdOf('cactus')),
+  DANDELION: Option.getOrThrow(blockIdOf('dandelion')),
+  FERN: Option.getOrThrow(blockIdOf('fern')),
+  KELP: Option.getOrThrow(blockIdOf('kelp')),
+  LILY_PAD: Option.getOrThrow(blockIdOf('lily_pad')),
+  POPPY: Option.getOrThrow(blockIdOf('poppy')),
+  RED_MUSHROOM: Option.getOrThrow(blockIdOf('red_mushroom')),
+  SEAGRASS: Option.getOrThrow(blockIdOf('seagrass')),
+  SUGAR_CANE: Option.getOrThrow(blockIdOf('sugar_cane')),
+  TALL_GRASS: Option.getOrThrow(blockIdOf('tall_grass')),
 } as const
 
 export const PLANT_IDS: ReadonlyArray<number> = Object.values(PLANT)
@@ -42,6 +42,7 @@ export const GROUND_COVER_IDS: ReadonlyArray<number> = [
 
 export const MUSHROOM_IDS: ReadonlyArray<number> = [PLANT.BROWN_MUSHROOM, PLANT.RED_MUSHROOM]
 
+import { Option } from 'effect'
 export const AQUATIC_PLANT_IDS: ReadonlyArray<number> = [PLANT.SEAGRASS, PLANT.KELP, PLANT.LILY_PAD]
 
 export const STACKED_PLANT_IDS: ReadonlyArray<number> = [PLANT.CACTUS, PLANT.SUGAR_CANE, PLANT.KELP]

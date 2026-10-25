@@ -1,5 +1,5 @@
 import { type BlockPosition, type Dimension } from '@nerima-games/mc-kernel'
-import { Context, Effect, Layer, Option, Ref } from 'effect'
+import { Context, Effect, Layer, Option, Ref, Semaphore } from 'effect'
 import {
   PORTAL_SEARCH_RADIUS,
   type PortalTravelPlan,
@@ -76,11 +76,11 @@ export type PortalRegistryApi<ErrorType = PortalRegistryPersistenceError> = {
 // Clause (TS9021), so the Tag is built as a separately-typed constant first.
 // The exported class then extends that plain identifier instead. Same shape
 // As mc-kernel's ClockPort.
-const PortalRegistryBase: Context.TagClass<
+const PortalRegistryBase: Context.ServiceClass<
   PortalRegistry,
   '@nerima-games/mc-worldgen/PortalRegistry',
   PortalRegistryApi
-> = Context.Tag('@nerima-games/mc-worldgen/PortalRegistry')<PortalRegistry, PortalRegistryApi>()
+> = Context.Service<PortalRegistry, PortalRegistryApi>()('@nerima-games/mc-worldgen/PortalRegistry')
 
 export class PortalRegistry extends PortalRegistryBase {}
 
@@ -108,13 +108,13 @@ const makePortalRegistryInternal = <ErrorType>(
 ): Effect.Effect<PortalRegistryApi<ErrorType>, ErrorType> =>
   Effect.gen(function* makePortalRegistryEffect() {
     const state = yield* Ref.make(cloneState(initial))
-    const semaphore = yield* Effect.makeSemaphore(REGISTRY_PERMITS)
-    const withPermit = <Result>(
-      effect: Effect.Effect<Result, ErrorType>,
-    ): Effect.Effect<Result, ErrorType> => semaphore.withPermits(REGISTRY_PERMITS)(effect)
-    const commit = <Result>(
-      transition: (current: PortalRegistryState) => readonly [Result, PortalRegistryState],
-    ): Effect.Effect<Result, ErrorType> =>
+    const semaphore = yield* Semaphore.make(REGISTRY_PERMITS)
+    const withPermit = <ResultType>(
+      effect: Effect.Effect<ResultType, ErrorType>,
+    ): Effect.Effect<ResultType, ErrorType> => semaphore.withPermits(REGISTRY_PERMITS)(effect)
+    const commit = <ResultType>(
+      transition: (current: PortalRegistryState) => readonly [ResultType, PortalRegistryState],
+    ): Effect.Effect<ResultType, ErrorType> =>
       withPermit(
         Effect.gen(function* commitEffect() {
           const current = yield* Ref.get(state)

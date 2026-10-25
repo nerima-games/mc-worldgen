@@ -1,4 +1,5 @@
 import type { BlockId, Dimension } from '@nerima-games/mc-kernel'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { Chunk } from './chunk.js'
 import type { CompactStructureKind } from './compact-structure-data.js'
 import type { OverworldTerrainSampler } from './structure-siting.js'
@@ -17,14 +18,16 @@ export type NaturalStructureGrid = {
 }
 
 export type NaturalStructureRegion = { readonly x: number; readonly z: number }
-export type NaturalStructurePosition = { readonly x: number; readonly y: number; readonly z: number }
+export type NaturalStructurePositionDraft = { readonly x: number; readonly y: number; readonly z: number }
+export type NaturalStructureBlockPlacementDraft = Omit<NaturalStructureBlockPlacement, 'x' | 'y' | 'z'> & NaturalStructurePositionDraft
+export type NaturalStructurePosition = { readonly x: BlockAxis; readonly y: BlockAxis; readonly z: BlockAxis }
 export type NaturalStructureBounds = {
-  readonly minX: number
-  readonly maxX: number
-  readonly minY: number
-  readonly maxY: number
-  readonly minZ: number
-  readonly maxZ: number
+  readonly minX: BlockAxis
+  readonly maxX: BlockAxis
+  readonly minY: BlockAxis
+  readonly maxY: BlockAxis
+  readonly minZ: BlockAxis
+  readonly maxZ: BlockAxis
 }
 export type NaturalStructureBlockPlacement = NaturalStructurePosition & { readonly block: BlockId }
 
@@ -41,6 +44,11 @@ export type NaturalStructureMarker = NaturalStructurePosition & (
   | { readonly kind: 'end-ship' }
 )
 
+type UnbrandedCoordinates<T> = T extends NaturalStructurePosition
+  ? Omit<T, 'x' | 'y' | 'z'> & NaturalStructurePositionDraft
+  : never
+export type NaturalStructureMarkerDraft = UnbrandedCoordinates<NaturalStructureMarker>
+
 export type NaturalStructurePlan = {
   readonly id: string
   readonly kind: NaturalStructureKind
@@ -53,8 +61,8 @@ export type NaturalStructurePlan = {
 }
 
 export type NaturalStructureChunkSlice = {
-  readonly chunkX: number
-  readonly chunkZ: number
+  readonly chunkX: ChunkAxis
+  readonly chunkZ: ChunkAxis
   readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
   readonly markers: ReadonlyArray<NaturalStructureMarker>
 }
@@ -77,8 +85,8 @@ export type NaturalStructureSamplers = {
 }
 
 export type NetherStructureTerrainSample = {
-  readonly surfaceY: number
-  readonly ceilingY: number
+  readonly surfaceY: BlockAxis
+  readonly ceilingY: BlockAxis
 }
-export type NetherStructureTerrainSampler = (x: number, z: number) => NetherStructureTerrainSample | undefined
-export type EndStructureTerrainSampler = (x: number, z: number) => number | undefined
+export type NetherStructureTerrainSampler = (x: BlockAxis, z: BlockAxis) => NetherStructureTerrainSample | undefined
+export type EndStructureTerrainSampler = (x: BlockAxis, z: BlockAxis) => BlockAxis | undefined

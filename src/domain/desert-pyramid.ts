@@ -1,8 +1,9 @@
+import { blockAxis } from './coordinate-compatibility.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import { type BlockId } from '@nerima-games/mc-kernel'
 import { DESERT_PYRAMID_LAYOUT } from './desert-pyramid-data.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
@@ -12,9 +13,9 @@ import type { OverworldTerrainSampler } from './structure-siting.js'
 type DesertPyramidCandidate = { readonly x: number; readonly z: number }
 
 export type DesertPyramidDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -24,7 +25,7 @@ const PYRAMID_GROUND_PROBE_OFFSET = DESERT_PYRAMID_LAYOUT.baseHalfExtent
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -33,7 +34,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -42,11 +43,11 @@ const terrainFits = (
   sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<number> => {
   const probes = [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - PYRAMID_GROUND_PROBE_OFFSET, candidate.z),
-    sampleTerrain(candidate.x + PYRAMID_GROUND_PROBE_OFFSET, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - PYRAMID_GROUND_PROBE_OFFSET),
-    sampleTerrain(candidate.x, candidate.z + PYRAMID_GROUND_PROBE_OFFSET),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - PYRAMID_GROUND_PROBE_OFFSET)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + PYRAMID_GROUND_PROBE_OFFSET)),
   ]
   if (probes.some((probe) => probe.biome !== 'DESERT' || probe.surfaceY <= probe.seaLevel + DESERT_PYRAMID_LAYOUT.minDryClearance)) {
     return Option.none()
@@ -64,7 +65,7 @@ const isPyramidBoundary = (x: number, z: number, halfExtent: number): boolean =>
   Math.abs(x) === halfExtent || Math.abs(z) === halfExtent
 
 const addPyramid = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertPyramidCandidate,
   baseY: number,
 ): void => {
@@ -82,7 +83,7 @@ const addPyramid = (
 }
 
 const addChamberShell = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertPyramidCandidate,
   floorY: number,
 ): void => {
@@ -99,7 +100,7 @@ const addChamberShell = (
 }
 
 const addChamberTnt = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: DesertPyramidCandidate,
   tntY: number,
 ): void => {
@@ -111,8 +112,8 @@ const addChamberTnt = (
 }
 
 const addChamberChests = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: DesertPyramidCandidate,
   chestY: number,
 ): void => {
@@ -127,8 +128,8 @@ const addChamberChests = (
 }
 
 const addChamber = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: DesertPyramidCandidate,
   baseY: number,
 ): void => {
@@ -147,8 +148,8 @@ export const planDesertPyramidForCandidate = (
 ): Option.Option<DesertPyramidDraft> => {
   const baseYOption = terrainFits(candidate, sampleTerrain)
   if (Option.isNone(baseYOption)) {return Option.none()}
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   addPyramid(blocks, candidate, baseYOption.value)
   addChamber(blocks, markers, candidate, baseYOption.value)
   return Option.some(Object.freeze({

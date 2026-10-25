@@ -1,5 +1,7 @@
 /** Deterministic chorus vegetation for End outer islands. */
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, readBlock, setBlockAt } from './chunk.js'
 import {
@@ -11,7 +13,8 @@ import {
   END_CHORUS_PLACEMENT_CHANCE,
   END_VEGETATION_BLOCK,
 } from './end-vegetation-data.js'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { Option } from 'effect'
 
 export { END_VEGETATION_BLOCK } from './end-vegetation-data.js'
@@ -23,13 +26,13 @@ const DIRECTION_CHANNEL = 'end-chorus-direction'
 const MIN_Y = 0
 const ONE = 1
 
-const directionAt = (directions: { readonly [index: number]: readonly [number, number] }, index: number): readonly [number, number] => Option.getOrThrow(Option.fromNullable(directions[index]))
+const directionAt = (directions: { readonly [index: number]: readonly [number, number] }, index: number): readonly [number, number] => Option.getOrThrow(Option.fromNullishOr(directions[index]))
 
-export type EndSurfaceHeightAt = (seed: number, worldX: number, worldZ: number) => number | undefined
-export type EndOuterIslandAt = (worldX: number, worldZ: number) => boolean
+export type EndSurfaceHeightAt = (seed: NoiseSeed, worldX: BlockAxis, worldZ: BlockAxis) => BlockAxis | undefined
+export type EndOuterIslandAt = (worldX: BlockAxis, worldZ: BlockAxis) => boolean
 
 export type EndChorusPlanInput = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly coord: ChunkCoord
   readonly isOuterIsland: EndOuterIslandAt
   readonly surfaceHeightAt: EndSurfaceHeightAt
@@ -37,15 +40,15 @@ export type EndChorusPlanInput = {
 
 export type EndChorusPlacement = {
   readonly block: BlockId
-  readonly x: number
-  readonly y: number
-  readonly z: number
+  readonly x: BlockAxis
+  readonly y: BlockAxis
+  readonly z: BlockAxis
 }
 
 export type EndChorusPlant = {
-  readonly baseX: number
-  readonly baseY: number
-  readonly baseZ: number
+  readonly baseX: BlockAxis
+  readonly baseY: BlockAxis
+  readonly baseZ: BlockAxis
   readonly placements: ReadonlyArray<EndChorusPlacement>
 }
 
@@ -66,7 +69,7 @@ const validSurfaceY = (surfaceY: number): boolean =>
   surfaceY < CHUNK_HEIGHT - END_CHORUS_MIN_HEIGHT - END_CHORUS_HEIGHT_VARIATION - ONE
 
 const placement = (block: BlockId, x: number, y: number, z: number): EndChorusPlacement =>
-  Object.freeze({ block, x, y, z })
+  Object.freeze({ block, x: blockAxis(x), y: blockAxis(y), z: blockAxis(z) })
 
 type EndChorusSeed = ReturnType<typeof channelSeed>
 
@@ -83,7 +86,7 @@ type EndChorusStem = {
   readonly stemTopY: number
 }
 
-const chorusSeedsFor = (seed: number): EndChorusSeeds => ({
+const chorusSeedsFor = (seed: NoiseSeed): EndChorusSeeds => ({
   branch: channelSeed(seed, BRANCH_CHANNEL),
   direction: channelSeed(seed, DIRECTION_CHANNEL),
   height: channelSeed(seed, HEIGHT_CHANNEL),
@@ -144,11 +147,11 @@ const plantForCandidate = (
   worldZ: number,
   seeds: EndChorusSeeds,
 ): EndChorusPlant | null => {
-  if (!input.isOuterIsland(worldX, worldZ)) {
+  if (!input.isOuterIsland(blockAxis(worldX), blockAxis(worldZ))) {
     return null
   }
 
-  const surfaceY = input.surfaceHeightAt(input.seed, worldX, worldZ)
+  const surfaceY = input.surfaceHeightAt(input.seed, blockAxis(worldX), blockAxis(worldZ))
   if (typeof surfaceY !== 'number' || !validSurfaceY(surfaceY)) {
     return null
   }
@@ -164,9 +167,9 @@ const plantForCandidate = (
   ]
 
   return Object.freeze({
-    baseX: worldX,
-    baseY: stem.baseY,
-    baseZ: worldZ,
+    baseX: blockAxis(worldX),
+    baseY: blockAxis(stem.baseY),
+    baseZ: blockAxis(worldZ),
     placements: Object.freeze(placements),
   })
 }
@@ -246,7 +249,7 @@ const applyPlant = (blocks: Uint16Array, coord: ChunkCoord, plant: EndChorusPlan
   for (const target of plant.placements) {
     const localTarget = localTargetFor(coord, target)
     if (localTarget !== null && readBlock(blocks, localTarget.index) === AIR_BLOCK_ID) {
-      setBlockAt(blocks, localTarget.localX, target.y, localTarget.localZ, target.block)
+      setBlockAt(blocks, localAxis(localTarget.localX), blockAxis(target.y), localAxis(localTarget.localZ), target.block)
     }
   }
 }

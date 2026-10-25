@@ -15,6 +15,7 @@ import type {
 import { CHUNK_SIZE_XZ } from './constants.js'
 import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
 import { plansInStableOrder } from './natural-structure-order.js'
 
@@ -101,7 +102,7 @@ type ChunkPlanContext = {
   readonly dimension: Dimension
   readonly planForRegion: NaturalStructureRegionPlanner
   readonly samplers: NaturalStructureSamplers
-  readonly seed: number
+  readonly seed: NoiseSeed
 }
 
 type StructurePlanContext = ChunkPlanContext & {
@@ -113,10 +114,10 @@ export type NaturalStructureRegionPlanRequest = {
   readonly candidateChannelSeeds?: CandidateChannelSeeds
   readonly dimension: Dimension
   readonly kind: NaturalStructureKind
-  readonly presenceChannelSeed: number
+  readonly presenceChannelSeed: NoiseSeed
   readonly region: NaturalStructureRegion
   readonly samplers: NaturalStructureSamplers
-  readonly seed: number
+  readonly seed: NoiseSeed
 }
 
 const appendPlanForRegion = (
@@ -176,7 +177,7 @@ export type NaturalStructureRegionPlanner = (
  * coordinates through floor division.
  */
 export const naturalStructurePlansForChunk = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   coord: { readonly cx: number; readonly cz: number },
   samplers: NaturalStructureSamplers,

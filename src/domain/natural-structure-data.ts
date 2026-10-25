@@ -1,6 +1,7 @@
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 
 /** Block ids used by the structure planners, sourced from mc-kernel's registry. */
+import { Option } from 'effect'
 export const NATURAL_STRUCTURE_BLOCK: Readonly<
   Record<
     | 'CHEST'
@@ -15,13 +16,13 @@ export const NATURAL_STRUCTURE_BLOCK: Readonly<
     BlockId
   >
 > = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  END_ROD: blockIdOf('end_rod'),
-  END_STONE_BRICKS: blockIdOf('end_stone_bricks'),
-  NETHERRACK: blockIdOf('netherrack'),
-  OBSIDIAN: blockIdOf('obsidian'),
-  PURPUR: blockIdOf('purpur_block'),
-  PURPUR_PILLAR: blockIdOf('purpur_pillar'),
-  SANDSTONE: blockIdOf('sandstone'),
-  TNT: blockIdOf('tnt'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  END_ROD: Option.getOrThrow(blockIdOf('end_rod')),
+  END_STONE_BRICKS: Option.getOrThrow(blockIdOf('end_stone_bricks')),
+  NETHERRACK: Option.getOrThrow(blockIdOf('netherrack')),
+  OBSIDIAN: Option.getOrThrow(blockIdOf('obsidian')),
+  PURPUR: Option.getOrThrow(blockIdOf('purpur_block')),
+  PURPUR_PILLAR: Option.getOrThrow(blockIdOf('purpur_pillar')),
+  SANDSTONE: Option.getOrThrow(blockIdOf('sandstone')),
+  TNT: Option.getOrThrow(blockIdOf('tnt')),
 })

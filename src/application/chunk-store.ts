@@ -105,13 +105,13 @@ export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
 
 /** The default source: this repository's own pure, deterministic generator. */
 export const generatedChunkSource =
-  (seed: number, options: GenerateOptions = {}): ChunkSource =>
+  (seed: NoiseSeed, options: GenerateOptions = {}): ChunkSource =>
   (coord) =>
     Effect.sync(() => generateChunk(seed, coord, options))
 
 /** A deterministic source selected explicitly by dimension. */
 export const generatedDimensionChunkSource = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   options: GenerateOptions = {},
 ): ChunkSource => {
@@ -128,6 +128,7 @@ export const generatedDimensionChunkSource = (
  * is mc-render's business. A handle that the holder drains is a lifetime the
  * holder already controls.
  */
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 export type ChunkDirtySubscription = {
   readonly id: Store.SubscriberId
   /** Everything that changed since the previous drain. Clears the pending set. */
@@ -227,8 +228,11 @@ type Scope = import('effect').Scope.Scope
 // Clause (TS9021), so the Tag is built as a separately-typed constant first.
 // The exported class then extends that plain identifier instead. Same shape
 // As mc-kernel's ClockPort.
-const ChunkStoreBase: Context.TagClass<ChunkStore, '@nerima-games/mc-worldgen/ChunkStore', ChunkStoreApi> =
-  Context.Tag('@nerima-games/mc-worldgen/ChunkStore')<ChunkStore, ChunkStoreApi>()
+const ChunkStoreBase: Context.ServiceClass<
+  ChunkStore,
+  '@nerima-games/mc-worldgen/ChunkStore',
+  ChunkStoreApi
+> = Context.Service<ChunkStore, ChunkStoreApi>()('@nerima-games/mc-worldgen/ChunkStore')
 
 export class ChunkStore extends ChunkStoreBase {}
 
@@ -398,12 +402,12 @@ export const ChunkStoreLayer = (source: ChunkSource): Layer.Layer<ChunkStore> =>
 
 /** The common case: an in-memory store fed by this repository's generator. */
 export const GeneratedChunkStoreLayer = (
-  seed: number,
+  seed: NoiseSeed,
   options: GenerateOptions = {},
 ): Layer.Layer<ChunkStore> => ChunkStoreLayer(generatedChunkSource(seed, options))
 
 export const GeneratedDimensionChunkStoreLayer = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   options: GenerateOptions = {},
 ): Layer.Layer<ChunkStore> => ChunkStoreLayer(generatedDimensionChunkSource(seed, dimension, options))
@@ -415,14 +419,14 @@ export const PersistentChunkStoreLayer = (
   Layer.effect(ChunkStore, makePersistentChunkStore(source, context))
 
 export const PersistentGeneratedChunkStoreLayer = (
-  seed: number,
+  seed: NoiseSeed,
   context: ChunkPersistenceContext,
   options: GenerateOptions = {},
 ): Layer.Layer<ChunkStore, never, StoragePort> =>
   PersistentChunkStoreLayer(generatedChunkSource(seed, options), context)
 
 export const PersistentGeneratedDimensionChunkStoreLayer = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   context: ChunkPersistenceContext,
   options: GenerateOptions = {},

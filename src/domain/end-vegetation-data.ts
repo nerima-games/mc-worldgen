@@ -6,9 +6,9 @@ import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 export const END_VEGETATION_BLOCK: Readonly<
   Record<'CHORUS_FLOWER' | 'CHORUS_PLANT' | 'END_STONE', BlockId>
 > = Object.freeze({
-  CHORUS_FLOWER: blockIdOf('chorus_flower'),
-  CHORUS_PLANT: blockIdOf('chorus_plant'),
-  END_STONE: blockIdOf('end_stone'),
+  CHORUS_FLOWER: Option.getOrThrow(blockIdOf('chorus_flower')),
+  CHORUS_PLANT: Option.getOrThrow(blockIdOf('chorus_plant')),
+  END_STONE: Option.getOrThrow(blockIdOf('end_stone')),
 })
 
 /** Candidate columns are kept away from chunk edges so a branch stays local. */
@@ -17,6 +17,7 @@ export const END_CHORUS_CANDIDATE_OFFSETS: ReadonlyArray<number> = Object.freeze
 export const END_CHORUS_PLACEMENT_CHANCE = 0.2
 export const END_CHORUS_MIN_HEIGHT = 2
 export const END_CHORUS_HEIGHT_VARIATION = 4
+import { Option } from 'effect'
 export const END_CHORUS_BRANCH_CHANCE = 0.4
 
 export const END_CHORUS_BRANCH_DIRECTIONS: ReadonlyArray<readonly [number, number]> = Object.freeze([

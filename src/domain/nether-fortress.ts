@@ -10,24 +10,31 @@ import {
   NETHER_FORTRESS_BLOCK,
   NETHER_FORTRESS_GRID,
 } from './nether-fortress-data.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import { blockAxis } from './coordinate-compatibility.js'
 import type {
   NaturalStructureBlockPlacement,
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureBounds,
   NaturalStructureMarker,
+  NaturalStructureMarkerDraft,
   NaturalStructurePlan,
   NaturalStructurePosition,
+  NaturalStructurePositionDraft,
   NaturalStructureRegion,
   NetherStructureTerrainSample,
   NetherStructureTerrainSampler,
-} from './natural-structure.js'
+} from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { type BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 
-type FortressCandidate = NaturalStructurePosition
+type FortressCandidate = NaturalStructurePositionDraft
 type MutableFortressPlan = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const WORLD_MIN_Y = 0
@@ -37,13 +44,13 @@ const ZERO_OFFSET = 0
 const FORTRESS_WALL_OPENING_Y_OFFSET = 2
 const FORTRESS_MARKER_OFFSET = 2
 
-const keyOf = (position: NaturalStructurePosition): string =>
+const keyOf = (position: NaturalStructurePositionDraft): string =>
   `${String(position.x)},${String(position.y)},${String(position.z)}`
 
 const positiveModulo = (value: number, divisor: number): number => ((value % divisor) + divisor) % divisor
 
 const candidateForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   presenceChannelSeed = channelSeed(seed, 'nether:nether-fortress:present'),
 ): Option.Option<FortressCandidate> => {
@@ -63,34 +70,44 @@ const candidateForRegion = (
   }))
 }
 
-const addBlock = (mutable: MutableFortressPlan, placement: NaturalStructureBlockPlacement): void => {
+const addBlock = (mutable: MutableFortressPlan, placement: NaturalStructureBlockPlacementDraft): void => {
   const key = keyOf(placement)
   mutable.blocks.set(key, Object.freeze(placement))
 }
 
-const addMarker = (mutable: MutableFortressPlan, marker: NaturalStructureMarker): void => {
+const addMarker = (mutable: MutableFortressPlan, marker: NaturalStructureMarkerDraft): void => {
   mutable.markers.push(Object.freeze(marker))
 }
 
 const finishPlan = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   origin: FortressCandidate,
   mutable: MutableFortressPlan,
 ): NaturalStructurePlan => {
-  const blocks = Object.freeze([...mutable.blocks.values()])
-  const markers = Object.freeze([...mutable.markers])
+  const blocks = Object.freeze([...mutable.blocks.values()].map((block): NaturalStructureBlockPlacement => Object.freeze({
+    ...block,
+    x: blockAxis(block.x),
+    y: blockAxis(block.y),
+    z: blockAxis(block.z),
+  })))
+  const markers = Object.freeze(mutable.markers.map((marker): NaturalStructureMarker => Object.freeze({
+    ...marker,
+    x: blockAxis(marker.x),
+    y: blockAxis(marker.y),
+    z: blockAxis(marker.z),
+  })))
   const positions: ReadonlyArray<NaturalStructurePosition> = [...blocks, ...markers]
   const xs = positions.map((position) => position.x)
   const ys = positions.map((position) => position.y)
   const zs = positions.map((position) => position.z)
-  const bounds = Object.freeze({
-    maxX: Math.max(...xs),
-    maxY: Math.max(...ys),
-    maxZ: Math.max(...zs),
-    minX: Math.min(...xs),
-    minY: Math.min(...ys),
-    minZ: Math.min(...zs),
+  const bounds: NaturalStructureBounds = Object.freeze({
+    maxX: blockAxis(Math.max(...xs)),
+    maxY: blockAxis(Math.max(...ys)),
+    maxZ: blockAxis(Math.max(...zs)),
+    minX: blockAxis(Math.min(...xs)),
+    minY: blockAxis(Math.min(...ys)),
+    minZ: blockAxis(Math.min(...zs)),
   })
   return Object.freeze({
     blocks,
@@ -99,7 +116,11 @@ const finishPlan = (
     id: `nether-fortress:${String(seed)}:${String(region.x)}:${String(region.z)}`,
     kind: 'nether-fortress',
     markers,
-    origin: Object.freeze(origin),
+    origin: Object.freeze({
+      x: blockAxis(origin.x),
+      y: blockAxis(origin.y),
+      z: blockAxis(origin.z),
+    }),
     region: Object.freeze(region),
   })
 }
@@ -364,7 +385,7 @@ const fortressSiteFromCandidate = (
   candidate: FortressCandidate,
   sampleTerrain: NetherStructureTerrainSampler,
 ): Option.Option<{ readonly candidate: FortressCandidate; readonly floorY: number }> => {
-  const sample = sampleTerrain(candidate.x, candidate.z)
+  const sample = sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z))
   if (!isValidFortressTerrainSample(sample)) {
     return Option.none()
   }
@@ -376,10 +397,10 @@ const fortressSiteFromCandidate = (
 }
 
 const fortressSiteForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler,
-  presenceChannelSeed?: number,
+  presenceChannelSeed?: NoiseSeed,
 ): Option.Option<{ readonly candidate: FortressCandidate; readonly floorY: number }> => {
   const candidateOption = candidateForRegion(seed, region, presenceChannelSeed)
   if (Option.isNone(candidateOption)) {return Option.none()}
@@ -388,11 +409,11 @@ const fortressSiteForRegion = (
 
 /** Plans one cross-shaped fortress and its host-owned mob/loot markers. */
 export const planNetherFortressForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: NetherStructureTerrainSampler,
-  presenceChannelSeed?: number,
+  presenceChannelSeed?: NoiseSeed,
 ): Option.Option<NaturalStructurePlan> => {
   const siteOption = fortressSiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain, presenceChannelSeed)
   if (Option.isNone(siteOption)) {return Option.none()}
@@ -409,7 +430,7 @@ const regionRange = (value: number, radius: number): readonly [number, number] =
 ]
 
 const isNearFortressCandidate = (
-  seed: number,
+  seed: NoiseSeed,
   x: number,
   z: number,
   radius: number,
@@ -427,9 +448,9 @@ const isNearFortressCandidate = (
 
 /** True when a column is in the deterministic blaze-spawn radius of a fortress. */
 export const isNearFortressSite = (
-  seed: number,
-  x: number,
-  z: number,
+  seed: NoiseSeed,
+  x: BlockAxis,
+  z: BlockAxis,
   radius: number = FORTRESS_BLAZE_RADIUS,
 ): boolean => {
   const [minRegionX, maxRegionX] = regionRange(x, radius)

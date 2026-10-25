@@ -1,10 +1,12 @@
 /* oxlint-disable id-length, max-statements, new-cap, no-magic-numbers, sort-imports */
 
-import { type Option, Option as OptionValue, Schema } from 'effect'
+import { Option, Schema } from 'effect'
 import { BLOCK } from './biome.js'
-import { BlockAxis, type BlockId, type BlockPosition, type Dimension, blockIdOf, blockPosition } from '@nerima-games/mc-kernel'
+import { type BlockId, type BlockPosition, type Dimension, blockIdOf, blockPosition } from '@nerima-games/mc-kernel'
+import { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { STRONGHOLD_BLOCK } from './stronghold.js'
-import { STRONGHOLD_FLOOR_Y } from './structure-siting.js'
+import { type StrongholdSite, STRONGHOLD_FLOOR_Y } from './structure-siting.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 export type EndPortalFrameFacing = 'north' | 'east' | 'south' | 'west'
 
@@ -13,7 +15,7 @@ export type EndPortalFrameState = {
   readonly facing: EndPortalFrameFacing
 }
 
-export type EndPortalBlockAt = (x: number, y: number, z: number) => EndPortalFrameState | undefined
+export type EndPortalBlockAt = (x: BlockAxis, y: BlockAxis, z: BlockAxis) => EndPortalFrameState | undefined
 
 export type EndPortalMutation = {
   readonly at: BlockPosition
@@ -34,11 +36,11 @@ export type EndArrivalDescriptor = {
   readonly clear: ReadonlyArray<BlockPosition>
 }
 
-const BlockAxisFromNumber = Schema.Number.pipe(Schema.fromBrand(BlockAxis))
+const BlockAxisFromNumber = Schema.Number.pipe(Schema.fromBrand('BlockAxis', BlockAxis))
 
-export const EndPortalFrameFacingSchema: Schema.Schema<EndPortalFrameFacing> = Schema.Literal('north', 'east', 'south', 'west')
+export const EndPortalFrameFacingSchema: Schema.Codec<EndPortalFrameFacing> = Schema.Literals(['north', 'east', 'south', 'west'])
 
-export const EndPortalCenterSchema: Schema.Schema<BlockPosition, {
+export const EndPortalCenterSchema: Schema.Codec<BlockPosition, {
   readonly x: number
   readonly y: number
   readonly z: number
@@ -46,8 +48,8 @@ export const EndPortalCenterSchema: Schema.Schema<BlockPosition, {
 
 export const END_PORTAL_BLOCK: Readonly<Record<'FRAME_EMPTY' | 'FRAME_FILLED' | 'PORTAL', BlockId>> = {
   FRAME_EMPTY: STRONGHOLD_BLOCK.END_PORTAL_FRAME,
-  FRAME_FILLED: blockIdOf('end_portal_frame_filled'),
-  PORTAL: blockIdOf('end_portal'),
+  FRAME_FILLED: Option.getOrThrow(blockIdOf('end_portal_frame_filled')),
+  PORTAL: Option.getOrThrow(blockIdOf('end_portal')),
 } as const
 
 type FrameOffset = {
@@ -72,8 +74,8 @@ export const END_PORTAL_FRAME_OFFSETS: ReadonlyArray<FrameOffset> = [
   { dx: -2, dz: -1, facing: 'east' },
 ]
 
-export const endPortalCenterForStronghold = (site: { readonly x: number; readonly z: number }): BlockPosition =>
-  blockPosition(site.x, STRONGHOLD_FLOOR_Y + 1, site.z)
+export const endPortalCenterForStronghold = (site: StrongholdSite): BlockPosition =>
+  blockPosition(site.x, blockAxis(STRONGHOLD_FLOOR_Y + 1), site.z)
 
 export const detectCompletedEndPortal = (
   blockAt: EndPortalBlockAt,
@@ -81,15 +83,20 @@ export const detectCompletedEndPortal = (
   center: BlockPosition,
 ): Option.Option<CompletedEndPortal> => {
   if (dimension !== 'overworld') {
-    return OptionValue.none()
+    return Option.none()
   }
 
   const frames: BlockPosition[] = []
   for (const offset of END_PORTAL_FRAME_OFFSETS) {
-    const at = blockPosition(center.x + offset.dx, center.y, center.z + offset.dz)
+    const x = BlockAxis.option(center.x + offset.dx)
+    const z = BlockAxis.option(center.z + offset.dz)
+    if (Option.isNone(x) || Option.isNone(z)) {
+      return Option.none()
+    }
+    const at = blockPosition(x.value, center.y, z.value)
     const state = blockAt(at.x, at.y, at.z)
     if (state?.block !== END_PORTAL_BLOCK.FRAME_FILLED || state.facing !== offset.facing) {
-      return OptionValue.none()
+      return Option.none()
     }
     frames.push(at)
   }
@@ -97,14 +104,19 @@ export const detectCompletedEndPortal = (
   const materialization: EndPortalMutation[] = []
   for (let dz = -1; dz <= 1; dz += 1) {
     for (let dx = -1; dx <= 1; dx += 1) {
+      const x = BlockAxis.option(center.x + dx)
+      const z = BlockAxis.option(center.z + dz)
+      if (Option.isNone(x) || Option.isNone(z)) {
+        return Option.none()
+      }
       materialization.push({
-        at: blockPosition(center.x + dx, center.y, center.z + dz),
+        at: blockPosition(x.value, center.y, z.value),
         block: END_PORTAL_BLOCK.PORTAL,
       })
     }
   }
 
-  return OptionValue.some({ center, frames, materialization })
+  return Option.some({ center, frames, materialization })
 }
 
 export const endArrivalDescriptor = (origin: BlockPosition): EndArrivalDescriptor => {
@@ -113,13 +125,20 @@ export const endArrivalDescriptor = (origin: BlockPosition): EndArrivalDescripto
 
   for (let dz = -2; dz <= 2; dz += 1) {
     for (let dx = -2; dx <= 2; dx += 1) {
-      platform.push({ at: blockPosition(origin.x + dx, origin.y, origin.z + dz), block: BLOCK.OBSIDIAN })
+      platform.push({
+        at: blockPosition(blockAxis(origin.x + dx), origin.y, blockAxis(origin.z + dz)),
+        block: BLOCK.OBSIDIAN,
+      })
     }
   }
   for (let dy = 1; dy <= 3; dy += 1) {
     for (let dz = -1; dz <= 1; dz += 1) {
       for (let dx = -1; dx <= 1; dx += 1) {
-        clear.push(blockPosition(origin.x + dx, origin.y + dy, origin.z + dz))
+        clear.push(blockPosition(
+          blockAxis(origin.x + dx),
+          blockAxis(origin.y + dy),
+          blockAxis(origin.z + dz),
+        ))
       }
     }
   }
@@ -129,6 +148,6 @@ export const endArrivalDescriptor = (origin: BlockPosition): EndArrivalDescripto
     dimension: 'end',
     facing: 'north',
     platform,
-    spawn: blockPosition(origin.x, origin.y + 1, origin.z),
+    spawn: blockPosition(origin.x, blockAxis(origin.y + 1), origin.z),
   }
 }

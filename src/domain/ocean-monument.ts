@@ -1,8 +1,9 @@
+import { blockAxis } from './coordinate-compatibility.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import { OCEAN_MONUMENT_BLOCK, OCEAN_MONUMENT_LAYOUT } from './ocean-monument-data.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
@@ -12,9 +13,9 @@ import { Option } from 'effect'
 type OceanMonumentCandidate = { readonly x: number; readonly z: number }
 
 export type OceanMonumentDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -24,7 +25,7 @@ const MIN_WORLD_Y = 0
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -33,7 +34,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -43,11 +44,11 @@ const terrainProbesFor = (
 ): ReadonlyArray<OverworldTerrainSample> => {
   const probeExtent = OCEAN_MONUMENT_LAYOUT.halfExtent
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - probeExtent, candidate.z),
-    sampleTerrain(candidate.x + probeExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - probeExtent),
-    sampleTerrain(candidate.x, candidate.z + probeExtent),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
 }
 
@@ -91,7 +92,7 @@ const foundationBlockAt = (dx: number, dz: number): BlockId => {
 }
 
 const addFoundation = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: OceanMonumentCandidate,
   baseY: number,
 ): void => {
@@ -103,7 +104,7 @@ const addFoundation = (
 }
 
 const addInteriorWater = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: OceanMonumentCandidate,
   baseY: number,
 ): void => {
@@ -118,7 +119,7 @@ const addInteriorWater = (
 }
 
 const addOuterWalls = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: OceanMonumentCandidate,
   baseY: number,
 ): void => {
@@ -134,7 +135,7 @@ const addOuterWalls = (
 }
 
 const addCentralTower = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: OceanMonumentCandidate,
   baseY: number,
 ): void => {
@@ -152,8 +153,8 @@ const addCentralTower = (
 }
 
 const addLoot = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: OceanMonumentCandidate,
   baseY: number,
 ): void => {
@@ -163,8 +164,8 @@ const addLoot = (
 }
 
 const buildOceanMonumentDraft = (candidate: OceanMonumentCandidate, baseY: number): OceanMonumentDraft => {
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   addFoundation(blocks, candidate, baseY)
   addInteriorWater(blocks, candidate, baseY)
   addOuterWalls(blocks, candidate, baseY)

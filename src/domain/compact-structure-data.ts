@@ -30,6 +30,7 @@ export type CompactStructureDescriptor = Readonly<{
   wall: BlockId
 }>
 
+import { Option } from 'effect'
 export const COMPACT_STRUCTURE_BLOCK: Readonly<
   Record<
     | 'CALCITE'
@@ -46,17 +47,17 @@ export const COMPACT_STRUCTURE_BLOCK: Readonly<
     BlockId
   >
 > = Object.freeze({
-  CALCITE: blockIdOf('calcite'),
-  CHEST: blockIdOf('chest'),
-  COBBLESTONE: blockIdOf('cobblestone'),
-  DEEPSLATE: blockIdOf('deepslate'),
-  GRAVEL: blockIdOf('gravel'),
-  IRON_BLOCK: blockIdOf('iron_block'),
-  OAK_LOG: blockIdOf('oak_log'),
-  OAK_PLANKS: blockIdOf('oak_planks'),
-  OAK_STAIRS: blockIdOf('oak_stairs'),
-  SANDSTONE: blockIdOf('sandstone'),
-  STONE: blockIdOf('stone'),
+  CALCITE: Option.getOrThrow(blockIdOf('calcite')),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  COBBLESTONE: Option.getOrThrow(blockIdOf('cobblestone')),
+  DEEPSLATE: Option.getOrThrow(blockIdOf('deepslate')),
+  GRAVEL: Option.getOrThrow(blockIdOf('gravel')),
+  IRON_BLOCK: Option.getOrThrow(blockIdOf('iron_block')),
+  OAK_LOG: Option.getOrThrow(blockIdOf('oak_log')),
+  OAK_PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
+  OAK_STAIRS: Option.getOrThrow(blockIdOf('oak_stairs')),
+  SANDSTONE: Option.getOrThrow(blockIdOf('sandstone')),
+  STONE: Option.getOrThrow(blockIdOf('stone')),
 })
 
 export const COMPACT_STRUCTURE_GRID: Readonly<

@@ -7,6 +7,7 @@ export const MINESHAFT_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 150,
 })
 
+import { Option } from 'effect'
 const BRANCH_OFFSET_NONE = 0
 const BRANCH_OFFSET_STEP = 8
 
@@ -42,12 +43,12 @@ export const MINESHAFT_BLOCK: Readonly<
     BlockId
   >
 > = Object.freeze({
-  AIR: blockIdOf('air'),
-  CHEST: blockIdOf('chest'),
-  COBWEB: blockIdOf('cobweb'),
-  OAK_LOG: blockIdOf('oak_log'),
-  OAK_PLANKS: blockIdOf('oak_planks'),
-  POWERED_RAIL: blockIdOf('powered_rail'),
-  RAIL: blockIdOf('rail'),
-  TORCH: blockIdOf('torch'),
+  AIR: Option.getOrThrow(blockIdOf('air')),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  COBWEB: Option.getOrThrow(blockIdOf('cobweb')),
+  OAK_LOG: Option.getOrThrow(blockIdOf('oak_log')),
+  OAK_PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
+  POWERED_RAIL: Option.getOrThrow(blockIdOf('powered_rail')),
+  RAIL: Option.getOrThrow(blockIdOf('rail')),
+  TORCH: Option.getOrThrow(blockIdOf('torch')),
 })

@@ -89,7 +89,7 @@ const BIOME_RULES: ReadonlyArray<BiomeRule> = [
 ]
 
 export const classifyBiome = (temperature: number, humidity: number): BiomeType =>
-  Option.getOrThrow(Option.fromNullable(BIOME_RULES.find((rule) => rule.when(temperature, humidity))?.biome))
+  Option.getOrThrow(Option.fromNullishOr(BIOME_RULES.find((rule) => rule.when(temperature, humidity))?.biome))
 
 /**
  * Surface materials for a biome.
@@ -154,21 +154,21 @@ export const BLOCK: Readonly<
     BlockId
   >
 > = {
-  AIR: blockIdOf('air'),
-  BEDROCK: blockIdOf('bedrock'),
-  DEEPSLATE: blockIdOf('deepslate'),
-  DIRT: blockIdOf('dirt'),
-  GRASS: blockIdOf('grass_block'),
-  GRAVEL: blockIdOf('gravel'),
-  ICE: blockIdOf('ice'),
-  LAVA: blockIdOf('lava'),
-  LEAVES: blockIdOf('oak_leaves'),
-  LOG: blockIdOf('oak_log'),
-  OBSIDIAN: blockIdOf('obsidian'),
-  SAND: blockIdOf('sand'),
-  SNOW: blockIdOf('snow'),
-  STONE: blockIdOf('stone'),
-  WATER: blockIdOf('water'),
+  AIR: Option.getOrThrow(blockIdOf('air')),
+  BEDROCK: Option.getOrThrow(blockIdOf('bedrock')),
+  DEEPSLATE: Option.getOrThrow(blockIdOf('deepslate')),
+  DIRT: Option.getOrThrow(blockIdOf('dirt')),
+  GRASS: Option.getOrThrow(blockIdOf('grass_block')),
+  GRAVEL: Option.getOrThrow(blockIdOf('gravel')),
+  ICE: Option.getOrThrow(blockIdOf('ice')),
+  LAVA: Option.getOrThrow(blockIdOf('lava')),
+  LEAVES: Option.getOrThrow(blockIdOf('oak_leaves')),
+  LOG: Option.getOrThrow(blockIdOf('oak_log')),
+  OBSIDIAN: Option.getOrThrow(blockIdOf('obsidian')),
+  SAND: Option.getOrThrow(blockIdOf('sand')),
+  SNOW: Option.getOrThrow(blockIdOf('snow')),
+  STONE: Option.getOrThrow(blockIdOf('stone')),
+  WATER: Option.getOrThrow(blockIdOf('water')),
 } as const
 
 export const BIOME_SURFACES: Record<BiomeType, BiomeSurface> = {

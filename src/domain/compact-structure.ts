@@ -1,12 +1,13 @@
+import { blockAxis } from './coordinate-compatibility.js'
 import {
   COMPACT_STRUCTURE_BLOCK,
   COMPACT_STRUCTURE_DESCRIPTORS,
   type CompactStructureKind,
 } from './compact-structure-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
@@ -18,9 +19,9 @@ type CompactStructureCandidate = Readonly<{
 }>
 
 export type CompactStructureDraft = Readonly<{
-  origin: NaturalStructurePosition
-  blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  markers: ReadonlyArray<NaturalStructureMarker>
+  origin: NaturalStructurePositionDraft
+  blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }>
 
 const PROBE_OFFSETS = Object.freeze([
@@ -81,7 +82,7 @@ const siteIsValid = (
 }
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   x: number,
   y: number,
   z: number,
@@ -94,9 +95,9 @@ const structureBlocksForCandidate = (
   kind: CompactStructureKind,
   candidate: CompactStructureCandidate,
   baseY: number,
-): Map<string, NaturalStructureBlockPlacement> => {
+): Map<string, NaturalStructureBlockPlacementDraft> => {
   const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
   for (let dy = 0; dy <= descriptor.height; dy += STRUCTURE_STEP) {
     for (let dx = -descriptor.radius; dx <= descriptor.radius; dx += STRUCTURE_STEP) {
       for (let dz = -descriptor.radius; dz <= descriptor.radius; dz += STRUCTURE_STEP) {
@@ -111,11 +112,11 @@ const structureBlocksForCandidate = (
 }
 
 const addLootChest = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   kind: CompactStructureKind,
   candidate: CompactStructureCandidate,
   baseY: number,
-): NaturalStructureMarker => {
+): NaturalStructureMarkerDraft => {
   const chestY = baseY + CHEST_HEIGHT_OFFSET
   addBlock(blocks, candidate.x, chestY, candidate.z, COMPACT_STRUCTURE_BLOCK.CHEST)
   return Object.freeze({
@@ -132,10 +133,10 @@ export const planCompactStructureForCandidate = (
   candidate: CompactStructureCandidate,
   sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<CompactStructureDraft> => {
-  const originSample = sampleTerrain(candidate.x, candidate.z)
+  const originSample = sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z))
   const samples = [
     originSample,
-    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(candidate.x + offset.x, candidate.z + offset.z)),
+    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(blockAxis(candidate.x + offset.x), blockAxis(candidate.z + offset.z))),
   ]
   if (!siteIsValid(kind, samples)) {
     return Option.none()

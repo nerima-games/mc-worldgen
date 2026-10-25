@@ -13,7 +13,10 @@ import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants.js'
 import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config.js'
 import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config.js'
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
-import { channelSeed, fbm2D, valueNoise2D } from '@nerima-games/mc-noise'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
+import { channelSeed, fbm2D, valueNoise2D } from './noise-compatibility.js'
 import {
   computeLakeBasin,
   determineWaterLevel,
@@ -47,7 +50,7 @@ const LAKE_NOISE_UNIT_FREQUENCY = 1
 const toBipolar = (unitValue: number): number => unitValue * BIPOLAR_SCALE - BIPOLAR_OFFSET
 
 const climateAtWithContinentalness = (
-  seed: number,
+  seed: NoiseSeed,
   wx: number,
   wz: number,
   continentalness: number = toBipolar(continentalnessAt(seed, wx, wz)),
@@ -85,7 +88,7 @@ const climateAtWithContinentalness = (
   }
 }
 
-export const climateAt = (seed: number, wx: number, wz: number): ClimateSample =>
+export const climateAt = (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis): ClimateSample =>
   climateAtWithContinentalness(seed, wx, wz)
 
 /** How far below sea level a column must sit before the OCEAN override applies. */
@@ -94,7 +97,7 @@ const OCEAN_BELOW_SEA_LEVEL_MARGIN = 2
 const BEACH_ABOVE_SEA_LEVEL_MARGIN = 1
 
 type BiomeQuery = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly wx: number
   readonly wz: number
   readonly surfaceY: number
@@ -129,14 +132,14 @@ const biomeForWithContinentalness = (query: BiomeQuery): BiomeType =>
 
 export type SurfaceBiome = Readonly<{
   readonly biome: BiomeType
-  readonly surfaceY: number
+  readonly surfaceY: BlockAxis
 }>
 
 /** Resolve the raw surface and its biome while sharing one continentalness sample. */
 export const surfaceBiomeAt = (
-  seed: number,
-  wx: number,
-  wz: number,
+  seed: NoiseSeed,
+  wx: BlockAxis,
+  wz: BlockAxis,
   levels: TerrainLevels,
 ): SurfaceBiome => {
   const continentalness = continentalnessAt(seed, wx, wz)
@@ -149,25 +152,25 @@ export const surfaceBiomeAt = (
 
 /** Resolve a public biome query using the fixed five-argument API. */
 export const biomeFor = (
-  seed: number,
-  wx: number,
-  wz: number,
-  surfaceY: number,
+  seed: NoiseSeed,
+  wx: BlockAxis,
+  wz: BlockAxis,
+  surfaceY: BlockAxis,
   levels: TerrainLevels,
 ): BiomeType =>
   biomeForWithContinentalness({ continentalness: continentalnessAt(seed, wx, wz), levels, seed, surfaceY, wx, wz })
 
 export type TerrainColumn = Readonly<{
   readonly biome: BiomeType
-  readonly initialSurfaceY: number
-  readonly lakeBasinY: Option.Option<number>
+  readonly initialSurfaceY: BlockAxis
+  readonly lakeBasinY: Option.Option<BlockAxis>
   readonly surface: ResolvedSurfaceMaterial
-  readonly surfaceY: number
+  readonly surfaceY: BlockAxis
   readonly temperature: number
-  readonly waterLevel: number | null
+  readonly waterLevel: BlockAxis | null
 }>
 
-const lakeNoiseAt = (seed: number, wx: number, wz: number): number =>
+const lakeNoiseAt = (seed: NoiseSeed, wx: number, wz: number): number =>
   valueNoise2D(
     channelSeed(seed, 'lake'),
     wx * LAKE_NOISE_SCALE + LAKE_WORLD_OFFSET,
@@ -176,7 +179,7 @@ const lakeNoiseAt = (seed: number, wx: number, wz: number): number =>
   )
 
 const resolveTerrainColumn = (
-  seed: number,
+  seed: NoiseSeed,
   wx: number,
   wz: number,
   levels: TerrainLevels,
@@ -198,7 +201,8 @@ const resolveTerrainColumn = (
   const lakeNoiseValue = lakeNoiseAt(seed, wx, wz)
   const lakeBasinY = computeLakeBasin(biome, lakeNoiseValue, initialSurfaceY, levels)
   const surfaceY = resolveSurfaceY(biome, initialSurfaceY, lakeBasinY)
-  const waterLevel = Option.getOrNull(determineWaterLevel(biome, surfaceY, lakeBasinY, levels))
+  const rawWaterLevel = Option.getOrNull(determineWaterLevel(biome, surfaceY, lakeBasinY, levels))
+  const waterLevel = rawWaterLevel === null ? null : blockAxis(rawWaterLevel)
   const surface = resolveSurfaceMaterial(biome, surfaceY, waterLevel ?? levels.seaLevel, {
     hasLakeBasin: Option.isSome(lakeBasinY),
     isShore: isLakeShoreColumn(lakeBasinY, lakeNoiseValue, surfaceY, levels),
@@ -206,18 +210,18 @@ const resolveTerrainColumn = (
 
   return {
     biome,
-    initialSurfaceY,
-    lakeBasinY,
+    initialSurfaceY: blockAxis(initialSurfaceY),
+    lakeBasinY: Option.map(lakeBasinY, blockAxis),
     surface,
-    surfaceY,
+    surfaceY: blockAxis(surfaceY),
     temperature: climate.temperature,
     waterLevel,
   }
 }
 
 export const terrainColumnAt = (
-  seed: number,
-  wx: number,
-  wz: number,
+  seed: NoiseSeed,
+  wx: BlockAxis,
+  wz: BlockAxis,
   levels: TerrainLevels = DEFAULT_TERRAIN_LEVELS,
 ): TerrainColumn => resolveTerrainColumn(seed, wx, wz, levels)

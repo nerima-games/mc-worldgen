@@ -78,6 +78,8 @@ import {
   readBlock,
 } from './chunk.js'
 import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
@@ -110,6 +112,7 @@ export { biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt }
 export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 
 /** Single-block iteration step for the per-voxel/per-column loops below. */
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 const AXIS_STEP = 1
 /** Sentinel stored for columns whose terrain has no water surface. */
 const NO_WATER_LEVEL = -1
@@ -265,7 +268,7 @@ const createChunkBuffers = (): ChunkBuffers => ({
 type ChunkGenerationContext = ChunkBuffers & {
   readonly minBlockX: number
   readonly minBlockZ: number
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly coord: ChunkCoord
   readonly levels: TerrainLevels
 }
@@ -274,7 +277,7 @@ type IndexedValues<Value> = {
   readonly [index: number]: Value
 }
 
-const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
 
 /**
  * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
@@ -283,13 +286,13 @@ const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value
  * index.
  */
 const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number): number =>
-  readRequired(context.surfaces, columnIndex(lx, lz))
+  readRequired(context.surfaces, columnIndex(localAxis(lx), localAxis(lz)))
 
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
-  readRequired(context.biomes, columnIndex(lx, lz))
+  readRequired(context.biomes, columnIndex(localAxis(lx), localAxis(lz)))
 
 const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
-  const waterLevel = readRequired(context.waterLevels, columnIndex(lx, lz))
+  const waterLevel = readRequired(context.waterLevels, columnIndex(localAxis(lx), localAxis(lz)))
   if (waterLevel === NO_WATER_LEVEL) {
     return null
   }
@@ -311,10 +314,10 @@ const writeColumnBuffers = (
 const generateColumns = (context: ChunkGenerationContext): void => {
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      const index = columnIndex(lx, lz)
+      const index = columnIndex(localAxis(lx), localAxis(lz))
       const wx = context.minBlockX + lx
       const wz = context.minBlockZ + lz
-      const terrainColumn = terrainColumnAt(context.seed, wx, wz, context.levels)
+      const terrainColumn = terrainColumnAt(context.seed, blockAxis(wx), blockAxis(wz), context.levels)
       const filled = fillColumn(context.blocks, {
         column: terrainColumn,
         levels: context.levels,
@@ -336,10 +339,10 @@ const plantTreesPass = (context: ChunkGenerationContext): void => {
       if (
         shouldPlaceTree({
           biome,
-          surfaceY,
+          surfaceY: blockAxis(surfaceY),
           terrainLevels: context.levels,
-          worldX: context.minBlockX + lx,
-          worldZ: context.minBlockZ + lz,
+          worldX: blockAxis(context.minBlockX + lx),
+          worldZ: blockAxis(context.minBlockZ + lz),
         })
       ) {
         plantTree(context.blocks, lx, lz, surfaceY)
@@ -414,7 +417,7 @@ const localColumnFor = (
   if (lx < LOCAL_COLUMN_MIN || lx >= CHUNK_SIZE_XZ || lz < LOCAL_COLUMN_MIN || lz >= CHUNK_SIZE_XZ) {
     return null
   }
-  return columnIndex(lx, lz)
+  return columnIndex(localAxis(lx), localAxis(lz))
 }
 
 const structureSurfaceBiomeAt = (
@@ -422,13 +425,13 @@ const structureSurfaceBiomeAt = (
   localColumn: number | null,
   wx: number,
   wz: number,
-): { readonly biome: BiomeType; readonly surfaceY: number } => {
+): { readonly biome: BiomeType; readonly surfaceY: BlockAxis } => {
   if (localColumn === null) {
-    return surfaceBiomeAt(context.seed, wx, wz, context.levels)
+    return surfaceBiomeAt(context.seed, blockAxis(wx), blockAxis(wz), context.levels)
   }
   return {
     biome: readRequired(context.biomes, localColumn),
-    surfaceY: readRequired(context.initialSurfaces, localColumn),
+    surfaceY: blockAxis(readRequired(context.initialSurfaces, localColumn)),
   }
 }
 
@@ -459,7 +462,7 @@ const structureTerrainSampleAt = (
   }
   const localColumn = localColumnFor(context, wx, wz)
   const resolved = structureSurfaceBiomeAt(context, localColumn, wx, wz)
-  const sample = { biome: resolved.biome, seaLevel: context.levels.seaLevel, surfaceY: resolved.surfaceY }
+  const sample = { biome: resolved.biome, seaLevel: blockAxis(context.levels.seaLevel), surfaceY: resolved.surfaceY }
   cacheTerrainSample(terrainSamples, wx, wz, sample)
   return sample
 }
@@ -482,7 +485,7 @@ const writeStructures = (
  * Generate a chunk. Total, pure, and a function of `(seed, coord)` alone.
  */
 export const generateChunk = (
-  seed: number,
+  seed: NoiseSeed,
   coord: ChunkCoord,
   options: GenerateOptions = {},
 ): NaturalStructureChunk => {
@@ -514,9 +517,9 @@ export const generateChunk = (
 
 /** Convenience for callers that have plain numbers rather than a `ChunkCoord`. */
 export const generateChunkAt = (
-  seed: number,
-  x: number,
-  z: number,
+  seed: NoiseSeed,
+  x: ChunkAxis,
+  z: ChunkAxis,
   options: GenerateOptions = {},
 ): NaturalStructureChunk =>
   generateChunk(seed, chunkCoord(x, z), options)

@@ -24,7 +24,9 @@
  * strongholds in the same 384-block grid cells. Same conclusion as
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { BlockAxis, type ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BiomeType } from './biome.js'
 import { Option } from 'effect'
 
@@ -67,11 +69,11 @@ export const STRONGHOLD_FLOOR_Y = 28
 export const STRONGHOLD_SEARCH_RADIUS = 6
 
 export type StrongholdSite = {
-  readonly x: number
-  readonly z: number
+  readonly x: BlockAxis
+  readonly z: BlockAxis
 }
 
-export type StrongholdOrigin = { readonly x: number; readonly z: number }
+export type StrongholdOrigin = { readonly x: BlockAxis; readonly z: BlockAxis }
 
 /** A permille figure (parts per 1000) divides by this to become a probability in `[0, 1)`. */
 const PERMILLE_SCALE = 1000
@@ -96,7 +98,7 @@ const floorDiv = (value: number, divisor: number): number => Math.floor(value / 
  * doing the work a channel name does here.
  */
 export const strongholdSiteForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
 ): Option.Option<StrongholdSite> => {
@@ -111,11 +113,13 @@ export const strongholdSiteForRegion = (
     STRONGHOLD_SITE_MARGIN + Math.floor(latticeValue(channelSeed(seed, 'stronghold-x'), regionX, regionZ) * span)
   const offsetZ =
     STRONGHOLD_SITE_MARGIN + Math.floor(latticeValue(channelSeed(seed, 'stronghold-z'), regionX, regionZ) * span)
+  const x = BlockAxis.option(regionX * STRONGHOLD_REGION_SIZE + offsetX)
+  const z = BlockAxis.option(regionZ * STRONGHOLD_REGION_SIZE + offsetZ)
 
-  return Option.some({
-    x: regionX * STRONGHOLD_REGION_SIZE + offsetX,
-    z: regionZ * STRONGHOLD_REGION_SIZE + offsetZ,
-  })
+  if (Option.isNone(x) || Option.isNone(z)) {
+    return Option.none()
+  }
+  return Option.some({ x: x.value, z: z.value })
 }
 
 /** `locateStronghold` returns this many candidates unless the caller asks for fewer or more. */
@@ -129,7 +133,7 @@ const RESULT_START_INDEX = 0
 
 /** Returns the nearest deterministic candidates, ordered by distance then coordinate. */
 export const locateStronghold = (
-  seed: number,
+  seed: NoiseSeed,
   origin: StrongholdOrigin,
   limit: number = DEFAULT_STRONGHOLD_RESULT_LIMIT,
 ): ReadonlyArray<StrongholdSite> => {
@@ -181,17 +185,17 @@ const CHUNK_MAX_LOCAL = 15
 const REGION_STEP = 1
 
 export type VillageSite = {
-  readonly x: number
-  readonly z: number
+  readonly x: BlockAxis
+  readonly z: BlockAxis
 }
 
 export type OverworldTerrainSample = {
   readonly biome: BiomeType
-  readonly surfaceY: number
-  readonly seaLevel: number
+  readonly surfaceY: BlockAxis
+  readonly seaLevel: BlockAxis
 }
 
-export type OverworldTerrainSampler = (x: number, z: number) => OverworldTerrainSample
+export type OverworldTerrainSampler = (x: BlockAxis, z: BlockAxis) => OverworldTerrainSample
 
 /**
  * Is every probe of a candidate village site dry, level PLAINS?
@@ -243,7 +247,7 @@ const isValidVillageSite = (probes: ReadonlyArray<OverworldTerrainSample>): bool
 const VILLAGE_SITE_ATTEMPTS = 64
 
 type VillageCandidateAttempt = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly regionX: number
   readonly regionZ: number
   readonly span: number
@@ -261,31 +265,45 @@ type VillageCandidateAttempt = {
  */
 const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
   const { seed, regionX, regionZ, span, attempt, sampleTerrain } = options
-  const x =
+  const x = BlockAxis.option(
     regionX * VILLAGE_REGION_SIZE +
-    VILLAGE_SITE_MARGIN +
-    Math.floor(latticeValue(channelSeed(seed, `village-x-${String(attempt)}`), regionX, regionZ) * span)
-  const z =
+      VILLAGE_SITE_MARGIN +
+      Math.floor(latticeValue(channelSeed(seed, `village-x-${String(attempt)}`), regionX, regionZ) * span),
+  )
+  const z = BlockAxis.option(
     regionZ * VILLAGE_REGION_SIZE +
-    VILLAGE_SITE_MARGIN +
-    Math.floor(latticeValue(channelSeed(seed, `village-z-${String(attempt)}`), regionX, regionZ) * span)
+      VILLAGE_SITE_MARGIN +
+      Math.floor(latticeValue(channelSeed(seed, `village-z-${String(attempt)}`), regionX, regionZ) * span),
+  )
+  if (Option.isNone(x) || Option.isNone(z)) {
+    return Option.none()
+  }
+  const site = { x: x.value, z: z.value }
+  const minX = BlockAxis.option(site.x - VILLAGE_HALF_EXTENT)
+  const maxX = BlockAxis.option(site.x + VILLAGE_HALF_EXTENT)
+  const minZ = BlockAxis.option(site.z - VILLAGE_HALF_EXTENT)
+  const maxZ = BlockAxis.option(site.z + VILLAGE_HALF_EXTENT)
+  if (Option.isNone(minX) || Option.isNone(maxX) || Option.isNone(minZ) || Option.isNone(maxZ)) {
+    return Option.none()
+  }
+
   const probes = [
-    sampleTerrain(x, z),
-    sampleTerrain(x - VILLAGE_HALF_EXTENT, z),
-    sampleTerrain(x + VILLAGE_HALF_EXTENT, z),
-    sampleTerrain(x, z - VILLAGE_HALF_EXTENT),
-    sampleTerrain(x, z + VILLAGE_HALF_EXTENT),
+    sampleTerrain(site.x, site.z),
+    sampleTerrain(minX.value, site.z),
+    sampleTerrain(maxX.value, site.z),
+    sampleTerrain(site.x, minZ.value),
+    sampleTerrain(site.x, maxZ.value),
   ]
 
   if (isValidVillageSite(probes)) {
-    return Option.some({ x, z })
+    return Option.some(site)
   }
   return Option.none()
 }
 
 /** A sparse, seeded candidate accepted only when its complete footprint is dry, level plains. */
 export const villageSiteForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
@@ -309,9 +327,9 @@ export const villageSiteForRegion = (
 
 /** Finds all accepted village centres whose footprint can overlap this chunk. */
 export const villageSitesNearChunk = (
-  seed: number,
-  chunkX: number,
-  chunkZ: number,
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
   sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<VillageSite> => {
   const bounds = {
@@ -353,7 +371,7 @@ const SHELL_INNER_RADIUS_OFFSET = 1
 const NO_SHELL_BOUND = 0
 
 type StrongholdSearchQuery = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly x: number
   readonly z: number
 }
@@ -444,7 +462,7 @@ const scanStrongholdShell = (
  * beat the best so far?) and `scanStrongholdShell` (walk one shell), so this
  * function itself stays the five-line search loop the doc comment describes.
  */
-export const nearestStrongholdSite = (seed: number, x: number, z: number): Option.Option<StrongholdSite> => {
+export const nearestStrongholdSite = (seed: NoiseSeed, x: BlockAxis, z: BlockAxis): Option.Option<StrongholdSite> => {
   const query: StrongholdSearchQuery = { seed, x, z }
   const centre: StrongholdRegionCoord = {
     regionX: floorDiv(x, STRONGHOLD_REGION_SIZE),
@@ -480,9 +498,9 @@ export const nearestStrongholdSite = (seed: number, x: number, z: number): Optio
  * has explicitly deferred.
  */
 export const strongholdSitesNearChunk = (
-  seed: number,
-  chunkX: number,
-  chunkZ: number,
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
   halfExtent: number,
 ): ReadonlyArray<StrongholdSite> => {
   const bounds = {

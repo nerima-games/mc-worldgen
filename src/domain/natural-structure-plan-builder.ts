@@ -1,12 +1,18 @@
 import type {
   NaturalStructureBlockPlacement,
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureBounds,
   NaturalStructureKind,
   NaturalStructureMarker,
+  NaturalStructureMarkerDraft,
   NaturalStructurePlan,
   NaturalStructurePosition,
+  NaturalStructurePositionDraft,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
@@ -30,21 +36,21 @@ const PERMILLE_DENOMINATOR = 1000
 const CANDIDATE_MARGIN_DIVISOR = 2
 
 export const candidatePresenceChannelSeedFor = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
-): number => channelSeed(seed, `${dimension}:${kind}:present`)
+): NoiseSeed => channelSeed(seed, `${dimension}:${kind}:present`)
 
 export type CandidateChannelSeeds = Readonly<{
-  readonly presence: number
-  readonly x: number
-  readonly z: number
+  readonly presence: NoiseSeed
+  readonly x: NoiseSeed
+  readonly z: NoiseSeed
 }>
 
-export type CandidateChannelInput = number | CandidateChannelSeeds
+export type CandidateChannelInput = NoiseSeed | CandidateChannelSeeds
 
 export const candidateChannelSeedsFor = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
 ): CandidateChannelSeeds => Object.freeze({
@@ -54,7 +60,7 @@ export const candidateChannelSeedsFor = (
 })
 
 const candidateChannelSeedsForInput = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
   channelInput?: CandidateChannelInput,
@@ -73,7 +79,7 @@ const candidateChannelSeedsForInput = (
 }
 
 export const candidateForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
   region: NaturalStructureRegion,
@@ -94,19 +100,25 @@ export const candidateForRegion = (
 
 const NATURAL_STRUCTURE_WORLD_MIN_Y = 0
 
-export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockPlacement): void => {
+export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockPlacementDraft): void => {
   const { block, x, y, z } = placement
   if (y < NATURAL_STRUCTURE_WORLD_MIN_Y || y >= CHUNK_HEIGHT) {return}
-  const key = keyOf(x, y, z)
-  if (Object.isFrozen(placement)) {
-    mutable.blocks.set(key, placement)
-    return
-  }
-  mutable.blocks.set(key, Object.freeze({ block, x, y, z }))
+  const brandedPlacement: NaturalStructureBlockPlacement = Object.freeze({
+    block,
+    x: blockAxis(x),
+    y: blockAxis(y),
+    z: blockAxis(z),
+  })
+  mutable.blocks.set(keyOf(x, y, z), brandedPlacement)
 }
 
-export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarker): void => {
-  mutable.markers.push(Object.freeze(marker))
+export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarkerDraft): void => {
+  mutable.markers.push(Object.freeze({
+    ...marker,
+    x: blockAxis(marker.x),
+    y: blockAxis(marker.y),
+    z: blockAxis(marker.z),
+  }))
 }
 
 /** Everything about a plan except its accumulated blocks and markers. */
@@ -114,7 +126,7 @@ export type NaturalStructureDraftMeta = {
   readonly dimension: Dimension
   readonly id: string
   readonly kind: NaturalStructureKind
-  readonly origin: NaturalStructurePosition
+  readonly origin: NaturalStructurePositionDraft
   readonly region: NaturalStructureRegion
 }
 
@@ -141,7 +153,7 @@ const extendBounds = (bounds: BoundsAccumulator, positions: ReadonlyArray<Natura
 const boundsFor = (
   blocks: ReadonlyArray<NaturalStructureBlockPlacement>,
   markers: ReadonlyArray<NaturalStructureMarker>,
-): Readonly<BoundsAccumulator> => {
+): NaturalStructureBounds => {
   const bounds: BoundsAccumulator = {
     maxX: Number.NEGATIVE_INFINITY,
     maxY: Number.NEGATIVE_INFINITY,
@@ -152,7 +164,14 @@ const boundsFor = (
   }
   extendBounds(bounds, blocks)
   extendBounds(bounds, markers)
-  return Object.freeze(bounds)
+  return Object.freeze({
+    maxX: blockAxis(bounds.maxX),
+    maxY: blockAxis(bounds.maxY),
+    maxZ: blockAxis(bounds.maxZ),
+    minX: blockAxis(bounds.minX),
+    minY: blockAxis(bounds.minY),
+    minZ: blockAxis(bounds.minZ),
+  })
 }
 
 export const finishPlan = (meta: NaturalStructureDraftMeta, mutable: MutablePlan): NaturalStructurePlan => {
@@ -166,18 +185,32 @@ export const finishPlan = (meta: NaturalStructureDraftMeta, mutable: MutablePlan
     id: meta.id,
     kind: meta.kind,
     markers,
-    origin: Object.freeze(meta.origin),
+    origin: Object.freeze({
+      x: blockAxis(meta.origin.x),
+      y: blockAxis(meta.origin.y),
+      z: blockAxis(meta.origin.z),
+    }),
     region: Object.freeze(meta.region),
   })
 }
 
 export const finishPlanFromValidatedPlacements = (
   meta: NaturalStructureDraftMeta,
-  placements: ReadonlyArray<NaturalStructureBlockPlacement>,
-  markers: ReadonlyArray<NaturalStructureMarker>,
+  placements: ReadonlyArray<NaturalStructureBlockPlacementDraft>,
+  markers: ReadonlyArray<NaturalStructureMarkerDraft>,
 ): NaturalStructurePlan => {
-  const blocks = Object.freeze([...placements])
-  const frozenMarkers = Object.freeze([...markers])
+  const blocks = Object.freeze(placements.map((placement): NaturalStructureBlockPlacement => Object.freeze({
+    ...placement,
+    x: blockAxis(placement.x),
+    y: blockAxis(placement.y),
+    z: blockAxis(placement.z),
+  })))
+  const frozenMarkers = Object.freeze(markers.map((marker): NaturalStructureMarker => Object.freeze({
+    ...marker,
+    x: blockAxis(marker.x),
+    y: blockAxis(marker.y),
+    z: blockAxis(marker.z),
+  })))
   const bounds = boundsFor(blocks, frozenMarkers)
   return Object.freeze({
     blocks,
@@ -186,7 +219,11 @@ export const finishPlanFromValidatedPlacements = (
     id: meta.id,
     kind: meta.kind,
     markers: frozenMarkers,
-    origin: Object.freeze(meta.origin),
+    origin: Object.freeze({
+      x: blockAxis(meta.origin.x),
+      y: blockAxis(meta.origin.y),
+      z: blockAxis(meta.origin.z),
+    }),
     region: Object.freeze(meta.region),
   })
 }

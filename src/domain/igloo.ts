@@ -1,9 +1,10 @@
+import { blockAxis } from './coordinate-compatibility.js'
 import { IGLOO_BLOCK, IGLOO_LAYOUT } from './igloo-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
@@ -12,9 +13,9 @@ import { Option } from 'effect'
 type IglooCandidate = { readonly x: number; readonly z: number }
 
 export type IglooDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -25,7 +26,7 @@ const MIN_WORLD_Y = 0
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -34,7 +35,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -44,11 +45,11 @@ const terrainProbesFor = (
 ): ReadonlyArray<OverworldTerrainSample> => {
   const probeExtent = IGLOO_LAYOUT.domeHalfExtent
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - probeExtent, candidate.z),
-    sampleTerrain(candidate.x + probeExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - probeExtent),
-    sampleTerrain(candidate.x, candidate.z + probeExtent),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
 }
 
@@ -91,7 +92,7 @@ const domeHalfExtentForLevel = (level: number): number =>
   Math.max(UNIT_STEP, IGLOO_LAYOUT.domeHalfExtent - Math.floor(level / IGLOO_LAYOUT.domeLevelRadiusStep))
 
 const addDomeLevel = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
   level: number,
@@ -108,7 +109,7 @@ const addDomeLevel = (
 }
 
 const addDome = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -125,7 +126,7 @@ const basementBlockAt = (y: number, floorY: number, dx: number, dz: number): Blo
 }
 
 const addBasementShell = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -140,7 +141,7 @@ const addBasementShell = (
 }
 
 const addBasementFloor = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -153,7 +154,7 @@ const addBasementFloor = (
 }
 
 const addBasement = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -162,7 +163,7 @@ const addBasement = (
 }
 
 const addShaftLadder = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -177,7 +178,7 @@ const addShaftLadder = (
 }
 
 const addShaftDoor = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -187,7 +188,7 @@ const addShaftDoor = (
 }
 
 const addShaft = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -198,7 +199,7 @@ const addShaft = (
 type InteriorOffset = { readonly x: number; readonly z: number }
 
 const addOffsetBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   candidate: IglooCandidate,
   y: number,
@@ -210,8 +211,8 @@ const addOffsetBlock = (
 const interiorYFor = (baseY: number): number => baseY - BASEMENT_FLOOR_OFFSET + UNIT_STEP
 
 const addInteriorChest = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -224,7 +225,7 @@ const addInteriorChest = (
 }
 
 const addInteriorFurniture = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -236,7 +237,7 @@ const addInteriorFurniture = (
 }
 
 const addInteriorSpawns = (
-  markers: Array<NaturalStructureMarker>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -261,8 +262,8 @@ const addInteriorSpawns = (
 }
 
 const addInterior = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: IglooCandidate,
   baseY: number,
 ): void => {
@@ -281,8 +282,8 @@ export const planIglooForCandidate = (
     return Option.none()
   }
 
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   addBasement(blocks, candidate, baseYOption.value)
   addDome(blocks, candidate, baseYOption.value)
   addShaft(blocks, candidate, baseYOption.value)
