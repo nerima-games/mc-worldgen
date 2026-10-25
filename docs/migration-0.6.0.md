@@ -10,15 +10,15 @@ Import `NoiseSeed` from the mc-worldgen package root and validate external
 numbers before calling a generation API:
 
 ```ts
-import { NoiseSeed } from '@nerima-games/mc-worldgen'
+import { NoiseSeed, generateChunk } from '@nerima-games/mc-worldgen'
 import { Result } from 'effect'
+import type { ChunkCoord } from '@nerima-games/mc-kernel'
 
-const seedResult = NoiseSeed.result(rawSeed)
-if (Result.isFailure(seedResult)) {
-  return seedResult
+const generateFromRawSeed = (rawSeed: number, coord: ChunkCoord) => {
+  const seed = NoiseSeed.result(rawSeed)
+  if (Result.isFailure(seed)) return seed
+  return generateChunk(seed.success, coord)
 }
-
-const chunk = generateChunk(seedResult.success, coord)
 ```
 
 From 0.6 onward, non-integer seeds return a typed failure. `NaN`, infinities,
@@ -28,19 +28,20 @@ integer seeds within the safe-integer range keep their generated chunk output.
 
 ## Provide a chunk-store capacity
 
-Every chunk-store factory and layer now requires a `ChunkCapacity`. Construct
-it at the configuration boundary and handle validation failure there:
+Every chunk-store factory and layer now requires a `ChunkCapacity`. Validate
+it at the configuration boundary and handle failure there. Pass the validated
+value as the `capacity` argument to `makeChunkStore` or a store layer; the
+`source` argument continues to provide chunks:
 
 ```ts
-import { ChunkCapacity, makeChunkStore } from '@nerima-games/mc-worldgen'
+import { ChunkCapacity } from '@nerima-games/mc-worldgen'
 import { Result } from 'effect'
 
-const capacityResult = ChunkCapacity.result(configuredCapacity)
-if (Result.isFailure(capacityResult)) {
-  return capacityResult
+const validateCapacity = (configuredCapacity: number) => {
+  const result = ChunkCapacity.result(configuredCapacity)
+  if (Result.isFailure(result)) return result
+  return result.success
 }
-
-const store = yield* makeChunkStore(source, capacityResult.success)
 ```
 
 The capacity must be a positive safe integer. There is no default. When a full
@@ -51,12 +52,28 @@ persisted before eviction. If persistence fails, the chunk stays resident and
 
 ## Select a store by dimension
 
-Use `ChunkStoreRegistry` when a host needs independent stores for each
-dimension:
+Use `ChunkStoreRegistryLayer` to provide the registry service, then obtain
+it inside an Effect program with `ChunkStoreRegistry`:
 
 ```ts
-const overworld = registry.forDimension('overworld')
-const nether = registry.forDimension('nether')
+import {
+  ChunkCapacity,
+  ChunkStoreRegistry,
+  ChunkStoreRegistryLayer,
+} from '@nerima-games/mc-worldgen'
+import { Effect } from 'effect'
+
+const getOverworldStore = (
+  sourceForDimension: Parameters<typeof ChunkStoreRegistryLayer>[0],
+  capacity: ChunkCapacity,
+) =>
+  Effect.provide(
+    Effect.gen(function* () {
+      const registry = yield* ChunkStoreRegistry
+      return registry.forDimension('overworld')
+    }),
+    ChunkStoreRegistryLayer(sourceForDimension, capacity),
+  )
 ```
 
 The registry layer requires the same `ChunkCapacity` as an individual store.
@@ -77,5 +94,5 @@ from the production package root.
 ## Resolver ownership
 
 `resolveNetherTravel` and `resolveEndGatewayExit` remain available in 0.6.
-Their planned move to mx-gameplay is scheduled for W4, after that repository
-accepts the APIs.
+Transfer to mx-gameplay is planned during its W4 migration. Until mx-gameplay
+adopts these APIs, callers should continue importing them from mc-worldgen.

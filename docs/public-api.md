@@ -2,7 +2,9 @@
 
 ## mc-worldgen 0.6 public surface
 
-This section describes the current package boundary. It supersedes any earlier
+This section summarizes major consumer-facing changes in 0.6; it is not a
+complete inventory of every root export. Import public mc-worldgen APIs from the
+package root unless another entry point is shown. It supersedes any earlier
 signature or implementation-status statement below that conflicts with it. See
 [the 0.6 migration guide](./migration-0.6.0.md) for consumer changes.
 
@@ -11,14 +13,14 @@ signature or implementation-status statement below that conflicts with it. See
   boundary and propagate its failure. Fractional values, `NaN`, infinities,
   and integers outside the safe-integer range fail; valid integer seeds retain
   their output.
-- `ChunkCapacity` is a positive safe-integer brand required by every store
-  factory and layer. The bounded cache evicts its least recently used clean
+- The package root exports `ChunkCapacity`, a positive safe-integer brand
+  required by every store factory and layer. The bounded cache evicts its least recently used clean
   chunk. `load` and `neighbours` update recency; `peek` and `snapshot` do not.
   Dirty chunks are persisted before eviction. A failed save leaves the chunk
   resident and returns a typed error.
 - `ChunkStoreRegistry` provides `forDimension(dimension): ChunkStoreApi`, with
-  an independent bounded store for each dimension. `ChunkStoreApi` exposes
-  `peek`, `neighbours`, `subscribeDirty`, and `getLight` for renderer consumers.
+  an independent bounded store for each dimension. `ChunkStoreApi` exposes the
+  methods `peek`, `neighbours`, `subscribeDirty`, and `getLight` for renderer consumers.
 - The package root exports `Chunk`, `ChunkNeighbours`, `LightReading`,
   `CHUNK_HEIGHT`, and `chunkKeyOf`. `chunkKeyOf` is re-exported directly from
   mc-kernel and returns its branded `ChunkKey`; import the `ChunkKey` type from
@@ -40,6 +42,9 @@ plan.md §3.7 が要求する API を、**参照実装の実コードと突き�
 > **主要な公開 API**: `generateChunk(seed, coords) → NaturalStructureChunk`（純粋・決定論）、
 > `BiomeService`（気候→バイオーム）、`ChunkManager`（ロード/アンロード/ダーティフラグ）、
 > ワーカープール Port（実装は利用側が注入）
+
+この引用は計画時の要求で、0.6 の export 一覧ではない。`BiomeService` は
+mc-worldgen 0.6 の API に含まれない。
 
 ---
 

@@ -26,7 +26,7 @@
 | 構造物（Nether fortress） | `domain/nether-fortress.ts` が seed / region 候補、地形適合、Nether brick の断面、loot / mob / spawner marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
 | 構造物（bastion remnant） | `domain/bastion-remnant.ts` が Nether の平坦な shelf を検査し、mc-kernel 登録ブロックだけで compact structure、loot / piglin / piglin-brute marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
 | 構造物（ポータル） | 検出・点火用 `portal-frame.ts` に加え、`natural-structure.ts` が ruined portal の immutable plan と marker を提供し、`nether-terrain.ts` が境界をまたぐ plan をチャンクへ適用する | ✅ plan + generator 適用 |
-| Nether dimension travel | `domain/nether-link.ts` owns coordinate scaling and nearest-portal selection; `domain/nether-travel.ts` retains `resolveNetherTravel`, `PortalTravelPlan`, and `PORTAL_SEARCH_RADIUS` in 0.6. `PortalRegistry` owns portal state. The resolver APIs are planned to transfer to mx-gameplay after W4 accepts them; see §6. | Retained in 0.6; later transfer planned |
+| Nether dimension travel | `domain/nether-link.ts` owns coordinate scaling and nearest-portal selection; `domain/nether-travel.ts` retains `resolveNetherTravel`, `PortalTravelPlan`, and `PORTAL_SEARCH_RADIUS` in 0.6. `PortalRegistry` owns portal state. Transfer to mx-gameplay is planned during its W4 migration. Until mx-gameplay adopts these APIs, callers should continue importing them from mc-worldgen; see §6. | Retained in 0.6; later transfer planned |
 | 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
 | 構造物（desert pyramid） | `domain/desert-pyramid.ts` が乾燥した砂漠サイトを選び、砂岩ピラミッド、地下 chamber、TNT、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（desert well） | `domain/desert-well.ts` が乾燥・平坦な砂漠サイトを選び、mc-kernel 登録済みの sandstone / water だけで井戸を計画し、`natural-structure.ts` が Overworld chunk へ適用する。loot marker は持たない | ✅ plan + generator 適用 |
@@ -39,7 +39,7 @@
 | 構造物（shipwreck） | `domain/shipwreck.ts` が海洋バイオームの十分な水深と平坦な海底を選び、登録済み木材の船体、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | Structures (ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / `woodland-mansion-single-chunk`) | `domain/compact-structure.ts` plans compact structures from registered `mc-kernel` blocks and supplies candidate placement, biome and terrain checks, chests, and loot markers; `natural-structure.ts` applies plans to Overworld chunks. The `woodland-mansion-single-chunk` kind is an additional named variant; the existing `woodland-mansion` may still span chunks. No vanilla template or palette parity is claimed. | Plan + generator application |
 | End structures and gateway exits | `natural-structure.ts` plans End city and ship structures; `end-terrain.ts` applies cross-chunk plans. `end-features.ts` plans spikes, pillars, crystals, and cages. `end-gateway.ts` provides bedrock shells and retains `resolveEndGatewayExit` / `EndGatewayExit` in 0.6; transfer to mx-gameplay is planned after W4 accepts the APIs. `end-portal.ts` provides portal validation and arrival rules. | Retained in 0.6; later transfer planned |
-| ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。公開 façade は `src/domain/light.ts`、実装は `light-grid.ts`・`light-propagation.ts`・`light-update.ts`。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
+| ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。公開 façade は `src/domain/light.ts`、実装は `light-grid.ts`・`light-propagation.ts`・`light-update.ts`。`ChunkStore.setBlock` が無効化する | ✅ 初回全体計算 + 変更時の増分更新 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
 | ワーカープール Port | `TerrainWorkerPoolPort` と `chunkSourceFromTerrainWorkerPool` を公開。Worker/Pool の媒体はホストが注入し、mc-worldgen は DOM/Worker を所有しない | ✅ 型 + adapter |
 | チャンクフォーマット定義 | `domain/chunk-format.ts`。`mc-save` の `defineFormat` と `PersistentChunkStoreLayer` で利用 | ✅ フォーマット定義 + `StoragePort` 接続（媒体はホスト注入） |
@@ -393,15 +393,15 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 
 ## 6. Portal and dimension travel ownership
 
-`mc-worldgen` owns portal-frame geometry and detection, Nether coordinate scaling and nearest-portal selection, and the `PortalRegistry` world state. In 0.6 it also retains `resolveNetherTravel`, `PortalTravelPlan`, `PORTAL_SEARCH_RADIUS`, `resolveEndGatewayExit`, and `EndGatewayExit`, as required by W3 ruling R4.
+`mc-worldgen` owns portal-frame geometry and detection, Nether coordinate scaling and nearest-portal selection, and the `PortalRegistry` world state. In 0.6 it also retains `resolveNetherTravel`, `PortalTravelPlan`, `PORTAL_SEARCH_RADIUS`, `resolveEndGatewayExit`, and `EndGatewayExit`, as required for the 0.6 migration.
 
 The travel resolvers are pure planning APIs. They combine worldgen's portal and coordinate rules; the host remains responsible for moving entities, changing dimensions, handling portal dwell and cooldown, and applying or registering generated layouts.
 
 | API or responsibility | 0.6 owner | Planned boundary |
 | --- | --- | --- |
 | `overworldToNether`, `netherToOverworld`, and `findNearestPortal` | `mc-worldgen` | Remain with worldgen coordinate and portal-selection rules. |
-| `resolveNetherTravel`, `PortalTravelPlan`, `PORTAL_SEARCH_RADIUS`, and `PortalRegistry.resolveTravel` | `mc-worldgen` | Retained in 0.6; planned transfer to mx-gameplay after W4 accepts the APIs. Remove them from a later worldgen release only after that handoff. |
-| `resolveEndGatewayExit` and `EndGatewayExit` | `mc-worldgen` | Retained in 0.6; planned transfer to mx-gameplay after W4 accepts the APIs. Remove them from a later worldgen release only after that handoff. |
+| `resolveNetherTravel`, `PortalTravelPlan`, `PORTAL_SEARCH_RADIUS`, and `PortalRegistry.resolveTravel` | `mc-worldgen` | Retained in 0.6; planned transfer to mx-gameplay during W4. Keep them in mc-worldgen until mx-gameplay adopts them, then remove them in a later worldgen release. |
+| `resolveEndGatewayExit` and `EndGatewayExit` | `mc-worldgen` | Retained in 0.6; planned transfer to mx-gameplay during W4. Keep them in mc-worldgen until mx-gameplay adopts them, then remove them in a later worldgen release. |
 | Entity movement, dimension changes, portal dwell and cooldown | Host gameplay layers | Remain outside `mc-worldgen`. |
 
-The 0.6 boundary does not settle the eventual ownership by argument. It preserves the current public contracts until the receiving W4 stream accepts them, then allows a later worldgen release to complete the transfer. `PortalRegistry` continues to own portal state and supplies the destination dimension's portal snapshot to its travel resolver.
+The planned recipient is mx-gameplay during W4. Until that migration adopts the APIs, mc-worldgen keeps them available. A later worldgen release can remove them after the handoff. `PortalRegistry` continues to own portal state and supplies the destination dimension's portal snapshot to its travel resolver.
