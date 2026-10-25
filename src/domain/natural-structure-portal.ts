@@ -8,16 +8,16 @@ import {
   candidateForRegion,
   finishPlan,
 } from './natural-structure-plan-builder.js'
-import { blockAxis } from './coordinate-compatibility.js'
 import type {
   NaturalStructurePlan,
   NaturalStructureRegion,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
 
 const PORTAL_PROBE_OFFSET = 3
 const PORTAL_BASE_Y_CLEARANCE = 1

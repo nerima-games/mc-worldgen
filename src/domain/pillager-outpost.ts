@@ -1,4 +1,3 @@
-import { blockAxis } from './coordinate-compatibility.js'
 import type {
   NaturalStructureBlockPlacementDraft,
   NaturalStructureMarkerDraft,
@@ -9,6 +8,7 @@ import { PILLAGER_OUTPOST_BLOCK, PILLAGER_OUTPOST_LAYOUT } from './pillager-outp
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type PillagerOutpostCandidate = { readonly x: number; readonly z: number }
 

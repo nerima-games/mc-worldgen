@@ -4,11 +4,10 @@ import type {
   NaturalStructurePlan,
 } from './natural-structure-types.js'
 import { STRONGHOLD_FLOOR_Y, strongholdSiteForRegion } from './structure-siting.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
 import { finishPlanFromValidatedPlacements } from './natural-structure-plan-builder.js'
 import { generateStrongholdPlan } from './stronghold.js'
-
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 export const planStrongholdForRegion = (
   seed: NoiseSeed,
   regionX: number,

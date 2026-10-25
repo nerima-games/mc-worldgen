@@ -1,4 +1,3 @@
-import { blockAxis } from './coordinate-compatibility.js'
 import {
   type Candidate,
   type CandidateChannelInput,
@@ -16,11 +15,12 @@ import type {
   NaturalStructureRegion,
 } from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
 
 const END_CITY_PROBE_OFFSET = 6
 const END_CITY_MAX_SURFACE_VARIATION = 5

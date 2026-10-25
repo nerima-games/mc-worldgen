@@ -1,21 +1,21 @@
 /* oxlint-disable id-length, max-statements, new-cap, no-magic-numbers */
 
-import { Option, Result } from 'effect'
-import { BLOCK } from './biome.js'
 import {
-  BlockAxis,
-  blockPosition,
-  MAX_PORTAL_HEIGHT,
-  MAX_PORTAL_WIDTH,
-  PortalHeight,
-  PortalWidth,
   type BlockAt,
+  BlockAxis,
   type BlockId,
   type BlockPosition,
+  MAX_PORTAL_HEIGHT,
+  MAX_PORTAL_WIDTH,
   type PortalAxis,
   type PortalFrame,
+  PortalHeight,
   type PortalLayout,
+  PortalWidth,
+  blockPosition,
 } from '@nerima-games/mc-kernel'
+import { Option, Result } from 'effect'
+import { BLOCK } from './biome.js'
 
 type PlanePoint = Readonly<{ h: number; y: number }>
 type PortalExtent = Readonly<{ height: number; width: number }>
@@ -29,16 +29,19 @@ const axisAt = (coordinate: number): BlockAxis => Result.getOrThrow(BlockAxis.re
 const probe = (context: PlaneContext, h: number, y: number): BlockId | undefined => {
   const horizontal = BlockAxis.option(h)
   const vertical = BlockAxis.option(y)
-  if (Option.isNone(horizontal) || Option.isNone(vertical)) return undefined
-  return context.axis === 'x'
-    ? context.blockAt(horizontal.value, vertical.value, context.fixed)
-    : context.blockAt(context.fixed, vertical.value, horizontal.value)
+  if (Option.isNone(horizontal) || Option.isNone(vertical)) {return}
+  if (context.axis === 'x') {
+    return context.blockAt(horizontal.value, vertical.value, context.fixed)
+  }
+  return context.blockAt(context.fixed, vertical.value, horizontal.value)
 }
 
-const positionAt = (axis: PortalAxis, fixed: BlockAxis, h: number, y: number): BlockPosition =>
-  axis === 'x'
-    ? blockPosition(axisAt(h), axisAt(y), fixed)
-    : blockPosition(fixed, axisAt(y), axisAt(h))
+const positionAt = (axis: PortalAxis, fixed: BlockAxis, h: number, y: number): BlockPosition => {
+  if (axis === 'x') {
+    return blockPosition(axisAt(h), axisAt(y), fixed)
+  }
+  return blockPosition(fixed, axisAt(y), axisAt(h))
+}
 
 const countAir = (context: PlaneContext, start: PlanePoint, step: PlanePoint, max: number): number => {
   let count = 0
@@ -69,9 +72,11 @@ const collectRectangle = (
   corner: PlanePoint,
   extent: PortalExtent,
 ): BlockPosition[] => {
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
   const cells: BlockPosition[] = []
-  for (let h = corner.h; h < corner.h + extent.width; h += 1) {
-    for (let y = corner.y; y < corner.y + extent.height; y += 1) {
+  for (let h = cornerH; h < cornerH + width; h += 1) {
+    for (let y = cornerY; y < cornerY + height; y += 1) {
       cells.push(positionAt(axis, fixed, h, y))
     }
   }
@@ -101,27 +106,33 @@ const collectRing = (
 }
 
 const interiorIsClear = (context: PlaneContext, corner: PlanePoint, extent: PortalExtent): boolean => {
-  for (let h = corner.h; h < corner.h + extent.width; h += 1) {
-    for (let y = corner.y; y < corner.y + extent.height; y += 1) {
-      if (probe(context, h, y) !== BLOCK.AIR) return false
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
+  for (let h = cornerH; h < cornerH + width; h += 1) {
+    for (let y = cornerY; y < cornerY + height; y += 1) {
+      if (probe(context, h, y) !== BLOCK.AIR) {
+        return false
+      }
     }
   }
   return true
 }
 
 const ringIsObsidian = (context: PlaneContext, corner: PlanePoint, extent: PortalExtent): boolean => {
-  for (let h = corner.h; h < corner.h + extent.width; h += 1) {
+  const { h: cornerH, y: cornerY } = corner
+  const { height, width } = extent
+  for (let h = cornerH; h < cornerH + width; h += 1) {
     if (
-      probe(context, h, corner.y - RING_MARGIN) !== BLOCK.OBSIDIAN ||
-      probe(context, h, corner.y + extent.height) !== BLOCK.OBSIDIAN
+      probe(context, h, cornerY - RING_MARGIN) !== BLOCK.OBSIDIAN ||
+      probe(context, h, cornerY + height) !== BLOCK.OBSIDIAN
     ) {
       return false
     }
   }
-  for (let y = corner.y; y < corner.y + extent.height; y += 1) {
+  for (let y = cornerY; y < cornerY + height; y += 1) {
     if (
-      probe(context, corner.h - RING_MARGIN, y) !== BLOCK.OBSIDIAN ||
-      probe(context, corner.h + extent.width, y) !== BLOCK.OBSIDIAN
+      probe(context, cornerH - RING_MARGIN, y) !== BLOCK.OBSIDIAN ||
+      probe(context, cornerH + width, y) !== BLOCK.OBSIDIAN
     ) {
       return false
     }
@@ -134,20 +145,22 @@ const detectInPlane = (context: PlaneContext, h0: number, y0: number): PortalFra
   const extent = measureInterior(context, corner)
   const width = PortalWidth.option(extent.width)
   const height = PortalHeight.option(extent.height)
-  if (Option.isNone(width) || Option.isNone(height)) return undefined
-  if (!interiorIsClear(context, corner, extent)) return undefined
-  if (!ringIsObsidian(context, corner, extent)) return undefined
+  if (Option.isNone(width) || Option.isNone(height)) {return}
+  if (!interiorIsClear(context, corner, extent)) {return}
+  if (!ringIsObsidian(context, corner, extent)) {return}
+  /* eslint-disable sort-keys -- Preserve the public JSON serialization order. */
   return {
     axis: context.axis,
     width: width.value,
     height: height.value,
     interior: collectRectangle(context.axis, context.fixed, corner, extent),
   }
+  /* eslint-enable sort-keys */
 }
 
 /** Detects a complete obsidian framed portal containing `ignition`. */
 export const detectNetherPortal = (blockAt: BlockAt, ignition: BlockPosition): PortalFrame | undefined => {
-  if (blockAt(ignition.x, ignition.y, ignition.z) !== BLOCK.AIR) return undefined
+  if (blockAt(ignition.x, ignition.y, ignition.z) !== BLOCK.AIR) {return}
   return (
     detectInPlane({ axis: 'x', blockAt, fixed: ignition.z }, ignition.x, ignition.y) ??
     detectInPlane({ axis: 'z', blockAt, fixed: ignition.x }, ignition.z, ignition.y)
@@ -157,10 +170,12 @@ export const detectNetherPortal = (blockAt: BlockAt, ignition: BlockPosition): P
 const resolveOrigin = (
   axis: PortalAxis,
   origin: BlockPosition,
-): Readonly<{ corner: PlanePoint; fixed: BlockAxis }> =>
-  axis === 'x'
-    ? { corner: { h: origin.x, y: origin.y }, fixed: origin.z }
-    : { corner: { h: origin.z, y: origin.y }, fixed: origin.x }
+): Readonly<{ corner: PlanePoint; fixed: BlockAxis }> => {
+  if (axis === 'x') {
+    return { corner: { h: origin.x, y: origin.y }, fixed: origin.z }
+  }
+  return { corner: { h: origin.z, y: origin.y }, fixed: origin.x }
+}
 
 /** Plans the obsidian ring and clear interior for a validated portal size. */
 export const generatePortalLayout = (

@@ -1,4 +1,3 @@
-import { blockAxis } from './coordinate-compatibility.js'
 import { IGLOO_BLOCK, IGLOO_LAYOUT } from './igloo-data.js'
 import type {
   NaturalStructureBlockPlacementDraft,
@@ -9,6 +8,7 @@ import type { OverworldTerrainSample, OverworldTerrainSampler } from './structur
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type IglooCandidate = { readonly x: number; readonly z: number }
 

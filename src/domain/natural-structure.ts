@@ -1,5 +1,4 @@
 /** Deterministic, immutable plans for cross-chunk natural structures. */
-import { blockAxis } from './coordinate-compatibility.js'
 import { type BastionRemnantDraft, planBastionRemnantForCandidate } from './bastion-remnant.js'
 import {
   COMPACT_STRUCTURE_KINDS,
@@ -32,6 +31,7 @@ import {
   type NaturalStructureRegionPlanRequest,
   naturalStructurePlansForChunk as enumerateNaturalStructurePlansForChunk,
 } from './natural-structure-chunk-planner.js'
+import { blockAxis } from './coordinate-compatibility.js'
 export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
 import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
 import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin.js'

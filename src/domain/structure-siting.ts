@@ -25,9 +25,9 @@
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
 import { BlockAxis, type ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BiomeType } from './biome.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
 
 /**
@@ -97,17 +97,11 @@ const floorDiv = (value: number, divisor: number): number => Math.floor(value / 
  * same three draws (`stronghold.ts:34-39`) — distinct magic middle coordinates
  * doing the work a channel name does here.
  */
-export const strongholdSiteForRegion = (
+const strongholdCoordinatesForRegion = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
 ): Option.Option<StrongholdSite> => {
-  const roll = latticeValue(channelSeed(seed, 'stronghold-present'), regionX, regionZ)
-
-  if (roll >= STRONGHOLD_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
-    return Option.none()
-  }
-
   const span = STRONGHOLD_REGION_SIZE - STRONGHOLD_SITE_MARGIN * MARGIN_SIDES
   const offsetX =
     STRONGHOLD_SITE_MARGIN + Math.floor(latticeValue(channelSeed(seed, 'stronghold-x'), regionX, regionZ) * span)
@@ -115,11 +109,22 @@ export const strongholdSiteForRegion = (
     STRONGHOLD_SITE_MARGIN + Math.floor(latticeValue(channelSeed(seed, 'stronghold-z'), regionX, regionZ) * span)
   const x = BlockAxis.option(regionX * STRONGHOLD_REGION_SIZE + offsetX)
   const z = BlockAxis.option(regionZ * STRONGHOLD_REGION_SIZE + offsetZ)
-
   if (Option.isNone(x) || Option.isNone(z)) {
     return Option.none()
   }
   return Option.some({ x: x.value, z: z.value })
+}
+
+export const strongholdSiteForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+): Option.Option<StrongholdSite> => {
+  const roll = latticeValue(channelSeed(seed, 'stronghold-present'), regionX, regionZ)
+  if (roll >= STRONGHOLD_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
+    return Option.none()
+  }
+  return strongholdCoordinatesForRegion(seed, regionX, regionZ)
 }
 
 /** `locateStronghold` returns this many candidates unless the caller asks for fewer or more. */
@@ -263,8 +268,31 @@ type VillageCandidateAttempt = {
  * already was: keeping the per-attempt arithmetic and probing here lets the
  * caller's retry loop stay a plain "ask, then stop on the first yes".
  */
-const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
-  const { seed, regionX, regionZ, span, attempt, sampleTerrain } = options
+type VillageSiteBounds = Readonly<{
+  minX: BlockAxis
+  maxX: BlockAxis
+  minZ: BlockAxis
+  maxZ: BlockAxis
+}>
+
+type VillageSiteWithBounds = Readonly<{
+  site: VillageSite
+  bounds: VillageSiteBounds
+}>
+
+const villageBoundsForSite = (site: VillageSite): Option.Option<VillageSiteBounds> => {
+  const minX = BlockAxis.option(site.x - VILLAGE_HALF_EXTENT)
+  const maxX = BlockAxis.option(site.x + VILLAGE_HALF_EXTENT)
+  const minZ = BlockAxis.option(site.z - VILLAGE_HALF_EXTENT)
+  const maxZ = BlockAxis.option(site.z + VILLAGE_HALF_EXTENT)
+  if (Option.isNone(minX) || Option.isNone(maxX) || Option.isNone(minZ) || Option.isNone(maxZ)) {
+    return Option.none()
+  }
+  return Option.some({ maxX: maxX.value, maxZ: maxZ.value, minX: minX.value, minZ: minZ.value })
+}
+
+const villagePositionForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
+  const { seed, regionX, regionZ, span, attempt } = options
   const x = BlockAxis.option(
     regionX * VILLAGE_REGION_SIZE +
       VILLAGE_SITE_MARGIN +
@@ -278,23 +306,37 @@ const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Op
   if (Option.isNone(x) || Option.isNone(z)) {
     return Option.none()
   }
-  const site = { x: x.value, z: z.value }
-  const minX = BlockAxis.option(site.x - VILLAGE_HALF_EXTENT)
-  const maxX = BlockAxis.option(site.x + VILLAGE_HALF_EXTENT)
-  const minZ = BlockAxis.option(site.z - VILLAGE_HALF_EXTENT)
-  const maxZ = BlockAxis.option(site.z + VILLAGE_HALF_EXTENT)
-  if (Option.isNone(minX) || Option.isNone(maxX) || Option.isNone(minZ) || Option.isNone(maxZ)) {
+  return Option.some({ x: x.value, z: z.value })
+}
+
+const villageSiteWithBoundsForAttempt = (
+  options: VillageCandidateAttempt,
+): Option.Option<VillageSiteWithBounds> => {
+  const site = villagePositionForAttempt(options)
+  if (Option.isNone(site)) {
     return Option.none()
   }
+  const bounds = villageBoundsForSite(site.value)
+  if (Option.isNone(bounds)) {
+    return Option.none()
+  }
+  return Option.some({ bounds: bounds.value, site: site.value })
+}
 
+const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
+  const candidate = villageSiteWithBoundsForAttempt(options)
+  if (Option.isNone(candidate)) {
+    return Option.none()
+  }
+  const { bounds, site } = candidate.value
+  const { sampleTerrain } = options
   const probes = [
     sampleTerrain(site.x, site.z),
-    sampleTerrain(minX.value, site.z),
-    sampleTerrain(maxX.value, site.z),
-    sampleTerrain(site.x, minZ.value),
-    sampleTerrain(site.x, maxZ.value),
+    sampleTerrain(bounds.minX, site.z),
+    sampleTerrain(bounds.maxX, site.z),
+    sampleTerrain(site.x, bounds.minZ),
+    sampleTerrain(site.x, bounds.maxZ),
   ]
-
   if (isValidVillageSite(probes)) {
     return Option.some(site)
   }

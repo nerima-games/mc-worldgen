@@ -1,4 +1,3 @@
-import { blockAxis } from './coordinate-compatibility.js'
 import type {
   NaturalStructureBlockPlacementDraft,
   NaturalStructureMarkerDraft,
@@ -9,6 +8,7 @@ import type { OverworldTerrainSample, OverworldTerrainSampler } from './structur
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type OceanMonumentCandidate = { readonly x: number; readonly z: number }
 

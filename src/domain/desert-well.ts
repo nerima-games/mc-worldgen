@@ -1,4 +1,3 @@
-import { blockAxis } from './coordinate-compatibility.js'
 import { DESERT_WELL_BLOCK, DESERT_WELL_LAYOUT } from './desert-well-data.js'
 import type {
   NaturalStructureBlockPlacementDraft,
@@ -8,6 +7,7 @@ import type { OverworldTerrainSample, OverworldTerrainSampler } from './structur
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type DesertWellCandidate = { readonly x: number; readonly z: number }
 

@@ -1,13 +1,13 @@
-import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import type {
   AppliedNaturalStructureMarker,
   NaturalStructureChunk,
   NaturalStructureChunkSlice,
   NaturalStructurePlan,
 } from './natural-structure-types.js'
-import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { type Chunk, setBlockAt } from './chunk.js'
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import { CHUNK_SIZE_XZ } from './constants.js'
+import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { plansInStableOrder } from './natural-structure-order.js'
 
 /** Projects a plan without observing or mutating loaded neighbouring chunks. */

@@ -1,5 +1,5 @@
-import type { BlockId, Dimension } from '@nerima-games/mc-kernel'
 import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { BlockId, Dimension } from '@nerima-games/mc-kernel'
 import type { Chunk } from './chunk.js'
 import type { CompactStructureKind } from './compact-structure-data.js'
 import type { OverworldTerrainSampler } from './structure-siting.js'
@@ -44,8 +44,8 @@ export type NaturalStructureMarker = NaturalStructurePosition & (
   | { readonly kind: 'end-ship' }
 )
 
-type UnbrandedCoordinates<T> = T extends NaturalStructurePosition
-  ? Omit<T, 'x' | 'y' | 'z'> & NaturalStructurePositionDraft
+type UnbrandedCoordinates<Coordinates> = Coordinates extends NaturalStructurePosition
+  ? Omit<Coordinates, 'x' | 'y' | 'z'> & NaturalStructurePositionDraft
   : never
 export type NaturalStructureMarkerDraft = UnbrandedCoordinates<NaturalStructureMarker>
 

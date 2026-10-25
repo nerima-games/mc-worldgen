@@ -1,10 +1,11 @@
 import { type BlockId, type Dimension, blockIdOf } from '@nerima-games/mc-kernel'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import { blockAxis } from './coordinate-compatibility.js'
 import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting.js'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { BLOCK } from './biome.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 const STRONGHOLD_WALL_THICKNESS = 1
 const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1
@@ -47,6 +48,7 @@ export type StrongholdPlan = {
 const STRONGHOLD_FRAME_CENTER_OFFSET = 0
 const STRONGHOLD_FRAME_NEAR_OFFSET = 1
 const STRONGHOLD_FRAME_FAR_OFFSET = 2
+
 
 const FRAME_OFFSETS = [
   [-STRONGHOLD_FRAME_NEAR_OFFSET, -STRONGHOLD_FRAME_FAR_OFFSET, 'south'],
@@ -202,7 +204,7 @@ const placeStrongholdLavaTraps = (mutations: Map<string, StrongholdMutation>, si
 }
 
 /** The ring of 12 end-portal-frame blocks, each independently lit or unlit. */
-import { Option } from 'effect'
+
 const buildStrongholdFrames = (
   mutations: Map<string, StrongholdMutation>,
   seed: NoiseSeed,

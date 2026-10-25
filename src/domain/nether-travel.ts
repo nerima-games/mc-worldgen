@@ -92,16 +92,16 @@
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
 import {
-  PortalHeight,
-  PortalWidth,
   type BlockPosition,
   type Dimension,
   type PortalAxis,
+  PortalHeight,
   type PortalLayout,
+  PortalWidth,
 } from '@nerima-games/mc-kernel'
+import { Option, Result } from 'effect'
 import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link.js'
 import { generatePortalLayout } from './portal-frame.js'
-import { Option, Result } from 'effect'
 
 /** The canonical dimension union is supplied by mc-kernel and re-exported here. */
 export type { Dimension } from '@nerima-games/mc-kernel'
@@ -110,7 +110,9 @@ export type { Dimension } from '@nerima-games/mc-kernel'
 export const PORTAL_SEARCH_RADIUS = 128
 
 /** The vanilla minimum interior, which is what an auto-generated portal gets. */
+// eslint-disable-next-line no-magic-numbers -- This is the vanilla interior width of a portal.
 const DEFAULT_PORTAL_WIDTH = Result.getOrThrow(PortalWidth.result(2))
+// eslint-disable-next-line no-magic-numbers -- This is the vanilla interior height of a portal.
 const DEFAULT_PORTAL_HEIGHT = Result.getOrThrow(PortalHeight.result(3))
 
 /** Deterministic rather than correct; see the header. */

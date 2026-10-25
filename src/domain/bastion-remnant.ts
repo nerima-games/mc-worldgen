@@ -7,9 +7,9 @@ import type {
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
-import { blockAxis } from './coordinate-compatibility.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type BastionRemnantCandidate = {
   readonly x: number

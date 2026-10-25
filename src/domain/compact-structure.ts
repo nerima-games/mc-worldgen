@@ -1,5 +1,3 @@
-import { CHUNK_SIZE_XZ } from './constants.js'
-import { blockAxis } from './coordinate-compatibility.js'
 import {
   COMPACT_STRUCTURE_BLOCK,
   COMPACT_STRUCTURE_DESCRIPTORS,
@@ -11,8 +9,10 @@ import type {
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE_XZ } from './constants.js'
 import { Option } from 'effect'
 import type { OverworldTerrainSampler } from './structure-siting.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type CompactStructureCandidate = Readonly<{
   x: number
@@ -129,17 +129,33 @@ const addLootChest = (
   })
 }
 
-export const planCompactStructureForCandidate = (
+// eslint-disable-next-line no-magic-numbers -- The divisor places a single-chunk mansion at the chunk midpoint.
+const CHUNK_MIDPOINT_DIVISOR = 2
+
+const placementCandidateFor = (
+  kind: CompactStructureKind,
+  candidate: CompactStructureCandidate,
+): CompactStructureCandidate => {
+  if (kind !== 'woodland-mansion-single-chunk') {
+    return candidate
+  }
+  const chunkX = Math.floor(candidate.x / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ
+  const chunkZ = Math.floor(candidate.z / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ
+  return {
+    x: chunkX + CHUNK_SIZE_XZ / CHUNK_MIDPOINT_DIVISOR,
+    z: chunkZ + CHUNK_SIZE_XZ / CHUNK_MIDPOINT_DIVISOR,
+  }
+}
+const terrainSamplesFor = (
   kind: CompactStructureKind,
   candidate: CompactStructureCandidate,
   sampleTerrain: OverworldTerrainSampler,
-): Option.Option<CompactStructureDraft> => {
-  const placementCandidate = kind === 'woodland-mansion-single-chunk'
-    ? {
-        x: Math.floor(candidate.x / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ / 2,
-        z: Math.floor(candidate.z / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ / 2,
-      }
-    : candidate
+): Readonly<{
+  placementCandidate: CompactStructureCandidate
+  originSample: ReturnType<OverworldTerrainSampler>
+  samples: ReadonlyArray<ReturnType<OverworldTerrainSampler>>
+}> => {
+  const placementCandidate = placementCandidateFor(kind, candidate)
   const originSample = sampleTerrain(blockAxis(placementCandidate.x), blockAxis(placementCandidate.z))
   const samples = [
     originSample,
@@ -148,6 +164,15 @@ export const planCompactStructureForCandidate = (
       blockAxis(placementCandidate.z + offset.z),
     )),
   ]
+  return { originSample, placementCandidate, samples }
+}
+
+export const planCompactStructureForCandidate = (
+  kind: CompactStructureKind,
+  candidate: CompactStructureCandidate,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<CompactStructureDraft> => {
+  const { originSample, placementCandidate, samples } = terrainSamplesFor(kind, candidate, sampleTerrain)
   if (!siteIsValid(kind, samples)) {
     return Option.none()
   }

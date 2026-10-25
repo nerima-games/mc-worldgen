@@ -1,17 +1,17 @@
-import { blockAxis } from './coordinate-compatibility.js'
+import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   type OverworldTerrainSampler,
   type VillageSite,
   villageSitesNearChunk,
 } from './structure-siting.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
+import { blockIdOf, type BlockId } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
+// eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { BLOCK } from './biome.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { CHUNK_SIZE_XZ } from './constants.js'
-// eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
-import { blockIdOf, type BlockId } from '@nerima-games/mc-kernel'
-import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-
+import { blockAxis } from './coordinate-compatibility.js'
 export const VILLAGE_BLOCK: Readonly<Record<'FOUNDATION' | 'ROAD' | 'TIMBER', BlockId>> = {
   FOUNDATION: Option.getOrThrow(blockIdOf('cobblestone')),
   ROAD: BLOCK.GRAVEL,
@@ -35,7 +35,7 @@ export type VillageVillagerSpawn = {
 
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
+
 type House = { readonly x: number; readonly z: number; readonly profession: VillageVillagerProfession }
 
 type HouseBlockRequest = {

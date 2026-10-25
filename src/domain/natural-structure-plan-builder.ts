@@ -10,13 +10,13 @@ import type {
   NaturalStructurePositionDraft,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { blockAxis } from './coordinate-compatibility.js'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
 export const UNIT_STEP = 1

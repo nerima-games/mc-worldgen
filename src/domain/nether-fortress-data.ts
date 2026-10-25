@@ -2,6 +2,7 @@ import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 /** Candidate spacing and terrain-independent block data for Nether fortresses. */
+import { Option } from 'effect'
 export const NETHER_FORTRESS_GRID: NaturalStructureGrid = Object.freeze({
   separation: 128,
   spacing: 256,
@@ -52,7 +53,7 @@ export const FORTRESS_LAYOUT: Readonly<{
 const FORTRESS_HEADROOM_OFFSET = 2
 const FORTRESS_SITE_MARGIN_DIVISOR = 2
 
-import { Option } from 'effect'
+
 export const FORTRESS_BLAZE_RADIUS = 48
 export const FORTRESS_MIN_HEADROOM: number = FORTRESS_LAYOUT.wallHeight + FORTRESS_HEADROOM_OFFSET
 export const FORTRESS_SITE_MARGIN: number = NETHER_FORTRESS_GRID.separation / FORTRESS_SITE_MARGIN_DIVISOR

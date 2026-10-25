@@ -10,8 +10,6 @@ import {
   NETHER_FORTRESS_BLOCK,
   NETHER_FORTRESS_GRID,
 } from './nether-fortress-data.js'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import { blockAxis } from './coordinate-compatibility.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureBlockPlacementDraft,
@@ -26,10 +24,12 @@ import type {
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { type BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type FortressCandidate = NaturalStructurePositionDraft
 type MutableFortressPlan = {
