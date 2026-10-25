@@ -154,9 +154,10 @@ plan.md の `~13k` は「テストを除いたソース」と一致する。
 | — | **pillager outpost** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure。`domain/pillager-outpost.ts` と `domain/natural-structure.ts` が乾燥地形適合・塔生成・loot / pillager marker・immutable plan を担当 |
 | — | **shipwreck** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計。`domain/shipwreck.ts` と `domain/natural-structure.ts` が海底適合・船体生成・immutable plan を担当 |
 | — | **村** | ✅ 参照実装に存在しないため新規設計。`domain/village.ts` と `domain/natural-structure.ts` が生成・immutable plan を担当 |
-| — | **ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion** | ✅ 現行 `mc-kernel` の登録ブロックだけで新規設計した compact structure。`domain/compact-structure.ts` と `domain/natural-structure.ts` が候補配置・地形適合・生成・immutable plan を担当 |
+| — | **ancient city / buried treasure / swamp hut / trail ruins / trial chambers** | New compact structures designed from registered mc-kernel blocks. `domain/compact-structure.ts` and `domain/natural-structure.ts` provide candidate placement, terrain fitting, generation, and immutable plans. Vanilla template and palette parity are unverified. |
+| — | **woodland mansion variants** | `woodland-mansion` retains cross-chunk placement. `woodland-mansion-single-chunk` centers its candidate in the target chunk and keeps every block and marker within that chunk. Both are new designs; vanilla template and palette parity are unverified. |
 
-この表にない vanilla structure generator（たとえば nether fossil）は、現行リポジトリでは未実装である。bastion remnant、desert well と上記の compact structure 六種は構造物の配置・地形適合・チャンク投影まで実装済みだが、vanilla の template / palette と完全一致する生成器ではない。ブロック registry に対象ブロックが存在することと、構造物の配置・生成器が存在することは別なので、未検証の構造物まで実装済みとは主張しない。
+The vanilla structure generators absent from this table (for example, nether fossil) are not implemented. Bastion remnant, desert well, and the seven `CompactStructureKind` variants implement placement, terrain fitting, and chunk projection as new designs; they do not claim vanilla template or palette parity. A block registry entry does not establish that a structure placer or generator exists.
 
 | LOC | パス |
 | ---: | --- |

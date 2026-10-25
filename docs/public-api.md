@@ -1,5 +1,37 @@
 # 公開 API
 
+## mc-worldgen 0.6 public surface
+
+This section describes the current package boundary. It supersedes any earlier
+signature or implementation-status statement below that conflicts with it. See
+[the 0.6 migration guide](./migration-0.6.0.md) for consumer changes.
+
+- Generation APIs accept `NoiseSeed` from `@nerima-games/mc-noise`. The package
+  root re-exports `NoiseSeed`. Call `NoiseSeed.result` at an external input
+  boundary and propagate its failure. Fractional values, `NaN`, infinities,
+  and integers outside the safe-integer range fail; valid integer seeds retain
+  their output.
+- `ChunkCapacity` is a positive safe-integer brand required by every store
+  factory and layer. The bounded cache evicts its least recently used clean
+  chunk. `load` and `neighbours` update recency; `peek` and `snapshot` do not.
+  Dirty chunks are persisted before eviction. A failed save leaves the chunk
+  resident and returns a typed error.
+- `ChunkStoreRegistry` provides `forDimension(dimension): ChunkStoreApi`, with
+  an independent bounded store for each dimension. `ChunkStoreApi` exposes
+  `peek`, `neighbours`, `subscribeDirty`, and `getLight` for renderer consumers.
+- The package root exports `Chunk`, `ChunkNeighbours`, `LightReading`,
+  `CHUNK_HEIGHT`, and `chunkKeyOf`. `chunkKeyOf` is re-exported directly from
+  mc-kernel and returns its branded `ChunkKey`; import the `ChunkKey` type from
+  mc-kernel.
+- The package root exports `detectNetherPortal` and `generatePortalLayout`;
+  shared portal types remain defined by mc-kernel.
+- `emptyBlocks`, `setBlockAt`, and type `SubscriberId` are exported from
+  `@nerima-games/mc-worldgen/testing`. They are absent from the production root.
+
+The detailed sections below retain their design rationale. Use this 0.6
+summary and the migration guide for the current public contract where an older
+fragment differs.
+
 plan.md §3.7 が要求する API を、**参照実装の実コードと突き合わせて**確定させたもの。
 根拠パスは全て `ts-minecraft` リポジトリ内の実在するファイル・行である。
 
@@ -45,7 +77,7 @@ export const generateTerrain = (
 mc-worldgen も同じ形にしてある:
 
 ```typescript
-export const generateChunk = (seed: number, coord: ChunkCoord, options?: {
+export const generateChunk = (seed: NoiseSeed, coord: ChunkCoord, options?: {
   readonly terrainLevels?: TerrainLevels
   readonly carve?: CarveOptions
   readonly decorate?: boolean
@@ -156,7 +188,7 @@ export type EndFeatureChunk = NaturalStructureChunk & {
   readonly endFeatureIds: ReadonlyArray<string>
   readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
 }
-export const endFeaturePlanForSeed: (seed: number) => EndFeaturePlan
+export const endFeaturePlanForSeed: (seed: NoiseSeed) => EndFeaturePlan
 export const applyEndFeaturePlansToChunk: (
   chunk: NaturalStructureChunk,
   plans: ReadonlyArray<EndFeaturePlan>,
@@ -202,17 +234,17 @@ export const resolveEndGatewayExit: (
   searchedExit?: BlockPosition,
 ) => EndGatewayExit | undefined
 
-export const generateChunk: (seed: number, coord: ChunkCoord, options?: GenerateOptions) => NaturalStructureChunk
-export const generateChunkAt: (seed: number, x: number, z: number, options?: GenerateOptions) => NaturalStructureChunk
-export const generateEndTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
-export const generateEndChunk: (seed: number, coord: ChunkCoord) => EndFeatureChunk
-export const generateEndChunkAt: (seed: number, x: number, z: number) => EndFeatureChunk
-export const endSurfaceHeightAt: (seed: number, wx: number, wz: number) => number | undefined
-export const generateNetherTerrainChunk: (seed: number, coord: ChunkCoord) => Chunk
-export const generateNetherChunk: (seed: number, coord: ChunkCoord) => NaturalStructureChunk
-export const generateNetherChunkAt: (seed: number, x: number, z: number) => NaturalStructureChunk
-export const netherBlockAt: (seed: number, x: number, y: number, z: number) => BlockId
-export const netherStructureTerrainAt: (seed: number, x: number, z: number) => NetherStructureTerrainSample
+export const generateChunk: (seed: NoiseSeed, coord: ChunkCoord, options?: GenerateOptions) => NaturalStructureChunk
+export const generateChunkAt: (seed: NoiseSeed, x: number, z: number, options?: GenerateOptions) => NaturalStructureChunk
+export const generateEndTerrainChunk: (seed: NoiseSeed, coord: ChunkCoord) => Chunk
+export const generateEndChunk: (seed: NoiseSeed, coord: ChunkCoord) => EndFeatureChunk
+export const generateEndChunkAt: (seed: NoiseSeed, x: number, z: number) => EndFeatureChunk
+export const endSurfaceHeightAt: (seed: NoiseSeed, wx: number, wz: number) => number | undefined
+export const generateNetherTerrainChunk: (seed: NoiseSeed, coord: ChunkCoord) => Chunk
+export const generateNetherChunk: (seed: NoiseSeed, coord: ChunkCoord) => NaturalStructureChunk
+export const generateNetherChunkAt: (seed: NoiseSeed, x: number, z: number) => NaturalStructureChunk
+export const netherBlockAt: (seed: NoiseSeed, x: number, y: number, z: number) => BlockId
+export const netherStructureTerrainAt: (seed: NoiseSeed, x: number, z: number) => NetherStructureTerrainSample
 ```
 
 `domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
@@ -234,8 +266,8 @@ Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下
 ### 補助クエリ
 
 ```typescript
-export const surfaceHeightAt: (seed: number, wx: number, wz: number) => number
-export const climateAt: (seed: number, wx: number, wz: number)
+export const surfaceHeightAt: (seed: NoiseSeed, wx: number, wz: number) => number
+export const climateAt: (seed: NoiseSeed, wx: number, wz: number)
   => {
     readonly temperature: number
     readonly humidity: number
@@ -244,7 +276,7 @@ export const climateAt: (seed: number, wx: number, wz: number)
     readonly pv: number
     readonly riverNoise: number
   }
-export const biomeFor: (seed: number, wx: number, wz: number, surfaceY: number, levels: TerrainLevels)
+export const biomeFor: (seed: NoiseSeed, wx: number, wz: number, surfaceY: number, levels: TerrainLevels)
   => BiomeType
 ```
 
@@ -388,7 +420,7 @@ export const CAVE_THRESHOLD = 0.62
 export type CarveOptions = { readonly waterFloorMargin?: number }
 
 export const computeWaterFloorYs: (blocks: Uint16Array, margin: number) => Int16Array
-export const carveCaves: (blocks: Uint16Array, seed: number, coord: ChunkCoord, options?: CarveOptions) => void
+export const carveCaves: (blocks: Uint16Array, seed: NoiseSeed, coord: ChunkCoord, options?: CarveOptions) => void
 ```
 
 `domain/carver.ts`。**水域の床マージン検査を含む**。
@@ -550,36 +582,51 @@ mc-render は plan.md §2.1 に既にある `render → worldgen` エッジ経�
 ```typescript
 export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
 
+export type ChunkCapacity = number & Brand.Brand<'ChunkCapacity'>
+export const ChunkCapacity: Brand.Constructor<ChunkCapacity>
+
 // 既定の Overworld 生成 API
-export const generatedChunkSource: (seed: number, options?: GenerateOptions) => ChunkSource
+export const generatedChunkSource: (seed: NoiseSeed, options?: GenerateOptions) => ChunkSource
 
 // ディメンションを明示して Overworld / Nether / End を生成する
 export const generatedDimensionChunkSource: (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   options?: GenerateOptions,
 ) => ChunkSource
 
+export type ChunkStoreError = ChunkPersistenceError | { _tag: 'DirtyChunkEvictionError'; coord: ChunkCoord }
+
 export type ChunkStoreApi = {
-  // 常駐
-  readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk>        // 無ければ ChunkSource で生成
-  readonly peek: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>   // 生成しない
-  readonly snapshot: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined> // 切り離したコピー
+  readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk, ChunkStoreError>
+  readonly peek: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>
+  readonly snapshot: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>
   readonly isLoaded: (coord: ChunkCoord) => Effect.Effect<boolean>
   readonly loadedCoords: Effect.Effect<ReadonlyArray<ChunkCoord>>
   readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ChunkNeighbours>
-  readonly unload: (coord: ChunkCoord) => Effect.Effect<boolean>
-
-  // ブロック
+  readonly unload: (coord: ChunkCoord) => Effect.Effect<boolean, ChunkPersistenceError>
   readonly getBlock: (position: BlockPosition) => Effect.Effect<BlockReading>
   readonly setBlock: (position: BlockPosition, block: BlockId) => Effect.Effect<BlockWriteOutcome>
-
-  // ダーティチャンネル
+  readonly getLight: (position: BlockPosition) => Effect.Effect<LightReading>
   readonly subscribeDirty: Effect.Effect<ChunkDirtySubscription>
   readonly subscribeDirtyScoped: Effect.Effect<ChunkDirtySubscription, never, Scope>
-
   readonly reset: Effect.Effect<void>
 }
+
+export type ChunkStoreRegistry = {
+  readonly forDimension: (dimension: Dimension) => ChunkStoreApi
+}
+
+export const ChunkStoreRegistryLayer: (
+  sourceForDimension: (dimension: Dimension) => ChunkSource,
+  capacity: ChunkCapacity,
+) => Layer.Layer<'@nerima-games/mc-worldgen/ChunkStoreRegistry'>
+
+export const PersistentChunkStoreRegistryLayer: (
+  sourceForDimension: (dimension: Dimension) => ChunkSource,
+  worldId: string,
+  capacity: ChunkCapacity,
+) => Layer.Layer<'@nerima-games/mc-worldgen/ChunkStoreRegistry', never, StoragePort>
 ```
 
 `GeneratedDimensionChunkStoreLayer` と
@@ -587,7 +634,7 @@ export type ChunkStoreApi = {
 インメモリ版・永続化版の Layer である。Nether と End のソースは、地形生成後に
 チャンク境界をまたぐ自然構造を適用したチャンクを返す。
 
-**読み書きはどちらも全域関数でエラーチャネルを持たない。**
+**`getBlock` と `setBlock` は全域関数で、エラーチャネルを持たない。**
 `StageRegistration.run` のエラーチャネルが `never` である（kernel の凍結チェックリスト問い 3）以上、
 ブロックを書くルールには失敗の置き場が無く、握り潰すしかなくなるからである。
 
@@ -673,7 +720,7 @@ mc-render が世界を 2 回メッシュすることになる。再同期が欲�
 | 未実装 | 理由 |
 | --- | --- |
 | ストレージ媒体への接続 | `PersistentChunkStoreLayer` は実装済み。ホストが `StoragePort` を注入して `ChunkStoreApi` に合成する。媒体実装と publish は mc-save / ホスト側の責務 |
-| `loadChunksAroundPlayer` / LRU 追い出し | 方針（描画距離、退避順）は呼び出し側のもの。`load` / `unload` / `loadedCoords` で外から書ける |
+| `loadChunksAroundPlayer` / 生成キューの並行度 | 方針（描画距離、実行並行度）は呼び出し側のもの。チャンク容量と LRU 追い出しは `ChunkCapacity` と `ChunkStore` が担う |
 | `Effect.makeSemaphore(4)` による生成の並行度制限 | 実行媒体とキューの責務。`TerrainWorkerPoolPort` は 1 チャンク生成の契約だけを公開し、並行度はホストが制御する |
 | 不在チャンクを含むライト再伝播 | 常駐チャンク集合内は `computeChunkLights` が一度に BFS し、完全なキャッシュへの変更は `updateChunkLights` が隣接チャンクを含む固定点まで再計算する。不在チャンクは閉じた境界として扱い、ロード方針はホストが決める |
 | `dirtyVoxels` 粒度 | チャンク粒度で足りている。位置粒度の追跡は mx-gameplay の `FallingBlockQueue` が既に private に持っており、2 つは合成する |
@@ -713,8 +760,8 @@ string である。worldgen の root export から `ChunkKey` は削除された
 worldgen から引き続き利用できる。mc-sim、mc-render、mc-playground-kit、mc-compose の
 監査した `src` には worldgen からの `ChunkKey` import は無かった。
 
-LRU、プレイヤー周辺のロード、生成キューの並行度はこのパッケージの API に含めない。
-描画距離・退避順・worker pool の実行媒体を知るホストが決める。
+プレイヤー周辺のロードと生成キューの並行度はこのパッケージの API に含めない。
+描画距離と worker pool の実行媒体を知るホストが決める。LRU 追い出しは `ChunkCapacity` の範囲で `ChunkStore` が行う。
 
 **注意**: `unloadChunk` の失敗型が `StorageError` である。
 これが「mc-worldgen が mc-save に依存する」ことの具体的な現れである。
@@ -876,7 +923,7 @@ applyNaturalStructurePlansToChunk(chunk, plans)
 各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
 バイオーム、起伏、headroom、外縁島の有無を検査する。不適合なら `Option.none()`、適合すれば
 固定された dimension、bounds、registry block ID の配置、semantic marker を持つ plan を返す。
-`bastion remnant`、`desert well` と `planCompactStructureForRegion` の六種は現行 `mc-kernel` の登録ブロックだけで構成した compact structure であり、vanilla の template / palette parity は主張しない。desert well は `sandstone` / `water` だけを使い、loot marker を持たない。
+`bastion remnant`、`desert well` と `planCompactStructureForRegion` の 7 variants は、現行 `mc-kernel` の登録ブロックだけで構成した compact structures であり、vanilla template / palette parity は主張しない。`woodland-mansion-single-chunk` は候補を対象 chunk の中央に置き、全ブロックと marker を 1 chunk 内へ収める。従来の `woodland-mansion` は cross-chunk 配置を維持する。`desert well` は `sandstone` / `water` だけを使い、loot marker を持たない。
 marker は loot table、villager / piglin / piglin-brute / blaze / wither skeleton spawn、shulker / blaze spawner、欠損 portal frame、stronghold の End portal frame（向き / eye 状態）、End ship といった
 ブロック配列だけでは失われる意味を downstream へ渡す。
 

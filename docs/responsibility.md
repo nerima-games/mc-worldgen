@@ -26,7 +26,7 @@
 | 構造物（Nether fortress） | `domain/nether-fortress.ts` が seed / region 候補、地形適合、Nether brick の断面、loot / mob / spawner marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
 | 構造物（bastion remnant） | `domain/bastion-remnant.ts` が Nether の平坦な shelf を検査し、mc-kernel 登録ブロックだけで compact structure、loot / piglin / piglin-brute marker を計画し、`domain/nether-terrain.ts` がチャンクへ適用する | ✅ plan + generator 適用 |
 | 構造物（ポータル） | 検出・点火用 `portal-frame.ts` に加え、`natural-structure.ts` が ruined portal の immutable plan と marker を提供し、`nether-terrain.ts` が境界をまたぐ plan をチャンクへ適用する | ✅ plan + generator 適用 |
-| 次元リンク（ネザー） | 8:1 の座標スケーリング・最近傍ポータル探索・移動先の解決。`domain/nether-link.ts` と `domain/nether-travel.ts`。**§6 の「残りの半分」表の 3 行を消費した**。両方を `index.ts` から公開する（下記 §6-1） | ✅ barrel 公開 |
+| Nether dimension travel | `domain/nether-link.ts` owns coordinate scaling and nearest-portal selection; `domain/nether-travel.ts` retains `resolveNetherTravel`, `PortalTravelPlan`, and `PORTAL_SEARCH_RADIUS` in 0.6. `PortalRegistry` owns portal state. The resolver APIs are planned to transfer to mx-gameplay after W4 accepts them; see §6. | Retained in 0.6; later transfer planned |
 | 構造物（村） | 参照実装に存在しないため新規設計。既存 Overworld 生成と同じ配置を `natural-structure.ts` が immutable plan と semantic marker で公開する | ✅ |
 | 構造物（desert pyramid） | `domain/desert-pyramid.ts` が乾燥した砂漠サイトを選び、砂岩ピラミッド、地下 chamber、TNT、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（desert well） | `domain/desert-well.ts` が乾燥・平坦な砂漠サイトを選び、mc-kernel 登録済みの sandstone / water だけで井戸を計画し、`natural-structure.ts` が Overworld chunk へ適用する。loot marker は持たない | ✅ plan + generator 適用 |
@@ -37,8 +37,8 @@
 | 構造物（mineshaft） | `domain/mineshaft.ts` が地下通路、木製支柱、レール、装飾、chest と loot marker を登録済みブロックだけで計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（pillager outpost） | `domain/pillager-outpost.ts` が登録済みブロックだけで compact tower を計画し、乾燥地形適合、chest + loot marker、pillager marker を提供し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
 | 構造物（shipwreck） | `domain/shipwreck.ts` が海洋バイオームの十分な水深と平坦な海底を選び、登録済み木材の船体、chest と loot marker を計画し、`natural-structure.ts` が Overworld chunk へ適用する | ✅ plan + generator 適用 |
-| 構造物（ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion） | `domain/compact-structure.ts` が現行 `mc-kernel` の登録ブロックだけで compact structure を計画し、候補配置、バイオーム・起伏適合、chest と loot marker を提供し、`natural-structure.ts` が Overworld chunk へ適用する。vanilla template / palette parity は主張しない | ✅ plan + generator 適用 |
-| 構造物（End） | 外縁島へ End city / ship を配置する immutable plan と marker を `natural-structure.ts` が提供し、`end-terrain.ts` が境界をまたぐ plan をチャンクへ適用する。`end-features.ts` がスパイク、柱、クリスタル／ケージ marker を同じモデルで提供し、`end-gateway.ts` が bedrock shell と出口設定の純粋 API を提供する。`domain/end-portal.ts` は完成ポータル判定と到着地点を提供する | ✅ city / ship / spike / portal rule |
+| Structures (ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / `woodland-mansion-single-chunk`) | `domain/compact-structure.ts` plans compact structures from registered `mc-kernel` blocks and supplies candidate placement, biome and terrain checks, chests, and loot markers; `natural-structure.ts` applies plans to Overworld chunks. The `woodland-mansion-single-chunk` kind is an additional named variant; the existing `woodland-mansion` may still span chunks. No vanilla template or palette parity is claimed. | Plan + generator application |
+| End structures and gateway exits | `natural-structure.ts` plans End city and ship structures; `end-terrain.ts` applies cross-chunk plans. `end-features.ts` plans spikes, pillars, crystals, and cages. `end-gateway.ts` provides bedrock shells and retains `resolveEndGatewayExit` / `EndGatewayExit` in 0.6; transfer to mx-gameplay is planned after W4 accepts the APIs. `end-portal.ts` provides portal validation and arrival rules. | Retained in 0.6; later transfer planned |
 | ライトグリッド | BFS 光伝播、4bit パック、空/ブロックの 2 グリッド。公開 façade は `src/domain/light.ts`、実装は `light-grid.ts`・`light-propagation.ts`・`light-update.ts`。`ChunkStore.setBlock` が無効化する | ✅ 全チャンク再計算版 |
 | `ChunkStore`（= plan.md §3.7 の `ChunkManager`） | ロード / アンロード / **ブロック書き込み** / ダーティチャンネル。`application/chunk-store.ts` | ✅ インメモリ + `PersistentChunkStoreLayer` |
 | ワーカープール Port | `TerrainWorkerPoolPort` と `chunkSourceFromTerrainWorkerPool` を公開。Worker/Pool の媒体はホストが注入し、mc-worldgen は DOM/Worker を所有しない | ✅ 型 + adapter |
@@ -56,7 +56,7 @@
 | カーバー（渓谷） | **REAL** → 今回実装 | `carver.ts` は `carveCaves` だけだった。`domain/ravine.ts` として移植（§1-6） |
 | 植生（草・花） | **REAL** → 今回実装 | `tree-placement.ts` は木であって地被ではなかった |
 | 鉱石 | **REAL** → 今回実装 | 初回監査時は語彙だけだったが、現在は `domain/ore.ts` が脈配置と石 / 深層岩 14 variant を実装している |
-| 構造物（desert pyramid / desert well / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / ancient city / buried treasure / swamp hut / trail ruins / trial chambers / woodland mansion / 村 / End / Nether fortress / bastion remnant） | **REAL**、ただし desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、村、bastion remnant は新規設計 | stronghold、desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin、ocean monument、pillager outpost、shipwreck、ancient city、buried treasure、swamp hut、trail ruins、trial chambers、woodland mansion、Nether fortress、bastion remnant、End city / ship は各 planner とチャンク投影を実装。村は §1-3。desert well と compact structure 六種は vanilla template / palette parity を主張しない |
+| Structures (desert pyramid / desert well / igloo / jungle pyramid / mineshaft / ocean ruin / ocean monument / pillager outpost / shipwreck / ancient city / buried treasure / swamp hut / trail ruins / trial chambers / both woodland mansion variants / village / End / Nether fortress / bastion remnant) | **REAL**; several are new designs, including the compact structures | Planners and chunk projection are implemented. The compact structures do not claim vanilla template or palette parity. |
 | チャンクフォーマット定義 | ~~**REAL、かつブロック中**~~ → **判定そのものが誤り**。7 回目の訂正 | §1-5 |
 
 **⬜ が「まだ誰も手をつけていない」を意味しない行が 2 つあった。**
@@ -391,154 +391,17 @@ plan.md はブロック**書き込み経路**の所有者を §3.7（`ChunkManag
 | ライトグリッド | ~~4bit パックの実装は `packages/block/domain/light.ts` から~~ | **完了**（公開 façade は `src/domain/light.ts`）。常駐チャンク間の伝播、ブロック変更の増分再計算、4bit パックを含む |
 | `ChunkStore` の実ストレージ接続 | `PersistentChunkStoreLayer` は `StoragePort` を受け取るが媒体はホストが注入する | ホストが `StoragePort` 実装を提供するとき |
 
-## 6. ポータル: 検出はここ、移動は mx-gameplay
+## 6. Portal and dimension travel ownership
 
-**この節は plan.md §3.11 と矛盾して見える。矛盾していないことを書いておく。**
+`mc-worldgen` owns portal-frame geometry and detection, Nether coordinate scaling and nearest-portal selection, and the `PortalRegistry` world state. In 0.6 it also retains `resolveNetherTravel`, `PortalTravelPlan`, `PORTAL_SEARCH_RADIUS`, `resolveEndGatewayExit`, and `EndGatewayExit`, as required by W3 ruling R4.
 
-plan.md §3.11 は「ポータル / 次元移動ルール」を mx-gameplay に割り当てている。
-`domain/portal-frame.ts` はその**検出の半分**をここで閉じた。両方が正しい。
+The travel resolvers are pure planning APIs. They combine worldgen's portal and coordinate rules; the host remains responsible for moving entities, changing dimensions, handling portal dwell and cooldown, and applying or registering generated layouts.
 
-### 分割線は参照実装が既に引いていた
-
-| 参照実装のファイル | 何をするか | 行き先 |
+| API or responsibility | 0.6 owner | Planned boundary |
 | --- | --- | --- |
-| `packages/world/domain/nether/portal-frame.ts` | 黒曜石の枠を**認識する** | **mc-worldgen（移植済み）** |
-| `packages/app/.../interaction-flint-steel-portal.ts` | 火打ち石の**使用**。上を消費する | mx-gameplay |
-| `packages/app/.../physics-stage-portal.ts` | プレイヤーを**動かす** | mc-physics / mc-sim |
+| `overworldToNether`, `netherToOverworld`, and `findNearestPortal` | `mc-worldgen` | Remain with worldgen coordinate and portal-selection rules. |
+| `resolveNetherTravel`, `PortalTravelPlan`, `PORTAL_SEARCH_RADIUS`, and `PortalRegistry.resolveTravel` | `mc-worldgen` | Retained in 0.6; planned transfer to mx-gameplay after W4 accepts the APIs. Remove them from a later worldgen release only after that handoff. |
+| `resolveEndGatewayExit` and `EndGatewayExit` | `mc-worldgen` | Retained in 0.6; planned transfer to mx-gameplay after W4 accepts the APIs. Remove them from a later worldgen release only after that handoff. |
+| Entity movement, dimension changes, portal dwell and cooldown | Host gameplay layers | Remain outside `mc-worldgen`. |
 
-3 つのうち `packages/world`（= 名詞の層）に置かれていたのは 1 つだけである。
-参照実装は「認識」と「点火」と「移動」を別のパッケージに置いていた。
-
-### mx-gameplay の `docs/testing.md` §3-1 の論拠は、この半分については誤り
-
-あちらは portals を未着手とし、その理由を
-「**位置を持つエンティティを動かすものだから** mc-physics / mc-sim のものだ」
-と書いている。下 2 行については正しい。`portal-frame.ts` については**偽**である。
-このファイルはエンティティを知らない。速度も名簿もプレイヤーも出てこない。
-ブロックを読んで矩形を返す。
-
-**一番強い証拠は、移植で消えた 1 行である。** 参照実装の入口は
-
-```
-const x = Math.floor(ignition.x)   // portal-frame.ts:133-135
-```
-
-で始まる。`Position` が**エンティティの浮動小数座標**だからである。
-本リポジトリの引数は `BlockPosition`（`mc-kernel` が安全整数にブランドしている）で、
-この `Math.floor` は**することが無くなって消えた**。
-参照実装版のこのルールに含まれていた唯一のエンティティ的なものは、
-引数に掛けられたキャストだった。
-
-### 逆向きの主張も書いておく（これは弱い）
-
-plan.md §3.7 は本リポジトリに「構造物（村/**ポータル**/End）」を与えている。
-だが §3.7 が言っているのは**生成**であって検出ではない。
-検出がここにある理由は §3.7 ではなく、上の「入力がブロックデータだけである」ことである。
-`generatePortalLayout`（枠の**生成**）のほうは §3.7 が直接の根拠になる。
-
-### 残りの半分は誰のものか
-
-| 参照実装のファイル | 判定 | 根拠 |
-| --- | --- | --- |
-| `nether-link.ts` の `overworldToNether` / `netherToOverworld` | **ここ** | 8:1 の座標スケーリング。2 つの次元の**座標空間の関係**であって、入力も出力も座標しかない。`chunkCoordOfBlock` と同じ種類のもの → ✅ `domain/nether-link.ts` |
-| `nether-link.ts` の `findNearestPortal` | **ここ** | 候補配列を**引数で受ける**純粋な最近傍探索。`BlockAt` と同じ注入形で、台帳そのものは `application/portal-registry.ts` が所有する。`PortalRegistry.resolveTravel` が行き先次元のスナップショットを渡す → ✅ `domain/nether-link.ts` |
-| `nether-travel.ts` の `resolveNetherTravel` | ~~**mx-gameplay**~~ → **ここ**（下記 §6-1） | ~~`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す。plan.md §3.11 そのもの。上の 3 つを合成するだけなので、依存の向きも合っている~~ → ✅ `domain/nether-travel.ts` |
-| `end/end-portal-frame.ts` | **ここ**（ローカル実装済み） | 参照元と同型の純粋ルールを `domain/end-portal.ts` に移植し、12 枠の向き / 充填状態を検証して中央 3×3 のポータルを materialize する。`endArrivalDescriptor` に End 到着地点の記述も実装済み。スパイク／クリスタル／gateway は `end-features.ts` と `end-gateway.ts` に分離 |
-
-### 6-1. `resolveNetherTravel` の行を覆した。理由と、覆さなかったもの
-
-上の表の 3 行目は **mx-gameplay** と書いてあり、この節はそれを覆している。
-覆す側が根拠を書くのが筋なので、まず**覆していない**ほうを書く。
-
-**旧根拠は §6 が正そうとした「カテゴリからの拒否」ではない。**
-「`playerPos` を受けて**プレイヤーをどこへ動かすか**を返す」は
-plan.md §3.11 の**文の引用**であって、「位置を持つ実体を動かすから」という
-確かめられない category ではない。§3.11 は実際に
-「ポータル / 次元移動ルール」を mx-gameplay に割り当てている。
-だから答えなければならないのは文書のほうで、答えは 3 つある。
-
-**1. 旧根拠の後半が逆を指している。** 「上の 3 つを合成するだけ」——
-そしてその 3 つは、**同じ表の上 2 行と `portal-frame.ts` によって全部ここのもの**である。
-部品 4 つの全部と別のリポジトリに合成関数を置くのは
-「依存の向きが合っている」ではなく、**1 つが越えずに済むように 4 つが境界を越える**ことである。
-実際の代償も測れる: mx-gameplay 側は 4 記号のミラーを 1 本増やすことになり、
-それは mc-dev-meta の `MIRROR_SPECS` に登録が要り、登録は
-「source の barrel にその記号があるか」の照合を通るので、
-**mc-worldgen の `index.ts` を動かす**（= `api-lock.md` の 4 週間時計を振り出しに戻す）。
-
-**2. `playerPos` は `BlockPosition` になった。これは §6 が既に一度受け入れた証拠である。**
-§6 の検出器についての一番強い論拠は「移植で消えた 1 行」——
-参照実装の `Math.floor(ignition.x)` が、引数がブランドされた整数になったことで
-することが無くなって消えた、というものだった。**同じことがこの関数でも起きる。**
-参照実装の `playerPos: Position` はエンティティの浮動小数座標で、
-`domain/nether-travel.ts` の引数はセルである。署名にも本体にもエンティティ的なものは無い。
-
-**3. plan.md §3.11 の「遷移の発火」は別の場所にあり、そこは mx-gameplay である。**
-「発火」はタイマーである —— ポータルブロックの中に 4 秒立ち、
-そのあと再点火までの冷却がある。それが
-`mx-gameplay/domain/portal-dwell.ts`（`stepPortalDwell`）で、座標を 1 つも持たない。
-§3.11 はその file によって**満たされている**のであって、こちらに否定されてはいない。
-検出（ここ）と点火（mx-gameplay）が別リポジトリに行き、plan.md の 2 通りの読みが
-どちらも正しかった §6 本体とまったく同じ形である。
-
-**覆していないもの、3 つ。**
-
-- **両方を `index.ts` から公開した。** `domain/nether-link.ts` の座標変換・最近傍探索と
-  `domain/nether-travel.ts` の移動先解決は、同じ責務表でこのリポジトリのものと確定した
-  ルールなので、消費側がミラーせず直接利用できる公開契約にした。
-- **ポータル一覧の所有者は決まった —— 本リポジトリであり、実装済みである。**
-  `findNearestPortal` は今も純粋な候補配列引数を受け取るが、ワールド状態は
-  `application/portal-registry.ts` の `PortalRegistry` が所有する。
-  `PortalRegistryLayer` はインメモリ、`PersistentPortalRegistryLayer` は
-  `mc-save` の `StoragePort` と `PORTAL_REGISTRY_FORMAT` を使う。
-  `register` / `unregister` は冪等で、保存成功後に状態を公開する。
-  これは `ChunkStore` をここに置いたのと
-  同じもので、**ポータルはセーブを跨いで残るワールド状態**であり、本リポジトリは既に
-  チャンクのライフサイクルとライトグリッドを同じ理由で所有している。
-  参照実装の所有者もサービス（`packages/world/application/nether-service.ts` の
-  `getPortals(dimension)`）であり、`packages/world` は本リポジトリである。
-  mx-gameplay が持てば、ルールしか持たないリポジトリがワールド状態の第 2 の所有者になる ——
-  あちらがバケツとハサミについて拒否した「発明」と同じ形である。
-
-  `resolveTravel` は出発次元に応じて行き先次元の台帳を選ぶ。新しいポータルを
-  必要とする計画は返すが、レイアウトをチャンクへ適用したり、生成結果を自動登録したりは
-  しない。適用と登録はホストのブロック書き込み境界で行う。
-
-  **実装するときに最初に読むべき危険がこれである。** `knownPortals` は
-  **行き先の次元のもの**でなければならない。出発側の一覧を渡すと、
-  **いま出ていく世界にあるポータルを黙って再利用する** —— そして
-  `BlockPosition` はどの世界のセルかを言わないので、**どの型もこれを捕まえられない**。
-  参照実装は呼ぶ前に行き先の `getPortals` を引いている
-  （`physics-stage-portal.ts:55-57`）。呼び出し規約であって型ではない、
-  というのが `domain/nether-travel.ts` の当該注記の主旨である。
-
-  `PortalRegistry.resolveTravel` はこの規約を内部で満たす。純粋な
-  `resolveNetherTravel` を直接呼ぶ場合だけ、呼び出し側が行き先次元の候補を渡す。
-- **`Dimension` は kernel consumer migration の対象である。**
-  現行実装は kernel の公開 union を利用し、`index.ts` から再公開している。
-  下流移行契約では、共有される union と外部入力の guard は kernel の公開 API を
-  正本にする。
-  移行時に互換 union を増やさず、ポータル台帳、チャンク状態、ロード・アンロード、
-  dirty event、ワールド mutation の所有権は本リポジトリに残す。
-
-  同じ契約で、`BlockId` とブロック能力の照会も kernel の registry を正本にする。
-  registry 上の ID 67 を含め、worldgen 側で数値 ID の意味を複製しない。
-
-**「移動そのもの」を止めている名詞も、これで名前がついた。**
-mx-gameplay の `docs/testing.md` §3-1 は 3 本目を
-「mc-sim の名簿と次元サービス待ち」と書いているが、名簿のほうは誤りである:
-参照実装はプレイヤーを名簿では動かさず `gameState.respawn(pos)` を呼んでおり、
-mc-sim の対応物は**存在して publish 済み**である
-（`PlayerServiceApi.moveTo(feetPosition)`、`mc-sim/application/player-service.ts:25`、
-barrel は `index.ts:40`）。**本当に無いのは次元のほう**だった。
-
-**その次元も、いま名前と持ち主がついた。** 語は本リポジトリが所有して publish し
-（上の箇条書き）、**状態**は mc-sim が持つ —— `PlayerServiceApi.dimension` /
-`setDimension`（`mc-sim/application/player-service.ts`）。語と状態が別の
-リポジトリにあるのは分裂ではなく本プロジェクトの通常形であり、
-`BlockType` を kernel が所有して `ChunkStore` が値を持つのと同じ形である。
-
-**これで 3 本とも緑になった。** `resolveNetherTravel` の純粋な
-`knownPortals` 引数は直接利用する場合の注入点として残り、通常のワールド状態は
-`PortalRegistry` が台帳から行き先次元の候補を供給する。既存ポータルは距離内なら再利用され、
-無ければ新しいレイアウトが計画される。レイアウトの適用と登録はホストが行う。
+The 0.6 boundary does not settle the eventual ownership by argument. It preserves the current public contracts until the receiving W4 stream accepts them, then allows a later worldgen release to complete the transfer. `PortalRegistry` continues to own portal state and supplies the destination dimension's portal snapshot to its travel resolver.
