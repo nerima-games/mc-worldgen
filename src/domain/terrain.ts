@@ -83,7 +83,7 @@ import {
 } from './natural-structure.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumn, biomeFor, climateAt, resolveTerrainColumn, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
-import { blockAxis, localAxis } from './coordinate-compatibility.js'
+import { asBlockAxis, blockAxis } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
@@ -318,13 +318,13 @@ const createChunkGenerationContext = (
  * index.
  */
 const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number): number =>
-  readRequired(context.surfaces, columnIndex(localAxis(lx), localAxis(lz)))
+  readRequired(context.surfaces, columnIndex(lx as LocalAxis, lz as LocalAxis))
 
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
-  readRequired(context.biomes, columnIndex(localAxis(lx), localAxis(lz)))
+  readRequired(context.biomes, columnIndex(lx as LocalAxis, lz as LocalAxis))
 
 const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
-  const waterLevel = readRequired(context.waterLevels, columnIndex(localAxis(lx), localAxis(lz)))
+  const waterLevel = readRequired(context.waterLevels, columnIndex(lx as LocalAxis, lz as LocalAxis))
   if (waterLevel === NO_WATER_LEVEL) {
     return null
   }
@@ -373,10 +373,10 @@ const plantTreesPass = (context: ChunkGenerationContext): void => {
       if (
         shouldPlaceTree({
           biome,
-          surfaceY: blockAxis(surfaceY),
+          surfaceY: asBlockAxis(surfaceY),
           terrainLevels: context.levels,
-          worldX: blockAxis(context.minBlockX + lx),
-          worldZ: blockAxis(context.minBlockZ + lz),
+          worldX: asBlockAxis(context.minBlockX + lx),
+          worldZ: asBlockAxis(context.minBlockZ + lz),
         })
       ) {
         plantTree(context.blocks, lx, lz, surfaceY)
@@ -451,7 +451,7 @@ const localColumnFor = (
   if (lx < LOCAL_COLUMN_MIN || lx >= CHUNK_SIZE_XZ || lz < LOCAL_COLUMN_MIN || lz >= CHUNK_SIZE_XZ) {
     return null
   }
-  return columnIndex(localAxis(lx), localAxis(lz))
+  return columnIndex(lx as LocalAxis, lz as LocalAxis)
 }
 
 const structureSurfaceBiomeAt = (
@@ -461,11 +461,12 @@ const structureSurfaceBiomeAt = (
   wz: number,
 ): { readonly biome: BiomeType; readonly surfaceY: BlockAxis } => {
   if (localColumn === null) {
-    return surfaceBiomeAt(context.seed, blockAxis(wx), blockAxis(wz), context.levels)
+    const terrainColumn = resolveTerrainColumn(context.seed, wx, wz, context.levels)
+    return { biome: terrainColumn.biome, surfaceY: terrainColumn.surfaceY }
   }
   return {
     biome: readRequired(context.biomes, localColumn),
-    surfaceY: blockAxis(readRequired(context.initialSurfaces, localColumn)),
+    surfaceY: asBlockAxis(readRequired(context.initialSurfaces, localColumn)),
   }
 }
 
@@ -496,7 +497,7 @@ const structureTerrainSampleAt = (
   }
   const localColumn = localColumnFor(context, wx, wz)
   const resolved = structureSurfaceBiomeAt(context, localColumn, wx, wz)
-  const sample = { biome: resolved.biome, seaLevel: blockAxis(context.levels.seaLevel), surfaceY: resolved.surfaceY }
+  const sample = { biome: resolved.biome, seaLevel: asBlockAxis(context.levels.seaLevel), surfaceY: resolved.surfaceY }
   cacheTerrainSample(terrainSamples, wx, wz, sample)
   return sample
 }

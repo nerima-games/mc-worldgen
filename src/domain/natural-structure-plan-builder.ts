@@ -10,13 +10,13 @@ import type {
   NaturalStructurePositionDraft,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
+import { asBlockAxis, blockAxis } from './coordinate-compatibility.js'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
-import { blockAxis } from './coordinate-compatibility.js'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
 export const UNIT_STEP = 1
@@ -105,9 +105,9 @@ export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockP
   if (y < NATURAL_STRUCTURE_WORLD_MIN_Y || y >= CHUNK_HEIGHT) {return}
   const brandedPlacement: NaturalStructureBlockPlacement = Object.freeze({
     block,
-    x: blockAxis(x),
-    y: blockAxis(y),
-    z: blockAxis(z),
+    x: asBlockAxis(x),
+    y: asBlockAxis(y),
+    z: asBlockAxis(z),
   })
   mutable.blocks.set(keyOf(x, y, z), brandedPlacement)
 }
@@ -115,9 +115,9 @@ export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockP
 export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarkerDraft): void => {
   mutable.markers.push(Object.freeze({
     ...marker,
-    x: blockAxis(marker.x),
-    y: blockAxis(marker.y),
-    z: blockAxis(marker.z),
+    x: asBlockAxis(marker.x),
+    y: asBlockAxis(marker.y),
+    z: asBlockAxis(marker.z),
   }))
 }
 
@@ -201,15 +201,15 @@ export const finishPlanFromValidatedPlacements = (
 ): NaturalStructurePlan => {
   const blocks = Object.freeze(placements.map((placement): NaturalStructureBlockPlacement => Object.freeze({
     ...placement,
-    x: blockAxis(placement.x),
-    y: blockAxis(placement.y),
-    z: blockAxis(placement.z),
+    x: asBlockAxis(placement.x),
+    y: asBlockAxis(placement.y),
+    z: asBlockAxis(placement.z),
   })))
   const frozenMarkers = Object.freeze(markers.map((marker): NaturalStructureMarker => Object.freeze({
     ...marker,
-    x: blockAxis(marker.x),
-    y: blockAxis(marker.y),
-    z: blockAxis(marker.z),
+    x: asBlockAxis(marker.x),
+    y: asBlockAxis(marker.y),
+    z: asBlockAxis(marker.z),
   })))
   const bounds = boundsFor(blocks, frozenMarkers)
   return Object.freeze({

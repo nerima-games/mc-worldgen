@@ -31,7 +31,7 @@ import {
   type NaturalStructureRegionPlanRequest,
   naturalStructurePlansForChunk as enumerateNaturalStructurePlansForChunk,
 } from './natural-structure-chunk-planner.js'
-import { blockAxis } from './coordinate-compatibility.js'
+import { asBlockAxis } from './coordinate-compatibility.js'
 export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
 import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
 import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin.js'
@@ -158,11 +158,12 @@ const FIRST_SPAWN_INDEX = 0
 /** Carves one village's building interiors and exteriors into `mutable`. */
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerrain: OverworldTerrainSampler): void => {
+  // Village site selection already checked the full extent against BlockAxis.
   for (let x = site.x - VILLAGE_HALF_EXTENT; x <= site.x + VILLAGE_HALF_EXTENT; x += UNIT_STEP) {
     for (let z = site.z - VILLAGE_HALF_EXTENT; z <= site.z + VILLAGE_HALF_EXTENT; z += UNIT_STEP) {
-      const { surfaceY } = sampleTerrain(blockAxis(x), blockAxis(z))
+      const { surfaceY } = sampleTerrain(asBlockAxis(x), asBlockAxis(z))
       for (let y = Number(surfaceY); y < Math.min(CHUNK_HEIGHT, surfaceY + VILLAGE_STRUCTURE_HEIGHT); y += UNIT_STEP) {
-        const block = villageBlockAt(site, blockAxis(x), blockAxis(y), blockAxis(z), sampleTerrain)
+        const block = villageBlockAt(site, asBlockAxis(x), asBlockAxis(y), asBlockAxis(z), sampleTerrain)
         if (Predicate.isNotUndefined(block)) {addBlock(mutable, { block, x, y, z })}
       }
     }

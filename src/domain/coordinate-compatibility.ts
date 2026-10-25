@@ -8,6 +8,8 @@ import {
 } from '@nerima-games/mc-kernel/domain/coordinates'
 import { Result } from 'effect'
 
+/** Cast values after the public boundary has established the block-axis range. */
+export const asBlockAxis = (value: number): BlockAxisValue => value as BlockAxisValue
 export const blockAxis = (value: number): BlockAxisValue => Result.getOrThrow(BlockAxis.result(value))
 
 export const chunkAxis = (value: number): ChunkAxisValue => Result.getOrThrow(ChunkAxis.result(value))
