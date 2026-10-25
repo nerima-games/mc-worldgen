@@ -182,9 +182,9 @@ import {
   blockIndex,
 } from './constants.js'
 import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
-import { NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
-import { Option, Result } from 'effect'
+import { type NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
 import { BLOCK } from './biome.js'
+import { Option } from 'effect'
 import { channelSeed } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
 
@@ -353,7 +353,7 @@ export const oreStreamSeed = (seed: NoiseSeed, config: OreConfig, baseWorldX: nu
   hash = (hash ^ Math.imul(config.saltZ | INT32_ZERO, SALT_Z_MIX_PRIME)) >>> INT32_ZERO
   hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_1), FINALIZE_MIX_PRIME_1) >>> INT32_ZERO
   hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_2), FINALIZE_MIX_PRIME_2) >>> INT32_ZERO
-  return Result.getOrThrow(NoiseSeed.result((hash ^ (hash >>> FINALIZE_MIX_SHIFT_3)) >>> INT32_ZERO))
+  return ((hash ^ (hash >>> FINALIZE_MIX_SHIFT_3)) >>> INT32_ZERO) as NoiseSeed
 }
 
 /**
@@ -668,7 +668,7 @@ export const placeOres = (blocks: Uint16Array, seed: NoiseSeed, coord: ChunkCoor
   const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
 
   for (const config of ORE_CONFIGS) {
-    const next = mulberry32(NoiseSeed(oreStreamSeed(seed, config, baseWorldX, baseWorldZ)))
+    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
 
     // `avgVeins - 1 + rng * 2` — the reference's ±1 variance around the mean.
     const count = Math.max(MIN_VEIN_COUNT, Math.round(config.avgVeins - VEIN_COUNT_VARIANCE + next() * VEIN_COUNT_VARIANCE_RANGE))

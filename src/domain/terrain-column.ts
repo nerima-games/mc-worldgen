@@ -27,6 +27,8 @@ import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
+const asBlockAxis = (value: number): BlockAxis => value as BlockAxis
+
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
 const NOISE_FREQUENCY_UNIT = 1
 /** Temperature noise wavelength, in blocks. */
@@ -178,7 +180,7 @@ const lakeNoiseAt = (seed: NoiseSeed, wx: number, wz: number): number =>
     LAKE_NOISE_UNIT_FREQUENCY,
   )
 
-const resolveTerrainColumn = (
+export const resolveTerrainColumn = (
   seed: NoiseSeed,
   wx: number,
   wz: number,
@@ -202,7 +204,7 @@ const resolveTerrainColumn = (
   const lakeBasinY = computeLakeBasin(biome, lakeNoiseValue, initialSurfaceY, levels)
   const surfaceY = resolveSurfaceY(biome, initialSurfaceY, lakeBasinY)
   const waterLevel = Option.getOrNull(
-    Option.map(determineWaterLevel(biome, surfaceY, lakeBasinY, levels), blockAxis),
+    Option.map(determineWaterLevel(biome, surfaceY, lakeBasinY, levels), asBlockAxis),
   )
   const surface = resolveSurfaceMaterial(biome, surfaceY, waterLevel ?? levels.seaLevel, {
     hasLakeBasin: Option.isSome(lakeBasinY),
@@ -211,10 +213,10 @@ const resolveTerrainColumn = (
 
   return {
     biome,
-    initialSurfaceY: blockAxis(initialSurfaceY),
-    lakeBasinY: Option.map(lakeBasinY, blockAxis),
+    initialSurfaceY,
+    lakeBasinY: Option.map(lakeBasinY, asBlockAxis),
     surface,
-    surfaceY: blockAxis(surfaceY),
+    surfaceY: asBlockAxis(surfaceY),
     temperature: climate.temperature,
     waterLevel,
   }
@@ -225,4 +227,10 @@ export const terrainColumnAt = (
   wx: BlockAxis,
   wz: BlockAxis,
   levels: TerrainLevels = DEFAULT_TERRAIN_LEVELS,
-): TerrainColumn => resolveTerrainColumn(seed, wx, wz, levels)
+): TerrainColumn => {
+  blockAxis(wx)
+  blockAxis(wz)
+  blockAxis(levels.seaLevel)
+  blockAxis(levels.lakeLevel)
+  return resolveTerrainColumn(seed, wx, wz, levels)
+}

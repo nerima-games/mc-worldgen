@@ -1,7 +1,6 @@
 import { channelSeed, fbm2D } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { blockAxis } from './coordinate-compatibility.js'
 
 /** Lowest and highest surface the local terrain shaper produces. */
 export const MIN_SURFACE_Y = 38
@@ -39,11 +38,11 @@ export const continentalnessAt = (seed: NoiseSeed, wx: number, wz: number): numb
 
 /** Convert one sampled continentalness value into the generated surface Y. */
 export const surfaceHeightFromContinentalness = (continentalness: number): BlockAxis =>
-  blockAxis(Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness)))
+  Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness)) as BlockAxis
 
 /**
  * Cheap column query used by callers that need terrain height without a chunk.
  * It is the same two pure operations used by the column generation pass.
  */
 export const surfaceHeightAt = (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis): BlockAxis =>
-  blockAxis(surfaceHeightFromContinentalness(continentalnessAt(seed, wx, wz)))
+  surfaceHeightFromContinentalness(continentalnessAt(seed, wx, wz))

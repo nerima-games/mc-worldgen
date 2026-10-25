@@ -60,7 +60,7 @@ import {
   blockIndex,
 } from './constants.js'
 import { BLOCK, type BiomeType } from './biome.js'
-import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { BlockAxis, ChunkAxis, LocalAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -82,7 +82,7 @@ import {
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
-import { type TerrainColumn, biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import { type TerrainColumn, biomeFor, climateAt, resolveTerrainColumn, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
 import { blockAxis, localAxis } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
@@ -111,6 +111,7 @@ export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 /** Single-block iteration step for the per-voxel/per-column loops below. */
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 const AXIS_STEP = 1
+const LAST_LOCAL_AXIS_OFFSET = CHUNK_SIZE_XZ - AXIS_STEP
 /** Sentinel stored for columns whose terrain has no water surface. */
 const NO_WATER_LEVEL = -1
 const LOCAL_COLUMN_MIN = 0
@@ -276,6 +277,40 @@ type IndexedValues<Value> = {
 
 const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
 
+const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => {
+  if (!Object.hasOwn(options, 'terrainLevels')) {
+    return DEFAULT_TERRAIN_LEVELS
+  }
+  const levels = options.terrainLevels as TerrainLevels
+  blockAxis(levels.seaLevel)
+  blockAxis(levels.lakeLevel)
+  return levels
+}
+
+const minBlockCoordinateForChunk = (chunkCoordinate: ChunkAxis): BlockAxis => {
+  const minimum = blockAxis(chunkCoordinate * CHUNK_SIZE_XZ)
+  blockAxis(minimum + LAST_LOCAL_AXIS_OFFSET)
+  return minimum
+}
+
+const createChunkGenerationContext = (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  options: GenerateOptions,
+): ChunkGenerationContext => {
+  const levels = terrainLevelsForGeneration(options)
+  const minBlockX = minBlockCoordinateForChunk(coord.cx)
+  const minBlockZ = minBlockCoordinateForChunk(coord.cz)
+  return {
+    ...createChunkBuffers(),
+    coord,
+    levels,
+    minBlockX,
+    minBlockZ,
+    seed,
+  }
+}
+
 /**
  * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
  * for every local column before these accessors are used. `readRequired`
@@ -310,11 +345,13 @@ const writeColumnBuffers = (
 
 const generateColumns = (context: ChunkGenerationContext): void => {
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    const localX = lx as LocalAxis
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      const index = columnIndex(localAxis(lx), localAxis(lz))
+      const localZ = lz as LocalAxis
+      const index = columnIndex(localX, localZ)
       const wx = context.minBlockX + lx
       const wz = context.minBlockZ + lz
-      const terrainColumn = terrainColumnAt(context.seed, blockAxis(wx), blockAxis(wz), context.levels)
+      const terrainColumn = resolveTerrainColumn(context.seed, wx, wz, context.levels)
       const filled = fillColumn(context.blocks, {
         column: terrainColumn,
         levels: context.levels,
@@ -486,14 +523,7 @@ export const generateChunk = (
   coord: ChunkCoord,
   options: GenerateOptions = {},
 ): NaturalStructureChunk => {
-  const context: ChunkGenerationContext = {
-    ...createChunkBuffers(),
-    coord,
-    levels: options.terrainLevels ?? DEFAULT_TERRAIN_LEVELS,
-    minBlockX: coord.cx * CHUNK_SIZE_XZ,
-    minBlockZ: coord.cz * CHUNK_SIZE_XZ,
-    seed,
-  }
+  const context = createChunkGenerationContext(seed, coord, options)
 
   generateColumns(context)
   carveCaves(context.blocks, seed, coord, options.carve ?? {})
