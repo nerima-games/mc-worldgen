@@ -825,6 +825,12 @@ describe('chunk keys', () => {
 })
 
 describe('chunk-store LRU', () => {
+  it('has no oldest entry when empty', () => {
+    const lru = makeChunkStoreLru()
+    lru.delete(chunkKeyOf(chunkCoord(chunkAxis(0), 0)))
+    expect(lru.oldest()).toBeNull()
+  })
+
   it('moves a duplicate add to newest without changing the entry count', () => {
     const lru = makeChunkStoreLru()
     const first = chunkKeyOf(chunkCoord(chunkAxis(0), 0))

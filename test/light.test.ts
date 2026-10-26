@@ -943,6 +943,18 @@ describe('ChunkStore.getLight', () => {
     }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
+  it.effect('keeps boundary invalidation safe at the largest BlockAxis coordinate', () =>
+    Effect.gen(function* () {
+      const position = blockPosition(blockAxis(Number.MAX_SAFE_INTEGER), ROOM_Y, blockAxis(0))
+      const coord = chunkCoord(chunkAxis(Math.floor(Number.MAX_SAFE_INTEGER / CHUNK_SIZE_XZ)), 0)
+      const store = yield* ChunkStore
+      yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.STONE)
+
+      expect(yield* store.getBlock(position)).toStrictEqual({ _tag: 'Block', block: BLOCK.STONE })
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
+  )
+
   it.effect('spreads sky light sideways through an opening at a resident seam', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
