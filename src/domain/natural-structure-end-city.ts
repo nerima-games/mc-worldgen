@@ -17,6 +17,10 @@ import type {
   NaturalStructureRegion,
 } from './natural-structure-types.js'
 import { Option, Predicate, Result } from 'effect'
+import {
+  type ValidatedNaturalStructureRegionAxis,
+  validatedNaturalStructureRegionAxisFrom,
+} from './natural-structure-coordinate-validation.js'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { BlockId } from '@nerima-games/mc-kernel'
@@ -196,8 +200,8 @@ const finishEndCityPlan = ({ baseY, candidate, region, seed, ship }: EndCityPlan
 
 export const planEndCityForValidatedRegion = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: EndStructureTerrainSampler = (x, z) => endSurfaceHeightAt(seed, blockAxis(x), blockAxis(z)),
   presenceChannelSeed?: CandidateChannelInput,
 ): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
@@ -220,5 +224,11 @@ export const planEndCityForRegion = (
   const region = { x: regionX, z: regionZ }
   const validation = validateNaturalStructureRegion('end-city', region)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
-  return planEndCityForValidatedRegion(seed, regionX, regionZ, sampleTerrain, presenceChannelSeed)
+  return planEndCityForValidatedRegion(
+    seed,
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'x'),
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'z'),
+    sampleTerrain,
+    presenceChannelSeed,
+  )
 }

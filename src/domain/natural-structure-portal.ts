@@ -19,6 +19,7 @@ import { Option, Predicate, Result } from 'effect'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
+import type { ValidatedNaturalStructureRegion } from './natural-structure-coordinate-validation.js'
 import { blockAxis } from './coordinate-compatibility.js'
 
 const PORTAL_PROBE_OFFSET = 3
@@ -184,7 +185,7 @@ const planRuinedNetherPortalAtSite = (
 
 export const planRuinedNetherPortalForValidatedRegion = (
   seed: NoiseSeed,
-  region: NaturalStructureRegion,
+  region: ValidatedNaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
 ): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
@@ -204,5 +205,5 @@ export const planRuinedNetherPortalForRegion = (
   const region = { x: regionX, z: regionZ }
   const validation = validateNaturalStructureRegion('ruined-nether-portal', region)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
-  return planRuinedNetherPortalForValidatedRegion(seed, region, sampleTerrain, presenceChannelSeed)
+  return planRuinedNetherPortalForValidatedRegion(seed, validation.success, sampleTerrain, presenceChannelSeed)
 }

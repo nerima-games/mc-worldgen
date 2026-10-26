@@ -34,7 +34,12 @@ import {
   naturalStructurePlansForValidatedChunk as naturalStructurePlansForValidatedChunkWithPlanner,
   validateNaturalStructureChunkCoordinates,
 } from '../src/domain/natural-structure-chunk-planner'
-import { invalidNaturalStructureRegionSpan } from '../src/domain/natural-structure-coordinate-validation'
+import {
+  invalidNaturalStructureRegionSpan,
+  MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  validatedNaturalStructureRegionAxisFrom,
+  validateNaturalStructureRegionCoordinates,
+} from '../src/domain/natural-structure-coordinate-validation'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 import { planEndCityForRegion as planEndCityForRegionRaw } from '../src/domain/natural-structure-end-city'
 import { planRuinedNetherPortalForRegion as planRuinedNetherPortalForRegionRaw } from '../src/domain/natural-structure-portal'
@@ -151,7 +156,19 @@ describe('natural structure plans', () => {
 
     expect(emptyRegion).toBeDefined()
     if (emptyRegion === undefined) {throw new Error('expected an empty stronghold region in search bounds')}
-    expect(planStrongholdForValidatedRegion(seed, emptyRegion.x, emptyRegion.z)).toStrictEqual(Result.succeed(Option.none()))
+    const validation = validateNaturalStructureRegionCoordinates(
+      'stronghold',
+      emptyRegion,
+      NATURAL_STRUCTURE_GRID.stronghold,
+      MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+    )
+    expect(Result.isSuccess(validation)).toBe(true)
+    if (Result.isFailure(validation)) {throw validation.failure}
+    expect(planStrongholdForValidatedRegion(
+      seed,
+      validatedNaturalStructureRegionAxisFrom(validation.success, 'x'),
+      validatedNaturalStructureRegionAxisFrom(validation.success, 'z'),
+    )).toStrictEqual(Result.succeed(Option.none()))
   })
 
   it('accepts an explicit presence channel while preserving the candidate', () => {

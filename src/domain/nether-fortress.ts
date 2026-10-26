@@ -25,6 +25,10 @@ import type {
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
 import { Option, Predicate, Result } from 'effect'
+import {
+  type ValidatedNaturalStructureRegionAxis,
+  validatedNaturalStructureRegionAxisFrom,
+} from './natural-structure-coordinate-validation.js'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { type BlockId } from '@nerima-games/mc-kernel'
@@ -395,8 +399,8 @@ const finishFortressPlanAtSite = (
 
 export const planNetherFortressForValidatedRegion = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: NoiseSeed,
 ): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
@@ -418,7 +422,13 @@ export const planNetherFortressForRegion = (
   const region = { x: regionX, z: regionZ }
   const validation = validateNaturalStructureRegion('nether-fortress', region)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
-  return planNetherFortressForValidatedRegion(seed, regionX, regionZ, sampleTerrain, presenceChannelSeed)
+  return planNetherFortressForValidatedRegion(
+    seed,
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'x'),
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'z'),
+    sampleTerrain,
+    presenceChannelSeed,
+  )
 }
 
 const regionRange = (value: number, radius: number): readonly [number, number] => [

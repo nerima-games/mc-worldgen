@@ -63,6 +63,11 @@ import { CHUNK_HEIGHT } from './constants.js'
 import type { ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
 import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
+import {
+  type ValidatedNaturalStructureRegionAxis,
+  validatedNaturalStructureRegionAxisFrom,
+  validatedNaturalStructureRegionFromAxes,
+} from './natural-structure-coordinate-validation.js'
 import { planEndCityForRegion, planEndCityForValidatedRegion } from './natural-structure-end-city.js'
 import { planNetherFortressForRegion, planNetherFortressForValidatedRegion } from './nether-fortress.js'
 import { planRuinedNetherPortalForRegion, planRuinedNetherPortalForValidatedRegion } from './natural-structure-portal.js'
@@ -284,8 +289,8 @@ export const planVillageForRegion = (
 
 const planVillageForValidatedRegion = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: OverworldTerrainSampler,
   candidateChannelInput?: CandidateChannelInput,
 ): NaturalStructurePlanResult => planVillageForSiteOption(
@@ -735,8 +740,8 @@ const planOverworldSurfaceKind = (
 
 const planVillageCandidateRegion = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: OverworldTerrainSampler,
 ): NaturalStructurePlanResult => {
   if (validatesCandidateRegion(context.candidateChannelInput)) {
@@ -747,8 +752,8 @@ const planVillageCandidateRegion = (
 
 const planOverworldKind = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: OverworldTerrainSampler,
 ): NaturalStructurePlanResult => {
   if (context.kind === 'desert-pyramid' || context.kind === 'desert-well' || context.kind === 'igloo') {
@@ -768,8 +773,8 @@ const planOverworldKind = (
 
 const planOverworldRegion = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
 ): NaturalStructurePlanResult => {
   if (context.kind === 'stronghold') {
     if (validatesCandidateRegion(context.candidateChannelInput)) {return planStrongholdForRegion(context.seed, regionX, regionZ)}
@@ -798,8 +803,8 @@ const netherFortressPresenceChannelSeedFor = (
 
 const planNetherFortressRegion = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: NetherStructureTerrainSampler,
 ): NaturalStructurePlanResult => {
   const presenceSeed = netherFortressPresenceChannelSeedFor(context.candidateChannelInput)
@@ -811,8 +816,8 @@ const planNetherFortressRegion = (
 
 const planNetherRegion = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
 ): NaturalStructurePlanResult => {
   const { nether: sampleTerrain } = context.samplers
   if (Predicate.isUndefined(sampleTerrain)) {
@@ -827,13 +832,18 @@ const planNetherRegion = (
   if (validatesCandidateRegion(context.candidateChannelInput)) {
     return planRuinedNetherPortalForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  return planRuinedNetherPortalForValidatedRegion(context.seed, { x: regionX, z: regionZ }, sampleTerrain, context.candidateChannelInput)
+  return planRuinedNetherPortalForValidatedRegion(
+    context.seed,
+    validatedNaturalStructureRegionFromAxes(regionX, regionZ),
+    sampleTerrain,
+    context.candidateChannelInput,
+  )
 }
 
 const planEndRegion = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
 ): NaturalStructurePlanResult => {
   if (context.kind !== 'end-city') {
     return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
@@ -846,8 +856,8 @@ const planEndRegion = (
 
 const planNaturalStructureForRegionAt = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
 ): NaturalStructurePlanResult => {
   if (context.dimension === 'overworld') {
     if (context.kind === 'bastion-remnant' || context.kind === 'end-city' || context.kind === 'nether-fortress' || context.kind === 'ruined-nether-portal') {
@@ -865,8 +875,10 @@ const planNaturalStructureForRegionAt = (
 }
 
 /** Plans one supported natural structure for a single region. */
-export const planNaturalStructureForRegion = (request: NaturalStructureRegionPlanRequest): NaturalStructurePlanResult =>
-  planNaturalStructureForRegionAt(
+export const planNaturalStructureForRegion = (request: NaturalStructureRegionPlanRequest): NaturalStructurePlanResult => {
+  const validation = validateNaturalStructureRegion(request.kind, request.region)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return planNaturalStructureForRegionAt(
     {
       candidateChannelInput: request.candidateChannelSeeds ?? request.presenceChannelSeed,
       dimension: request.dimension,
@@ -874,9 +886,10 @@ export const planNaturalStructureForRegion = (request: NaturalStructureRegionPla
       samplers: request.samplers,
       seed: request.seed,
     },
-    request.region.x,
-    request.region.z,
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'x'),
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'z'),
   )
+}
 
 const planNaturalStructureForChunkRegion: NaturalStructureRegionPlanner = (
   context,

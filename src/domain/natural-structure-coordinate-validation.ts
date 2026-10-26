@@ -1,4 +1,4 @@
-import { Data, Result } from 'effect'
+import { Brand, Data, Result } from 'effect'
 import type { NaturalStructureGrid, NaturalStructureKind, NaturalStructureRegion } from './natural-structure-types.js'
 
 /**
@@ -22,6 +22,16 @@ export type NaturalStructureRegionSpan = {
   readonly minRegionX: number
   readonly minRegionZ: number
 }
+
+export type ValidatedNaturalStructureRegionAxis = number & Brand.Brand<'ValidatedNaturalStructureRegionAxis'>
+
+export type ValidatedNaturalStructureRegion = NaturalStructureRegion & Brand.Brand<'ValidatedNaturalStructureRegion'>
+
+export type ValidatedNaturalStructureRegionSpan = NaturalStructureRegionSpan & Brand.Brand<'ValidatedNaturalStructureRegionSpan'>
+
+const makeValidatedNaturalStructureRegionAxis = Brand.nominal<ValidatedNaturalStructureRegionAxis>()
+const makeValidatedNaturalStructureRegion = Brand.nominal<ValidatedNaturalStructureRegion>()
+const makeValidatedNaturalStructureRegionSpan = Brand.nominal<ValidatedNaturalStructureRegionSpan>()
 
 const taggedError = Data.TaggedError
 
@@ -148,16 +158,44 @@ export const invalidNaturalStructureRegionSpan = (
   return invalidRegionFootprintZSpan(kind, span, grid, maxHorizontalExtent)
 }
 
+/** Validates the complete span and returns its existing object as the proof. */
+export const validateNaturalStructureRegionSpan = (
+  kind: NaturalStructureKind,
+  span: NaturalStructureRegionSpan,
+  grid: Pick<NaturalStructureGrid, 'separation' | 'spacing'>,
+  maxHorizontalExtent: number,
+): ValidatedNaturalStructureRegionSpan | InvalidNaturalStructureCoordinate => {
+  const failure = invalidNaturalStructureRegionSpan(kind, span, grid, maxHorizontalExtent)
+  if (failure) {return failure}
+  return makeValidatedNaturalStructureRegionSpan(span)
+}
+
+/** Converts an index from a validated span into the nominal axis used by its planner. */
+export const validatedNaturalStructureRegionAxisInSpan = (
+  _span: ValidatedNaturalStructureRegionSpan,
+  value: number,
+): ValidatedNaturalStructureRegionAxis => makeValidatedNaturalStructureRegionAxis(value)
+
+export const validatedNaturalStructureRegionAxisFrom = (
+  region: ValidatedNaturalStructureRegion,
+  axis: 'x' | 'z',
+): ValidatedNaturalStructureRegionAxis => makeValidatedNaturalStructureRegionAxis(region[axis])
+
+export const validatedNaturalStructureRegionFromAxes = (
+  x: ValidatedNaturalStructureRegionAxis,
+  z: ValidatedNaturalStructureRegionAxis,
+): ValidatedNaturalStructureRegion => makeValidatedNaturalStructureRegion({ x, z })
+
 export const validateNaturalStructureRegionCoordinates = (
   kind: NaturalStructureKind,
   region: NaturalStructureRegion,
   grid: Pick<NaturalStructureGrid, 'separation' | 'spacing'>,
   maxHorizontalExtent: number,
-): Result.Result<void, InvalidNaturalStructureCoordinate> => {
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> => {
   const invalidRegion = invalidCoordinate('region-x', kind, region, region.x) ??
     invalidCoordinate('region-z', kind, region, region.z)
   if (invalidRegion) {return Result.fail(invalidRegion)}
   const invalidFootprint = invalidRegionFootprintCoordinate(kind, region, grid, maxHorizontalExtent)
   if (invalidFootprint) {return Result.fail(invalidFootprint)}
-  return Result.void
+  return Result.succeed(makeValidatedNaturalStructureRegion(region))
 }

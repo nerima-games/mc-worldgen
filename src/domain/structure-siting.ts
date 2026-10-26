@@ -28,6 +28,8 @@ import { BlockAxis, type ChunkAxis } from '@nerima-games/mc-kernel/domain/coordi
 import {
   InvalidNaturalStructureCoordinate,
   MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  type ValidatedNaturalStructureRegion,
+  type ValidatedNaturalStructureRegionAxis,
   validateNaturalStructureRegionCoordinates,
 } from './natural-structure-coordinate-validation.js'
 import { Option, Result } from 'effect'
@@ -145,8 +147,8 @@ const strongholdSiteOptionForRegion = (
 
 export const strongholdSiteOptionForValidatedRegion = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   candidatePresenceChecked = false,
 ): Option.Option<StrongholdSite> => {
   if (candidatePresenceChecked) {return strongholdCoordinatesForRegion(seed, regionX, regionZ)}
@@ -156,7 +158,7 @@ export const strongholdSiteOptionForValidatedRegion = (
 const validateStrongholdRegionCoordinates = (
   regionX: number,
   regionZ: number,
-): Result.Result<void, InvalidNaturalStructureCoordinate> =>
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> =>
   validateNaturalStructureRegionCoordinates(
     'stronghold',
     { x: regionX, z: regionZ },
@@ -171,7 +173,7 @@ export const strongholdSiteForRegion = (
 ): Result.Result<Option.Option<StrongholdSite>, InvalidNaturalStructureCoordinate> => {
   const validation = validateStrongholdRegionCoordinates(regionX, regionZ)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
-  return Result.succeed(strongholdSiteOptionForRegion(seed, regionX, regionZ))
+  return Result.succeed(strongholdSiteOptionForRegion(seed, validation.success.x, validation.success.z))
 }
 
 /** `locateStronghold` returns this many candidates unless the caller asks for fewer or more. */
@@ -447,7 +449,7 @@ const villageSiteOptionForRegion = (
 const validateVillageRegionCoordinates = (
   regionX: number,
   regionZ: number,
-): Result.Result<void, InvalidNaturalStructureCoordinate> =>
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> =>
   validateNaturalStructureRegionCoordinates(
     'village',
     { x: regionX, z: regionZ },
@@ -469,7 +471,7 @@ const appendVillageSiteForRegion = (
 ): InvalidNaturalStructureCoordinate | null => {
   const validation = validateVillageRegionCoordinates(regionX, regionZ)
   if (Result.isFailure(validation)) {return validation.failure}
-  const site = villageSiteOptionForRegion(query.seed, regionX, regionZ, query.sampleTerrain)
+  const site = villageSiteOptionForRegion(query.seed, validation.success.x, validation.success.z, query.sampleTerrain)
   if (
     Option.isSome(site) &&
     site.value.x >= query.bounds.minX && site.value.x <= query.bounds.maxX &&
@@ -505,13 +507,13 @@ export const villageSiteForRegion = (
 ): Result.Result<Option.Option<VillageSite>, InvalidNaturalStructureCoordinate> => {
   const validation = validateVillageRegionCoordinates(regionX, regionZ)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
-  return Result.succeed(villageSiteOptionForRegion(seed, regionX, regionZ, sampleTerrain))
+  return Result.succeed(villageSiteOptionForRegion(seed, validation.success.x, validation.success.z, sampleTerrain))
 }
 
 export const villageSiteOptionForValidatedRegion = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: OverworldTerrainSampler,
   candidatePresenceChecked = false,
 ): Option.Option<VillageSite> => villageSiteOptionForRegion(seed, regionX, regionZ, sampleTerrain, candidatePresenceChecked)

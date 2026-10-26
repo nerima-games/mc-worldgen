@@ -1,4 +1,5 @@
 import type { BlockAxis, ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
+import { Brand, Option, Result } from 'effect'
 import {
   type CandidateChannelSeeds,
   type CandidateForRegionContext,
@@ -18,7 +19,12 @@ import type {
   NaturalStructureRegion,
   NaturalStructureSamplers,
 } from './natural-structure-types.js'
-import { Option, Result } from 'effect'
+import {
+  type ValidatedNaturalStructureRegionAxis,
+  type ValidatedNaturalStructureRegionSpan,
+  validateNaturalStructureRegionSpan,
+  validatedNaturalStructureRegionAxisInSpan,
+} from './natural-structure-coordinate-validation.js'
 import {
   strongholdCandidateExistsWithPresenceChannelSeed,
   strongholdPresenceChannelSeedFor,
@@ -30,7 +36,6 @@ import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
-import { invalidNaturalStructureRegionSpan } from './natural-structure-coordinate-validation.js'
 import { plansInStableOrder } from './natural-structure-order.js'
 
 type NonEmptyReadonlyArray<Element> = readonly [Element, ...Array<Element>]
@@ -121,7 +126,9 @@ export type ValidatedNaturalStructureChunkCoordinates = {
   readonly coord: ChunkCoord
   readonly minBlockX: BlockAxis
   readonly minBlockZ: BlockAxis
-}
+} & Brand.Brand<'ValidatedNaturalStructureChunkCoordinates'>
+
+const makeValidatedNaturalStructureChunkCoordinates = Brand.nominal<ValidatedNaturalStructureChunkCoordinates>()
 
 const invalidChunkCoordinate = (
   kind: NaturalStructureKind,
@@ -158,11 +165,11 @@ export const validateNaturalStructureChunkCoordinates = (
   const failure = chunkCoordinateFailure(kind, coord, xStart, zStart)
   if (failure) {return Result.fail(failure)}
   // Safe chunk origins are multiples of 16, so adding the final local offset of 15 stays safe.
-  return Result.succeed({
+  return Result.succeed(makeValidatedNaturalStructureChunkCoordinates({
     coord,
     minBlockX: blockAxisFromKnownSafeInteger(xStart),
     minBlockZ: blockAxisFromKnownSafeInteger(zStart),
-  })
+  }))
 }
 
 type ChunkPlanContext = {
@@ -221,21 +228,11 @@ export type NaturalStructureRegionPlanRequest = {
   readonly seed: NoiseSeed
 }
 
-const validateCandidateRegionSpan = (
-  kind: NaturalStructureKind,
-  span: RegionSpan,
-): InvalidNaturalStructureCoordinate | null => invalidNaturalStructureRegionSpan(
-  kind,
-  span,
-  NATURAL_STRUCTURE_GRID[kind],
-  MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
-)
-
 const appendPlanForRegion = (
   plans: Array<NaturalStructurePlan>,
   context: StructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
 ): InvalidNaturalStructureCoordinate | null => {
   const result = context.planForRegion(context, regionX, regionZ)
   if (Result.isFailure(result)) {return result.failure}
@@ -263,7 +260,7 @@ const appendPlansInSpan = (
   context: ChunkPlanContext,
   kind: NaturalStructureKind,
   candidatePresenceChannelSeed: NoiseSeed,
-  span: RegionSpan,
+  span: ValidatedNaturalStructureRegionSpan,
 ): InvalidNaturalStructureCoordinate | null => {
   const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = span
   let structureContext: StructurePlanContext | typeof NO_STRUCTURE_PLAN_CONTEXT = NO_STRUCTURE_PLAN_CONTEXT
@@ -271,7 +268,13 @@ const appendPlansInSpan = (
     for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += UNIT_STEP) {
       if (candidateRegionCanProducePlan(kind, candidatePresenceChannelSeed, regionX, regionZ)) {
         structureContext = structureContextForCandidate(context, kind, candidatePresenceChannelSeed, structureContext)
-        const result = appendPlanForRegion(plans, structureContext, regionX, regionZ)
+        // The validated span encloses both loop axes, so this proof is compile-time only.
+        const result = appendPlanForRegion(
+          plans,
+          structureContext,
+          validatedNaturalStructureRegionAxisInSpan(span, regionX),
+          validatedNaturalStructureRegionAxisInSpan(span, regionZ),
+        )
         if (result) {return result}
       }
     }
@@ -285,18 +288,21 @@ const appendPlansForKind = (
   kind: NaturalStructureKind,
 ): InvalidNaturalStructureCoordinate | null => {
   const span = regionSpanForChunk(context.validatedChunk, NATURAL_STRUCTURE_GRID[kind])
-  const spanFailure = validateCandidateRegionSpan(kind, span)
-  if (spanFailure) {
-    return spanFailure
-  }
+  const validatedSpan = validateNaturalStructureRegionSpan(
+    kind,
+    span,
+    NATURAL_STRUCTURE_GRID[kind],
+    MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  )
+  if (validatedSpan instanceof Error) {return validatedSpan}
   const candidatePresenceSeed = candidatePresenceChannelSeedFor(context.seed, context.dimension, kind)
-  return appendPlansInSpan(plans, context, kind, candidatePresenceSeed, span)
+  return appendPlansInSpan(plans, context, kind, candidatePresenceSeed, validatedSpan)
 }
 
 export type NaturalStructureRegionPlanner = (
   context: NaturalStructurePlanContext,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
 ) => Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
 
 /**

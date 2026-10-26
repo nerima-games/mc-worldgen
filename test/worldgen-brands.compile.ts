@@ -14,6 +14,8 @@ import {
 } from '@nerima-games/mc-kernel'
 import { NoiseSeed, type NoiseSeed as NoiseSeedType } from '@nerima-games/mc-noise'
 import { SaveKey, type SaveKey as SaveKeyType } from '@nerima-games/mc-save'
+import type { ValidatedNaturalStructureChunkCoordinates } from '../src/domain/natural-structure-chunk-planner'
+import type { ValidatedNaturalStructureRegionAxis } from '../src/domain/natural-structure-coordinate-validation'
 
 const blockAxis = Result.getOrThrow(BlockAxis.result(1))
 const chunkAxis = Result.getOrThrow(ChunkAxis.result(1))
@@ -22,6 +24,7 @@ const chunkHeight = Result.getOrThrow(ChunkHeight(256))
 const chunkKey = chunkKeyOf(chunkCoord(Result.getOrThrow(ChunkAxis.result(0)), Result.getOrThrow(ChunkAxis.result(0))))
 const noiseSeed = Result.getOrThrow(NoiseSeed.result(1))
 const saveKey = SaveKey('world/chunk')
+const unvalidatedChunkCoordinates = { coord: chunkCoord(chunkAxis, chunkAxis), minBlockX: blockAxis, minBlockZ: blockAxis }
 
 const acceptedBlockAxis: BlockAxisType = blockAxis
 const acceptedChunkAxis: ChunkAxisType = chunkAxis
@@ -53,6 +56,12 @@ const noiseFromSave: NoiseSeedType = saveKey
 // @ts-expect-error NoiseSeed is not a BlockAxis.
 const axisFromNoise: BlockAxisType = noiseSeed
 
+// Coordinate proofs must come from their validators, not matching object fields or plain numbers.
+// @ts-expect-error A structurally matching chunk coordinate object is not validated.
+const forgedValidatedChunkCoordinates: ValidatedNaturalStructureChunkCoordinates = unvalidatedChunkCoordinates
+// @ts-expect-error A plain region number is not a validated region axis.
+const forgedValidatedRegionAxis: ValidatedNaturalStructureRegionAxis = 1
+
 void acceptedBlockAxis
 void acceptedChunkAxis
 void acceptedLocalAxis
@@ -68,3 +77,5 @@ void keyFromString
 void saveFromNoise
 void noiseFromSave
 void axisFromNoise
+void forgedValidatedChunkCoordinates
+void forgedValidatedRegionAxis

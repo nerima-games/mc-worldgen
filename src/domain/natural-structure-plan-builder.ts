@@ -1,6 +1,7 @@
 import {
   InvalidNaturalStructureCoordinate as InvalidNaturalStructureCoordinateTag,
   type InvalidNaturalStructureCoordinate as InvalidNaturalStructureCoordinateType,
+  type ValidatedNaturalStructureRegion,
   validateNaturalStructureRegionCoordinates,
 } from './natural-structure-coordinate-validation.js'
 import { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT, NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
@@ -35,7 +36,7 @@ export type InvalidNaturalStructureCoordinate = InvalidNaturalStructureCoordinat
 export const validateNaturalStructureRegion = (
   kind: NaturalStructureKind,
   region: NaturalStructureRegion,
-): Result.Result<void, InvalidNaturalStructureCoordinate> => validateNaturalStructureRegionCoordinates(
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> => validateNaturalStructureRegionCoordinates(
   kind,
   region,
   NATURAL_STRUCTURE_GRID[kind],

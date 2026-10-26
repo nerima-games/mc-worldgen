@@ -17,6 +17,7 @@ import {
 } from './structure-siting.js'
 import { type StrongholdPlan, generateStrongholdPlan } from './stronghold.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
+import type { ValidatedNaturalStructureRegionAxis } from './natural-structure-coordinate-validation.js'
 
 type StrongholdPlanRequest = {
   readonly region: NaturalStructureRegion
@@ -91,8 +92,8 @@ export const planStrongholdForRegion = (
 
 export const planStrongholdForValidatedRegion = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   candidatePresenceChecked = false,
 ): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> =>
   planStrongholdForSite(
