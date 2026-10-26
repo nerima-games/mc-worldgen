@@ -1,9 +1,14 @@
+import type { BlockAxis, ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   type CandidateChannelSeeds,
+  type CandidateForRegionContext,
   InvalidNaturalStructureCoordinate,
   UNIT_STEP,
-  candidateChannelSeedsFor,
+  candidateChannelSeedsForKnownCandidate,
+  candidateExistsForRegion,
   floorDiv,
+  candidatePresenceChannelSeedFor as genericCandidatePresenceChannelSeedFor,
+  validatedCandidateChannelSeedsFor,
 } from './natural-structure-plan-builder.js'
 import { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT, NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type {
@@ -14,10 +19,18 @@ import type {
   NaturalStructureSamplers,
 } from './natural-structure-types.js'
 import { Option, Result } from 'effect'
+import {
+  strongholdCandidateExistsWithPresenceChannelSeed,
+  strongholdPresenceChannelSeedFor,
+  villageCandidateExistsWithPresenceChannelSeed,
+  villagePresenceChannelSeedFor,
+} from './structure-siting.js'
 import { CHUNK_SIZE_XZ } from './constants.js'
 import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
+import { invalidNaturalStructureRegionSpan } from './natural-structure-coordinate-validation.js'
 import { plansInStableOrder } from './natural-structure-order.js'
 
 type NonEmptyReadonlyArray<Element> = readonly [Element, ...Array<Element>]
@@ -43,6 +56,7 @@ const NETHER_NATURAL_STRUCTURE_KINDS: NonEmptyReadonlyArray<NaturalStructureKind
 ])
 const END_NATURAL_STRUCTURE_KINDS: NonEmptyReadonlyArray<NaturalStructureKind> = Object.freeze(['end-city'])
 const FIRST_NATURAL_STRUCTURE_KIND_INDEX = 0
+const NO_STRUCTURE_PLAN_CONTEXT = Symbol('no structure plan context')
 
 const naturalStructureKindsFor = (dimension: Dimension): NonEmptyReadonlyArray<NaturalStructureKind> => {
   if (dimension === 'overworld') {
@@ -86,9 +100,11 @@ const candidateRegionSpanForAxis = (
   }
 }
 
-const regionSpanForChunk = (coord: { readonly cx: number; readonly cz: number }, grid: NaturalStructureGrid): RegionSpan => {
-  const minBlockX = coord.cx * CHUNK_SIZE_XZ
-  const minBlockZ = coord.cz * CHUNK_SIZE_XZ
+const regionSpanForChunk = (
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
+  grid: NaturalStructureGrid,
+): RegionSpan => {
+  const { minBlockX, minBlockZ } = validatedChunk
   const maxBlockX = minBlockX + CHUNK_SIZE_XZ - CHUNK_LOCAL_LAST_INDEX_OFFSET
   const maxBlockZ = minBlockZ + CHUNK_SIZE_XZ - CHUNK_LOCAL_LAST_INDEX_OFFSET
   const xSpan = candidateRegionSpanForAxis(minBlockX, maxBlockX, grid)
@@ -101,41 +117,98 @@ const regionSpanForChunk = (coord: { readonly cx: number; readonly cz: number },
   }
 }
 
+export type ValidatedNaturalStructureChunkCoordinates = {
+  readonly coord: ChunkCoord
+  readonly minBlockX: BlockAxis
+  readonly minBlockZ: BlockAxis
+}
+
+const invalidChunkCoordinate = (
+  kind: NaturalStructureKind,
+  coord: ChunkCoord,
+  axis: 'footprint-x' | 'footprint-z',
+  value: number,
+): InvalidNaturalStructureCoordinate => new InvalidNaturalStructureCoordinate({
+  axis,
+  kind,
+  region: { x: Number(coord.cx), z: Number(coord.cz) },
+  value,
+})
+
+const chunkCoordinateFailure = (
+  kind: NaturalStructureKind,
+  coord: ChunkCoord,
+  xStart: number,
+  zStart: number,
+): InvalidNaturalStructureCoordinate | null => {
+  if (!Number.isSafeInteger(coord.cx)) {return invalidChunkCoordinate(kind, coord, 'footprint-x', Number(coord.cx))}
+  if (!Number.isSafeInteger(coord.cz)) {return invalidChunkCoordinate(kind, coord, 'footprint-z', Number(coord.cz))}
+  if (!Number.isSafeInteger(xStart)) {return invalidChunkCoordinate(kind, coord, 'footprint-x', xStart)}
+  if (!Number.isSafeInteger(zStart)) {return invalidChunkCoordinate(kind, coord, 'footprint-z', zStart)}
+  return null
+}
+
 export const validateNaturalStructureChunkCoordinates = (
   dimension: Dimension,
-  coord: { readonly cx: number; readonly cz: number },
-): Result.Result<void, InvalidNaturalStructureCoordinate> => {
+  coord: ChunkCoord,
+): Result.Result<ValidatedNaturalStructureChunkCoordinates, InvalidNaturalStructureCoordinate> => {
   const kind = naturalStructureKindsFor(dimension)[FIRST_NATURAL_STRUCTURE_KIND_INDEX]
-  const region = { x: Number(coord.cx), z: Number(coord.cz) }
   const xStart = coord.cx * CHUNK_SIZE_XZ
   const zStart = coord.cz * CHUNK_SIZE_XZ
-  const coordinates = [
-    ['footprint-x', Number(coord.cx)],
-    ['footprint-z', Number(coord.cz)],
-    ['footprint-x', xStart],
-    ['footprint-x', xStart + CHUNK_SIZE_XZ - CHUNK_LOCAL_LAST_INDEX_OFFSET],
-    ['footprint-z', zStart],
-    ['footprint-z', zStart + CHUNK_SIZE_XZ - CHUNK_LOCAL_LAST_INDEX_OFFSET],
-  ] as const
-  for (const [axis, value] of coordinates) {
-    if (!Number.isSafeInteger(value)) {
-      return Result.fail(new InvalidNaturalStructureCoordinate({ axis, kind, region, value }))
-    }
-  }
-  return Result.void
+  const failure = chunkCoordinateFailure(kind, coord, xStart, zStart)
+  if (failure) {return Result.fail(failure)}
+  // Safe chunk origins are multiples of 16, so adding the final local offset of 15 stays safe.
+  return Result.succeed({
+    coord,
+    minBlockX: blockAxisFromKnownSafeInteger(xStart),
+    minBlockZ: blockAxisFromKnownSafeInteger(zStart),
+  })
 }
 
 type ChunkPlanContext = {
-  readonly coord: { readonly cx: number; readonly cz: number }
   readonly dimension: Dimension
   readonly planForRegion: NaturalStructureRegionPlanner
   readonly samplers: NaturalStructureSamplers
   readonly seed: NoiseSeed
+  readonly validatedChunk: ValidatedNaturalStructureChunkCoordinates
 }
 
-type StructurePlanContext = ChunkPlanContext & {
-  readonly candidateChannelSeeds: CandidateChannelSeeds
+export type NaturalStructurePlanContext = CandidateForRegionContext & {
   readonly kind: NaturalStructureKind
+  readonly samplers: NaturalStructureSamplers
+}
+
+type StructurePlanContext = ChunkPlanContext & NaturalStructurePlanContext & {
+  readonly candidatePresenceChannelSeed: NoiseSeed
+}
+
+const candidateRegionCanProducePlan = (
+  kind: NaturalStructureKind,
+  candidatePresenceChannelSeed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+): boolean => {
+  if (kind === 'stronghold') {
+    return strongholdCandidateExistsWithPresenceChannelSeed(candidatePresenceChannelSeed, regionX, regionZ)
+  }
+  if (kind === 'village') {
+    return villageCandidateExistsWithPresenceChannelSeed(candidatePresenceChannelSeed, regionX, regionZ)
+  }
+  return candidateExistsForRegion(kind, regionX, regionZ, candidatePresenceChannelSeed)
+}
+
+const candidatePresenceChannelSeedFor = (
+  seed: NoiseSeed,
+  dimension: Dimension,
+  kind: NaturalStructureKind,
+): NoiseSeed => {
+  if (kind === 'stronghold') {
+    return strongholdPresenceChannelSeedFor(seed)
+  }
+  if (kind === 'village') {
+    return villagePresenceChannelSeedFor(seed)
+  }
+  return genericCandidatePresenceChannelSeedFor(seed, dimension, kind)
 }
 
 export type NaturalStructureRegionPlanRequest = {
@@ -148,59 +221,82 @@ export type NaturalStructureRegionPlanRequest = {
   readonly seed: NoiseSeed
 }
 
+const validateCandidateRegionSpan = (
+  kind: NaturalStructureKind,
+  span: RegionSpan,
+): InvalidNaturalStructureCoordinate | null => invalidNaturalStructureRegionSpan(
+  kind,
+  span,
+  NATURAL_STRUCTURE_GRID[kind],
+  MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+)
+
 const appendPlanForRegion = (
   plans: Array<NaturalStructurePlan>,
   context: StructurePlanContext,
   regionX: number,
   regionZ: number,
-): Result.Result<void, InvalidNaturalStructureCoordinate> => {
-  const {
-    candidateChannelSeeds,
-    dimension,
-    kind,
-    planForRegion,
-    samplers,
-    seed,
-  } = context
-  const result = planForRegion({
-    candidateChannelSeeds,
-    dimension,
-    kind,
-    presenceChannelSeed: candidateChannelSeeds.presence,
-    region: { x: regionX, z: regionZ },
-    samplers,
-    seed,
-  })
-  if (Result.isFailure(result)) {return Result.fail(result.failure)}
+): InvalidNaturalStructureCoordinate | null => {
+  const result = context.planForRegion(context, regionX, regionZ)
+  if (Result.isFailure(result)) {return result.failure}
   if (Option.isSome(result.success)) {
     plans.push(result.success.value)
   }
-  return Result.void
+  return null
+}
+
+const structureContextForCandidate = (
+  context: ChunkPlanContext,
+  kind: NaturalStructureKind,
+  candidatePresenceChannelSeed: NoiseSeed,
+  current: StructurePlanContext | typeof NO_STRUCTURE_PLAN_CONTEXT,
+): StructurePlanContext => {
+  if (current !== NO_STRUCTURE_PLAN_CONTEXT) {return current}
+  const candidateChannelInput = candidateChannelSeedsForKnownCandidate(
+    validatedCandidateChannelSeedsFor(context.seed, context.dimension, kind),
+  )
+  return { ...context, candidateChannelInput, candidatePresenceChannelSeed, kind }
+}
+
+const appendPlansInSpan = (
+  plans: Array<NaturalStructurePlan>,
+  context: ChunkPlanContext,
+  kind: NaturalStructureKind,
+  candidatePresenceChannelSeed: NoiseSeed,
+  span: RegionSpan,
+): InvalidNaturalStructureCoordinate | null => {
+  const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = span
+  let structureContext: StructurePlanContext | typeof NO_STRUCTURE_PLAN_CONTEXT = NO_STRUCTURE_PLAN_CONTEXT
+  for (let regionX = minRegionX; regionX <= maxRegionX; regionX += UNIT_STEP) {
+    for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += UNIT_STEP) {
+      if (candidateRegionCanProducePlan(kind, candidatePresenceChannelSeed, regionX, regionZ)) {
+        structureContext = structureContextForCandidate(context, kind, candidatePresenceChannelSeed, structureContext)
+        const result = appendPlanForRegion(plans, structureContext, regionX, regionZ)
+        if (result) {return result}
+      }
+    }
+  }
+  return null
 }
 
 const appendPlansForKind = (
   plans: Array<NaturalStructurePlan>,
   context: ChunkPlanContext,
   kind: NaturalStructureKind,
-): Result.Result<void, InvalidNaturalStructureCoordinate> => {
-  const grid = NATURAL_STRUCTURE_GRID[kind]
-  const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = regionSpanForChunk(context.coord, grid)
-  const structureContext: StructurePlanContext = {
-    ...context,
-    candidateChannelSeeds: candidateChannelSeedsFor(context.seed, context.dimension, kind),
-    kind,
+): InvalidNaturalStructureCoordinate | null => {
+  const span = regionSpanForChunk(context.validatedChunk, NATURAL_STRUCTURE_GRID[kind])
+  const spanFailure = validateCandidateRegionSpan(kind, span)
+  if (spanFailure) {
+    return spanFailure
   }
-  for (let regionX = minRegionX; regionX <= maxRegionX; regionX += UNIT_STEP) {
-    for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += UNIT_STEP) {
-      const result = appendPlanForRegion(plans, structureContext, regionX, regionZ)
-      if (Result.isFailure(result)) {return Result.fail(result.failure)}
-    }
-  }
-  return Result.void
+  const candidatePresenceSeed = candidatePresenceChannelSeedFor(context.seed, context.dimension, kind)
+  return appendPlansInSpan(plans, context, kind, candidatePresenceSeed, span)
 }
 
 export type NaturalStructureRegionPlanner = (
-  request: NaturalStructureRegionPlanRequest,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
 ) => Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
 
 /**
@@ -208,21 +304,19 @@ export type NaturalStructureRegionPlanner = (
  * derived from the candidate coordinate interval and handle negative
  * coordinates through floor division.
  */
-export const naturalStructurePlansForChunk = (
+export const naturalStructurePlansForValidatedChunk = (
   seed: NoiseSeed,
   dimension: Dimension,
-  coord: { readonly cx: number; readonly cz: number },
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
   samplers: NaturalStructureSamplers,
   planForRegion: NaturalStructureRegionPlanner,
 ): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
-  const coordinateValidation = validateNaturalStructureChunkCoordinates(dimension, coord)
-  if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
   const plans: Array<NaturalStructurePlan> = []
-  const context: ChunkPlanContext = { coord, dimension, planForRegion, samplers, seed }
+  const context: ChunkPlanContext = { dimension, planForRegion, samplers, seed, validatedChunk }
 
   for (const kind of naturalStructureKindsFor(dimension)) {
     const result = appendPlansForKind(plans, context, kind)
-    if (Result.isFailure(result)) {return Result.fail(result.failure)}
+    if (result) {return Result.fail(result)}
   }
   return Result.succeed(Object.freeze(plansInStableOrder(plans)))
 }

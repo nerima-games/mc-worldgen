@@ -44,6 +44,7 @@ const UNIT_STEP = 1
 const ZERO_OFFSET = 0
 const FORTRESS_WALL_OPENING_Y_OFFSET = 2
 const FORTRESS_MARKER_OFFSET = 2
+const NO_NETHER_FORTRESS_PLAN: Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> = Result.succeed(Option.none())
 
 const keyOf = (position: NaturalStructurePositionDraft): string =>
   `${String(position.x)},${String(position.y)},${String(position.z)}`
@@ -392,6 +393,20 @@ const finishFortressPlanAtSite = (
   return finishPlan(seed, region, candidate, mutable)
 }
 
+export const planNetherFortressForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: NetherStructureTerrainSampler,
+  presenceChannelSeed?: NoiseSeed,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const region = { x: regionX, z: regionZ }
+  const siteOption = fortressSiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
+  if (Option.isNone(siteOption)) {return NO_NETHER_FORTRESS_PLAN}
+  const { candidate, floorY } = siteOption.value
+  return Result.map(finishFortressPlanAtSite(seed, region, candidate, floorY), Option.some)
+}
+
 /** Plans one cross-shaped fortress and its host-owned mob/loot markers. */
 export const planNetherFortressForRegion = (
   seed: NoiseSeed,
@@ -403,10 +418,7 @@ export const planNetherFortressForRegion = (
   const region = { x: regionX, z: regionZ }
   const validation = validateNaturalStructureRegion('nether-fortress', region)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
-  const siteOption = fortressSiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
-  if (Option.isNone(siteOption)) {return Result.succeed(Option.none())}
-  const { candidate, floorY } = siteOption.value
-  return Result.map(finishFortressPlanAtSite(seed, region, candidate, floorY), Option.some)
+  return planNetherFortressForValidatedRegion(seed, regionX, regionZ, sampleTerrain, presenceChannelSeed)
 }
 
 const regionRange = (value: number, radius: number): readonly [number, number] => [

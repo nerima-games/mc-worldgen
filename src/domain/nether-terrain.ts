@@ -7,7 +7,7 @@ import {
   type NaturalStructureChunk,
   type NetherStructureTerrainSample,
   applyNaturalStructurePlansToChunk,
-  naturalStructurePlansForChunk,
+  naturalStructurePlansForValidatedChunk,
 } from './natural-structure.js'
 import { Option, Result } from 'effect'
 import { channelSeed, fbm2D, latticeValue } from './noise-compatibility.js'
@@ -225,7 +225,7 @@ export const generateNetherChunk = (
   const terrain = generateNetherTerrainChunk(seed, coord)
   const sampler = (x: number, z: number): NetherStructureTerrainSample | undefined =>
     netherStructureTerrainAt(seed, blockAxis(x), blockAxis(z))
-  const plansResult = naturalStructurePlansForChunk(seed, 'nether', coord, { nether: sampler })
+  const plansResult = naturalStructurePlansForValidatedChunk(seed, 'nether', coordinateValidation.success, { nether: sampler })
   return Result.map(plansResult, (plans) => applyNaturalStructurePlansToChunk(terrain, plans))
 }
 

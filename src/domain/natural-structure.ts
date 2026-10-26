@@ -7,6 +7,7 @@ import {
 import {
   type Candidate,
   type CandidateChannelInput,
+  type CandidateForRegionContext,
   type InvalidNaturalStructureCoordinate,
   type MutablePlan,
   UNIT_STEP,
@@ -15,6 +16,8 @@ import {
   candidateForRegion,
   finishPlan,
   finishPlanFromValidatedPlacements,
+  isCandidatePresenceValidatedInput,
+  isValidatedCandidateChannelInput,
   validateNaturalStructureRegion,
 } from './natural-structure-plan-builder.js'
 import { type CompactStructureDraft, planCompactStructureForCandidate } from './compact-structure.js'
@@ -26,13 +29,16 @@ import { type MineshaftDraft, planMineshaftForCandidate } from './mineshaft.js'
 import type {
   NaturalStructureKind,
   NaturalStructurePlan,
-  NaturalStructureRegion,
   NaturalStructureSamplers,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
 import {
+  type NaturalStructurePlanContext,
   type NaturalStructureRegionPlanRequest,
-  naturalStructurePlansForChunk as enumerateNaturalStructurePlansForChunk,
+  type NaturalStructureRegionPlanner,
+  type ValidatedNaturalStructureChunkCoordinates,
+  naturalStructurePlansForValidatedChunk as enumerateNaturalStructurePlansForValidatedChunk,
+  validateNaturalStructureChunkCoordinates,
 } from './natural-structure-chunk-planner.js'
 export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
 import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
@@ -43,18 +49,24 @@ import {
   VILLAGE_HALF_EXTENT,
   type VillageSite,
   villageSiteForRegion,
+  villageSiteOptionForValidatedRegion,
 } from './structure-siting.js'
 import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pillager-outpost.js'
 import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck.js'
-import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village.js'
+import {
+  type VillageVillagerSpawn,
+  villageBlockSamplerForSite,
+  villageHouseFloorYsForSite,
+  villageVillagerSpawnsForSiteWithFloorYs,
+} from './village.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
 import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
-import { planEndCityForRegion } from './natural-structure-end-city.js'
-import { planNetherFortressForRegion } from './nether-fortress.js'
-import { planRuinedNetherPortalForRegion } from './natural-structure-portal.js'
-import { planStrongholdForRegion } from './stronghold-structure.js'
+import { planEndCityForRegion, planEndCityForValidatedRegion } from './natural-structure-end-city.js'
+import { planNetherFortressForRegion, planNetherFortressForValidatedRegion } from './nether-fortress.js'
+import { planRuinedNetherPortalForRegion, planRuinedNetherPortalForValidatedRegion } from './natural-structure-portal.js'
+import { planStrongholdForRegion, planStrongholdForValidatedRegion } from './stronghold-structure.js'
 
 export { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 export {
@@ -89,17 +101,24 @@ export { planStrongholdForRegion } from './stronghold-structure.js'
 export { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
 
 export type NaturalStructurePlanResult = Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
+const NO_NATURAL_STRUCTURE_PLAN: NaturalStructurePlanResult = Result.succeed(Option.none())
 
 const planForValidatedRegion = (
   kind: NaturalStructureKind,
   regionX: number,
   regionZ: number,
   plan: () => NaturalStructurePlanResult,
+  validateCoordinates = true,
 ): NaturalStructurePlanResult => {
-  const validation = validateNaturalStructureRegion(kind, { x: regionX, z: regionZ })
-  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  if (validateCoordinates) {
+    const validation = validateNaturalStructureRegion(kind, { x: regionX, z: regionZ })
+    if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  }
   return plan()
 }
+
+const validatesCandidateRegion = (candidateChannelInput?: CandidateChannelInput): boolean =>
+  !isValidatedCandidateChannelInput(candidateChannelInput)
 
 type CandidateStructureRegionPlanRequest<Draft> = {
   readonly candidateChannelInput?: CandidateChannelInput | undefined
@@ -112,22 +131,18 @@ type CandidateStructureRegionPlanRequest<Draft> = {
   readonly seed: NoiseSeed
 }
 
-const planCandidateStructureForRegion = <Draft>({
-  candidateChannelInput,
-  dimension,
-  finish,
-  kind,
-  regionX,
-  regionZ,
-  sampleCandidate,
-  seed,
-}: CandidateStructureRegionPlanRequest<Draft>): NaturalStructurePlanResult => planForValidatedRegion(kind, regionX, regionZ, () => {
-  const candidateOption = candidateForRegion(seed, dimension, kind, { x: regionX, z: regionZ }, candidateChannelInput)
-  if (Option.isNone(candidateOption)) {return Result.succeed(Option.none())}
-  const draftOption = sampleCandidate(candidateOption.value)
-  if (Option.isNone(draftOption)) {return Result.succeed(Option.none())}
-  return Result.map(finish(draftOption.value), Option.some)
-})
+const planCandidateStructureForRegion = <Draft>(
+  request: CandidateStructureRegionPlanRequest<Draft>,
+): NaturalStructurePlanResult => {
+  const { candidateChannelInput, finish, kind, regionX, regionZ, sampleCandidate } = request
+  return planForValidatedRegion(kind, regionX, regionZ, () => {
+    const candidateOption = candidateForRegion(request, kind, regionX, regionZ)
+    if (Option.isNone(candidateOption)) {return NO_NATURAL_STRUCTURE_PLAN}
+    const draftOption = sampleCandidate(candidateOption.value)
+    if (Option.isNone(draftOption)) {return NO_NATURAL_STRUCTURE_PLAN}
+    return Result.map(finish(draftOption.value), Option.some)
+  }, validatesCandidateRegion(candidateChannelInput))
+}
 
 const finishCompactStructurePlan = (
   seed: NoiseSeed,
@@ -152,29 +167,19 @@ const finishCompactStructurePlan = (
 }
 
 /** Plans a compact deterministic representation for an overworld structure kind. */
-type CompactStructureRegionPlanRequest = {
-  readonly seed: NoiseSeed
-  readonly kind: CompactStructureKind
-  readonly regionX: number
-  readonly regionZ: number
-  readonly sampleTerrain: OverworldTerrainSampler
-  readonly presenceChannelSeed?: CandidateChannelInput | undefined
-}
-
-const planCompactStructureForRegionWithPresence = ({
-  kind,
-  regionX,
-  regionZ,
-  sampleTerrain,
-  seed,
-  presenceChannelSeed,
-}: CompactStructureRegionPlanRequest): NaturalStructurePlanResult => planForValidatedRegion(kind, regionX, regionZ, () => {
-  const candidateOption = candidateForRegion(seed, 'overworld', kind, { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Result.succeed(Option.none())}
+const planCompactStructureForRegionWithPresence = (
+  context: CandidateForRegionContext,
+  kind: CompactStructureKind,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): NaturalStructurePlanResult => planForValidatedRegion(kind, regionX, regionZ, () => {
+  const candidateOption = candidateForRegion(context, kind, regionX, regionZ)
+  if (Option.isNone(candidateOption)) {return NO_NATURAL_STRUCTURE_PLAN}
   const draftOption = planCompactStructureForCandidate(kind, candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Result.succeed(Option.none())}
-  return Result.map(finishCompactStructurePlan(seed, regionX, regionZ, kind, draftOption.value), Option.some)
-})
+  if (Option.isNone(draftOption)) {return NO_NATURAL_STRUCTURE_PLAN}
+  return Result.map(finishCompactStructurePlan(context.seed, regionX, regionZ, kind, draftOption.value), Option.some)
+}, validatesCandidateRegion(context.candidateChannelInput))
 
 export const planCompactStructureForRegion = (
   seed: NoiseSeed,
@@ -182,13 +187,13 @@ export const planCompactStructureForRegion = (
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
-): NaturalStructurePlanResult => planCompactStructureForRegionWithPresence({
+): NaturalStructurePlanResult => planCompactStructureForRegionWithPresence(
+  { dimension: 'overworld', seed },
   kind,
   regionX,
   regionZ,
   sampleTerrain,
-  seed,
-})
+)
 
 const VILLAGE_STRUCTURE_HEIGHT = 16
 const VILLAGE_LOOT_CHEST_OFFSET_X = 1
@@ -196,18 +201,21 @@ const FIRST_SPAWN_INDEX = 0
 
 /** Carves one village's building interiors and exteriors into `mutable`. */
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerrain: OverworldTerrainSampler): void => {
+const carveVillageBlocks = (
+  mutable: MutablePlan,
+  site: VillageSite,
+  sampleTerrain: OverworldTerrainSampler,
+  villageBlockAt: ReturnType<typeof villageBlockSamplerForSite>,
+): void => {
   // Village site selection already checked the full extent against BlockAxis.
   for (let x = site.x - VILLAGE_HALF_EXTENT; x <= site.x + VILLAGE_HALF_EXTENT; x += UNIT_STEP) {
     for (let z = site.z - VILLAGE_HALF_EXTENT; z <= site.z + VILLAGE_HALF_EXTENT; z += UNIT_STEP) {
       const { surfaceY } = sampleTerrain(blockAxisFromKnownSafeInteger(x), blockAxisFromKnownSafeInteger(z))
       for (let y = Number(surfaceY); y < Math.min(CHUNK_HEIGHT, surfaceY + VILLAGE_STRUCTURE_HEIGHT); y += UNIT_STEP) {
         const block = villageBlockAt(
-          site,
           blockAxisFromKnownSafeInteger(x),
           blockAxisFromKnownSafeInteger(y),
           blockAxisFromKnownSafeInteger(z),
-          sampleTerrain,
         )
         if (Predicate.isNotUndefined(block)) {addBlock(mutable, { block, x, y, z })}
       }
@@ -235,8 +243,10 @@ const createVillagePlan = (
   sampleTerrain: OverworldTerrainSampler,
 ): NaturalStructurePlanResult => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
-  carveVillageBlocks(mutable, site, sampleTerrain)
-  placeVillageSpawnsAndLoot(mutable, villageVillagerSpawnsForSite(seed, site, sampleTerrain))
+  const houseFloorYs = villageHouseFloorYsForSite(site, sampleTerrain)
+  const villageBlockAt = villageBlockSamplerForSite(site, sampleTerrain, houseFloorYs)
+  carveVillageBlocks(mutable, site, sampleTerrain, villageBlockAt)
+  placeVillageSpawnsAndLoot(mutable, villageVillagerSpawnsForSiteWithFloorYs(seed, site, houseFloorYs))
   return Result.map(finishPlan(
     {
       dimension: 'overworld',
@@ -250,6 +260,17 @@ const createVillagePlan = (
 }
 
 /** Plans the same village layout used by the Overworld chunk generator. */
+const planVillageForSiteOption = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  siteOption: Option.Option<VillageSite>,
+  sampleTerrain: OverworldTerrainSampler,
+): NaturalStructurePlanResult => {
+  if (Option.isNone(siteOption)) {return NO_NATURAL_STRUCTURE_PLAN}
+  return createVillagePlan(seed, regionX, regionZ, siteOption.value, sampleTerrain)
+}
+
 export const planVillageForRegion = (
   seed: NoiseSeed,
   regionX: number,
@@ -258,10 +279,28 @@ export const planVillageForRegion = (
 ): NaturalStructurePlanResult => {
   const siteResult = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
   if (Result.isFailure(siteResult)) {return Result.fail(siteResult.failure)}
-  const siteOption = siteResult.success
-  if (Option.isNone(siteOption)) {return Result.succeed(Option.none())}
-  return createVillagePlan(seed, regionX, regionZ, siteOption.value, sampleTerrain)
+  return planVillageForSiteOption(seed, regionX, regionZ, siteResult.success, sampleTerrain)
 }
+
+const planVillageForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+  candidateChannelInput?: CandidateChannelInput,
+): NaturalStructurePlanResult => planVillageForSiteOption(
+  seed,
+  regionX,
+  regionZ,
+  villageSiteOptionForValidatedRegion(
+    seed,
+    regionX,
+    regionZ,
+    sampleTerrain,
+    isCandidatePresenceValidatedInput(candidateChannelInput),
+  ),
+  sampleTerrain,
+)
 
 const finishDesertPyramidPlan = (
   seed: NoiseSeed,
@@ -292,12 +331,17 @@ export const planDesertPyramidForRegion = (
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
 ): NaturalStructurePlanResult => planForValidatedRegion('desert-pyramid', regionX, regionZ, () => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'desert-pyramid', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Result.succeed(Option.none())}
+  const candidateOption = candidateForRegion(
+    { candidateChannelInput: presenceChannelSeed, dimension: 'overworld', seed },
+    'desert-pyramid',
+    regionX,
+    regionZ,
+  )
+  if (Option.isNone(candidateOption)) {return NO_NATURAL_STRUCTURE_PLAN}
   const draftOption = planDesertPyramidForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Result.succeed(Option.none())}
+  if (Option.isNone(draftOption)) {return NO_NATURAL_STRUCTURE_PLAN}
   return Result.map(finishDesertPyramidPlan(seed, regionX, regionZ, draftOption.value), Option.some)
-})
+}, validatesCandidateRegion(presenceChannelSeed))
 
 const finishDesertWellPlan = (
   seed: NoiseSeed,
@@ -641,106 +685,106 @@ export const planBastionRemnantForRegion = (
   seed,
 })
 
-type OverworldWaterStructureKind = 'ocean-monument' | 'ocean-ruin' | 'shipwreck'
-
-type OverworldLandStructureKind = 'jungle-pyramid' | 'mineshaft' | 'pillager-outpost'
-
-type OverworldSurfaceStructureKind = 'desert-pyramid' | 'desert-well' | 'igloo'
-
 const isCompactStructureKind = (kind: NaturalStructureKind): kind is CompactStructureKind =>
   COMPACT_STRUCTURE_KINDS.some((compactKind) => compactKind === kind)
 
 const planOverworldWaterKind = (
-  seed: NoiseSeed,
-  kind: OverworldWaterStructureKind,
-  region: NaturalStructureRegion,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
-  presenceChannelSeed?: CandidateChannelInput,
 ): NaturalStructurePlanResult => {
-  if (kind === 'ocean-monument') {
-    return planOceanMonumentForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'ocean-monument') {
+    return planOceanMonumentForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  if (kind === 'ocean-ruin') {
-    return planOceanRuinForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'ocean-ruin') {
+    return planOceanRuinForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  return planShipwreckForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  return planShipwreckForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
 }
 
 const planOverworldLandKind = (
-  seed: NoiseSeed,
-  kind: OverworldLandStructureKind,
-  region: NaturalStructureRegion,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
-  presenceChannelSeed?: CandidateChannelInput,
 ): NaturalStructurePlanResult => {
-  if (kind === 'mineshaft') {
-    return planMineshaftForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'mineshaft') {
+    return planMineshaftForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  if (kind === 'jungle-pyramid') {
-    return planJunglePyramidForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'jungle-pyramid') {
+    return planJunglePyramidForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  return planPillagerOutpostForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  return planPillagerOutpostForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
 }
 
 const planOverworldSurfaceKind = (
-  seed: NoiseSeed,
-  kind: OverworldSurfaceStructureKind,
-  region: NaturalStructureRegion,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
-  presenceChannelSeed?: CandidateChannelInput,
 ): NaturalStructurePlanResult => {
-  if (kind === 'desert-pyramid') {
-    return planDesertPyramidForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'desert-pyramid') {
+    return planDesertPyramidForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  if (kind === 'desert-well') {
-    return planDesertWellForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'desert-well') {
+    return planDesertWellForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  return planIglooForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
+  return planIglooForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
+}
+
+const planVillageCandidateRegion = (
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): NaturalStructurePlanResult => {
+  if (validatesCandidateRegion(context.candidateChannelInput)) {
+    return planVillageForRegion(context.seed, regionX, regionZ, sampleTerrain)
+  }
+  return planVillageForValidatedRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
 }
 
 const planOverworldKind = (
-  seed: NoiseSeed,
-  kind: NaturalStructureKind,
-  region: NaturalStructureRegion,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
-  presenceChannelSeed?: CandidateChannelInput,
 ): NaturalStructurePlanResult => {
-  if (kind === 'desert-pyramid' || kind === 'desert-well' || kind === 'igloo') {
-    return planOverworldSurfaceKind(seed, kind, region, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'desert-pyramid' || context.kind === 'desert-well' || context.kind === 'igloo') {
+    return planOverworldSurfaceKind(context, regionX, regionZ, sampleTerrain)
   }
-  if (isCompactStructureKind(kind)) {
-    return planCompactStructureForRegionWithPresence({
-      kind,
-      presenceChannelSeed,
-      regionX: region.x,
-      regionZ: region.z,
-      sampleTerrain,
-      seed,
-    })
+  if (isCompactStructureKind(context.kind)) {
+    return planCompactStructureForRegionWithPresence(context, context.kind, regionX, regionZ, sampleTerrain)
   }
-  if (kind === 'jungle-pyramid' || kind === 'mineshaft' || kind === 'pillager-outpost') {
-    return planOverworldLandKind(seed, kind, region, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'jungle-pyramid' || context.kind === 'mineshaft' || context.kind === 'pillager-outpost') {
+    return planOverworldLandKind(context, regionX, regionZ, sampleTerrain)
   }
-  if (kind === 'ocean-monument' || kind === 'ocean-ruin' || kind === 'shipwreck') {
-    return planOverworldWaterKind(seed, kind, region, sampleTerrain, presenceChannelSeed)
+  if (context.kind === 'ocean-monument' || context.kind === 'ocean-ruin' || context.kind === 'shipwreck') {
+    return planOverworldWaterKind(context, regionX, regionZ, sampleTerrain)
   }
-  return planVillageForRegion(seed, region.x, region.z, sampleTerrain)
+  return planVillageCandidateRegion(context, regionX, regionZ, sampleTerrain)
 }
 
 const planOverworldRegion = (
-  seed: NoiseSeed,
-  kind: NaturalStructureKind,
-  region: NaturalStructureRegion,
-  sampleTerrain: OverworldTerrainSampler | undefined,
-  presenceChannelSeed?: CandidateChannelInput,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
 ): NaturalStructurePlanResult => {
-  if (kind === 'stronghold') {
-    return planStrongholdForRegion(seed, region.x, region.z)
+  if (context.kind === 'stronghold') {
+    if (validatesCandidateRegion(context.candidateChannelInput)) {return planStrongholdForRegion(context.seed, regionX, regionZ)}
+    return planStrongholdForValidatedRegion(
+      context.seed,
+      regionX,
+      regionZ,
+      isCandidatePresenceValidatedInput(context.candidateChannelInput),
+    )
   }
+  const { overworld: sampleTerrain } = context.samplers
   if (Predicate.isUndefined(sampleTerrain)) {
-    return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
+    return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
   }
-  return planOverworldKind(seed, kind, region, sampleTerrain, presenceChannelSeed)
+  return planOverworldKind(context, regionX, regionZ, sampleTerrain)
 }
 
 const netherFortressPresenceChannelSeedFor = (
@@ -752,79 +796,121 @@ const netherFortressPresenceChannelSeedFor = (
   return candidateChannelInput?.presence
 }
 
-const planNetherRegion = (
-  seed: NoiseSeed,
-  kind: NaturalStructureKind,
-  region: NaturalStructureRegion,
-  sampleTerrain: NetherStructureTerrainSampler | undefined,
-  candidateChannelInput?: CandidateChannelInput,
+const planNetherFortressRegion = (
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: NetherStructureTerrainSampler,
 ): NaturalStructurePlanResult => {
+  const presenceSeed = netherFortressPresenceChannelSeedFor(context.candidateChannelInput)
+  if (validatesCandidateRegion(context.candidateChannelInput)) {
+    return planNetherFortressForRegion(context.seed, regionX, regionZ, sampleTerrain, presenceSeed)
+  }
+  return planNetherFortressForValidatedRegion(context.seed, regionX, regionZ, sampleTerrain, presenceSeed)
+}
+
+const planNetherRegion = (
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
+): NaturalStructurePlanResult => {
+  const { nether: sampleTerrain } = context.samplers
   if (Predicate.isUndefined(sampleTerrain)) {
-    return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
+    return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
   }
-  if (kind === 'bastion-remnant') {
-    return planBastionRemnantForRegion(seed, region.x, region.z, sampleTerrain, candidateChannelInput)
+  if (context.kind === 'bastion-remnant') {
+    return planBastionRemnantForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
   }
-  if (kind === 'nether-fortress') {
-    return planNetherFortressForRegion(
-      seed,
-      region.x,
-      region.z,
-      sampleTerrain,
-      netherFortressPresenceChannelSeedFor(candidateChannelInput),
-    )
+  if (context.kind === 'nether-fortress') {
+    return planNetherFortressRegion(context, regionX, regionZ, sampleTerrain)
   }
-  return planRuinedNetherPortalForRegion(seed, region.x, region.z, sampleTerrain, candidateChannelInput)
+  if (validatesCandidateRegion(context.candidateChannelInput)) {
+    return planRuinedNetherPortalForRegion(context.seed, regionX, regionZ, sampleTerrain, context.candidateChannelInput)
+  }
+  return planRuinedNetherPortalForValidatedRegion(context.seed, { x: regionX, z: regionZ }, sampleTerrain, context.candidateChannelInput)
 }
 
 const planEndRegion = (
-  seed: NoiseSeed,
-  kind: NaturalStructureKind,
-  region: NaturalStructureRegion,
-  samplers: NaturalStructureSamplers,
-  candidateChannelInput?: CandidateChannelInput,
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
 ): NaturalStructurePlanResult => {
-  if (kind !== 'end-city') {
-    return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
+  if (context.kind !== 'end-city') {
+    return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
   }
-  return planEndCityForRegion(seed, region.x, region.z, samplers.end, candidateChannelInput)
+  if (validatesCandidateRegion(context.candidateChannelInput)) {
+    return planEndCityForRegion(context.seed, regionX, regionZ, context.samplers.end, context.candidateChannelInput)
+  }
+  return planEndCityForValidatedRegion(context.seed, regionX, regionZ, context.samplers.end, context.candidateChannelInput)
+}
+
+const planNaturalStructureForRegionAt = (
+  context: NaturalStructurePlanContext,
+  regionX: number,
+  regionZ: number,
+): NaturalStructurePlanResult => {
+  if (context.dimension === 'overworld') {
+    if (context.kind === 'bastion-remnant' || context.kind === 'end-city' || context.kind === 'nether-fortress' || context.kind === 'ruined-nether-portal') {
+      return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
+    }
+    return planOverworldRegion(context, regionX, regionZ)
+  }
+  if (context.dimension === 'nether') {
+    if (context.kind !== 'bastion-remnant' && context.kind !== 'nether-fortress' && context.kind !== 'ruined-nether-portal') {
+      return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
+    }
+    return planNetherRegion(context, regionX, regionZ)
+  }
+  return planEndRegion(context, regionX, regionZ)
 }
 
 /** Plans one supported natural structure for a single region. */
-export const planNaturalStructureForRegion = ({
-  candidateChannelSeeds,
-  dimension,
-  kind,
-  presenceChannelSeed,
-  region,
-  samplers,
-  seed,
-}: NaturalStructureRegionPlanRequest): NaturalStructurePlanResult => {
-  const candidateChannelInput = candidateChannelSeeds ?? presenceChannelSeed
-  if (dimension === 'overworld') {
-    if (kind === 'bastion-remnant' || kind === 'end-city' || kind === 'nether-fortress' || kind === 'ruined-nether-portal') {
-      return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
-    }
-    return planOverworldRegion(seed, kind, region, samplers.overworld, candidateChannelInput)
-  }
-  if (dimension === 'nether') {
-    if (kind !== 'bastion-remnant' && kind !== 'nether-fortress' && kind !== 'ruined-nether-portal') {
-      return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
-    }
-    return planNetherRegion(seed, kind, region, samplers.nether, candidateChannelInput)
-  }
-  return planEndRegion(seed, kind, region, samplers, candidateChannelInput)
-}
+export const planNaturalStructureForRegion = (request: NaturalStructureRegionPlanRequest): NaturalStructurePlanResult =>
+  planNaturalStructureForRegionAt(
+    {
+      candidateChannelInput: request.candidateChannelSeeds ?? request.presenceChannelSeed,
+      dimension: request.dimension,
+      kind: request.kind,
+      samplers: request.samplers,
+      seed: request.seed,
+    },
+    request.region.x,
+    request.region.z,
+  )
+
+const planNaturalStructureForChunkRegion: NaturalStructureRegionPlanner = (
+  context,
+  regionX,
+  regionZ,
+): NaturalStructurePlanResult => planNaturalStructureForRegionAt(context, regionX, regionZ)
 
 /**
  * Enumerates only candidate regions that can overlap a chunk. The bounds are
  * derived from the candidate coordinate interval and handle negative
  * coordinates through floor division.
  */
+/** Plans structures after a caller has validated the complete chunk footprint. */
+export const naturalStructurePlansForValidatedChunk = (
+  seed: NoiseSeed,
+  dimension: Dimension,
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
+  samplers: NaturalStructureSamplers = {},
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> =>
+  enumerateNaturalStructurePlansForValidatedChunk(
+    seed,
+    dimension,
+    validatedChunk,
+    samplers,
+    planNaturalStructureForChunkRegion,
+  )
+
 export const naturalStructurePlansForChunk = (
   seed: NoiseSeed,
   dimension: Dimension,
   coord: ChunkCoord,
   samplers: NaturalStructureSamplers = {},
-): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> =>
-  enumerateNaturalStructurePlansForChunk(seed, dimension, coord, samplers, planNaturalStructureForRegion)
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const validation = validateNaturalStructureChunkCoordinates(dimension, coord)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return naturalStructurePlansForValidatedChunk(seed, dimension, validation.success, samplers)
+}

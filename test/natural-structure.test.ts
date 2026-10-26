@@ -31,11 +31,17 @@ import {
   planVillageForRegion as planVillageForRegionRaw,
 } from '../src/domain/natural-structure'
 import {
-  naturalStructurePlansForChunk as naturalStructurePlansForChunkWithPlanner,
+  naturalStructurePlansForValidatedChunk as naturalStructurePlansForValidatedChunkWithPlanner,
+  validateNaturalStructureChunkCoordinates,
 } from '../src/domain/natural-structure-chunk-planner'
+import { invalidNaturalStructureRegionSpan } from '../src/domain/natural-structure-coordinate-validation'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 import { planEndCityForRegion as planEndCityForRegionRaw } from '../src/domain/natural-structure-end-city'
 import { planRuinedNetherPortalForRegion as planRuinedNetherPortalForRegionRaw } from '../src/domain/natural-structure-portal'
+import {
+  planStrongholdForRegion as planStrongholdForRegionRaw,
+  planStrongholdForValidatedRegion,
+} from '../src/domain/stronghold-structure'
 
 const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 const FLAT_DESERT: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
@@ -93,6 +99,61 @@ const positionKey = (position: { readonly x: number; readonly y: number; readonl
   `${String(position.x)},${String(position.y)},${String(position.z)}`
 
 describe('natural structure plans', () => {
+  it('validates direct region-planning routes for village, Nether portal, and End city', () => {
+    const seed = 0x2468
+    const village = findVillage(seed)
+    const portal = findPortal(seed)
+    const endCity = findEndCity(seed)
+    const villageResult = planNaturalStructureForRegionRaw({
+      dimension: 'overworld',
+      kind: 'village',
+      presenceChannelSeed: candidatePresenceChannelSeedFor(noiseSeed(seed), 'overworld', 'village'),
+      region: village.region,
+      samplers: { overworld: FLAT_PLAINS },
+      seed: noiseSeed(seed),
+    })
+    const portalResult = planNaturalStructureForRegionRaw({
+      dimension: 'nether',
+      kind: 'ruined-nether-portal',
+      presenceChannelSeed: candidatePresenceChannelSeedFor(noiseSeed(seed), 'nether', 'ruined-nether-portal'),
+      region: portal.region,
+      samplers: { nether: FLAT_NETHER },
+      seed: noiseSeed(seed),
+    })
+    const endCityResult = planNaturalStructureForRegionRaw({
+      dimension: 'end',
+      kind: 'end-city',
+      presenceChannelSeed: candidatePresenceChannelSeedFor(noiseSeed(seed), 'end', 'end-city'),
+      region: endCity.region,
+      samplers: { end: FLAT_END },
+      seed: noiseSeed(seed),
+    })
+
+    expect(villageResult).toStrictEqual(Result.succeed(Option.some(village)))
+    expect(portalResult).toStrictEqual(Result.succeed(Option.some(portal)))
+    expect(endCityResult).toStrictEqual(Result.succeed(Option.some(endCity)))
+    expect(Result.isSuccess(planEndCityForRegionRaw(noiseSeed(seed), endCity.region.x, endCity.region.z))).toBe(true)
+  })
+
+  it('returns a shared no-plan result for an empty validated stronghold region', () => {
+    const seed = noiseSeed(0x1357)
+    let emptyRegion: { readonly x: number; readonly z: number } | undefined
+
+    for (let regionX = -8; regionX <= 8 && emptyRegion === undefined; regionX += 1) {
+      for (let regionZ = -8; regionZ <= 8; regionZ += 1) {
+        const result = planStrongholdForRegionRaw(seed, regionX, regionZ)
+        if (Result.isSuccess(result) && Option.isNone(result.success)) {
+          emptyRegion = { x: regionX, z: regionZ }
+          break
+        }
+      }
+    }
+
+    expect(emptyRegion).toBeDefined()
+    if (emptyRegion === undefined) {throw new Error('expected an empty stronghold region in search bounds')}
+    expect(planStrongholdForValidatedRegion(seed, emptyRegion.x, emptyRegion.z)).toStrictEqual(Result.succeed(Option.none()))
+  })
+
   it('accepts an explicit presence channel while preserving the candidate', () => {
     const seed = 0x3456
     const portal = findPortal(seed)
@@ -341,6 +402,99 @@ describe('natural structure plans', () => {
     expect(generated.failure._tag).toBe('InvalidNaturalStructureCoordinate')
   })
 
+  it('returns typed failures for malformed chunk coordinates at runtime', () => {
+    // Coordinate brands disappear at runtime, so JavaScript callers can pass malformed objects.
+    const malformedCoords = [
+      { coord: { cx: Number.NaN, cz: chunkAxis(0) }, axis: 'footprint-x', value: Number.NaN },
+      { coord: { cx: chunkAxis(0), cz: Number.POSITIVE_INFINITY }, axis: 'footprint-z', value: Number.POSITIVE_INFINITY },
+      {
+        coord: { cx: chunkAxis(0), cz: chunkAxis(Number.MAX_SAFE_INTEGER) },
+        axis: 'footprint-z',
+        value: Number.MAX_SAFE_INTEGER * CHUNK_SIZE_XZ,
+      },
+    ] as const
+
+    for (const { coord, axis, value } of malformedCoords) {
+      const plans = naturalStructurePlansForChunkRaw(
+        noiseSeed(0),
+        'overworld',
+        coord as Parameters<typeof naturalStructurePlansForChunkRaw>[2],
+      )
+
+      expect(Result.isFailure(plans)).toBe(true)
+      if (Result.isSuccess(plans)) throw new Error('expected an invalid-coordinate failure')
+      expect(plans.failure).toMatchObject({
+        _tag: 'InvalidNaturalStructureCoordinate',
+        axis,
+        value,
+      })
+    }
+  })
+
+  it('rejects a valid chunk whose candidate-region footprint exceeds safe integers', () => {
+    const chunkX = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1)) / CHUNK_SIZE_XZ)
+    const coord = chunkCoord(chunkAxis(chunkX), chunkAxis(0))
+    const lastBlockX = chunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1
+    expect(Number.isSafeInteger(lastBlockX)).toBe(true)
+
+    const plans = naturalStructurePlansForChunkRaw(noiseSeed(0), 'overworld', coord)
+
+    expect(Result.isFailure(plans)).toBe(true)
+    if (Result.isSuccess(plans)) throw new Error('expected an invalid candidate-region footprint failure')
+    expect(plans.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+    })
+  })
+
+  it('returns typed failures for unsafe candidate-region span endpoints', () => {
+    const invalidSpans = [
+      {
+        span: { minRegionX: Number.MAX_SAFE_INTEGER + 1, maxRegionX: 0, minRegionZ: 0, maxRegionZ: 0 },
+        axis: 'region-x',
+      },
+      {
+        span: { minRegionX: 0, maxRegionX: Number.MAX_SAFE_INTEGER + 1, minRegionZ: 0, maxRegionZ: 0 },
+        axis: 'region-x',
+      },
+      {
+        span: { minRegionX: 0, maxRegionX: 0, minRegionZ: -Number.MAX_SAFE_INTEGER - 1, maxRegionZ: 0 },
+        axis: 'region-z',
+      },
+      {
+        span: { minRegionX: 0, maxRegionX: Number.MAX_SAFE_INTEGER, minRegionZ: 0, maxRegionZ: 0 },
+        axis: 'footprint-x',
+      },
+      {
+        span: { minRegionX: 0, maxRegionX: 0, minRegionZ: -Number.MAX_SAFE_INTEGER, maxRegionZ: 0 },
+        axis: 'footprint-z',
+      },
+      {
+        span: { minRegionX: 0, maxRegionX: 0, minRegionZ: 0, maxRegionZ: Number.MAX_SAFE_INTEGER },
+        axis: 'footprint-z',
+      },
+      {
+        span: { minRegionX: 0, maxRegionX: 0, minRegionZ: 0, maxRegionZ: Number.MAX_SAFE_INTEGER + 1 },
+        axis: 'region-z',
+      },
+    ] as const
+
+    for (const { span, axis } of invalidSpans) {
+      const failure = invalidNaturalStructureRegionSpan(
+        'village',
+        span,
+        NATURAL_STRUCTURE_GRID.village,
+        64,
+      )
+
+      expect(failure).toMatchObject({
+        _tag: 'InvalidNaturalStructureCoordinate',
+        axis,
+        kind: 'village',
+      })
+    }
+  })
+
   it('propagates a region-planning failure through chunk enumeration', () => {
     const failure = new InvalidNaturalStructureCoordinate({
       axis: 'footprint-x',
@@ -348,10 +502,14 @@ describe('natural structure plans', () => {
       region: { x: 0, z: 0 },
       value: Number.MAX_SAFE_INTEGER + 1,
     })
-    const result = naturalStructurePlansForChunkWithPlanner(
-      noiseSeed(0),
+    const validated = Result.getOrThrow(validateNaturalStructureChunkCoordinates(
       'overworld',
       chunkCoord(chunkAxis(0), chunkAxis(0)),
+    ))
+    const result = naturalStructurePlansForValidatedChunkWithPlanner(
+      noiseSeed(0),
+      'overworld',
+      validated,
       {},
       () => Result.fail(failure),
     )

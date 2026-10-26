@@ -91,6 +91,17 @@ describe('public API surface', () => {
     expect('SubscriberId' in worldgen).toBe(false)
   })
 
+  it('keeps validated siting helpers out of the package root', () => {
+    expect('strongholdCandidateExistsInRegion' in worldgen).toBe(false)
+    expect('strongholdCandidateExistsWithPresenceChannelSeed' in worldgen).toBe(false)
+    expect('strongholdPresenceChannelSeedFor' in worldgen).toBe(false)
+    expect('strongholdSiteOptionForValidatedRegion' in worldgen).toBe(false)
+    expect('villageCandidateExistsInRegion' in worldgen).toBe(false)
+    expect('villageCandidateExistsWithPresenceChannelSeed' in worldgen).toBe(false)
+    expect('villagePresenceChannelSeedFor' in worldgen).toBe(false)
+    expect('villageSiteOptionForValidatedRegion' in worldgen).toBe(false)
+  })
+
   it('re-exports NoiseSeed and rejects invalid seed values through its Result constructor', () => {
     expect(worldgen.NoiseSeed.result(1)._tag).toBe('Success')
 

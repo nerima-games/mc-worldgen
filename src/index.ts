@@ -76,8 +76,64 @@ export * from './domain/end-terrain.js'
 export * from './domain/end-vegetation.js'
 export * from './domain/end-portal.js'
 export * from './domain/light.js'
-export * from './domain/natural-structure.js'
-export * from './domain/nether-fortress.js'
+export {
+  InvalidNaturalStructureCoordinate,
+  MAX_NATURAL_STRUCTURE_BLOCKS,
+  MAX_NATURAL_STRUCTURE_MARKERS,
+  NATURAL_STRUCTURE_BLOCK,
+  NATURAL_STRUCTURE_GRID,
+  applyNaturalStructurePlansToChunk,
+  naturalStructurePlansForChunk,
+  naturalStructureSliceForChunk,
+  planBastionRemnantForRegion,
+  planCompactStructureForRegion,
+  planDesertPyramidForRegion,
+  planDesertWellForRegion,
+  planEndCityForRegion,
+  planIglooForRegion,
+  planJunglePyramidForRegion,
+  planMineshaftForRegion,
+  planNaturalStructureForRegion,
+  planOceanMonumentForRegion,
+  planOceanRuinForRegion,
+  planPillagerOutpostForRegion,
+  planRuinedNetherPortalForRegion,
+  planShipwreckForRegion,
+  planStrongholdForRegion,
+  planVillageForRegion,
+} from './domain/natural-structure.js'
+export type {
+  AppliedNaturalStructureMarker,
+  EndStructureTerrainSampler,
+  NaturalStructureBlockPlacement,
+  NaturalStructureBounds,
+  NaturalStructureChunk,
+  NaturalStructureChunkSlice,
+  NaturalStructureGrid,
+  NaturalStructureKind,
+  NaturalStructureMarker,
+  NaturalStructurePlan,
+  NaturalStructurePlanResult,
+  NaturalStructurePosition,
+  NaturalStructureRegion,
+  NaturalStructureRegionPlanRequest,
+  NaturalStructureSamplers,
+  NetherStructureTerrainSample,
+  NetherStructureTerrainSampler,
+} from './domain/natural-structure.js'
+export {
+  FORTRESS_BLAZE_RADIUS,
+  FORTRESS_FLOOR_Y,
+  FORTRESS_LAYOUT,
+  FORTRESS_MIN_HEADROOM,
+  FORTRESS_REGION_SIZE,
+  FORTRESS_REGION_SPAWN_PERMILLE,
+  FORTRESS_SITE_MARGIN,
+  NETHER_FORTRESS_BLOCK,
+  NETHER_FORTRESS_GRID,
+  isNearFortressSite,
+  planNetherFortressForRegion,
+} from './domain/nether-fortress.js'
 export * from './domain/nether-link.js'
 export * from './domain/nether-terrain.js'
 // `Dimension` is re-exported from worldgen for its existing public API, but the
@@ -86,11 +142,40 @@ export * from './domain/nether-travel.js'
 export * from './domain/portal-frame.js'
 export * from './domain/portal-registry.js'
 export * from './domain/portal-registry-format.js'
-export * from './domain/structure-siting.js'
+export {
+  STRONGHOLD_FLOOR_Y,
+  STRONGHOLD_REGION_SIZE,
+  STRONGHOLD_REGION_SPAWN_PERMILLE,
+  STRONGHOLD_SEARCH_RADIUS,
+  STRONGHOLD_SITE_MARGIN,
+  VILLAGE_HALF_EXTENT,
+  VILLAGE_REGION_SIZE,
+  VILLAGE_REGION_SPAWN_PERMILLE,
+  VILLAGE_SITE_MARGIN,
+  locateStronghold,
+  nearestStrongholdSite,
+  strongholdSiteForRegion,
+  strongholdSitesNearChunk,
+  villageSiteForRegion,
+  villageSitesNearChunk,
+} from './domain/structure-siting.js'
+export type {
+  OverworldTerrainSample,
+  OverworldTerrainSampler,
+  StrongholdOrigin,
+  StrongholdSite,
+  VillageSite,
+} from './domain/structure-siting.js'
 export * from './domain/stronghold.js'
 export * from './domain/terrain.js'
 export * from './domain/tree-placement.js'
-export * from './domain/village.js'
+export {
+  VILLAGE_BLOCK,
+  villageBlockAt,
+  villageVillagerSpawnsForChunk,
+  villageVillagerSpawnsForSite,
+} from './domain/village.js'
+export type { VillageVillagerProfession, VillageVillagerSpawn } from './domain/village.js'
 
 // --- Application: Effect services -------------------------------------------
 export * from './application/chunk-store.js'

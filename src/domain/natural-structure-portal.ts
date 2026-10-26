@@ -25,6 +25,7 @@ const PORTAL_PROBE_OFFSET = 3
 const PORTAL_BASE_Y_CLEARANCE = 1
 const PORTAL_MAX_SURFACE_VARIATION = 6
 const PORTAL_MIN_CEILING_CLEARANCE = 7
+const NO_PORTAL_RUIN_PLAN: Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> = Result.succeed(Option.none())
 
 const portalTerrainFits = (
   candidate: Candidate,
@@ -139,7 +140,12 @@ const portalRuinSiteForRegion = (
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
 ): Option.Option<PortalRuinSite> => {
-  const candidateOption = candidateForRegion(seed, 'nether', 'ruined-nether-portal', region, presenceChannelSeed)
+  const candidateOption = candidateForRegion(
+    { candidateChannelInput: presenceChannelSeed, dimension: 'nether', seed },
+    'ruined-nether-portal',
+    region.x,
+    region.z,
+  )
   if (Option.isNone(candidateOption)) {return Option.none()}
   const candidate = candidateOption.value
   const baseYOption = portalTerrainFits(candidate, sampleTerrain)
@@ -176,14 +182,14 @@ const planRuinedNetherPortalAtSite = (
   ), Option.some)
 }
 
-const planRuinedNetherPortalForValidatedRegion = (
+export const planRuinedNetherPortalForValidatedRegion = (
   seed: NoiseSeed,
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
 ): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
   const siteOption = portalRuinSiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
-  if (Option.isNone(siteOption)) {return Result.succeed(Option.none())}
+  if (Option.isNone(siteOption)) {return NO_PORTAL_RUIN_PLAN}
   return planRuinedNetherPortalAtSite(seed, region, siteOption.value)
 }
 

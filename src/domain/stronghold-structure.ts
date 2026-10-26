@@ -9,7 +9,12 @@ import type {
   NaturalStructureRegion,
 } from './natural-structure-types.js'
 import { Option, Result } from 'effect'
-import { STRONGHOLD_FLOOR_Y, type StrongholdSite, strongholdSiteForRegion } from './structure-siting.js'
+import {
+  STRONGHOLD_FLOOR_Y,
+  type StrongholdSite,
+  strongholdSiteForRegion,
+  strongholdSiteOptionForValidatedRegion,
+} from './structure-siting.js'
 import { type StrongholdPlan, generateStrongholdPlan } from './stronghold.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 
@@ -21,6 +26,8 @@ type StrongholdPlanRequest = {
 }
 
 type StrongholdSitePlanRequest = Omit<StrongholdPlanRequest, 'stronghold'>
+
+const NO_STRONGHOLD_PLAN: Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> = Result.succeed(Option.none())
 
 const finishStrongholdPlan = ({ region, seed, site, stronghold }: StrongholdPlanRequest): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const blocks = stronghold.mutations.map((mutation): NaturalStructureBlockPlacement =>
@@ -58,21 +65,39 @@ const planStrongholdSite = (request: StrongholdSitePlanRequest): Result.Result<O
     stronghold: generateStrongholdPlan(request.seed, request.site),
   }), Option.some)
 
+const planStrongholdForSite = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  siteOption: Option.Option<StrongholdSite>,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  if (Option.isNone(siteOption)) {return NO_STRONGHOLD_PLAN}
+  return planStrongholdSite({
+    region: { x: regionX, z: regionZ },
+    seed,
+    site: siteOption.value,
+  })
+}
+
 export const planStrongholdForRegion = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
 ): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
-  const region = { x: regionX, z: regionZ }
   const siteResult = strongholdSiteForRegion(seed, regionX, regionZ)
   if (Result.isFailure(siteResult)) {return Result.fail(siteResult.failure)}
-  const siteOption = siteResult.success
-  if (Option.isNone(siteOption)) {
-    return Result.succeed(Option.none())
-  }
-  return planStrongholdSite({
-    region,
-    seed,
-    site: siteOption.value,
-  })
+  return planStrongholdForSite(seed, regionX, regionZ, siteResult.success)
 }
+
+export const planStrongholdForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  candidatePresenceChecked = false,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> =>
+  planStrongholdForSite(
+    seed,
+    regionX,
+    regionZ,
+    strongholdSiteOptionForValidatedRegion(seed, regionX, regionZ, candidatePresenceChecked),
+  )

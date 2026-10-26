@@ -78,11 +78,15 @@ import {
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
-  naturalStructurePlansForChunk,
+  naturalStructurePlansForValidatedChunk,
 } from './natural-structure.js'
 import { Option, Result } from 'effect'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import {
+  type ValidatedNaturalStructureChunkCoordinates,
+  validateNaturalStructureChunkCoordinates,
+} from './natural-structure-chunk-planner.js'
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
@@ -97,7 +101,6 @@ import type { NoiseSeed } from '@nerima-games/mc-noise'
 import type { OverworldTerrainSample } from './structure-siting.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
-import { validateNaturalStructureChunkCoordinates } from './natural-structure-chunk-planner.js'
 export {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -262,6 +265,7 @@ type ChunkGenerationContext = ChunkBuffers & {
   readonly minBlockZ: number
   readonly seed: NoiseSeed
   readonly coord: ChunkCoord
+  readonly validatedChunk: ValidatedNaturalStructureChunkCoordinates
   readonly levels: TerrainLevels
 }
 
@@ -284,25 +288,20 @@ const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => 
   return levels
 }
 
-// Chunk origins are multiples of 16, so a safe origin leaves all 15 remaining local offsets safe.
-const minBlockCoordinateForChunk = (chunkCoordinate: ChunkAxis): BlockAxis =>
-  blockAxis(chunkCoordinate * CHUNK_SIZE_XZ)
-
 const createChunkGenerationContext = (
   seed: NoiseSeed,
-  coord: ChunkCoord,
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
   options: GenerateOptions,
 ): ChunkGenerationContext => {
   const levels = terrainLevelsForGeneration(options)
-  const minBlockX = minBlockCoordinateForChunk(coord.cx)
-  const minBlockZ = minBlockCoordinateForChunk(coord.cz)
   return {
     ...createChunkBuffers(),
-    coord,
+    coord: validatedChunk.coord,
     levels,
-    minBlockX,
-    minBlockZ,
+    minBlockX: validatedChunk.minBlockX,
+    minBlockZ: validatedChunk.minBlockZ,
     seed,
+    validatedChunk,
   }
 }
 
@@ -507,7 +506,7 @@ const writeStructures = (
   const terrainSamples = new Map<number, Map<number, OverworldTerrainSample>>()
   const sampleTerrain = (wx: BlockAxis, wz: BlockAxis): OverworldTerrainSample =>
     structureTerrainSampleAt(context, terrainSamples, wx, wz)
-  const plansResult = naturalStructurePlansForChunk(context.seed, 'overworld', context.coord, {
+  const plansResult = naturalStructurePlansForValidatedChunk(context.seed, 'overworld', context.validatedChunk, {
     overworld: sampleTerrain,
   })
   return Result.map(plansResult, (plans) => applyNaturalStructurePlansToChunk(chunk, plans))
@@ -548,7 +547,7 @@ export const generateChunk = (
 ): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
   const coordinateValidation = validateNaturalStructureChunkCoordinates('overworld', coord)
   if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
-  const context = createChunkGenerationContext(seed, coord, options)
+  const context = createChunkGenerationContext(seed, coordinateValidation.success, options)
 
   runTerrainPassesBeforeStructures(context, options)
 

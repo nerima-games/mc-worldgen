@@ -60,23 +60,58 @@ export const candidatePresenceChannelSeedFor = (
   kind: NaturalStructureKind,
 ): NoiseSeed => channelSeed(seed, `${dimension}:${kind}:present`)
 
+export const VALIDATED_NATURAL_STRUCTURE_REGION: unique symbol = Symbol('validated natural structure region')
+const CANDIDATE_PRESENCE_VALIDATED: unique symbol = Symbol('candidate presence validated')
+
 export type CandidateChannelSeeds = Readonly<{
   readonly presence: NoiseSeed
   readonly x: NoiseSeed
   readonly z: NoiseSeed
+  readonly [CANDIDATE_PRESENCE_VALIDATED]?: true
+  readonly [VALIDATED_NATURAL_STRUCTURE_REGION]?: true
 }>
 
 export type CandidateChannelInput = NoiseSeed | CandidateChannelSeeds
+
+export type CandidateForRegionContext = Readonly<{
+  candidateChannelInput?: CandidateChannelInput | undefined
+  dimension: Dimension
+  seed: NoiseSeed
+}>
+
+const candidateChannelSeedValues = (
+  seed: NoiseSeed,
+  dimension: Dimension,
+  kind: NaturalStructureKind,
+  validatedRegion: boolean,
+): CandidateChannelSeeds => {
+  const presence = candidatePresenceChannelSeedFor(seed, dimension, kind)
+  const x = channelSeed(seed, `${dimension}:${kind}:x`)
+  const z = channelSeed(seed, `${dimension}:${kind}:z`)
+  if (validatedRegion) {return Object.freeze({ presence, x, z, [VALIDATED_NATURAL_STRUCTURE_REGION]: true })}
+  return Object.freeze({ presence, x, z })
+}
 
 export const candidateChannelSeedsFor = (
   seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
-): CandidateChannelSeeds => Object.freeze({
-  presence: candidatePresenceChannelSeedFor(seed, dimension, kind),
-  x: channelSeed(seed, `${dimension}:${kind}:x`),
-  z: channelSeed(seed, `${dimension}:${kind}:z`),
-})
+): CandidateChannelSeeds => candidateChannelSeedValues(seed, dimension, kind, false)
+
+export const validatedCandidateChannelSeedsFor = (
+  seed: NoiseSeed,
+  dimension: Dimension,
+  kind: NaturalStructureKind,
+): CandidateChannelSeeds => candidateChannelSeedValues(seed, dimension, kind, true)
+
+export const candidateChannelSeedsForKnownCandidate = (seeds: CandidateChannelSeeds): CandidateChannelSeeds =>
+  Object.freeze({ ...seeds, [CANDIDATE_PRESENCE_VALIDATED]: true })
+
+export const isValidatedCandidateChannelInput = (input?: CandidateChannelInput): boolean =>
+  typeof input === 'object' && input !== null && input[VALIDATED_NATURAL_STRUCTURE_REGION] === true
+
+export const isCandidatePresenceValidatedInput = (input?: CandidateChannelInput): boolean =>
+  typeof input === 'object' && input !== null && input[CANDIDATE_PRESENCE_VALIDATED] === true
 
 const candidateChannelSeedsForInput = (
   seed: NoiseSeed,
@@ -97,23 +132,31 @@ const candidateChannelSeedsForInput = (
   return candidateChannelSeedsFor(seed, dimension, kind)
 }
 
-export const candidateForRegion = (
-  seed: NoiseSeed,
-  dimension: Dimension,
+export const candidateExistsForRegion = (
   kind: NaturalStructureKind,
-  region: NaturalStructureRegion,
-  channelInput?: CandidateChannelInput,
+  regionX: number,
+  regionZ: number,
+  presenceChannelSeed: NoiseSeed,
+): boolean =>
+  latticeValue(presenceChannelSeed, regionX, regionZ) < NATURAL_STRUCTURE_GRID[kind].spawnPermille / PERMILLE_DENOMINATOR
+
+export const candidateForRegion = (
+  context: CandidateForRegionContext,
+  kind: NaturalStructureKind,
+  regionX: number,
+  regionZ: number,
 ): Option.Option<Candidate> => {
+  const { candidateChannelInput, dimension, seed } = context
   const grid = NATURAL_STRUCTURE_GRID[kind]
-  const channelSeeds = candidateChannelSeedsForInput(seed, dimension, kind, channelInput)
-  if (latticeValue(channelSeeds.presence, region.x, region.z) >= grid.spawnPermille / PERMILLE_DENOMINATOR) {
+  const channelSeeds = candidateChannelSeedsForInput(seed, dimension, kind, candidateChannelInput)
+  if (!isCandidatePresenceValidatedInput(channelSeeds) && !candidateExistsForRegion(kind, regionX, regionZ, channelSeeds.presence)) {
     return Option.none()
   }
   const margin = grid.separation / CANDIDATE_MARGIN_DIVISOR
   const span = grid.spacing - grid.separation
   return Option.some(Object.freeze({
-    x: region.x * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.x, region.x, region.z) * span),
-    z: region.z * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.z, region.x, region.z) * span),
+    x: regionX * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.x, regionX, regionZ) * span),
+    z: regionZ * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.z, regionX, regionZ) * span),
   }))
 }
 

@@ -12,7 +12,7 @@ import { Option, Result } from 'effect'
 import { applyEndChorusPlansToChunk, endChorusPlanForChunk } from './end-vegetation.js'
 import {
   applyNaturalStructurePlansToChunk,
-  naturalStructurePlansForChunk,
+  naturalStructurePlansForValidatedChunk,
 } from './natural-structure.js'
 import { channelSeed, fbm2D } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
@@ -159,7 +159,7 @@ export const generateEndChunk = (
 ): Result.Result<EndFeatureChunk, InvalidNaturalStructureCoordinate> => {
   const coordinateValidation = validateNaturalStructureChunkCoordinates('end', coord)
   if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
-  const naturalStructurePlans = naturalStructurePlansForChunk(seed, 'end', coord)
+  const naturalStructurePlans = naturalStructurePlansForValidatedChunk(seed, 'end', coordinateValidation.success)
   if (Result.isFailure(naturalStructurePlans)) {return Result.fail(naturalStructurePlans.failure)}
   const chunkWithChorus = applyEndChorusPlansToChunk(generateEndTerrainChunk(seed, coord), [
     endChorusPlanForChunk({
