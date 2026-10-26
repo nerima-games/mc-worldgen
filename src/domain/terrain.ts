@@ -82,6 +82,7 @@ import {
 } from './natural-structure.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
@@ -93,7 +94,6 @@ import {
   fillWaterAtLevel,
   shouldFreezeWaterSurface,
 } from './lake-generator.js'
-import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { Option } from 'effect'
 import type { OverworldTerrainSample } from './structure-siting.js'
 import { carveRavines } from './ravine.js'
