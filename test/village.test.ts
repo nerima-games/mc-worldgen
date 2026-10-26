@@ -327,8 +327,12 @@ describe('village layout and chunk integration', () => {
         // eslint-disable-next-line id-length -- z is the canonical world axis.
         cz: Math.floor(spawn.z / CHUNK_SIZE_XZ),
       }))
-      const forward = chunks.flatMap(({ cx, cz }) => villageVillagerSpawnsForChunk(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), flatPlains))
-      const reverse = [...chunks].reverse().flatMap(({ cx, cz }) => villageVillagerSpawnsForChunk(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), flatPlains))
+      const forward = chunks.flatMap(({ cx, cz }) => Result.getOrThrow(
+        villageVillagerSpawnsForChunk(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), flatPlains),
+      ))
+      const reverse = [...chunks].reverse().flatMap(({ cx, cz }) => Result.getOrThrow(
+        villageVillagerSpawnsForChunk(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), flatPlains),
+      ))
 
       expect(new Set(forward.map(({ id }) => id)).size).toBe(expected.length)
       expect(forward.map(({ id }) => id).sort()).toStrictEqual(expected.map(({ id }) => id).sort())
@@ -337,6 +341,23 @@ describe('village layout and chunk integration', () => {
       expect(forward.every((spawn) => spawn.x < 0 && spawn.z < 0)).toBe(true)
     }),
   )
+
+  it.effect('propagates invalid chunk bounds as a typed coordinate failure', () => Effect.sync(() => {
+    const result = villageVillagerSpawnsForChunk(
+      noiseSeed(SEED),
+      chunkAxis(Number.MAX_SAFE_INTEGER),
+      chunkAxis(0),
+      flatPlains,
+    )
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
+  }))
 
   it.effect('builds two enclosed houses, foundations, doors and a safe road', () =>
     Effect.sync(() => {

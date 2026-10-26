@@ -6,12 +6,13 @@ import {
 } from './structure-siting.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { blockIdOf, type BlockId } from '@nerima-games/mc-kernel'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { BLOCK } from './biome.js'
 // eslint-disable-next-line sort-imports -- Domain imports follow dependency order.
 import { CHUNK_SIZE_XZ } from './constants.js'
 import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
+import type { InvalidNaturalStructureCoordinate } from './natural-structure-coordinate-validation.js'
 export const VILLAGE_BLOCK: Readonly<Record<'FOUNDATION' | 'ROAD' | 'TIMBER', BlockId>> = {
   FOUNDATION: Option.getOrThrow(blockIdOf('cobblestone')),
   ROAD: BLOCK.GRAVEL,
@@ -105,11 +106,15 @@ export const villageVillagerSpawnsForChunk = (
   chunkX: ChunkAxis,
   chunkZ: ChunkAxis,
   sampleTerrain: OverworldTerrainSampler,
-): ReadonlyArray<VillageVillagerSpawn> => villageSitesNearChunk(seed, chunkX, chunkZ, sampleTerrain)
-  .flatMap((site) => villageVillagerSpawnsForSite(seed, site, sampleTerrain))
-  .filter((spawn) =>
-    Math.floor(spawn.x / CHUNK_SIZE_XZ) === chunkX && Math.floor(spawn.z / CHUNK_SIZE_XZ) === chunkZ,
-  )
+): Result.Result<ReadonlyArray<VillageVillagerSpawn>, InvalidNaturalStructureCoordinate> => {
+  const sites = villageSitesNearChunk(seed, chunkX, chunkZ, sampleTerrain)
+  if (Result.isFailure(sites)) {return Result.fail(sites.failure)}
+  return Result.succeed(sites.success
+    .flatMap((site) => villageVillagerSpawnsForSite(seed, site, sampleTerrain))
+    .filter((spawn) =>
+      Math.floor(spawn.x / CHUNK_SIZE_XZ) === chunkX && Math.floor(spawn.z / CHUNK_SIZE_XZ) === chunkZ,
+    ))
+}
 
 const isInsideHouseFootprint = (dx: number, dz: number): boolean =>
   Math.abs(dx) <= HOUSE_HALF_X && Math.abs(dz) <= HOUSE_HALF_Z

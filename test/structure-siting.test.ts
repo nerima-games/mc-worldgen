@@ -20,6 +20,7 @@ import {
   STRONGHOLD_SEARCH_RADIUS,
   STRONGHOLD_REGION_SPAWN_PERMILLE,
   STRONGHOLD_SITE_MARGIN,
+  VILLAGE_HALF_EXTENT,
   locateStronghold,
   nearestStrongholdSite,
   strongholdSiteForRegion as strongholdSiteForRegionRaw,
@@ -446,8 +447,8 @@ describe('village chunk query coordinate bounds', () => {
     })
   }))
 
-  it.effect('skips regions whose candidate footprint is outside the block-coordinate range', () => Effect.sync(() => {
-    const sites = villageSitesNearChunk(
+  it.effect('returns a typed failure when the chunk query bounds are outside the block-coordinate range', () => Effect.sync(() => {
+    const result = villageSitesNearChunk(
       GOLDEN_SEED,
       chunkAxis(Number.MAX_SAFE_INTEGER),
       chunkAxis(0),
@@ -456,17 +457,61 @@ describe('village chunk query coordinate bounds', () => {
       },
     )
 
-    expect(sites).toStrictEqual([])
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
+  }))
+
+  it.effect('rejects each unrepresentable chunk-query footprint edge', () => Effect.sync(() => {
+    const edgeChunk = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1)) / CHUNK_SIZE_XZ)
+    const negativeEdgeChunk = Math.floor((-Number.MAX_SAFE_INTEGER + (CHUNK_SIZE_XZ - 1)) / CHUNK_SIZE_XZ)
+    const invalidQueries = [
+      [chunkAxis(edgeChunk), chunkAxis(0), 'footprint-x'],
+      [chunkAxis(0), chunkAxis(negativeEdgeChunk), 'footprint-z'],
+      [chunkAxis(0), chunkAxis(edgeChunk), 'footprint-z'],
+    ] as const
+
+    for (const [chunkX, chunkZ, axis] of invalidQueries) {
+      const result = villageSitesNearChunk(GOLDEN_SEED, chunkX, chunkZ, FLAT_VILLAGE_TERRAIN)
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+      expect(result.failure).toMatchObject({
+        _tag: 'InvalidNaturalStructureCoordinate',
+        axis,
+        kind: 'village',
+      })
+    }
+  }))
+
+  it.effect('propagates an invalid candidate-region footprint after validating safe query bounds', () => Effect.sync(() => {
+    const chunkX = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1) - VILLAGE_HALF_EXTENT) / CHUNK_SIZE_XZ)
+    const maxBlockX = chunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1 + VILLAGE_HALF_EXTENT
+    expect(Number.isSafeInteger(maxBlockX)).toBe(true)
+
+    const result = villageSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX), chunkAxis(0), FLAT_VILLAGE_TERRAIN)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
   }))
 
   it.effect('finds accepted sites whose footprint overlaps a queried chunk', () => Effect.sync(() => {
     const site = villageTestSite()
-    const sites = villageSitesNearChunk(
+    const sites = Result.getOrThrow(villageSitesNearChunk(
       GOLDEN_SEED,
       chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
       chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
       FLAT_VILLAGE_TERRAIN,
-    )
+    ))
 
     expect(sites).toContainEqual(site)
   }))
@@ -474,12 +519,12 @@ describe('village chunk query coordinate bounds', () => {
   it.effect('omits a candidate whose terrain is not suitable for a village', () => Effect.sync(() => {
     const site = villageTestSite()
     const sampleTerrain: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
-    const sites = villageSitesNearChunk(
+    const sites = Result.getOrThrow(villageSitesNearChunk(
       GOLDEN_SEED,
       chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
       chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
       sampleTerrain,
-    )
+    ))
 
     expect(sites).toStrictEqual([])
   }))
@@ -500,8 +545,8 @@ describe('the chunk query the block half would start from', () => {
       const chunkX = Math.floor(site.value.x / CHUNK_SIZE_XZ)
       const chunkZ = Math.floor(site.value.z / CHUNK_SIZE_XZ)
 
-      expect(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX), chunkAxis(chunkZ), halfExtent)).toContainEqual(site.value)
-      expect(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX + 40), chunkAxis(chunkZ + 40), halfExtent)).not.toContainEqual(
+      expect(Result.getOrThrow(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX), chunkAxis(chunkZ), halfExtent))).toContainEqual(site.value)
+      expect(Result.getOrThrow(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX + 40), chunkAxis(chunkZ + 40), halfExtent))).not.toContainEqual(
         site.value,
       )
     }),
@@ -524,7 +569,7 @@ describe('the chunk query the block half would start from', () => {
       const chunkZ = Math.floor(site.value.z / CHUNK_SIZE_XZ)
       for (let dx = -1; dx <= 1; dx += 1) {
         for (let dz = -1; dz <= 1; dz += 1) {
-          if (strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX + dx), chunkAxis(chunkZ + dz), halfExtent).length > 0) {
+          if (Result.getOrThrow(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX + dx), chunkAxis(chunkZ + dz), halfExtent)).length > 0) {
             reporting += 1
           }
         }
@@ -532,6 +577,49 @@ describe('the chunk query the block half would start from', () => {
       expect(reporting).toBeGreaterThan(0)
     }),
   )
+
+  it.effect('returns a typed failure when chunk bounds are outside the block-coordinate range', () => Effect.sync(() => {
+    const invalidBounds = strongholdSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Number.MAX_SAFE_INTEGER),
+      chunkAxis(0),
+      6,
+    )
+    expect(Result.isFailure(invalidBounds)).toBe(true)
+    if (Result.isSuccess(invalidBounds)) throw new Error('expected an invalid-coordinate failure')
+    expect(invalidBounds.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+    })
+  }))
+
+  it.effect('returns a typed failure for a negative half extent', () => Effect.sync(() => {
+    const invalidExtent = strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(0), chunkAxis(0), -1)
+    expect(Result.isFailure(invalidExtent)).toBe(true)
+    if (Result.isSuccess(invalidExtent)) throw new Error('expected an invalid half-extent failure')
+    expect(invalidExtent.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+      value: -1,
+    })
+  }))
+
+  it.effect('propagates an invalid candidate region after validating safe query bounds', () => Effect.sync(() => {
+    const halfExtent = 6
+    const safeChunkX = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1) - halfExtent) / CHUNK_SIZE_XZ)
+    const maxBlockX = safeChunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1 + halfExtent
+    expect(Number.isSafeInteger(maxBlockX)).toBe(true)
+    const invalidRegion = strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(safeChunkX), chunkAxis(0), halfExtent)
+    expect(Result.isFailure(invalidRegion)).toBe(true)
+    if (Result.isSuccess(invalidRegion)) throw new Error('expected an invalid candidate-region failure')
+    expect(invalidRegion.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+    })
+  }))
 })
 
 describe('STRONGHOLD_FLOOR_Y survives the port', () => {
