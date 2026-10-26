@@ -20,6 +20,7 @@ import { ChunkCapacity, ChunkStore, ChunkStoreLayer, type ChunkSource } from '..
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockTransmitsLight, lightEmissionAt } from '../src/domain/light-block-data'
 import {
   computeChunkLight,
   computeChunkLights,
@@ -89,6 +90,17 @@ const flatChunk = (coord: ChunkCoord, surfaceY: number): Chunk => {
 
 const SURFACE_Y = 63
 const TEST_CHUNK_CAPACITY = Result.getOrThrow(ChunkCapacity.result(64))
+
+describe('cached kernel light attributes', () => {
+  it.effect('preserves unregistered block defaults and rejects ids outside the BlockId range', () =>
+    Effect.sync(() => {
+      expect(lightEmissionAt(65_534)).toBe(0)
+      expect(blockTransmitsLight(65_534)).toBe(false)
+      expect(() => lightEmissionAt(65_536)).toThrow()
+      expect(() => blockTransmitsLight(65_536)).toThrow()
+    }),
+  )
+})
 
 // ---------------------------------------------------------------------------
 // Packing
