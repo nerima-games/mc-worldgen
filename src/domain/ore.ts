@@ -341,9 +341,7 @@ const FINALIZE_MIX_SHIFT_1 = 16
 const FINALIZE_MIX_PRIME_2 = 0x846ca68b
 const FINALIZE_MIX_SHIFT_2 = 15
 const FINALIZE_MIX_SHIFT_3 = 16
-/** The final unsigned coercion already guarantees the `NoiseSeed` range. */
 const noiseSeedFromUint32 = Brand.nominal<NoiseSeed>()
-
 export const oreStreamSeed = (seed: NoiseSeed, config: OreConfig, baseWorldX: number, baseWorldZ: number): NoiseSeed => {
   let hash: number = channelSeed(seed, `ore-${config.name}`)
   hash =
@@ -355,6 +353,7 @@ export const oreStreamSeed = (seed: NoiseSeed, config: OreConfig, baseWorldX: nu
   hash = (hash ^ Math.imul(config.saltZ | INT32_ZERO, SALT_Z_MIX_PRIME)) >>> INT32_ZERO
   hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_1), FINALIZE_MIX_PRIME_1) >>> INT32_ZERO
   hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_2), FINALIZE_MIX_PRIME_2) >>> INT32_ZERO
+  /** Unsigned coercion already guarantees the `NoiseSeed` range. */
   return noiseSeedFromUint32((hash ^ (hash >>> FINALIZE_MIX_SHIFT_3)) >>> INT32_ZERO)
 }
 

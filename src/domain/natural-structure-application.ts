@@ -4,9 +4,8 @@ import type {
   NaturalStructureChunkSlice,
   NaturalStructurePlan,
 } from './natural-structure-types.js'
-import { type Chunk, setBlockAt } from './chunk.js'
-import { blockAxis, localAxis } from './coordinate-compatibility.js'
-import { CHUNK_SIZE_XZ } from './constants.js'
+import { CHUNK_SIZE_XZ, blockIndex } from './constants.js'
+import type { Chunk } from './chunk.js'
 import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { plansInStableOrder } from './natural-structure-order.js'
 
@@ -63,13 +62,8 @@ const writePlanBlocks = (
   for (const placement of plan.blocks) {
     if (placementIsInChunk(placement.x, placement.z, window)) {
       hasSlice = true
-      setBlockAt(
-        accumulator.blocks,
-        localAxis(placement.x - window.minX),
-        blockAxis(placement.y),
-        localAxis(placement.z - window.minZ),
-        placement.block,
-      )
+      // The chunk check bounds X/Z, and the plan builder brands every placement.
+      accumulator.blocks[blockIndex(placement.x - window.minX, placement.y, placement.z - window.minZ)] = placement.block
     }
   }
   return hasSlice

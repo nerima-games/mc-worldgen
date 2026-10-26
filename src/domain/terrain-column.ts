@@ -13,8 +13,7 @@ import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants.js'
 import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config.js'
 import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config.js'
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
-import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
-import { channelSeed, fbm2D, valueNoise2D } from './noise-compatibility.js'
+import { channelSeedValue, fbm2D, valueNoise2D } from './noise-compatibility.js'
 import {
   computeLakeBasin,
   determineWaterLevel,
@@ -26,6 +25,7 @@ import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
 const NOISE_FREQUENCY_UNIT = 1
@@ -55,24 +55,24 @@ const climateAtWithContinentalness = (
   wz: number,
   continentalness: number = toBipolar(continentalnessAt(seed, wx, wz)),
 ): ClimateSample => {
-  const temperature = fbm2D(channelSeed(seed, 'temperature'), wx, wz, {
+  const temperature = fbm2D(channelSeedValue(seed, 'temperature'), wx, wz, {
     frequency: NOISE_FREQUENCY_UNIT / TEMPERATURE_WAVELENGTH_BLOCKS,
     octaves: 2,
     persistence: 0.5,
   })
-  const humidity = fbm2D(channelSeed(seed, 'humidity'), wx, wz, {
+  const humidity = fbm2D(channelSeedValue(seed, 'humidity'), wx, wz, {
     frequency: NOISE_FREQUENCY_UNIT / HUMIDITY_WAVELENGTH_BLOCKS,
     octaves: 2,
     persistence: 0.5,
   })
   const erosion = toBipolar(
-    valueNoise2D(channelSeed(seed, 'erosion'), wx, wz, NOISE_FREQUENCY_UNIT / EROSION_WAVELENGTH_BLOCKS),
+    valueNoise2D(channelSeedValue(seed, 'erosion'), wx, wz, NOISE_FREQUENCY_UNIT / EROSION_WAVELENGTH_BLOCKS),
   )
   const weirdness = toBipolar(
-    valueNoise2D(channelSeed(seed, 'weirdness'), wx, wz, NOISE_FREQUENCY_UNIT / WEIRDNESS_WAVELENGTH_BLOCKS),
+    valueNoise2D(channelSeedValue(seed, 'weirdness'), wx, wz, NOISE_FREQUENCY_UNIT / WEIRDNESS_WAVELENGTH_BLOCKS),
   )
   const riverNoise = valueNoise2D(
-    channelSeed(seed, 'river'),
+    channelSeedValue(seed, 'river'),
     wx * RIVER_NOISE_SCALE + RIVER_WORLD_OFFSET,
     wz * RIVER_NOISE_SCALE + RIVER_WORLD_OFFSET,
     RIVER_NOISE_UNIT_FREQUENCY,
@@ -172,7 +172,7 @@ export type TerrainColumn = Readonly<{
 
 const lakeNoiseAt = (seed: NoiseSeed, wx: number, wz: number): number =>
   valueNoise2D(
-    channelSeed(seed, 'lake'),
+    channelSeedValue(seed, 'lake'),
     wx * LAKE_NOISE_SCALE + LAKE_WORLD_OFFSET,
     wz * LAKE_NOISE_SCALE + LAKE_WORLD_OFFSET,
     LAKE_NOISE_UNIT_FREQUENCY,
@@ -201,9 +201,7 @@ export const resolveTerrainColumn = (
   const lakeNoiseValue = lakeNoiseAt(seed, wx, wz)
   const lakeBasinY = computeLakeBasin(biome, lakeNoiseValue, initialSurfaceY, levels)
   const surfaceY = resolveSurfaceY(biome, initialSurfaceY, lakeBasinY)
-  const waterLevel = Option.getOrNull(
-    Option.map(determineWaterLevel(biome, surfaceY, lakeBasinY, levels), blockAxisFromKnownSafeInteger),
-  )
+  const waterLevel = Option.getOrNull(determineWaterLevel(biome, surfaceY, lakeBasinY, levels))
   const surface = resolveSurfaceMaterial(biome, surfaceY, waterLevel ?? levels.seaLevel, {
     hasLakeBasin: Option.isSome(lakeBasinY),
     isShore: isLakeShoreColumn(lakeBasinY, lakeNoiseValue, surfaceY, levels),
@@ -212,9 +210,9 @@ export const resolveTerrainColumn = (
   return {
     biome,
     initialSurfaceY,
-    lakeBasinY: Option.map(lakeBasinY, blockAxisFromKnownSafeInteger),
+    lakeBasinY,
     surface,
-    surfaceY: blockAxisFromKnownSafeInteger(surfaceY),
+    surfaceY,
     temperature: climate.temperature,
     waterLevel,
   }

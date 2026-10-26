@@ -67,7 +67,13 @@ const houseFloorY = (site: VillageSite, house: House, sample: OverworldTerrainSa
   for (let dx = -HOUSE_HALF_X; dx <= HOUSE_HALF_X; dx += 1) {
     // eslint-disable-next-line id-length, no-magic-numbers -- dz is the conventional local z offset.
     for (let dz = -HOUSE_HALF_Z; dz <= HOUSE_HALF_Z; dz += 1) {
-      highest = Math.max(highest, sample(blockAxisFromKnownSafeInteger(site.x + house.x + dx), blockAxisFromKnownSafeInteger(site.z + house.z + dz)).surfaceY)
+      highest = Math.max(
+        highest,
+        sample(
+          blockAxisFromKnownSafeInteger(site.x + house.x + dx),
+          blockAxisFromKnownSafeInteger(site.z + house.z + dz),
+        ).surfaceY,
+      )
     }
   }
   // eslint-disable-next-line no-magic-numbers -- The floor sits one block above the highest ground.

@@ -9,7 +9,9 @@ import {
   RIVER_WATER_LEVEL,
 } from './lake-config.js'
 import type { BiomeType } from './biome.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { Option } from 'effect'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 const NORMALIZED_MIN = 0
 const NORMALIZED_MAX = 1
@@ -30,7 +32,7 @@ export const computeLakeBasin = (
   lakeNoiseValue: number,
   initialSurfaceY: number,
   terrainLevels: TerrainLevels = DEFAULT_TERRAIN_LEVELS,
-): Option.Option<number> => {
+): Option.Option<BlockAxis> => {
   const { lakeLevel } = terrainLevels
   if (biome === 'OCEAN' || lakeNoiseValue <= LAKE_THRESHOLD || initialSurfaceY < lakeLevel) {
     return Option.none()
@@ -42,14 +44,14 @@ export const computeLakeBasin = (
   if (basinY >= initialSurfaceY) {
     return Option.none()
   }
-  return Option.some(basinY)
+  return Option.some(blockAxisFromKnownSafeInteger(basinY))
 }
 
 export const resolveSurfaceY = (
   biome: BiomeType,
   initialSurfaceY: number,
-  lakeBasinY: Option.Option<number>,
-): number => {
+  lakeBasinY: Option.Option<BlockAxis>,
+): BlockAxis => {
   let riverSurfaceY = initialSurfaceY
   if (biome === 'RIVER') {
     riverSurfaceY = Math.max(
@@ -58,7 +60,7 @@ export const resolveSurfaceY = (
     )
   }
 
-  return Option.getOrElse(lakeBasinY, () => riverSurfaceY)
+  return blockAxisFromKnownSafeInteger(Option.getOrElse(lakeBasinY, () => riverSurfaceY))
 }
 
 export const determineWaterLevel = (
@@ -66,16 +68,16 @@ export const determineWaterLevel = (
   surfaceY: number,
   lakeBasinY: Option.Option<number>,
   terrainLevels: TerrainLevels = DEFAULT_TERRAIN_LEVELS,
-): Option.Option<number> => {
+): Option.Option<BlockAxis> => {
   const { seaLevel, lakeLevel } = terrainLevels
   if (biome === 'RIVER') {
-    return Option.some(RIVER_WATER_LEVEL)
+    return Option.some(blockAxisFromKnownSafeInteger(RIVER_WATER_LEVEL))
   }
   if (Option.isSome(lakeBasinY)) {
-    return Option.some(lakeLevel)
+    return Option.some(blockAxisFromKnownSafeInteger(lakeLevel))
   }
   if (surfaceY < seaLevel) {
-    return Option.some(seaLevel)
+    return Option.some(blockAxisFromKnownSafeInteger(seaLevel))
   }
   return Option.none()
 }
@@ -89,7 +91,7 @@ type WaterColumnFill = {
   readonly lz: number
   readonly biome: BiomeType
   readonly surfaceY: number
-  readonly lakeBasinY: Option.Option<number>
+  readonly lakeBasinY: Option.Option<BlockAxis>
   readonly waterBlockIndex: number
   readonly iceBlockIndex: number
   readonly freezeSurface: boolean
@@ -124,7 +126,7 @@ export const fillWaterForColumn = ({
 }
 
 export const isLakeShoreColumn = (
-  lakeBasinY: Option.Option<number>,
+  lakeBasinY: Option.Option<BlockAxis>,
   lakeNoiseValue: number,
   surfaceY: number,
   terrainLevels: TerrainLevels,

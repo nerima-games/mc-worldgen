@@ -40,7 +40,7 @@ import {
   type OreConfig,
   type OreName,
 } from '../src/domain/ore'
-import { mulberry32 } from '@nerima-games/mc-noise'
+import { mulberry32, type NoiseSeed } from '@nerima-games/mc-noise'
 import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
@@ -102,8 +102,8 @@ const countOre = (chunks: ReadonlyArray<Chunk>): ReadonlyMap<number, number> => 
  * makes the O-5 comparison fair: both band tables are scored against the same
  * rock.
  */
-const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: number, cz: number): number => {
-  const chunk = generateChunkAt(noiseSeed(seed), chunkAxis(cx), chunkAxis(cz), { decorate: false })
+const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: NoiseSeed, cx: number, cz: number): number => {
+  const chunk = generateChunkAt(seed, chunkAxis(cx), chunkAxis(cz), { decorate: false })
   for (let index = 0; index < chunk.blocks.length; index += 1) {
     if (ORE_ID_SET.has(readBlock(chunk.blocks, index))) {
       chunk.blocks[index] = BLOCK.STONE
@@ -116,7 +116,7 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: num
   let placed = 0
 
   for (const config of configs) {
-    const next = mulberry32(oreStreamSeed(noiseSeed(seed), config, baseWorldX, baseWorldZ))
+    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
     const count = Math.max(0, Math.round(config.avgVeins - 1 + next() * 2))
     const yMin = Math.max(config.minY, ORE_MIN_Y_FLOOR)
     const yMax = Math.min(config.maxY, CHUNK_HEIGHT - 1)
@@ -154,7 +154,7 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: num
   return placed
 }
 
-const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed: number): number => {
+const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed: NoiseSeed): number => {
   let total = 0
   let chunks = 0
   for (let cx = -SURVEY; cx < SURVEY; cx += 1) {
@@ -514,6 +514,7 @@ describe('what backs the ore half of the golden move', () => {
    */
   it.effect('O-5: the reference’s own bands starve COAL and EMERALD here, and nothing else', () =>
     Effect.sync(() => {
+      const seed = noiseSeed(GOLDEN_SEED)
       for (const shipped of ORE_CONFIGS) {
         const reference = REFERENCE_CONFIGS.find((candidate) => candidate.name === shipped.name)
         expect(reference).toBeDefined()
@@ -522,8 +523,8 @@ describe('what backs the ore half of the golden move', () => {
         }
 
         const intended = intendedRate(shipped)
-        const withShipped = ratePerChunk(ORE_CONFIGS, shipped, GOLDEN_SEED) / intended
-        const withReference = ratePerChunk(REFERENCE_CONFIGS, reference, GOLDEN_SEED) / intended
+        const withShipped = ratePerChunk(ORE_CONFIGS, shipped, seed) / intended
+        const withReference = ratePerChunk(REFERENCE_CONFIGS, reference, seed) / intended
 
         // The shipped bands hit the rate the tuning asks for, every row.
         expect(withShipped, `${shipped.name} shipped bands realise ${String(withShipped)} of intended`).toBeGreaterThan(

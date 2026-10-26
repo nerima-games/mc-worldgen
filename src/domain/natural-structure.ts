@@ -31,7 +31,6 @@ import {
   type NaturalStructureRegionPlanRequest,
   naturalStructurePlansForChunk as enumerateNaturalStructurePlansForChunk,
 } from './natural-structure-chunk-planner.js'
-import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
 import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
 import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin.js'
@@ -47,6 +46,7 @@ import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck.js'
 import { type VillageVillagerSpawn, villageBlockAt, villageVillagerSpawnsForSite } from './village.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { ChunkCoord, Dimension } from '@nerima-games/mc-kernel'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
 import { planEndCityForRegion } from './natural-structure-end-city.js'
 import { planNetherFortressForRegion } from './nether-fortress.js'
@@ -163,7 +163,13 @@ const carveVillageBlocks = (mutable: MutablePlan, site: VillageSite, sampleTerra
     for (let z = site.z - VILLAGE_HALF_EXTENT; z <= site.z + VILLAGE_HALF_EXTENT; z += UNIT_STEP) {
       const { surfaceY } = sampleTerrain(blockAxisFromKnownSafeInteger(x), blockAxisFromKnownSafeInteger(z))
       for (let y = Number(surfaceY); y < Math.min(CHUNK_HEIGHT, surfaceY + VILLAGE_STRUCTURE_HEIGHT); y += UNIT_STEP) {
-        const block = villageBlockAt(site, blockAxisFromKnownSafeInteger(x), blockAxisFromKnownSafeInteger(y), blockAxisFromKnownSafeInteger(z), sampleTerrain)
+        const block = villageBlockAt(
+          site,
+          blockAxisFromKnownSafeInteger(x),
+          blockAxisFromKnownSafeInteger(y),
+          blockAxisFromKnownSafeInteger(z),
+          sampleTerrain,
+        )
         if (Predicate.isNotUndefined(block)) {addBlock(mutable, { block, x, y, z })}
       }
     }

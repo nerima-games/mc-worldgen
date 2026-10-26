@@ -20,10 +20,8 @@ const SMOOTHSTEP_QUADRATIC_COEFFICIENT = 3
 const SMOOTHSTEP_CUBIC_COEFFICIENT = 2
 
 const asUint32 = (value: number): number => value >>> UINT32_COERCION_SHIFT
-/** `asUint32` already guarantees the input range required by `NoiseSeed`. */
 const noiseSeedFromUint32 = Brand.nominal<NoiseSeed>()
-
-const latticeValueAt = (seed: NoiseSeed, x: number, z: number): number => {
+const latticeValueAt = (seed: number, x: number, z: number): number => {
   let hash = asUint32(seed)
   hash = asUint32(Math.imul(hash ^ asUint32(x), LATTICE_MIX_X))
   hash = asUint32(Math.imul(hash ^ asUint32(z), LATTICE_MIX_Z))
@@ -37,7 +35,7 @@ const smoothstep = (amount: number): number =>
 
 const lerp = (start: number, end: number, amount: number): number => start + (end - start) * amount
 
-const sampleValueNoise2D = (seed: NoiseSeed, x: number, z: number, frequency: number): number => {
+const sampleValueNoise2D = (seed: number, x: number, z: number, frequency: number): number => {
   const sx = x * frequency
   const sz = z * frequency
   const x0 = Math.floor(sx)
@@ -49,17 +47,20 @@ const sampleValueNoise2D = (seed: NoiseSeed, x: number, z: number, frequency: nu
   return lerp(top, bottom, tz)
 }
 
-export const channelSeed = (seed: NoiseSeed, channel: string): NoiseSeed => {
+export const channelSeedValue = (seed: number, channel: string): number => {
   let hash = asUint32(seed)
   for (let index = 0; index < channel.length; index += LOOP_STEP) {
     hash = asUint32(Math.imul(hash ^ channel.charCodeAt(index), FNV_PRIME_32))
   }
-  return noiseSeedFromUint32(asUint32(hash))
+  return asUint32(hash)
 }
 
-export const latticeValue = (seed: NoiseSeed, x: number, z: number): number => latticeValueAt(seed, x, z)
+export const channelSeed = (seed: NoiseSeed, channel: string): NoiseSeed =>
+  noiseSeedFromUint32(channelSeedValue(seed, channel))
 
-export const valueNoise2D = (seed: NoiseSeed, x: number, z: number, frequency: number): number =>
+export const latticeValue = (seed: number, x: number, z: number): number => latticeValueAt(seed, x, z)
+
+export const valueNoise2D = (seed: number, x: number, z: number, frequency: number): number =>
   sampleValueNoise2D(seed, x, z, frequency)
 
 const normaliseFbmSample = (total: number, normalisation: number): number => {
@@ -70,7 +71,7 @@ const normaliseFbmSample = (total: number, normalisation: number): number => {
 }
 
 export const fbm2D = (
-  seed: NoiseSeed,
+  seed: number,
   x: number,
   z: number,
   options: Readonly<{ frequency: number; octaves: number; persistence: number }>,
@@ -82,7 +83,7 @@ export const fbm2D = (
 
   for (let octave = ZERO_NORMALISATION; octave < options.octaves; octave += LOOP_STEP) {
     total +=
-      sampleValueNoise2D(channelSeed(seed, `octave-${String(octave)}`), x, z, frequency) * amplitude
+      sampleValueNoise2D(channelSeedValue(seed, `octave-${String(octave)}`), x, z, frequency) * amplitude
     normalisation += amplitude
     amplitude *= options.persistence
     frequency *= FREQUENCY_MULTIPLIER

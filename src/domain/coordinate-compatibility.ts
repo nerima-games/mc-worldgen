@@ -9,11 +9,7 @@ import {
 import { Brand, Result } from 'effect'
 
 /** Use only after callers prove the coordinate invariant; these brands add no runtime checks. */
-const knownSafeBlockAxis = Brand.nominal<BlockAxisValue>()
-const knownLocalAxis = Brand.nominal<LocalAxisValue>()
-
-export const blockAxisFromKnownSafeInteger = (value: number): BlockAxisValue => knownSafeBlockAxis(value)
-export const localAxisFromKnownRange = (value: number): LocalAxisValue => knownLocalAxis(value)
+export const blockAxisFromKnownSafeInteger: (value: number) => BlockAxisValue = Brand.nominal<BlockAxisValue>()
 export const blockAxis = (value: number): BlockAxisValue => Result.getOrThrow(BlockAxis.result(value))
 
 export const chunkAxis = (value: number): ChunkAxisValue => Result.getOrThrow(ChunkAxis.result(value))

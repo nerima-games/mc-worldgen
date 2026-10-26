@@ -71,5 +71,8 @@ export const setBlockAt = (blocks: Uint16Array, ...coordinate: readonly [lx: Loc
 
 export const columnIndex = (lx: LocalAxis, lz: LocalAxis): number => lz * CHUNK_SIZE_XZ + lx
 
+/** The caller has already bounded both offsets to the local chunk range. */
+export const columnIndexForKnownLocalRange = (lx: number, lz: number): number => lz * CHUNK_SIZE_XZ + lx
+
 export const biomeAt = (chunk: Chunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'

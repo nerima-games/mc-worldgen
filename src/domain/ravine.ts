@@ -196,7 +196,7 @@
  */
 import { BLOCK, type BiomeType } from './biome.js'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
-import { channelSeed, valueNoise2D } from './noise-compatibility.js'
+import { channelSeedValue, valueNoise2D } from './noise-compatibility.js'
 import { columnIndex, readBlock } from './chunk.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
@@ -274,7 +274,7 @@ export type RavineOptions = {
  * not have to generate a 64 KB chunk to colour one pixel.
  */
 export const ravineDistanceAt = (seed: NoiseSeed, wx: number, wz: number): number =>
-  Math.abs(valueNoise2D(channelSeed(seed, 'ravines'), wx, wz, RAVINE_NOISE_SCALE) - RAVINE_CENTER)
+  Math.abs(valueNoise2D(channelSeedValue(seed, 'ravines'), wx, wz, RAVINE_NOISE_SCALE) - RAVINE_CENTER)
 
 /**
  * Depth of the cut at a band distance, or 0 where nothing is carved.

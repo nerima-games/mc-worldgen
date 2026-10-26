@@ -1,4 +1,4 @@
-import { channelSeed, fbm2D } from './noise-compatibility.js'
+import { channelSeedValue, fbm2D } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { blockAxis } from './coordinate-compatibility.js'
@@ -27,7 +27,6 @@ const SURFACE_HEIGHT_COUNT = MAX_SURFACE_Y - MIN_SURFACE_Y + SURFACE_HEIGHT_INCL
 const VALID_SURFACE_HEIGHTS = Array.from({ length: SURFACE_HEIGHT_COUNT }, (_unused, surfaceHeightOffset) =>
   blockAxis(MIN_SURFACE_Y + surfaceHeightOffset),
 )
-
 const stretch = (value: number): number =>
   Math.min(
     UNIT_INTERVAL_MAX,
@@ -36,7 +35,7 @@ const stretch = (value: number): number =>
 
 /** Sample the position-absolute continentalness field used by terrain generation. */
 export const continentalnessAt = (seed: NoiseSeed, wx: number, wz: number): number =>
-  fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
+  fbm2D(channelSeedValue(seed, 'continentalness'), wx, wz, {
     frequency: NOISE_FREQUENCY_UNIT / CONTINENTALNESS_WAVELENGTH_BLOCKS,
     octaves: 4,
     persistence: 0.5,
