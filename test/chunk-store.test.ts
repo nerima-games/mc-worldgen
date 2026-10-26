@@ -84,6 +84,14 @@ const TWO_CHUNK_CAPACITY = capacity(2)
 
 const flatWorld = ChunkStoreLayer(flatSource, TEST_CAPACITY)
 
+describe('ChunkCapacity', () => {
+  it('accepts only positive safe integers', () => {
+    expect(Result.isSuccess(ChunkCapacity.result(1))).toBe(true)
+    expect(Result.isFailure(ChunkCapacity.result(0))).toBe(true)
+    expect(Result.isFailure(ChunkCapacity.result(Number.MAX_SAFE_INTEGER + 1))).toBe(true)
+  })
+})
+
 /** Run an Effect against a fresh store. Each test gets its own — no singleton. */
 const withStore = <A>(
   body: (store: Effect.Success<typeof ChunkStore>) => Effect.Effect<A, ChunkStoreError>,
