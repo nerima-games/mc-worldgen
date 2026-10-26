@@ -27,6 +27,7 @@ import { generateChunk as generateChunkRaw } from '../src/domain/terrain'
 import {
   InvalidNaturalStructureCoordinate,
   naturalStructurePlansForChunk as naturalStructurePlansForChunkRaw,
+  planCompactStructureForRegion as planCompactStructureForRegionRaw,
   planNaturalStructureForRegion as planNaturalStructureForRegionRaw,
   planVillageForRegion as planVillageForRegionRaw,
 } from '../src/domain/natural-structure'
@@ -387,6 +388,21 @@ describe('natural structure plans', () => {
       _tag: 'InvalidNaturalStructureCoordinate',
       axis: 'region-x',
       kind: 'village',
+      value: Number.NaN,
+    })
+  })
+
+  it('rejects an invalid compact-structure region before sampling terrain', () => {
+    const result = planCompactStructureForRegionRaw(noiseSeed(0), 'buried-treasure', Number.NaN, 0, () => {
+      throw new Error('invalid coordinates must be rejected before terrain sampling')
+    })
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) {throw new Error('expected an invalid-coordinate failure')}
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'buried-treasure',
       value: Number.NaN,
     })
   })
