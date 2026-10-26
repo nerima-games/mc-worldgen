@@ -131,6 +131,16 @@ array. `generateChunk`, `generateNetherChunk`, `generateEndChunk`, and their
 `*At` variants return it alongside the generated chunk; generated `ChunkSource`
 values propagate it through the `Effect` error channel.
 
+The chunk queries return these results:
+
+- `villageSitesNearChunk`: `Result.Result<ReadonlyArray<VillageSite>, InvalidNaturalStructureCoordinate>`.
+- `strongholdSitesNearChunk`: `Result.Result<ReadonlyArray<StrongholdSite>, InvalidNaturalStructureCoordinate>`.
+- `villageVillagerSpawnsForChunk`: `Result.Result<ReadonlyArray<VillageVillagerSpawn>, InvalidNaturalStructureCoordinate>`.
+
+Handle `Failure(InvalidNaturalStructureCoordinate)` for an invalid chunk
+coordinate or an unrepresentable derived coordinate. `Success([])` means the
+valid query found no sites or spawns.
+
 ```ts
 import { Option, Result } from 'effect'
 import {
