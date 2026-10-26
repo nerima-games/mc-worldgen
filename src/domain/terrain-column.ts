@@ -15,13 +15,13 @@ import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeedValue, fbm2D, valueNoise2D } from './noise-compatibility.js'
-import { continentalnessAt, surfaceHeightFromContinentalness, surfaceHeightValueFromContinentalness } from './density-function.js'
 import {
   computeLakeBasinY,
   determineWaterLevelValue,
   isLakeShoreColumnForGeneration,
   resolveSurfaceYFromBasin,
 } from './lake-generator.js'
+import { continentalnessAt, surfaceHeightFromContinentalness, surfaceHeightValueFromContinentalness } from './density-function.js'
 import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
