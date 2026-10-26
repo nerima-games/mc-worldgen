@@ -27,6 +27,16 @@ signature or implementation-status statement below that conflicts with it. See
   mc-kernel.
 - The package root exports `detectNetherPortal` and `generatePortalLayout`;
   shared portal types remain defined by mc-kernel.
+- Coordinate fields use mc-kernel 0.9 brands: `ChunkCoord` uses `ChunkAxis`,
+  world block coordinates use `BlockAxis`, and chunk-local horizontal positions
+  use `LocalAxis`. Import their types and constructors from the mc-kernel root
+  or its `/domain/coordinates` subpath and validate raw numbers at the input
+  boundary; see the migration guide.
+- Natural-structure region planners return a typed `Result` containing an
+  `Option`; invalid regions or unrepresentable structure footprints return
+  `InvalidNaturalStructureCoordinate`. Chunk generators that apply structures
+  and generated chunk sources propagate that failure. Handle it separately from
+  a valid region with no structure candidate.
 - `emptyBlocks`, `setBlockAt`, and type `SubscriberId` are exported from
   `@nerima-games/mc-worldgen/testing`. They are absent from the production root.
 
@@ -86,7 +96,7 @@ export const generateChunk = (seed: NoiseSeed, coord: ChunkCoord, options?: {
   readonly terrainLevels?: TerrainLevels
   readonly carve?: CarveOptions
   readonly decorate?: boolean
-}) => NaturalStructureChunk
+}) => Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>
 ```
 
 `test/terrain-levels.test.ts` の
@@ -117,21 +127,34 @@ Y が連続していることが本質である。柱を上下に走る処理
 
 ## 2. `generateChunk`
 
+`BlockAxis`, `ChunkAxis`, and `LocalAxis` are mc-kernel brands. The functions
+below require these branded values where their signatures use an axis type.
+Validate raw numbers with the mc-kernel constructors instead of casting them.
+
 ```typescript
-export type ChunkCoord = { readonly cx: number; readonly cz: number }
-export const chunkCoord: (cx: number, cz: number) => ChunkCoord
+export type ChunkCoord = { readonly cx: ChunkAxis; readonly cz: ChunkAxis }
+export const chunkCoord: (cx: ChunkAxis, cz: ChunkAxis) => ChunkCoord
 
 export type Chunk = {
   readonly coord: ChunkCoord
   readonly blocks: Uint16Array                   // CHUNK_VOLUME 個のブロック id (0..BLOCK_ID_MAX)
   readonly biomes: ReadonlyArray<ChunkBiomeType> // 柱ごと。index = lz * 16 + lx
 }
+export const getBlockAt: (chunk: Chunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis) => number
+export const columnIndex: (lx: LocalAxis, lz: LocalAxis) => number
+export const biomeAt: (chunk: Chunk, lx: LocalAxis, lz: LocalAxis) => ChunkBiomeType
+
+// @nerima-games/mc-worldgen/testing
+export const setBlockAt: (
+  blocks: Uint16Array,
+  ...coordinate: readonly [lx: LocalAxis, y: BlockAxis, lz: LocalAxis, block: BlockId]
+) => void
 
 export type NaturalStructureKind = 'desert-pyramid' | 'desert-well' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'stronghold' | 'ancient-city' | 'buried-treasure' | 'swamp-hut' | 'trail-ruins' | 'trial-chambers' | 'woodland-mansion' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
 export type NaturalStructurePosition = {
-  readonly x: number
-  readonly y: number
-  readonly z: number
+  readonly x: BlockAxis
+  readonly y: BlockAxis
+  readonly z: BlockAxis
 }
 export type NaturalStructureMarker = NaturalStructurePosition & (
   | { readonly kind: 'loot-chest'; readonly lootTable: 'desert-pyramid' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-ruin' | 'ocean-monument' | 'pillager-outpost' | 'shipwreck' | 'ancient-city' | 'buried-treasure' | 'swamp-hut' | 'trail-ruins' | 'trial-chambers' | 'woodland-mansion' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city' | 'end-ship' }
@@ -156,8 +179,8 @@ export type NaturalStructureChunk = Chunk & {
 }
 
 export type EndSpike = {
-  readonly centerX: number
-  readonly centerZ: number
+  readonly centerX: BlockAxis
+  readonly centerZ: BlockAxis
   readonly radius: number
   readonly height: number
   readonly guarded: boolean
@@ -239,20 +262,46 @@ export const resolveEndGatewayExit: (
   searchedExit?: BlockPosition,
 ) => EndGatewayExit | undefined
 
-export const generateChunk: (seed: NoiseSeed, coord: ChunkCoord, options?: GenerateOptions) => NaturalStructureChunk
-export const generateChunkAt: (seed: NoiseSeed, x: number, z: number, options?: GenerateOptions) => NaturalStructureChunk
+export const generateChunk: (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  options?: GenerateOptions,
+) => Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>
+export const generateChunkAt: (
+  seed: NoiseSeed,
+  x: ChunkAxis,
+  z: ChunkAxis,
+  options?: GenerateOptions,
+) => Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>
 export const generateEndTerrainChunk: (seed: NoiseSeed, coord: ChunkCoord) => Chunk
-export const generateEndChunk: (seed: NoiseSeed, coord: ChunkCoord) => EndFeatureChunk
-export const generateEndChunkAt: (seed: NoiseSeed, x: number, z: number) => EndFeatureChunk
-export const endSurfaceHeightAt: (seed: NoiseSeed, wx: number, wz: number) => number | undefined
+export const generateEndChunk: (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+) => Result.Result<EndFeatureChunk, InvalidNaturalStructureCoordinate>
+export const generateEndChunkAt: (
+  seed: NoiseSeed,
+  cx: ChunkAxis,
+  cz: ChunkAxis,
+) => Result.Result<EndFeatureChunk, InvalidNaturalStructureCoordinate>
+export const endSurfaceHeightAt: (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis) => BlockAxis | undefined
 export const generateNetherTerrainChunk: (seed: NoiseSeed, coord: ChunkCoord) => Chunk
-export const generateNetherChunk: (seed: NoiseSeed, coord: ChunkCoord) => NaturalStructureChunk
-export const generateNetherChunkAt: (seed: NoiseSeed, x: number, z: number) => NaturalStructureChunk
-export const netherBlockAt: (seed: NoiseSeed, x: number, y: number, z: number) => BlockId
-export const netherStructureTerrainAt: (seed: NoiseSeed, x: number, z: number) => NetherStructureTerrainSample
+export const generateNetherChunk: (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+) => Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>
+export const generateNetherChunkAt: (
+  seed: NoiseSeed,
+  cx: ChunkAxis,
+  cz: ChunkAxis,
+) => Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>
+export const netherBlockAt: (seed: NoiseSeed, x: BlockAxis, y: BlockAxis, z: BlockAxis) => BlockId
+export const netherStructureTerrainAt: (seed: NoiseSeed, x: BlockAxis, z: BlockAxis) => NetherStructureTerrainSample | undefined
 ```
 
-`domain/terrain.ts`。**同期関数**である（`Effect` を返さない）。
+`domain/terrain.ts` のチャンク生成関数は同期実行され、`Result` を返す。region または
+footprint の座標を safe integer の block coordinate に変換できない場合は
+`Failure(InvalidNaturalStructureCoordinate)` になる。`*TerrainChunk` 関数は地形だけを生成し、
+自然構造を適用しない。
 End の関数は `domain/end-terrain.ts` にあり、中央島、虚空リング、
 シード依存の外縁島を絶対ワールド座標から生成し、chorus 植生、End city / ship とスパイクを適用する。
 `end-vegetation.ts` の `endChorusPlanForChunk` は外縁島の stem / flower / branch を不変な計画として返し、
@@ -271,8 +320,8 @@ Nether の関数は `domain/nether-terrain.ts` にあり、3D 密度場、上下
 ### 補助クエリ
 
 ```typescript
-export const surfaceHeightAt: (seed: NoiseSeed, wx: number, wz: number) => number
-export const climateAt: (seed: NoiseSeed, wx: number, wz: number)
+export const surfaceHeightAt: (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis) => BlockAxis
+export const climateAt: (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis)
   => {
     readonly temperature: number
     readonly humidity: number
@@ -281,7 +330,7 @@ export const climateAt: (seed: NoiseSeed, wx: number, wz: number)
     readonly pv: number
     readonly riverNoise: number
   }
-export const biomeFor: (seed: NoiseSeed, wx: number, wz: number, surfaceY: number, levels: TerrainLevels)
+export const biomeFor: (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis, surfaceY: BlockAxis, levels: TerrainLevels)
   => BiomeType
 ```
 
@@ -585,7 +634,9 @@ mc-render は plan.md §2.1 に既にある `render → worldgen` エッジ経�
 ### 6-3. インターフェース
 
 ```typescript
-export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
+export type ChunkSource = (
+  coord: ChunkCoord,
+) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate>
 
 export type ChunkCapacity = number & Brand.Brand<'ChunkCapacity'>
 export const ChunkCapacity: Brand.Constructor<ChunkCapacity>
@@ -600,7 +651,10 @@ export const generatedDimensionChunkSource: (
   options?: GenerateOptions,
 ) => ChunkSource
 
-export type ChunkStoreError = ChunkPersistenceError | { _tag: 'DirtyChunkEvictionError'; coord: ChunkCoord }
+export type ChunkStoreError =
+  | ChunkPersistenceError
+  | InvalidNaturalStructureCoordinate
+  | { _tag: 'DirtyChunkEvictionError'; coord: ChunkCoord }
 
 export type ChunkStoreApi = {
   readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk, ChunkStoreError>
@@ -790,13 +844,13 @@ worldgen から引き続き利用できる。mc-sim、mc-render、mc-playground-
 型付きのアプリケーション境界で、**1 メソッド**を持つ:
 
 ```typescript
-generateTerrain: (coord: ChunkCoord) => Effect.Effect<Chunk>
+generateTerrain: (coord: ChunkCoord) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate>
 ```
 
 **アプリケーション層は「Worker か、プールか、同期実行か」を知ってはならない。**
 
 `chunkSourceFromTerrainWorkerPool` がこの Port を既存の
-`ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>` に変換する。
+`ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate>` に変換する。
 `ChunkStore` はこの adapter を同期生成、Worker、独自プールのいずれからも受け取れる。
 
 この境界は維持する。DOM の `Worker` 型、キュー、キャンセル、通信エラー、並行度は
@@ -902,6 +956,24 @@ desert pyramid、desert well、igloo、jungle pyramid、mineshaft、ocean ruin�
 immutable な `NaturalStructurePlan` として公開する。
 
 ```typescript
+export type NaturalStructureRegion = { readonly x: number; readonly z: number }
+export class InvalidNaturalStructureCoordinate extends Data.TaggedError('InvalidNaturalStructureCoordinate')<{
+  readonly axis: 'region-x' | 'region-z' | 'footprint-x' | 'footprint-y' | 'footprint-z'
+  readonly kind: NaturalStructureKind
+  readonly region: NaturalStructureRegion
+  readonly value: number
+}> {}
+export type NaturalStructurePlanResult = Result.Result<
+  Option.Option<NaturalStructurePlan>,
+  InvalidNaturalStructureCoordinate
+>
+export const strongholdSiteForRegion: (
+  seed: NoiseSeed, regionX: number, regionZ: number,
+) => Result.Result<Option.Option<StrongholdSite>, InvalidNaturalStructureCoordinate>
+export const villageSiteForRegion: (
+  seed: NoiseSeed, regionX: number, regionZ: number, sampleTerrain: OverworldTerrainSampler,
+) => Result.Result<Option.Option<VillageSite>, InvalidNaturalStructureCoordinate>
+
 planDesertPyramidForRegion(seed, regionX, regionZ, sampleTerrain)
 planDesertWellForRegion(seed, regionX, regionZ, sampleTerrain)
 planIglooForRegion(seed, regionX, regionZ, sampleTerrain)
@@ -918,21 +990,45 @@ planRuinedNetherPortalForRegion(seed, regionX, regionZ, sampleTerrain)
 planNetherFortressForRegion(seed, regionX, regionZ, sampleTerrain)
 planBastionRemnantForRegion(seed, regionX, regionZ, sampleTerrain)
 planEndCityForRegion(seed, regionX, regionZ, sampleTerrain?)
-isNearFortressSite(seed, x, z, radius?)
+isNearFortressSite: (seed: NoiseSeed, x: BlockAxis, z: BlockAxis, radius?: number) => boolean
 planNaturalStructureForRegion(request)
-naturalStructureSliceForChunk(plan, chunkX, chunkZ)
-naturalStructurePlansForChunk(seed, dimension, coord, samplers?)
+naturalStructureSliceForChunk: (
+  plan: NaturalStructurePlan,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
+) => NaturalStructureChunkSlice
+naturalStructurePlansForChunk(
+  seed,
+  dimension,
+  coord,
+  samplers?,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
 applyNaturalStructurePlansToChunk(chunk, plans)
 ```
 
+公開されているすべての `*ForRegion` planner と `planNaturalStructureForRegion` は
+`NaturalStructurePlanResult` を返す。`villageSiteForRegion` と
+`strongholdSiteForRegion` も `Result<Option<Site>, InvalidNaturalStructureCoordinate>` を返す。
+`InvalidNaturalStructureCoordinate` は package root から export されている。`regionX` / `regionZ` と
+`NaturalStructureRegionPlanRequest.region` の `x` / `z` は `number` 型の region index である。
+chunk coordinate の `ChunkAxis` とは別の値である。`Failure` は region または導出した
+footprint 座標の検証失敗、`Success(None)` は有効な region に site / plan の候補がないこと、
+`Success(Some(plan))` は plan があることを表す。`naturalStructurePlansForChunk` は候補 plan
+配列を返し、座標が無効なら同じ `InvalidNaturalStructureCoordinate` を `Failure` で返す。
+`generateChunk`、`generateNetherChunk`、`generateEndChunk` と、それぞれの `*At` 関数も
+構造物座標が無効な場合にこのエラーを返す。
+
 各 planner は `(seed, dimension, region)` ごとの候補を spacing / separation つき格子から決め、
-バイオーム、起伏、headroom、外縁島の有無を検査する。不適合なら `Option.none()`、適合すれば
-固定された dimension、bounds、registry block ID の配置、semantic marker を持つ plan を返す。
+バイオーム、起伏、headroom、外縁島の有無を検査する。適合する候補がなければ `Success(None)`、
+適合すれば `Success(Some(plan))` を返す。座標を表現可能な block coordinate へ変換できない場合は、
+`Failure(InvalidNaturalStructureCoordinate)` を返す。plan は固定された dimension、bounds、
+registry block ID の配置、semantic marker を持つ。
 `bastion remnant`、`desert well` と `planCompactStructureForRegion` の 7 variants は、現行 `mc-kernel` の登録ブロックだけで構成した compact structures であり、vanilla template / palette parity は主張しない。`woodland-mansion-single-chunk` は候補を対象 chunk の中央に置き、全ブロックと marker を 1 chunk 内へ収める。従来の `woodland-mansion` は cross-chunk 配置を維持する。`desert well` は `sandstone` / `water` だけを使い、loot marker を持たない。
 marker は loot table、villager / piglin / piglin-brute / blaze / wither skeleton spawn、shulker / blaze spawner、欠損 portal frame、stronghold の End portal frame（向き / eye 状態）、End ship といった
 ブロック配列だけでは失われる意味を downstream へ渡す。
 
 `naturalStructureSliceForChunk` は plan をワールド座標のままチャンク単位へ分割する。
+引数の`chunkX`と`chunkZ`は`ChunkAxis`、plan内のブロック位置は`BlockAxis`である。
 隣接チャンクを読まず、plan も変更しないため、負座標、未ロードの隣接チャンク、任意のロード順で
 同じ結果になる。村 plan は Overworld chunk generator と同じサイト・レイアウトを使う。
 `planNaturalStructureForRegion` は dimension、structure kind、region、sampler を受け取り、
