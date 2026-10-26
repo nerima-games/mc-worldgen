@@ -51,8 +51,7 @@ Validate raw chunk coordinates before calling `generateChunkAt`:
 ```ts
 import { ChunkAxis } from '@nerima-games/mc-kernel'
 import { Result } from 'effect'
-import { generateChunkAt } from '@nerima-games/mc-worldgen'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { generateChunkAt, type NoiseSeed } from '@nerima-games/mc-worldgen'
 
 const generateFromRawChunkCoords = (
   seed: NoiseSeed,
@@ -159,17 +158,23 @@ const planStronghold = (seed: NoiseSeed, regionX: number, regionZ: number) => {
 
 Every chunk-store factory and layer now requires a `ChunkCapacity`. Validate
 it at the configuration boundary and handle failure there. Pass the validated
-value as the `capacity` argument to `makeChunkStore` or a store layer; the
-`source` argument continues to provide chunks:
+value as the `capacity` argument to `makeChunkStore` or a store layer. This
+example validates configuration and creates an in-memory store backed by the
+dimension generator:
 
 ```ts
-import { ChunkCapacity } from '@nerima-games/mc-worldgen'
+import { ChunkCapacity, generatedChunkSource, makeChunkStore, type NoiseSeed } from '@nerima-games/mc-worldgen'
 import { Result } from 'effect'
 
-const validateCapacity = (configuredCapacity: number) => {
-  const result = ChunkCapacity.result(configuredCapacity)
-  if (Result.isFailure(result)) return result
-  return result.success
+const makeGeneratedStore = (seed: NoiseSeed, configuredCapacity: number) => {
+  const capacity = ChunkCapacity.result(configuredCapacity)
+  if (Result.isFailure(capacity)) {
+    return { _tag: 'InvalidCapacity', cause: capacity.failure } as const
+  }
+  return {
+    _tag: 'Store',
+    store: makeChunkStore(generatedChunkSource(seed), capacity.success),
+  } as const
 }
 ```
 
@@ -206,7 +211,11 @@ const getOverworldStore = (
 ```
 
 The registry layer requires the same `ChunkCapacity` as an individual store.
-The persistent registry also receives the world ID and storage service.
+For persistent stores, `PersistentChunkStoreRegistryLayer(sourceForDimension,
+worldId, capacity)` takes the world ID as a function argument and requires
+`StoragePort` from `@nerima-games/mc-save` in its Effect layer environment.
+Provide that service at the application boundary; it is not a layer function
+argument.
 
 ## Use the package root and testing entry
 
@@ -223,5 +232,5 @@ from the production package root.
 ## Resolver ownership
 
 `resolveNetherTravel` and `resolveEndGatewayExit` remain available in 0.6.
-Transfer to mx-gameplay is planned during its W4 migration. Until mx-gameplay
-adopts these APIs, callers should continue importing them from mc-worldgen.
+Transfer to mx-gameplay is planned. Until that package exports these APIs,
+callers should continue importing them from mc-worldgen.
