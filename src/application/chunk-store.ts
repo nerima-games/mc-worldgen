@@ -314,10 +314,14 @@ type ChunkStoreRuntimeState = {
 
 type EvictionAction =
   | { readonly kind: 'evicted' }
-  | { readonly kind: 'inconsistent' }
   | { readonly error: DirtyChunkEvictionError; readonly kind: 'fail' }
-  | { readonly coord: ChunkCoord; readonly key: ChunkKey; readonly kind: 'persist'; readonly snapshot: Chunk }
-  | { readonly kind: 'retry' }
+  | {
+      readonly coord: ChunkCoord
+      readonly key: ChunkKey
+      readonly kind: 'persist'
+      readonly persistence: ChunkPersistence
+      readonly snapshot: Chunk
+    }
 
 type PersistEvictionAction = Extract<EvictionAction, { readonly kind: 'persist' }>
 type EvictionPlan = (latest: ChunkStoreRuntimeState) => readonly [EvictionAction, ChunkStoreRuntimeState]
@@ -328,16 +332,6 @@ const makeEvictionPlanner = (
   lru: ChunkStoreLru,
   persistence?: ChunkPersistence,
 ): EvictionPlan => {
-  const evictMissingChunk = (
-    latest: ChunkStoreRuntimeState,
-    key: ChunkKey,
-  ): readonly [EvictionAction, ChunkStoreRuntimeState] => {
-    lru.delete(key)
-    const dirty = new Set(latest.dirty)
-    dirty.delete(key)
-    return [{ kind: 'retry' }, { ...latest, dirty }]
-  }
-
   const evictDirtyChunk = (
     latest: ChunkStoreRuntimeState,
     key: ChunkKey,
@@ -352,6 +346,7 @@ const makeEvictionPlanner = (
         coord: chunk.coord,
         key,
         kind: 'persist',
+        persistence,
         snapshot: Store.chunkSnapshotOf(chunk),
       },
       latest,
@@ -371,15 +366,9 @@ const makeEvictionPlanner = (
   }
 
   return (latest) => {
-    const key = lru.oldest()
-    if (key === null) {
-      return [{ kind: 'inconsistent' }, latest]
-    }
-
-    const chunk = latest.chunks.loaded.get(key)
-    if (!chunk) {
-      return evictMissingChunk(latest, key)
-    }
+    // Capacity eviction runs only with residents; insertion and LRU updates share the Ref.modify transition.
+    const key = lru.oldest()!
+    const chunk = latest.chunks.loaded.get(key)!
     if (latest.dirty.has(key)) {
       return evictDirtyChunk(latest, key, chunk)
     }
@@ -417,19 +406,12 @@ const makeEvictionRuntime = (
 
   const persistEviction = (action: PersistEvictionAction): Effect.Effect<void, ChunkStoreError> =>
     Effect.gen(function* persist() {
-      if (!persistence) {
-        return yield* Effect.fail(new DirtyChunkEvictionError({ coord: action.coord }))
-      }
-
-      yield* persistence.save(action.snapshot)
+      yield* action.persistence.save(action.snapshot)
       yield* Ref.modify(state, (latest) => removeSavedChunk(latest, action))
     })
 
   const processEvictionAction = (action: EvictionAction): Effect.Effect<void, ChunkStoreError> =>
     Effect.gen(function* processAction() {
-      if (action.kind === 'inconsistent') {
-        return yield* Effect.die('ChunkStore LRU does not contain every resident chunk')
-      }
       if (action.kind === 'fail') {
         return yield* Effect.fail(action.error)
       }
@@ -517,12 +499,6 @@ const makeChunkStoreInternal = (
           yield* evictUntilRoom()
 
           return yield* Ref.modify(state, (current) => {
-            const existing = Store.residentChunk(current.chunks, chunk.coord)
-            if (existing) {
-              lru.touch(Store.chunkKeyOf(chunk.coord))
-              return [existing, current]
-            }
-
             const key = Store.chunkKeyOf(chunk.coord)
             lru.add(key)
             return [chunk, { ...current, chunks: Store.withChunk(current.chunks, chunk) }]

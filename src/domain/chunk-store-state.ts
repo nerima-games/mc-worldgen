@@ -50,6 +50,7 @@ import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { Option } from 'effect'
+import { chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
 
@@ -516,10 +517,11 @@ const affectedLightKeys = (coord: ChunkCoord, local: LocalBlockCoord): ReadonlyA
   ]
   for (const [affected, dcx, dcz] of offsets) {
     if (affected) {
-      const adjacent = chunkCoordAtOffset(coord, dcx, dcz)
-      if (adjacent) {
-        keys.push(chunkKeyOf(adjacent))
-      }
+      // This coordinate came from a valid BlockPosition, so its chunk index is far inside ChunkAxis limits.
+      keys.push(chunkKeyOf(chunkCoord(
+        chunkAxisFromKnownSafeInteger(coord.cx + dcx),
+        chunkAxisFromKnownSafeInteger(coord.cz + dcz),
+      )))
     }
   }
   return keys

@@ -29,6 +29,7 @@ import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BiomeType } from './biome.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 /**
  * Edge of a siting region, in blocks. `stronghold.ts:17`.
@@ -280,16 +281,13 @@ type VillageSiteWithBounds = Readonly<{
   bounds: VillageSiteBounds
 }>
 
-const villageBoundsForSite = (site: VillageSite): Option.Option<VillageSiteBounds> => {
-  const minX = BlockAxis.option(site.x - VILLAGE_HALF_EXTENT)
-  const maxX = BlockAxis.option(site.x + VILLAGE_HALF_EXTENT)
-  const minZ = BlockAxis.option(site.z - VILLAGE_HALF_EXTENT)
-  const maxZ = BlockAxis.option(site.z + VILLAGE_HALF_EXTENT)
-  if (Option.isNone(minX) || Option.isNone(maxX) || Option.isNone(minZ) || Option.isNone(maxZ)) {
-    return Option.none()
-  }
-  return Option.some({ maxX: maxX.value, maxZ: maxZ.value, minX: minX.value, minZ: minZ.value })
-}
+const villageBoundsForSite = (site: VillageSite): VillageSiteBounds => ({
+  // Accepted candidates stay 32 blocks inside the region edge; the footprint extends 30.
+  maxX: blockAxisFromKnownSafeInteger(site.x + VILLAGE_HALF_EXTENT),
+  maxZ: blockAxisFromKnownSafeInteger(site.z + VILLAGE_HALF_EXTENT),
+  minX: blockAxisFromKnownSafeInteger(site.x - VILLAGE_HALF_EXTENT),
+  minZ: blockAxisFromKnownSafeInteger(site.z - VILLAGE_HALF_EXTENT),
+})
 
 const villagePositionForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
   const { seed, regionX, regionZ, span, attempt } = options
@@ -316,11 +314,7 @@ const villageSiteWithBoundsForAttempt = (
   if (Option.isNone(site)) {
     return Option.none()
   }
-  const bounds = villageBoundsForSite(site.value)
-  if (Option.isNone(bounds)) {
-    return Option.none()
-  }
-  return Option.some({ bounds: bounds.value, site: site.value })
+  return Option.some({ bounds: villageBoundsForSite(site.value), site: site.value })
 }
 
 const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {

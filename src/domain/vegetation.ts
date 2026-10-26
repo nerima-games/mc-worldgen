@@ -6,7 +6,7 @@
  */
 import { BEDROCK_Y, CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { BIOME_SURFACES, BLOCK, type BiomeType } from './biome.js'
-import { BLOCK_IDS, BlockId, canBlockStaySupported, isKnownBlockId } from '@nerima-games/mc-kernel'
+import { BLOCK_IDS, BlockId, canBlockStaySupported } from '@nerima-games/mc-kernel'
 import {
   GROUND_PLANT_DENSITY,
   MUSHROOM_BIOMES,
@@ -199,10 +199,7 @@ const readLocalBlock = (blocks: Uint16Array, lx: number, y: number, lz: number):
   if (knownBlock !== null) {
     return knownBlock
   }
-  const block = Result.getOrThrow(BlockId.result(blockValue))
-  if (Result.getOrThrow(isKnownBlockId(block))) {
-    return block
-  }
+  Result.getOrThrow(BlockId.result(blockValue))
   return BLOCK.AIR
 }
 

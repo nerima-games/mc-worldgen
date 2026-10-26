@@ -12,6 +12,7 @@ import { Brand, Result } from 'effect'
 export const blockAxisFromKnownSafeInteger: (value: number) => BlockAxisValue = Brand.nominal<BlockAxisValue>()
 export const blockAxis = (value: number): BlockAxisValue => Result.getOrThrow(BlockAxis.result(value))
 
+export const chunkAxisFromKnownSafeInteger: (value: number) => ChunkAxisValue = Brand.nominal<ChunkAxisValue>()
 export const chunkAxis = (value: number): ChunkAxisValue => Result.getOrThrow(ChunkAxis.result(value))
 
 export const localAxis = (value: number): LocalAxisValue => Result.getOrThrow(LocalAxis.result(value))

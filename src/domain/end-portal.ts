@@ -6,7 +6,7 @@ import { type BlockId, type BlockPosition, type Dimension, blockIdOf, blockPosit
 import { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { STRONGHOLD_BLOCK } from './stronghold.js'
 import { type StrongholdSite, STRONGHOLD_FLOOR_Y } from './structure-siting.js'
-import { blockAxis } from './coordinate-compatibility.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 export type EndPortalFrameFacing = 'north' | 'east' | 'south' | 'west'
 
@@ -102,15 +102,15 @@ export const detectCompletedEndPortal = (
   }
 
   const materialization: EndPortalMutation[] = []
+  // The validated outer ring at radius two proves the inner radius-one coordinates are safe.
   for (let dz = -1; dz <= 1; dz += 1) {
     for (let dx = -1; dx <= 1; dx += 1) {
-      const x = BlockAxis.option(center.x + dx)
-      const z = BlockAxis.option(center.z + dz)
-      if (Option.isNone(x) || Option.isNone(z)) {
-        return Option.none()
-      }
       materialization.push({
-        at: blockPosition(x.value, center.y, z.value),
+        at: blockPosition(
+          blockAxisFromKnownSafeInteger(center.x + dx),
+          center.y,
+          blockAxisFromKnownSafeInteger(center.z + dz),
+        ),
         block: END_PORTAL_BLOCK.PORTAL,
       })
     }
