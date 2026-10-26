@@ -366,9 +366,10 @@ const makeEvictionPlanner = (
   }
 
   return (latest) => {
-    // Capacity eviction runs only with residents; insertion and LRU updates share the Ref.modify transition.
-    const key = lru.oldest()!
-    const chunk = latest.chunks.loaded.get(key)!
+    // Capacity eviction runs only when residents fill the positive capacity.
+    // Ref.modify transitions keep LRU and resident membership aligned.
+    const key = Option.getOrThrow(Option.fromNullishOr(lru.oldest()))
+    const chunk = Option.getOrThrow(Option.fromNullishOr(latest.chunks.loaded.get(key)))
     if (latest.dirty.has(key)) {
       return evictDirtyChunk(latest, key, chunk)
     }
