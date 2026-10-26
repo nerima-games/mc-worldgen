@@ -16,15 +16,15 @@ import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeedValue, fbm2D, valueNoise2D } from './noise-compatibility.js'
 import { continentalnessAt, surfaceHeightFromContinentalness, surfaceHeightValueFromContinentalness } from './density-function.js'
-import type { BiomeType } from './biome.js'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import {
   computeLakeBasinY,
   determineWaterLevelValue,
   isLakeShoreColumnForGeneration,
   resolveSurfaceYFromBasin,
 } from './lake-generator.js'
+import type { BiomeType } from './biome.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
