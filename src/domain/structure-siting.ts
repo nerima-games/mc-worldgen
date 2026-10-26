@@ -24,9 +24,23 @@
  * strongholds in the same 384-block grid cells. Same conclusion as
  * `./vegetation.ts` and `./ore.ts`, and by now the same paragraph.
  */
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { BlockAxis, type ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import {
+  InvalidNaturalStructureCoordinate,
+  MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  type NaturalStructureRegionSpan,
+  type ValidatedNaturalStructureRegion,
+  type ValidatedNaturalStructureRegionAxis,
+  type ValidatedNaturalStructureRegionSpan,
+  validateNaturalStructureRegionCoordinates,
+  validateNaturalStructureRegionSpan,
+  validatedNaturalStructureRegionAxisInSpan,
+} from './natural-structure-coordinate-validation.js'
+import { Option, Result } from 'effect'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BiomeType } from './biome.js'
-import { Option } from 'effect'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 /**
  * Edge of a siting region, in blocks. `stronghold.ts:17`.
@@ -67,17 +81,18 @@ export const STRONGHOLD_FLOOR_Y = 28
 export const STRONGHOLD_SEARCH_RADIUS = 6
 
 export type StrongholdSite = {
-  readonly x: number
-  readonly z: number
+  readonly x: BlockAxis
+  readonly z: BlockAxis
 }
 
-export type StrongholdOrigin = { readonly x: number; readonly z: number }
+export type StrongholdOrigin = { readonly x: BlockAxis; readonly z: BlockAxis }
 
 /** A permille figure (parts per 1000) divides by this to become a probability in `[0, 1)`. */
 const PERMILLE_SCALE = 1000
 
 /** A region's margin is subtracted from both of its edges to get the free span inside it. */
 const MARGIN_SIDES = 2
+const STRONGHOLD_REGION_GRID = { separation: STRONGHOLD_SITE_MARGIN * MARGIN_SIDES, spacing: STRONGHOLD_REGION_SIZE }
 
 /** Euclidean floor division — correct for negative operands, as in `mc-kernel`. */
 const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
@@ -95,27 +110,75 @@ const floorDiv = (value: number, divisor: number): number => Math.floor(value / 
  * same three draws (`stronghold.ts:34-39`) — distinct magic middle coordinates
  * doing the work a channel name does here.
  */
-export const strongholdSiteForRegion = (
-  seed: number,
+const strongholdCoordinatesForRegion = (
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
 ): Option.Option<StrongholdSite> => {
-  const roll = latticeValue(channelSeed(seed, 'stronghold-present'), regionX, regionZ)
-
-  if (roll >= STRONGHOLD_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
-    return Option.none()
-  }
-
   const span = STRONGHOLD_REGION_SIZE - STRONGHOLD_SITE_MARGIN * MARGIN_SIDES
   const offsetX =
     STRONGHOLD_SITE_MARGIN + Math.floor(latticeValue(channelSeed(seed, 'stronghold-x'), regionX, regionZ) * span)
   const offsetZ =
     STRONGHOLD_SITE_MARGIN + Math.floor(latticeValue(channelSeed(seed, 'stronghold-z'), regionX, regionZ) * span)
+  const x = BlockAxis.option(regionX * STRONGHOLD_REGION_SIZE + offsetX)
+  const z = BlockAxis.option(regionZ * STRONGHOLD_REGION_SIZE + offsetZ)
+  if (Option.isNone(x) || Option.isNone(z)) {
+    return Option.none()
+  }
+  return Option.some({ x: x.value, z: z.value })
+}
 
-  return Option.some({
-    x: regionX * STRONGHOLD_REGION_SIZE + offsetX,
-    z: regionZ * STRONGHOLD_REGION_SIZE + offsetZ,
-  })
+export const strongholdPresenceChannelSeedFor = (seed: NoiseSeed): NoiseSeed => channelSeed(seed, 'stronghold-present')
+
+export const strongholdCandidateExistsWithPresenceChannelSeed = (
+  presenceChannelSeed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+): boolean => latticeValue(presenceChannelSeed, regionX, regionZ) < STRONGHOLD_REGION_SPAWN_PERMILLE / PERMILLE_SCALE
+
+export const strongholdCandidateExistsInRegion = (seed: NoiseSeed, regionX: number, regionZ: number): boolean =>
+  strongholdCandidateExistsWithPresenceChannelSeed(strongholdPresenceChannelSeedFor(seed), regionX, regionZ)
+
+const strongholdSiteOptionForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+): Option.Option<StrongholdSite> => {
+  if (!strongholdCandidateExistsInRegion(seed, regionX, regionZ)) {
+    return Option.none()
+  }
+  return strongholdCoordinatesForRegion(seed, regionX, regionZ)
+}
+
+export const strongholdSiteOptionForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  candidatePresenceChecked = false,
+): Option.Option<StrongholdSite> => {
+  if (candidatePresenceChecked) {return strongholdCoordinatesForRegion(seed, regionX, regionZ)}
+  return strongholdSiteOptionForRegion(seed, regionX, regionZ)
+}
+
+const validateStrongholdRegionCoordinates = (
+  regionX: number,
+  regionZ: number,
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> =>
+  validateNaturalStructureRegionCoordinates(
+    'stronghold',
+    { x: regionX, z: regionZ },
+    STRONGHOLD_REGION_GRID,
+    MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  )
+
+export const strongholdSiteForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+): Result.Result<Option.Option<StrongholdSite>, InvalidNaturalStructureCoordinate> => {
+  const validation = validateStrongholdRegionCoordinates(regionX, regionZ)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return Result.succeed(strongholdSiteOptionForRegion(seed, validation.success.x, validation.success.z))
 }
 
 /** `locateStronghold` returns this many candidates unless the caller asks for fewer or more. */
@@ -129,7 +192,7 @@ const RESULT_START_INDEX = 0
 
 /** Returns the nearest deterministic candidates, ordered by distance then coordinate. */
 export const locateStronghold = (
-  seed: number,
+  seed: NoiseSeed,
   origin: StrongholdOrigin,
   limit: number = DEFAULT_STRONGHOLD_RESULT_LIMIT,
 ): ReadonlyArray<StrongholdSite> => {
@@ -138,7 +201,7 @@ export const locateStronghold = (
   const sites: StrongholdSite[] = []
   for (let dx = -STRONGHOLD_SEARCH_RADIUS; dx <= STRONGHOLD_SEARCH_RADIUS; dx++) {
     for (let dz = -STRONGHOLD_SEARCH_RADIUS; dz <= STRONGHOLD_SEARCH_RADIUS; dz++) {
-      const candidate = strongholdSiteForRegion(seed, regionX + dx, regionZ + dz)
+      const candidate = strongholdSiteOptionForRegion(seed, regionX + dx, regionZ + dz)
       if (Option.isSome(candidate)) {sites.push(candidate.value)}
     }
   }
@@ -179,19 +242,76 @@ const VILLAGE_MAX_HEIGHT_VARIATION = 6
 const CHUNK_SIZE = 16
 const CHUNK_MAX_LOCAL = 15
 const REGION_STEP = 1
+const MIN_HALF_EXTENT = 0
+const VILLAGE_REGION_GRID = { separation: VILLAGE_SITE_MARGIN * MARGIN_SIDES, spacing: VILLAGE_REGION_SIZE }
+
+type SitingChunkBounds = {
+  readonly maxX: number
+  readonly maxZ: number
+  readonly minX: number
+  readonly minZ: number
+}
+
+const invalidSitingBounds = (
+  kind: 'stronghold' | 'village',
+  chunkX: number,
+  chunkZ: number,
+  axis: 'footprint-x' | 'footprint-z',
+  value: number,
+): InvalidNaturalStructureCoordinate => new InvalidNaturalStructureCoordinate({
+  axis,
+  kind,
+  region: { x: Number(chunkX), z: Number(chunkZ) },
+  value,
+})
+
+const sitingChunkBoundsFor = (chunkX: number, chunkZ: number, halfExtent: number): SitingChunkBounds => ({
+  maxX: chunkX * CHUNK_SIZE + CHUNK_MAX_LOCAL + halfExtent,
+  maxZ: chunkZ * CHUNK_SIZE + CHUNK_MAX_LOCAL + halfExtent,
+  minX: chunkX * CHUNK_SIZE - halfExtent,
+  minZ: chunkZ * CHUNK_SIZE - halfExtent,
+})
+
+const firstInvalidSitingBound = (
+  kind: 'stronghold' | 'village',
+  chunkX: number,
+  chunkZ: number,
+  bounds: SitingChunkBounds,
+): InvalidNaturalStructureCoordinate | null => {
+  if (!Number.isSafeInteger(bounds.minX)) {return invalidSitingBounds(kind, chunkX, chunkZ, 'footprint-x', bounds.minX)}
+  if (!Number.isSafeInteger(bounds.maxX)) {return invalidSitingBounds(kind, chunkX, chunkZ, 'footprint-x', bounds.maxX)}
+  if (!Number.isSafeInteger(bounds.minZ)) {return invalidSitingBounds(kind, chunkX, chunkZ, 'footprint-z', bounds.minZ)}
+  if (!Number.isSafeInteger(bounds.maxZ)) {return invalidSitingBounds(kind, chunkX, chunkZ, 'footprint-z', bounds.maxZ)}
+  return null
+}
+
+const validateSitingChunkBounds = (
+  kind: 'stronghold' | 'village',
+  chunkX: number,
+  chunkZ: number,
+  halfExtent: number,
+): Result.Result<SitingChunkBounds, InvalidNaturalStructureCoordinate> => {
+  if (!Number.isSafeInteger(halfExtent) || halfExtent < MIN_HALF_EXTENT) {
+    return Result.fail(invalidSitingBounds(kind, chunkX, chunkZ, 'footprint-x', halfExtent))
+  }
+  const bounds = sitingChunkBoundsFor(chunkX, chunkZ, halfExtent)
+  const failure = firstInvalidSitingBound(kind, chunkX, chunkZ, bounds)
+  if (failure) {return Result.fail(failure)}
+  return Result.succeed(bounds)
+}
 
 export type VillageSite = {
-  readonly x: number
-  readonly z: number
+  readonly x: BlockAxis
+  readonly z: BlockAxis
 }
 
 export type OverworldTerrainSample = {
   readonly biome: BiomeType
-  readonly surfaceY: number
-  readonly seaLevel: number
+  readonly surfaceY: BlockAxis
+  readonly seaLevel: BlockAxis
 }
 
-export type OverworldTerrainSampler = (x: number, z: number) => OverworldTerrainSample
+export type OverworldTerrainSampler = (x: BlockAxis, z: BlockAxis) => OverworldTerrainSample
 
 /**
  * Is every probe of a candidate village site dry, level PLAINS?
@@ -199,13 +319,26 @@ export type OverworldTerrainSampler = (x: number, z: number) => OverworldTerrain
  * Split out of `villageSiteForRegion` so that function's own statement count
  * stays a plain read: roll, reject, offset, probe, reject-or-accept.
  */
-const isValidVillageSite = (probes: ReadonlyArray<OverworldTerrainSample>): boolean => {
-  if (probes.some((probe) => probe.biome !== 'PLAINS' || probe.surfaceY <= probe.seaLevel + VILLAGE_MIN_DRY_CLEARANCE)) {
+const isValidVillageSite = (
+  center: OverworldTerrainSample,
+  minX: OverworldTerrainSample,
+  maxX: OverworldTerrainSample,
+  minZ: OverworldTerrainSample,
+  maxZ: OverworldTerrainSample,
+): boolean => {
+  if (
+    center.biome !== 'PLAINS' || center.surfaceY <= center.seaLevel + VILLAGE_MIN_DRY_CLEARANCE ||
+    minX.biome !== 'PLAINS' || minX.surfaceY <= minX.seaLevel + VILLAGE_MIN_DRY_CLEARANCE ||
+    maxX.biome !== 'PLAINS' || maxX.surfaceY <= maxX.seaLevel + VILLAGE_MIN_DRY_CLEARANCE ||
+    minZ.biome !== 'PLAINS' || minZ.surfaceY <= minZ.seaLevel + VILLAGE_MIN_DRY_CLEARANCE ||
+    maxZ.biome !== 'PLAINS' || maxZ.surfaceY <= maxZ.seaLevel + VILLAGE_MIN_DRY_CLEARANCE
+  ) {
     return false
   }
 
-  const heights = probes.map((probe) => probe.surfaceY)
-  return Math.max(...heights) - Math.min(...heights) <= VILLAGE_MAX_HEIGHT_VARIATION
+  const minimumSurfaceY = Math.min(center.surfaceY, minX.surfaceY, maxX.surfaceY, minZ.surfaceY, maxZ.surfaceY)
+  const maximumSurfaceY = Math.max(center.surfaceY, minX.surfaceY, maxX.surfaceY, minZ.surfaceY, maxZ.surfaceY)
+  return maximumSurfaceY - minimumSurfaceY <= VILLAGE_MAX_HEIGHT_VARIATION
 }
 
 /**
@@ -242,107 +375,172 @@ const isValidVillageSite = (probes: ReadonlyArray<OverworldTerrainSample>): bool
  */
 const VILLAGE_SITE_ATTEMPTS = 64
 
-type VillageCandidateAttempt = {
-  readonly seed: number
+type VillageCandidateRegion = {
+  readonly seed: NoiseSeed
   readonly regionX: number
   readonly regionZ: number
   readonly span: number
-  readonly attempt: number
   readonly sampleTerrain: OverworldTerrainSampler
 }
 
-/**
- * One seeded (x, z) draw for one attempt inside a region, accepted only when
- * its complete footprint is dry, level plains.
- *
- * Split out of `villageSiteForRegion` for the same reason `isValidVillageSite`
- * already was: keeping the per-attempt arithmetic and probing here lets the
- * caller's retry loop stay a plain "ask, then stop on the first yes".
- */
-const villageCandidateForAttempt = (options: VillageCandidateAttempt): Option.Option<VillageSite> => {
-  const { seed, regionX, regionZ, span, attempt, sampleTerrain } = options
-  const x =
-    regionX * VILLAGE_REGION_SIZE +
-    VILLAGE_SITE_MARGIN +
-    Math.floor(latticeValue(channelSeed(seed, `village-x-${String(attempt)}`), regionX, regionZ) * span)
-  const z =
-    regionZ * VILLAGE_REGION_SIZE +
-    VILLAGE_SITE_MARGIN +
-    Math.floor(latticeValue(channelSeed(seed, `village-z-${String(attempt)}`), regionX, regionZ) * span)
-  const probes = [
-    sampleTerrain(x, z),
-    sampleTerrain(x - VILLAGE_HALF_EXTENT, z),
-    sampleTerrain(x + VILLAGE_HALF_EXTENT, z),
-    sampleTerrain(x, z - VILLAGE_HALF_EXTENT),
-    sampleTerrain(x, z + VILLAGE_HALF_EXTENT),
-  ]
-
-  if (isValidVillageSite(probes)) {
-    return Option.some({ x, z })
+/** Allocate a site only after all five terrain probes pass. */
+const villageCandidateForAttempt = (
+  region: VillageCandidateRegion,
+  attempt: number,
+): VillageSite | false => {
+  const { regionX, regionZ, sampleTerrain, seed, span } = region
+  const x = regionX * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN + Math.floor(
+    latticeValue(channelSeed(seed, `village-x-${String(attempt)}`), regionX, regionZ) * span,
+  )
+  const z = regionZ * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN + Math.floor(
+    latticeValue(channelSeed(seed, `village-z-${String(attempt)}`), regionX, regionZ) * span,
+  )
+  const siteX = blockAxisFromKnownSafeInteger(x)
+  const siteZ = blockAxisFromKnownSafeInteger(z)
+  if (
+    isValidVillageSite(
+      sampleTerrain(siteX, siteZ),
+      sampleTerrain(blockAxisFromKnownSafeInteger(x - VILLAGE_HALF_EXTENT), siteZ),
+      sampleTerrain(blockAxisFromKnownSafeInteger(x + VILLAGE_HALF_EXTENT), siteZ),
+      sampleTerrain(siteX, blockAxisFromKnownSafeInteger(z - VILLAGE_HALF_EXTENT)),
+      sampleTerrain(siteX, blockAxisFromKnownSafeInteger(z + VILLAGE_HALF_EXTENT)),
+    )
+  ) {
+    return { x: siteX, z: siteZ }
   }
-  return Option.none()
+  return false
 }
 
-/** A sparse, seeded candidate accepted only when its complete footprint is dry, level plains. */
-export const villageSiteForRegion = (
-  seed: number,
+export const villagePresenceChannelSeedFor = (seed: NoiseSeed): NoiseSeed => channelSeed(seed, 'village-present')
+
+export const villageCandidateExistsWithPresenceChannelSeed = (
+  presenceChannelSeed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+): boolean => latticeValue(presenceChannelSeed, regionX, regionZ) < VILLAGE_REGION_SPAWN_PERMILLE / PERMILLE_SCALE
+
+export const villageCandidateExistsInRegion = (seed: NoiseSeed, regionX: number, regionZ: number): boolean =>
+  villageCandidateExistsWithPresenceChannelSeed(villagePresenceChannelSeedFor(seed), regionX, regionZ)
+
+/**
+ * A sparse, seeded candidate accepted only when its complete footprint is dry,
+ * level plains. Call only for validated regions: their full seeded offset
+ * range plus the terrain probe extent fits inside the safe block-coordinate
+ * range.
+ */
+const villageSiteOptionForRegion = (
+  seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
+  candidatePresenceChecked = false,
 ): Option.Option<VillageSite> => {
-  const roll = latticeValue(channelSeed(seed, 'village-present'), regionX, regionZ)
-  if (roll >= VILLAGE_REGION_SPAWN_PERMILLE / PERMILLE_SCALE) {
+  if (!candidatePresenceChecked && !villageCandidateExistsInRegion(seed, regionX, regionZ)) {
     return Option.none()
   }
 
   const span = VILLAGE_REGION_SIZE - VILLAGE_SITE_MARGIN * MARGIN_SIDES
+  const candidateRegion = { regionX, regionZ, sampleTerrain, seed, span }
 
   for (let attempt = 0; attempt < VILLAGE_SITE_ATTEMPTS; attempt++) {
-    const candidate = villageCandidateForAttempt({ attempt, regionX, regionZ, sampleTerrain, seed, span })
-    if (Option.isSome(candidate)) {
-      return candidate
+    const candidate = villageCandidateForAttempt(candidateRegion, attempt)
+    if (candidate !== false) {
+      return Option.some(candidate)
     }
   }
 
   return Option.none()
 }
 
-/** Finds all accepted village centres whose footprint can overlap this chunk. */
-export const villageSitesNearChunk = (
-  seed: number,
-  chunkX: number,
-  chunkZ: number,
-  sampleTerrain: OverworldTerrainSampler,
-): ReadonlyArray<VillageSite> => {
-  const bounds = {
-    maxX: chunkX * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT,
-    maxZ: chunkZ * CHUNK_SIZE + CHUNK_MAX_LOCAL + VILLAGE_HALF_EXTENT,
-    minX: chunkX * CHUNK_SIZE - VILLAGE_HALF_EXTENT,
-    minZ: chunkZ * CHUNK_SIZE - VILLAGE_HALF_EXTENT,
-  }
-  const sites: Array<VillageSite> = []
+const validateVillageRegionCoordinates = (
+  regionX: number,
+  regionZ: number,
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> =>
+  validateNaturalStructureRegionCoordinates(
+    'village',
+    { x: regionX, z: regionZ },
+    VILLAGE_REGION_GRID,
+    VILLAGE_HALF_EXTENT,
+  )
 
-  for (
-    let regionX = floorDiv(bounds.minX, VILLAGE_REGION_SIZE);
-    regionX <= floorDiv(bounds.maxX, VILLAGE_REGION_SIZE);
-    regionX += REGION_STEP
+export const villageSiteOptionForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: OverworldTerrainSampler,
+  candidatePresenceChecked = false,
+): Option.Option<VillageSite> => villageSiteOptionForRegion(seed, regionX, regionZ, sampleTerrain, candidatePresenceChecked)
+
+type VillageChunkQuery = {
+  readonly bounds: SitingChunkBounds
+  readonly sampleTerrain: OverworldTerrainSampler
+  readonly seed: NoiseSeed
+  readonly sites: Array<VillageSite>
+}
+
+const appendVillageSiteForRegion = (
+  query: VillageChunkQuery,
+  span: ValidatedNaturalStructureRegionSpan,
+  regionX: number,
+  regionZ: number,
+): void => {
+  const site = villageSiteOptionForValidatedRegion(
+    query.seed,
+    validatedNaturalStructureRegionAxisInSpan(span, regionX),
+    validatedNaturalStructureRegionAxisInSpan(span, regionZ),
+    query.sampleTerrain,
+  )
+  if (
+    Option.isSome(site) &&
+    site.value.x >= query.bounds.minX && site.value.x <= query.bounds.maxX &&
+    site.value.z >= query.bounds.minZ && site.value.z <= query.bounds.maxZ
   ) {
-    for (
-      let regionZ = floorDiv(bounds.minZ, VILLAGE_REGION_SIZE);
-      regionZ <= floorDiv(bounds.maxZ, VILLAGE_REGION_SIZE);
-      regionZ += REGION_STEP
-    ) {
-      const site = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
-      if (
-        Option.isSome(site) &&
-        site.value.x >= bounds.minX && site.value.x <= bounds.maxX &&
-        site.value.z >= bounds.minZ && site.value.z <= bounds.maxZ
-      ) {
-        sites.push(site.value)
-      }
+    query.sites.push(site.value)
+  }
+}
+
+const appendVillageSitesInBounds = (query: VillageChunkQuery): InvalidNaturalStructureCoordinate | null => {
+  const { bounds } = query
+  const regionBounds: NaturalStructureRegionSpan = {
+    maxRegionX: floorDiv(bounds.maxX, VILLAGE_REGION_SIZE),
+    maxRegionZ: floorDiv(bounds.maxZ, VILLAGE_REGION_SIZE),
+    minRegionX: floorDiv(bounds.minX, VILLAGE_REGION_SIZE),
+    minRegionZ: floorDiv(bounds.minZ, VILLAGE_REGION_SIZE),
+  }
+  const validatedSpan = validateNaturalStructureRegionSpan('village', regionBounds, VILLAGE_REGION_GRID, VILLAGE_HALF_EXTENT)
+  if (validatedSpan instanceof Error) {return validatedSpan}
+  for (let regionX = validatedSpan.minRegionX; regionX <= validatedSpan.maxRegionX; regionX += REGION_STEP) {
+    for (let regionZ = validatedSpan.minRegionZ; regionZ <= validatedSpan.maxRegionZ; regionZ += REGION_STEP) {
+      appendVillageSiteForRegion(query, validatedSpan, regionX, regionZ)
     }
   }
-  return sites
+  return null
+}
+
+export const villageSiteForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): Result.Result<Option.Option<VillageSite>, InvalidNaturalStructureCoordinate> => {
+  const validation = validateVillageRegionCoordinates(regionX, regionZ)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return Result.succeed(villageSiteOptionForRegion(seed, validation.success.x, validation.success.z, sampleTerrain))
+}
+
+/** Finds all accepted village centres whose footprint can overlap this chunk. */
+export const villageSitesNearChunk = (
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
+  sampleTerrain: OverworldTerrainSampler,
+): Result.Result<ReadonlyArray<VillageSite>, InvalidNaturalStructureCoordinate> => {
+  const boundsResult = validateSitingChunkBounds('village', chunkX, chunkZ, VILLAGE_HALF_EXTENT)
+  if (Result.isFailure(boundsResult)) {return Result.fail(boundsResult.failure)}
+  const query: VillageChunkQuery = { bounds: boundsResult.success, sampleTerrain, seed, sites: [] }
+  const failure = appendVillageSitesInBounds(query)
+  if (failure) {return Result.fail(failure)}
+  return Result.succeed(query.sites)
 }
 
 /** Chebyshev shell radius containing only the centre region itself. */
@@ -353,7 +551,7 @@ const SHELL_INNER_RADIUS_OFFSET = 1
 const NO_SHELL_BOUND = 0
 
 type StrongholdSearchQuery = {
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly x: number
   readonly z: number
 }
@@ -375,7 +573,7 @@ const considerStrongholdRegion = (
   regionZ: number,
   state: StrongholdSearchState,
 ): StrongholdSearchState => {
-  const site = strongholdSiteForRegion(query.seed, regionX, regionZ)
+  const site = strongholdSiteOptionForRegion(query.seed, regionX, regionZ)
 
   if (Option.isNone(site)) {
     return state
@@ -444,7 +642,7 @@ const scanStrongholdShell = (
  * beat the best so far?) and `scanStrongholdShell` (walk one shell), so this
  * function itself stays the five-line search loop the doc comment describes.
  */
-export const nearestStrongholdSite = (seed: number, x: number, z: number): Option.Option<StrongholdSite> => {
+export const nearestStrongholdSite = (seed: NoiseSeed, x: BlockAxis, z: BlockAxis): Option.Option<StrongholdSite> => {
   const query: StrongholdSearchQuery = { seed, x, z }
   const centre: StrongholdRegionCoord = {
     regionX: floorDiv(x, STRONGHOLD_REGION_SIZE),
@@ -465,6 +663,55 @@ export const nearestStrongholdSite = (seed: number, x: number, z: number): Optio
   return state.best
 }
 
+type StrongholdChunkQuery = {
+  readonly bounds: SitingChunkBounds
+  readonly seed: NoiseSeed
+  readonly sites: Array<StrongholdSite>
+}
+
+const appendStrongholdSiteForRegion = (
+  query: StrongholdChunkQuery,
+  span: ValidatedNaturalStructureRegionSpan,
+  regionX: number,
+  regionZ: number,
+): void => {
+  const site = strongholdSiteOptionForValidatedRegion(
+    query.seed,
+    validatedNaturalStructureRegionAxisInSpan(span, regionX),
+    validatedNaturalStructureRegionAxisInSpan(span, regionZ),
+  )
+  if (
+    Option.isSome(site) &&
+    site.value.x >= query.bounds.minX && site.value.x <= query.bounds.maxX &&
+    site.value.z >= query.bounds.minZ && site.value.z <= query.bounds.maxZ
+  ) {
+    query.sites.push(site.value)
+  }
+}
+
+const appendStrongholdSitesInBounds = (query: StrongholdChunkQuery): InvalidNaturalStructureCoordinate | null => {
+  const { bounds } = query
+  const regionBounds: NaturalStructureRegionSpan = {
+    maxRegionX: floorDiv(bounds.maxX, STRONGHOLD_REGION_SIZE),
+    maxRegionZ: floorDiv(bounds.maxZ, STRONGHOLD_REGION_SIZE),
+    minRegionX: floorDiv(bounds.minX, STRONGHOLD_REGION_SIZE),
+    minRegionZ: floorDiv(bounds.minZ, STRONGHOLD_REGION_SIZE),
+  }
+  const validatedSpan = validateNaturalStructureRegionSpan(
+    'stronghold',
+    regionBounds,
+    STRONGHOLD_REGION_GRID,
+    MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  )
+  if (validatedSpan instanceof Error) {return validatedSpan}
+  for (let regionX = validatedSpan.minRegionX; regionX <= validatedSpan.maxRegionX; regionX += REGION_STEP) {
+    for (let regionZ = validatedSpan.minRegionZ; regionZ <= validatedSpan.maxRegionZ; regionZ += REGION_STEP) {
+      appendStrongholdSiteForRegion(query, validatedSpan, regionX, regionZ)
+    }
+  }
+  return null
+}
+
 /**
  * Does a stronghold's footprint touch this chunk?
  *
@@ -480,39 +727,15 @@ export const nearestStrongholdSite = (seed: number, x: number, z: number): Optio
  * has explicitly deferred.
  */
 export const strongholdSitesNearChunk = (
-  seed: number,
-  chunkX: number,
-  chunkZ: number,
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
   halfExtent: number,
-): ReadonlyArray<StrongholdSite> => {
-  const bounds = {
-    maxX: chunkX * CHUNK_SIZE + CHUNK_MAX_LOCAL + halfExtent,
-    maxZ: chunkZ * CHUNK_SIZE + CHUNK_MAX_LOCAL + halfExtent,
-    minX: chunkX * CHUNK_SIZE - halfExtent,
-    minZ: chunkZ * CHUNK_SIZE - halfExtent,
-  }
-
-  const sites: Array<StrongholdSite> = []
-  for (
-    let regionX = floorDiv(bounds.minX, STRONGHOLD_REGION_SIZE);
-    regionX <= floorDiv(bounds.maxX, STRONGHOLD_REGION_SIZE);
-    regionX++
-  ) {
-    for (
-      let regionZ = floorDiv(bounds.minZ, STRONGHOLD_REGION_SIZE);
-      regionZ <= floorDiv(bounds.maxZ, STRONGHOLD_REGION_SIZE);
-      regionZ++
-    ) {
-      const site = strongholdSiteForRegion(seed, regionX, regionZ)
-      if (
-        Option.isSome(site) &&
-        site.value.x >= bounds.minX && site.value.x <= bounds.maxX &&
-        site.value.z >= bounds.minZ && site.value.z <= bounds.maxZ
-      ) {
-        sites.push(site.value)
-      }
-    }
-  }
-
-  return sites
+): Result.Result<ReadonlyArray<StrongholdSite>, InvalidNaturalStructureCoordinate> => {
+  const boundsResult = validateSitingChunkBounds('stronghold', chunkX, chunkZ, halfExtent)
+  if (Result.isFailure(boundsResult)) {return Result.fail(boundsResult.failure)}
+  const query: StrongholdChunkQuery = { bounds: boundsResult.success, seed, sites: [] }
+  const failure = appendStrongholdSitesInBounds(query)
+  if (failure) {return Result.fail(failure)}
+  return Result.succeed(query.sites)
 }

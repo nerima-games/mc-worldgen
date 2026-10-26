@@ -36,6 +36,7 @@
 import {
   BlockId,
   type BlockPosition,
+  ChunkAxis,
   type ChunkCoord,
   type ChunkKey,
   type LocalBlockCoord,
@@ -47,7 +48,9 @@ import {
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { Option } from 'effect'
+import { chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
 
@@ -124,7 +127,7 @@ export const wasWritten = (outcome: BlockWriteOutcome): boolean => outcome['_tag
 const WORLD_MIN_Y = 0
 
 /** Is this Y inside the world column a chunk represents? */
-export const isWorldY = (y: number): boolean => Number.isInteger(y) && y >= WORLD_MIN_Y && y < CHUNK_HEIGHT
+export const isWorldY = (y: BlockAxis): boolean => y >= WORLD_MIN_Y && y < CHUNK_HEIGHT
 
 // ---------------------------------------------------------------------------
 // Light
@@ -337,10 +340,25 @@ const HORIZONTAL_NEIGHBOUR_OFFSETS: ReadonlyArray<readonly [number, number]> = [
   [NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP],
 ]
 
-const lightKeysAround = (coord: ChunkCoord): ReadonlyArray<ChunkKey> => [
-  chunkKeyOf(coord),
-  ...HORIZONTAL_NEIGHBOUR_OFFSETS.map(([dcx, dcz]) => chunkKeyOf(chunkCoord(coord.cx + dcx, coord.cz + dcz))),
-]
+const chunkCoordAtOffset = (coord: ChunkCoord, dcx: number, dcz: number): ChunkCoord | undefined => {
+  const cx = ChunkAxis.option(coord.cx + dcx)
+  const cz = ChunkAxis.option(coord.cz + dcz)
+  if (Option.isNone(cx) || Option.isNone(cz)) {
+    return
+  }
+  return chunkCoord(cx.value, cz.value)
+}
+
+const lightKeysAround = (coord: ChunkCoord): ReadonlyArray<ChunkKey> => {
+  const keys: Array<ChunkKey> = [chunkKeyOf(coord)]
+  for (const [dcx, dcz] of HORIZONTAL_NEIGHBOUR_OFFSETS) {
+    const adjacent = chunkCoordAtOffset(coord, dcx, dcz)
+    if (adjacent) {
+      keys.push(chunkKeyOf(adjacent))
+    }
+  }
+  return keys
+}
 
 const withoutLights = (
   lights: ReadonlyMap<ChunkKey, ChunkLight>,
@@ -366,10 +384,12 @@ const noteLoadedNeighbours = (
   let next = subscribers
 
   for (const [dcx, dcz] of HORIZONTAL_NEIGHBOUR_OFFSETS) {
-    const neighbourCoord = chunkCoord(coord.cx + dcx, coord.cz + dcz)
-    const key = chunkKeyOf(neighbourCoord)
-    if (loaded.has(key)) {
-      next = noteChange(next, key, neighbourCoord, 'changed')
+    const neighbourCoord = chunkCoordAtOffset(coord, dcx, dcz)
+    if (neighbourCoord) {
+      const key = chunkKeyOf(neighbourCoord)
+      if (loaded.has(key)) {
+        next = noteChange(next, key, neighbourCoord, 'changed')
+      }
     }
   }
 
@@ -489,10 +509,21 @@ const CHUNK_LOCAL_MAX_XZ = CHUNK_SIZE_XZ - CHUNK_LOCAL_INDEX_STEP
 /** Every chunk whose cached light needs dropping after a write at `local` within `coord`. */
 const affectedLightKeys = (coord: ChunkCoord, local: LocalBlockCoord): ReadonlyArray<ChunkKey> => {
   const keys = [chunkKeyOf(coord)]
-  if (local.lx === CHUNK_LOCAL_MIN_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx - NEIGHBOUR_OFFSET_STEP, coord.cz)))}
-  if (local.lx === CHUNK_LOCAL_MAX_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx + NEIGHBOUR_OFFSET_STEP, coord.cz)))}
-  if (local.lz === CHUNK_LOCAL_MIN_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz - NEIGHBOUR_OFFSET_STEP)))}
-  if (local.lz === CHUNK_LOCAL_MAX_XZ) {keys.push(chunkKeyOf(chunkCoord(coord.cx, coord.cz + NEIGHBOUR_OFFSET_STEP)))}
+  const offsets: ReadonlyArray<readonly [boolean, number, number]> = [
+    [local.lx === CHUNK_LOCAL_MIN_XZ, -NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
+    [local.lx === CHUNK_LOCAL_MAX_XZ, NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE],
+    [local.lz === CHUNK_LOCAL_MIN_XZ, NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP],
+    [local.lz === CHUNK_LOCAL_MAX_XZ, NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP],
+  ]
+  for (const [affected, dcx, dcz] of offsets) {
+    if (affected) {
+      // This coordinate came from a valid BlockPosition, so its chunk index is far inside ChunkAxis limits.
+      keys.push(chunkKeyOf(chunkCoord(
+        chunkAxisFromKnownSafeInteger(coord.cx + dcx),
+        chunkAxisFromKnownSafeInteger(coord.cz + dcz),
+      )))
+    }
+  }
   return keys
 }
 
@@ -598,7 +629,7 @@ const lightReadingForTarget = (
   }
 
   const lights = computeChunkLights(state.loaded)
-  const computed = Option.getOrThrow(Option.fromNullable(lights.get(target.key)))
+  const computed = Option.getOrThrow(Option.fromNullishOr(lights.get(target.key)))
 
   return [
     lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),
@@ -765,10 +796,17 @@ const withDefinedNeighbour = (
 }
 
 export const neighboursOf = (state: ChunkStoreState, coord: ChunkCoord): ChunkNeighbours => {
-  const xPos = residentChunk(state, chunkCoord(coord.cx + NEIGHBOUR_OFFSET_STEP, coord.cz))
-  const xNeg = residentChunk(state, chunkCoord(coord.cx - NEIGHBOUR_OFFSET_STEP, coord.cz))
-  const zPos = residentChunk(state, chunkCoord(coord.cx, coord.cz + NEIGHBOUR_OFFSET_STEP))
-  const zNeg = residentChunk(state, chunkCoord(coord.cx, coord.cz - NEIGHBOUR_OFFSET_STEP))
+  const chunkAtOffset = (dcx: number, dcz: number): Chunk | undefined => {
+    const adjacent = chunkCoordAtOffset(coord, dcx, dcz)
+    if (!adjacent) {
+      return
+    }
+    return residentChunk(state, adjacent)
+  }
+  const xPos = chunkAtOffset(NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE)
+  const xNeg = chunkAtOffset(-NEIGHBOUR_OFFSET_STEP, NEIGHBOUR_OFFSET_NONE)
+  const zPos = chunkAtOffset(NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP)
+  const zNeg = chunkAtOffset(NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP)
 
   const candidates: ReadonlyArray<readonly [keyof ChunkNeighbours, Chunk | undefined]> = [
     ['xPos', xPos],

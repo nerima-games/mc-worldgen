@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto'
-import { chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { Result } from 'effect'
+import { NoiseSeed, type NoiseSeed as NoiseSeedValue } from '@nerima-games/mc-noise'
+import { chunkCoord as createChunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { chunkAxis } from '../src/domain/coordinate-compatibility'
 import { computeChunkLights } from '../src/domain/light.js'
 import { generateEndChunk } from '../src/domain/end-terrain.js'
 import { generateNetherChunk } from '../src/domain/nether-terrain.js'
 import { generateChunk } from '../src/domain/terrain.js'
 
 /** Fixed input set for the cross-dimension byte-for-byte reproducibility check. */
-export const REPRODUCIBILITY_SEEDS = [0, 1, 1337, 424242, 20260726] as const
+export const REPRODUCIBILITY_SEEDS: ReadonlyArray<NoiseSeedValue> = [0, 1, 1337, 424242, 20260726].map((seed) => Result.getOrThrow(NoiseSeed.result(seed)))
 export const REPRODUCIBILITY_CENTERS = [
   [-8, -8],
   [-3, 5],
@@ -37,11 +40,11 @@ const main = (): void => {
   for (const seed of REPRODUCIBILITY_SEEDS) {
     for (const dimension of DIMENSIONS) {
       for (const [centerX, centerZ] of REPRODUCIBILITY_CENTERS) {
-        const coordinates = Array.from({ length: 9 }, (_, index) => chunkCoord(
-          centerX + (index % 3) - 1,
-          centerZ + Math.floor(index / 3) - 1,
+        const coordinates = Array.from({ length: 9 }, (_, index) => createChunkCoord(
+          chunkAxis(centerX + (index % 3) - 1),
+          chunkAxis(centerZ + Math.floor(index / 3) - 1),
         ))
-        const chunks = coordinates.map((coord) => generators[dimension](seed, coord))
+        const chunks = coordinates.map((coord) => Result.getOrThrow(generators[dimension](seed, coord)))
         const loaded = new Map<string, (typeof chunks)[number]>()
 
         for (const [index, chunk] of chunks.entries()) {

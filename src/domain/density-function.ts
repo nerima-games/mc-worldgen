@@ -1,4 +1,7 @@
-import { channelSeed, fbm2D } from '@nerima-games/mc-noise'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
+import { channelSeedValue, fbm2D } from './noise-compatibility.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 
 /** Lowest and highest surface the local terrain shaper produces. */
 export const MIN_SURFACE_Y = 38
@@ -19,7 +22,6 @@ const UNIT_INTERVAL_MAX = 1
 const UNIT_INTERVAL_MIDPOINT = 0.5
 const NOISE_FREQUENCY_UNIT = 1
 const CONTINENTALNESS_WAVELENGTH_BLOCKS = 180
-
 const stretch = (value: number): number =>
   Math.min(
     UNIT_INTERVAL_MAX,
@@ -27,20 +29,29 @@ const stretch = (value: number): number =>
   )
 
 /** Sample the position-absolute continentalness field used by terrain generation. */
-export const continentalnessAt = (seed: number, wx: number, wz: number): number =>
-  fbm2D(channelSeed(seed, 'continentalness'), wx, wz, {
+export const continentalnessAt = (seed: NoiseSeed, wx: number, wz: number): number =>
+  fbm2D(channelSeedValue(seed, 'continentalness'), wx, wz, {
     frequency: NOISE_FREQUENCY_UNIT / CONTINENTALNESS_WAVELENGTH_BLOCKS,
     octaves: 4,
     persistence: 0.5,
   })
 
-/** Convert one sampled continentalness value into the generated surface Y. */
-export const surfaceHeightFromContinentalness = (continentalness: number): number =>
+export const surfaceHeightValueFromContinentalness = (continentalness: number): number =>
   Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
+
+/** Convert one sampled continentalness value into the generated surface Y. */
+export const surfaceHeightFromContinentalness = (continentalness: number): BlockAxis => {
+  const height = surfaceHeightValueFromContinentalness(continentalness)
+  if (Number.isNaN(height)) {
+    return blockAxis(height)
+  }
+  // `stretch` clamps every non-NaN input, including infinities, to the declared surface range.
+  return blockAxisFromKnownSafeInteger(height)
+}
 
 /**
  * Cheap column query used by callers that need terrain height without a chunk.
  * It is the same two pure operations used by the column generation pass.
  */
-export const surfaceHeightAt = (seed: number, wx: number, wz: number): number =>
+export const surfaceHeightAt = (seed: NoiseSeed, wx: BlockAxis, wz: BlockAxis): BlockAxis =>
   surfaceHeightFromContinentalness(continentalnessAt(seed, wx, wz))

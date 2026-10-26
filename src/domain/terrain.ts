@@ -1,5 +1,5 @@
 /**
- * `generateChunk(seed, coords) → NaturalStructureChunk` — the public entry point (plan.md §3.7).
+ * `generateChunk(seed, coord) → Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>` — the public entry point (plan.md §3.7).
  *
  * This module implements the current deterministic terrain pipeline.
  *
@@ -59,10 +59,8 @@ import {
   type TerrainLevels,
   blockIndex,
 } from './constants.js'
-import {
-  BLOCK,
-  type BiomeType,
-} from './biome.js'
+import { BLOCK, type BiomeType } from './biome.js'
+import type { BlockAxis, ChunkAxis, ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -73,18 +71,23 @@ import { type CarveOptions, carveCaves } from './carver.js'
 import {
   type Chunk,
   biomeAt,
-  columnIndex,
+  columnIndexForKnownLocalRange,
   emptyBlocks,
   readBlock,
 } from './chunk.js'
-import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
-  naturalStructurePlansForChunk,
+  naturalStructurePlansForValidatedChunk,
 } from './natural-structure.js'
+import { Option, Result } from 'effect'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
-import { type TerrainColumn, biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import {
+  type ValidatedNaturalStructureChunkCoordinates,
+  validateNaturalStructureChunkCoordinates,
+} from './natural-structure-chunk-planner.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
@@ -92,11 +95,9 @@ import {
   plantSpecialVegetation,
   shouldPlaceGroundPlant,
 } from './vegetation.js'
-import {
-  fillWaterForColumn,
-  shouldFreezeWaterSurface,
-} from './lake-generator.js'
-import { Option } from 'effect'
+import { fillWaterAtLevel, shouldFreezeWaterSurface } from './lake-generator.js'
+import type { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import type { OverworldTerrainSample } from './structure-siting.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
@@ -125,8 +126,7 @@ export type GenerateOptions = {
 type ColumnFill = {
   readonly lx: number
   readonly lz: number
-  readonly column: TerrainColumn
-  readonly levels: TerrainLevels
+  readonly column: TerrainColumnForGeneration
 }
 
 type FilledColumn = Readonly<{
@@ -149,8 +149,8 @@ const fillStoneCore = (blocks: Uint16Array, lx: number, lz: number, surfaceY: nu
 }
 
 const fillColumn = (blocks: Uint16Array, column: ColumnFill): FilledColumn => {
-  const { levels, lx, lz, column: terrainColumn } = column
-  const { biome, lakeBasinY, surface, surfaceY, temperature, waterLevel } = terrainColumn
+  const { lx, lz, column: terrainColumn } = column
+  const { biome, surface, surfaceY, temperature, waterLevel } = terrainColumn
 
   blocks[blockIndex(lx, BEDROCK_Y, lz)] = BLOCK.BEDROCK
   fillStoneCore(blocks, lx, lz, surfaceY, surface.fillerDepth)
@@ -162,17 +162,15 @@ const fillColumn = (blocks: Uint16Array, column: ColumnFill): FilledColumn => {
 
   // Water fills from just above the surface to the resolved body level. This happens
   // BEFORE carving, because the carver's guard probes for these blocks.
-  fillWaterForColumn({
-    biome,
+  fillWaterAtLevel({
     blocks,
     freezeSurface: shouldFreezeWaterSurface(biome, temperature),
     iceBlockIndex: BLOCK.ICE,
-    lakeBasinY,
     lx,
     lz,
     surfaceY,
-    terrainLevels: levels,
     waterBlockIndex: BLOCK.WATER,
+    waterTopY: waterLevel,
   })
 
   return { surfaceY, waterLevel }
@@ -265,8 +263,9 @@ const createChunkBuffers = (): ChunkBuffers => ({
 type ChunkGenerationContext = ChunkBuffers & {
   readonly minBlockX: number
   readonly minBlockZ: number
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly coord: ChunkCoord
+  readonly validatedChunk: ValidatedNaturalStructureChunkCoordinates
   readonly levels: TerrainLevels
 }
 
@@ -274,7 +273,37 @@ type IndexedValues<Value> = {
   readonly [index: number]: Value
 }
 
-const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullable(values[index]))
+const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
+
+const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => {
+  if (!Object.hasOwn(options, 'terrainLevels')) {
+    return DEFAULT_TERRAIN_LEVELS
+  }
+  const levels = options.terrainLevels
+  if (!levels || typeof levels !== 'object') {
+    throw new TypeError('terrainLevels must be an object when provided')
+  }
+  blockAxis(levels.seaLevel)
+  blockAxis(levels.lakeLevel)
+  return levels
+}
+
+const createChunkGenerationContext = (
+  seed: NoiseSeed,
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
+  options: GenerateOptions,
+): ChunkGenerationContext => {
+  const levels = terrainLevelsForGeneration(options)
+  return {
+    ...createChunkBuffers(),
+    coord: validatedChunk.coord,
+    levels,
+    minBlockX: validatedChunk.minBlockX,
+    minBlockZ: validatedChunk.minBlockZ,
+    seed,
+    validatedChunk,
+  }
+}
 
 /**
  * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
@@ -283,13 +312,13 @@ const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value
  * index.
  */
 const columnSurfaceY = (context: ChunkGenerationContext, lx: number, lz: number): number =>
-  readRequired(context.surfaces, columnIndex(lx, lz))
+  readRequired(context.surfaces, columnIndexForKnownLocalRange(lx, lz))
 
 const columnBiome = (context: ChunkGenerationContext, lx: number, lz: number): BiomeType =>
-  readRequired(context.biomes, columnIndex(lx, lz))
+  readRequired(context.biomes, columnIndexForKnownLocalRange(lx, lz))
 
 const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: number): number | null => {
-  const waterLevel = readRequired(context.waterLevels, columnIndex(lx, lz))
+  const waterLevel = readRequired(context.waterLevels, columnIndexForKnownLocalRange(lx, lz))
   if (waterLevel === NO_WATER_LEVEL) {
     return null
   }
@@ -299,7 +328,7 @@ const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: numbe
 const writeColumnBuffers = (
   context: ChunkGenerationContext,
   index: number,
-  terrainColumn: TerrainColumn,
+  terrainColumn: TerrainColumnForGeneration,
   filled: FilledColumn,
 ): void => {
   context.biomes[index] = terrainColumn.biome
@@ -310,14 +339,15 @@ const writeColumnBuffers = (
 
 const generateColumns = (context: ChunkGenerationContext): void => {
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    const localX = lx
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      const index = columnIndex(lx, lz)
+      const localZ = lz
+      const index = columnIndexForKnownLocalRange(localX, localZ)
       const wx = context.minBlockX + lx
       const wz = context.minBlockZ + lz
-      const terrainColumn = terrainColumnAt(context.seed, wx, wz, context.levels)
+      const terrainColumn = resolveTerrainColumnForGeneration(context.seed, wx, wz, context.levels)
       const filled = fillColumn(context.blocks, {
         column: terrainColumn,
-        levels: context.levels,
         lx,
         lz,
       })
@@ -406,29 +436,29 @@ type TerrainSampleCache = Map<number, Map<number, OverworldTerrainSample>>
 
 const localColumnFor = (
   context: ChunkGenerationContext,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
 ): number | null => {
   const lx = wx - context.minBlockX
   const lz = wz - context.minBlockZ
   if (lx < LOCAL_COLUMN_MIN || lx >= CHUNK_SIZE_XZ || lz < LOCAL_COLUMN_MIN || lz >= CHUNK_SIZE_XZ) {
     return null
   }
-  return columnIndex(lx, lz)
+  return columnIndexForKnownLocalRange(lx, lz)
 }
 
 const structureSurfaceBiomeAt = (
   context: ChunkGenerationContext,
   localColumn: number | null,
-  wx: number,
-  wz: number,
-): { readonly biome: BiomeType; readonly surfaceY: number } => {
+  wx: BlockAxis,
+  wz: BlockAxis,
+): { readonly biome: BiomeType; readonly surfaceY: BlockAxis } => {
   if (localColumn === null) {
     return surfaceBiomeAt(context.seed, wx, wz, context.levels)
   }
   return {
     biome: readRequired(context.biomes, localColumn),
-    surfaceY: readRequired(context.initialSurfaces, localColumn),
+    surfaceY: blockAxisFromKnownSafeInteger(readRequired(context.initialSurfaces, localColumn)),
   }
 }
 
@@ -449,8 +479,8 @@ const cacheTerrainSample = (
 const structureTerrainSampleAt = (
   context: ChunkGenerationContext,
   terrainSamples: TerrainSampleCache,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
 ): OverworldTerrainSample => {
   const samplesAtX = terrainSamples.get(wx)
   const cached = samplesAtX?.get(wz)
@@ -459,7 +489,11 @@ const structureTerrainSampleAt = (
   }
   const localColumn = localColumnFor(context, wx, wz)
   const resolved = structureSurfaceBiomeAt(context, localColumn, wx, wz)
-  const sample = { biome: resolved.biome, seaLevel: context.levels.seaLevel, surfaceY: resolved.surfaceY }
+  const sample = {
+    biome: resolved.biome,
+    seaLevel: blockAxisFromKnownSafeInteger(context.levels.seaLevel),
+    surfaceY: resolved.surfaceY,
+  }
   cacheTerrainSample(terrainSamples, wx, wz, sample)
   return sample
 }
@@ -468,58 +502,66 @@ const structureTerrainSampleAt = (
 const writeStructures = (
   chunk: Chunk,
   context: ChunkGenerationContext,
-): NaturalStructureChunk => {
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
   const terrainSamples = new Map<number, Map<number, OverworldTerrainSample>>()
-  const sampleTerrain = (wx: number, wz: number): OverworldTerrainSample =>
+  const sampleTerrain = (wx: BlockAxis, wz: BlockAxis): OverworldTerrainSample =>
     structureTerrainSampleAt(context, terrainSamples, wx, wz)
-  const plans = naturalStructurePlansForChunk(context.seed, 'overworld', context.coord, {
+  const plansResult = naturalStructurePlansForValidatedChunk(context.seed, 'overworld', context.validatedChunk, {
     overworld: sampleTerrain,
   })
-  return applyNaturalStructurePlansToChunk(chunk, plans)
+  return Result.map(plansResult, (plans) => applyNaturalStructurePlansToChunk(chunk, plans))
 }
 
 /**
  * Generate a chunk. Total, pure, and a function of `(seed, coord)` alone.
  */
-export const generateChunk = (
-  seed: number,
-  coord: ChunkCoord,
-  options: GenerateOptions = {},
-): NaturalStructureChunk => {
-  const context: ChunkGenerationContext = {
-    ...createChunkBuffers(),
-    coord,
-    levels: options.terrainLevels ?? DEFAULT_TERRAIN_LEVELS,
-    minBlockX: coord.cx * CHUNK_SIZE_XZ,
-    minBlockZ: coord.cz * CHUNK_SIZE_XZ,
-    seed,
-  }
-
+const runTerrainPassesBeforeStructures = (
+  context: ChunkGenerationContext,
+  options: GenerateOptions,
+): void => {
   generateColumns(context)
-  carveCaves(context.blocks, seed, coord, options.carve ?? {})
+  carveCaves(context.blocks, context.seed, context.coord, options.carve ?? {})
 
   // Ore goes in AFTER carving, so that a cave wall can expose a vein, and it is
   // NOT behind `decorate` — ore is stone, not decoration. See `domain/ore.ts`.
-  placeOres(context.blocks, seed, coord)
+  placeOres(context.blocks, context.seed, context.coord)
 
   if (options.decorate !== false) {
     decorateChunk(context)
   }
 
   // Ravines LAST, after ore and after decoration, so their walls cut cleanly through both — the reference's ordering and its stated reason (`generator.ts:141-142`). See the module header for why this is outside the `decorate` block rather than at the end of it.
-  carveRavines({ biomes: context.biomes, blocks: context.blocks, coord, seed, surfaces: context.surfaces })
+  carveRavines({
+    biomes: context.biomes,
+    blocks: context.blocks,
+    coord: context.coord,
+    seed: context.seed,
+    surfaces: context.surfaces,
+  })
+}
+
+export const generateChunk = (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  options: GenerateOptions = {},
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
+  const coordinateValidation = validateNaturalStructureChunkCoordinates('overworld', coord)
+  if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
+  const context = createChunkGenerationContext(seed, coordinateValidation.success, options)
+
+  runTerrainPassesBeforeStructures(context, options)
 
   return writeStructures({ biomes: context.biomes, blocks: context.blocks, coord }, context)
 }
 
 /** Convenience for callers that have plain numbers rather than a `ChunkCoord`. */
 export const generateChunkAt = (
-  seed: number,
-  x: number,
-  z: number,
+  seed: NoiseSeed,
+  x: ChunkAxis,
+  z: ChunkAxis,
   options: GenerateOptions = {},
-): NaturalStructureChunk =>
-  generateChunk(seed, chunkCoord(x, z), options)
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> =>
+  generateChunk(seed, { cx: x, cz: z }, options)
 
 /** Re-exported so callers need one import to read a generated chunk. */
 export { biomeAt }

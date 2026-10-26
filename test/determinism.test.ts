@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as validated from './fixtures/validated-inputs'
 import { Effect } from 'effect'
-import { chunkCoord } from '@nerima-games/mc-kernel'
 import { CHUNK_VOLUME } from '../src/domain/constants'
-import { generateChunk, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { generateChunk, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 
 /**
  * ---------------------------------------------------------------------------
@@ -22,13 +22,13 @@ import { generateChunk, generateChunkAt, surfaceHeightAt } from '../src/domain/t
  * because the next way to lose determinism will be a different one.
  */
 
-const SEED = 1337
+const SEED = validated.noiseSeed(1337)
 
 describe('generateChunk is deterministic', () => {
   it.effect('produces byte-identical blocks for the same seed and coordinate', () =>
     Effect.sync(() => {
-      const first = generateChunk(SEED, chunkCoord(3, -7))
-      const second = generateChunk(SEED, chunkCoord(3, -7))
+      const first = generateChunk(SEED, validated.validatedChunkCoord(3, -7))
+      const second = generateChunk(SEED, validated.validatedChunkCoord(3, -7))
 
       expect(first.blocks).toStrictEqual(second.blocks)
       expect(first.biomes).toStrictEqual(second.biomes)
@@ -38,10 +38,10 @@ describe('generateChunk is deterministic', () => {
 
   it.effect('does not depend on the order chunks are generated in', () =>
     Effect.sync(() => {
-      const ascending = [chunkCoord(0, 0), chunkCoord(1, 0), chunkCoord(2, 0)].map((coord) =>
+      const ascending = [validated.validatedChunkCoord(0, 0), validated.validatedChunkCoord(1, 0), validated.validatedChunkCoord(2, 0)].map((coord) =>
         generateChunk(SEED, coord),
       )
-      const descending = [chunkCoord(2, 0), chunkCoord(1, 0), chunkCoord(0, 0)].map((coord) =>
+      const descending = [validated.validatedChunkCoord(2, 0), validated.validatedChunkCoord(1, 0), validated.validatedChunkCoord(0, 0)].map((coord) =>
         generateChunk(SEED, coord),
       )
 
@@ -53,8 +53,8 @@ describe('generateChunk is deterministic', () => {
 
   it.effect('gives different seeds different worlds', () =>
     Effect.sync(() => {
-      const alpha = generateChunk(1, chunkCoord(0, 0))
-      const beta = generateChunk(2, chunkCoord(0, 0))
+      const alpha = generateChunk(validated.noiseSeed(1), validated.validatedChunkCoord(0, 0))
+      const beta = generateChunk(validated.noiseSeed(2), validated.validatedChunkCoord(0, 0))
 
       expect(alpha.blocks).not.toStrictEqual(beta.blocks)
     }),
@@ -62,8 +62,8 @@ describe('generateChunk is deterministic', () => {
 
   it.effect('gives different coordinates different terrain under one seed', () =>
     Effect.sync(() => {
-      const here = generateChunk(SEED, chunkCoord(0, 0))
-      const faraway = generateChunk(SEED, chunkCoord(64, 64))
+      const here = generateChunk(SEED, validated.validatedChunkCoord(0, 0))
+      const faraway = generateChunk(SEED, validated.validatedChunkCoord(64, 64))
 
       expect(here.blocks).not.toStrictEqual(faraway.blocks)
     }),
@@ -74,11 +74,11 @@ describe('generateChunk is deterministic', () => {
       // -1 / 16 truncates towards zero in JavaScript while flooring goes to -1.
       // A generator that mixes the two produces a visible discontinuity at the
       // origin and nowhere else, which is why this is worth its own case.
-      const negative = generateChunk(SEED, chunkCoord(-1, -1))
-      const again = generateChunk(SEED, chunkCoord(-1, -1))
+      const negative = generateChunk(SEED, validated.validatedChunkCoord(-1, -1))
+      const again = generateChunk(SEED, validated.validatedChunkCoord(-1, -1))
 
       expect(negative.blocks).toStrictEqual(again.blocks)
-      expect(negative.blocks).not.toStrictEqual(generateChunk(SEED, chunkCoord(0, 0)).blocks)
+      expect(negative.blocks).not.toStrictEqual(generateChunk(SEED, validated.validatedChunkCoord(0, 0)).blocks)
     }),
   )
 })
@@ -93,8 +93,8 @@ describe('sampling is position-absolute, so chunk borders are seamless', () => {
   it.effect('agrees about the surface height of a column shared by two chunks', () =>
     Effect.sync(() => {
       for (let lz = 0; lz < 16; lz += 1) {
-        const leftEdge = surfaceHeightAt(SEED, 15, lz)
-        const rightEdge = surfaceHeightAt(SEED, 16, lz)
+        const leftEdge = surfaceHeightAt(SEED, validated.blockAxis(15), validated.blockAxis(lz))
+        const rightEdge = surfaceHeightAt(SEED, validated.blockAxis(16), validated.blockAxis(lz))
 
         // Adjacent columns need not be equal, but they must be close: the noise
         // is continuous, so a one-block step is normal and a chasm is a bug.
@@ -107,11 +107,11 @@ describe('sampling is position-absolute, so chunk borders are seamless', () => {
     Effect.sync(() => {
       // The cheap query and the real pipeline must not diverge — the chunk
       // manager uses the former for spawn selection without generating a chunk.
-      const chunk = generateChunkAt(SEED, 5, 5, { decorate: false })
+      const chunk = generateChunkAt(SEED, validated.chunkAxis(5), validated.chunkAxis(5), { decorate: false })
 
       for (let lx = 0; lx < 16; lx += 4) {
         for (let lz = 0; lz < 16; lz += 4) {
-          const expected = surfaceHeightAt(SEED, 5 * 16 + lx, 5 * 16 + lz)
+          const expected = surfaceHeightAt(SEED, validated.blockAxis(5 * 16 + lx), validated.blockAxis(5 * 16 + lz))
           expect(expected).toBeGreaterThan(0)
           // The surface block itself is solid in the generated buffer.
           expect(chunk.blocks[expected + lz * 256 + lx * 256 * 16]).not.toBe(0)

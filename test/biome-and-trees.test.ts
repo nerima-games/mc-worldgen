@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import { blockAxis } from './fixtures/validated-inputs'
 import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import {
@@ -94,7 +95,7 @@ describe('tree placement', () => {
     const placed: Array<readonly [number, number]> = []
     for (let wx = 0; wx < span; wx += 1) {
       for (let wz = 0; wz < span; wz += 1) {
-        if (shouldPlaceTree({ worldX: wx, worldZ: wz, surfaceY: 70, biome, terrainLevels: DEFAULT_TERRAIN_LEVELS })) {
+        if (shouldPlaceTree({ worldX: blockAxis(wx), worldZ: blockAxis(wz), surfaceY: blockAxis(70), biome, terrainLevels: DEFAULT_TERRAIN_LEVELS })) {
           placed.push([wx, wz])
         }
       }
@@ -112,7 +113,7 @@ describe('tree placement', () => {
       // number of cells regardless of how high the density goes.
       expect(placed.length).toBeLessThanOrEqual(cells * cells)
 
-      const cellsUsed = new Set(placed.map(([wx, wz]) => `${String(cellOf(wx))},${String(cellOf(wz))}`))
+      const cellsUsed = new Set(placed.map(([wx, wz]) => `${String(cellOf(blockAxis(wx)))},${String(cellOf(blockAxis(wz)))}`))
       expect(cellsUsed.size).toBe(placed.length)
     }),
   )
@@ -234,7 +235,7 @@ describe('tree placement', () => {
         terrainLevels: DEFAULT_TERRAIN_LEVELS,
       }
 
-      expect(shouldPlaceTree({ ...submerged, surfaceY: DEFAULT_TERRAIN_LEVELS.seaLevel - 1 })).toBe(false)
+      expect(shouldPlaceTree({ ...submerged, surfaceY: blockAxis(DEFAULT_TERRAIN_LEVELS.seaLevel - 1) })).toBe(false)
     }),
   )
 

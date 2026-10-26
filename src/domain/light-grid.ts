@@ -1,5 +1,6 @@
+import { LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
 import { CHUNK_VOLUME } from './constants.js'
-import { clampLightLevel } from '@nerima-games/mc-kernel'
+import { Result } from 'effect'
 
 /** Two voxels share one packed light byte, low nibble first. */
 const VOXELS_PER_BYTE = 2
@@ -13,6 +14,17 @@ const EMPTY_BYTE = 0
 
 export const LIGHT_BYTE_LENGTH: number = CHUNK_VOLUME / VOXELS_PER_BYTE
 
+const writeLightAt = (grid: Uint8Array, voxel: number, level: number): void => {
+  const index = voxel >> BYTE_TO_VOXEL_SHIFT
+  const byte = grid[index] ?? EMPTY_BYTE
+
+  if ((voxel & PARITY_MASK) === EVEN_VOXEL_REMAINDER) {
+    grid[index] = (byte & HIGH_NIBBLE_MASK) | level
+  } else {
+    grid[index] = (byte & NIBBLE_MASK) | (level << NIBBLE_BITS)
+  }
+}
+
 /** Read one voxel's packed light nibble. Out-of-range reads are dark. */
 export const getLightAt = (grid: Uint8Array, voxel: number): number => {
   const byte = grid[voxel >> BYTE_TO_VOXEL_SHIFT] ?? EMPTY_BYTE
@@ -24,16 +36,13 @@ export const getLightAt = (grid: Uint8Array, voxel: number): number => {
 
 /** Write one voxel's packed light nibble, clamped to the kernel's range. */
 export const setLightAt = (grid: Uint8Array, voxel: number, level: number): void => {
-  const index = voxel >> BYTE_TO_VOXEL_SHIFT
-  const clamped = clampLightLevel(level)
-  const byte = grid[index] ?? EMPTY_BYTE
-
-  if ((voxel & PARITY_MASK) === EVEN_VOXEL_REMAINDER) {
-    grid[index] = (byte & HIGH_NIBBLE_MASK) | clamped
-  } else {
-    grid[index] = (byte & NIBBLE_MASK) | (clamped << NIBBLE_BITS)
-  }
+  const clamped = clampLightLevel(Result.getOrThrow(LightLevelCandidate.result(level)))
+  writeLightAt(grid, voxel, clamped)
 }
+
+/** Write a level already constrained to the light grid's 0..15 range. */
+export const setLightAtKnownLevel = (grid: Uint8Array, voxel: number, level: number): void =>
+  writeLightAt(grid, voxel, level)
 
 export type ChunkLight = {
   readonly sky: Uint8Array

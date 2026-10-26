@@ -1,37 +1,44 @@
 import {
   type Candidate,
   type CandidateChannelInput,
+  type InvalidNaturalStructureCoordinate,
   type MutablePlan,
   UNIT_STEP,
   addBlock,
   addMarker,
   candidateForRegion,
   finishPlan,
+  validateNaturalStructureRegion,
 } from './natural-structure-plan-builder.js'
 import type {
   NaturalStructurePlan,
   NaturalStructureRegion,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
-import { Option, Predicate } from 'effect'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { Option, Predicate, Result } from 'effect'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import type { ValidatedNaturalStructureRegion } from './natural-structure-coordinate-validation.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 const PORTAL_PROBE_OFFSET = 3
 const PORTAL_BASE_Y_CLEARANCE = 1
 const PORTAL_MAX_SURFACE_VARIATION = 6
 const PORTAL_MIN_CEILING_CLEARANCE = 7
+const NO_PORTAL_RUIN_PLAN: Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> = Result.succeed(Option.none())
 
 const portalTerrainFits = (
   candidate: Candidate,
   sample: NetherStructureTerrainSampler,
 ): Option.Option<number> => {
+  const sampleAt = (x: number, z: number) => sample(blockAxis(x), blockAxis(z))
   const probes = [
-    sample(candidate.x, candidate.z),
-    sample(candidate.x - PORTAL_PROBE_OFFSET, candidate.z),
-    sample(candidate.x + PORTAL_PROBE_OFFSET, candidate.z),
-    sample(candidate.x, candidate.z - PORTAL_PROBE_OFFSET),
-    sample(candidate.x, candidate.z + PORTAL_PROBE_OFFSET),
+    sampleAt(candidate.x, candidate.z),
+    sampleAt(candidate.x - PORTAL_PROBE_OFFSET, candidate.z),
+    sampleAt(candidate.x + PORTAL_PROBE_OFFSET, candidate.z),
+    sampleAt(candidate.x, candidate.z - PORTAL_PROBE_OFFSET),
+    sampleAt(candidate.x, candidate.z + PORTAL_PROBE_OFFSET),
   ]
   const validProbes = probes.filter(Predicate.isNotUndefined)
   if (validProbes.length !== probes.length) {return Option.none()}
@@ -39,8 +46,8 @@ const portalTerrainFits = (
   const surfaces = validProbes.map((probe) => probe.surfaceY)
   const baseY = Math.max(...surfaces) + PORTAL_BASE_Y_CLEARANCE
   if (
-    Math.max(...surfaces) - Math.min(...surfaces) > PORTAL_MAX_SURFACE_VARIATION
-    || validProbes.some((probe) => probe.ceilingY - baseY < PORTAL_MIN_CEILING_CLEARANCE)
+    Math.max(...surfaces) - Math.min(...surfaces) > PORTAL_MAX_SURFACE_VARIATION ||
+    validProbes.some((probe) => probe.ceilingY - baseY < PORTAL_MIN_CEILING_CLEARANCE)
   ) {
     return Option.none()
   }
@@ -129,12 +136,17 @@ const placePortalRuinLoot = (mutable: MutablePlan, candidate: Candidate, baseY: 
 type PortalRuinSite = { readonly candidate: Candidate; readonly baseY: number }
 
 const portalRuinSiteForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
 ): Option.Option<PortalRuinSite> => {
-  const candidateOption = candidateForRegion(seed, 'nether', 'ruined-nether-portal', region, presenceChannelSeed)
+  const candidateOption = candidateForRegion(
+    { candidateChannelInput: presenceChannelSeed, dimension: 'nether', seed },
+    'ruined-nether-portal',
+    region.x,
+    region.z,
+  )
   if (Option.isNone(candidateOption)) {return Option.none()}
   const candidate = candidateOption.value
   const baseYOption = portalTerrainFits(candidate, sampleTerrain)
@@ -142,36 +154,56 @@ const portalRuinSiteForRegion = (
   return Option.some({ baseY: baseYOption.value, candidate })
 }
 
-/** Plans an intentionally incomplete, unlit Nether portal ruin. */
-export const planRuinedNetherPortalForRegion = (
-  seed: number,
-  regionX: number,
-  regionZ: number,
-  sampleTerrain: NetherStructureTerrainSampler,
-  presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const siteOption = portalRuinSiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain, presenceChannelSeed)
-  if (Option.isNone(siteOption)) {return Option.none()}
-  const { candidate, baseY } = siteOption.value
-  const axis = naturalAxisFromChance(latticeValue(channelSeed(seed, 'nether:ruined-nether-portal:axis'), regionX, regionZ))
+const planRuinedNetherPortalAtSite = (
+  seed: NoiseSeed,
+  region: NaturalStructureRegion,
+  site: PortalRuinSite,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const { candidate, baseY } = site
+  const axis = naturalAxisFromChance(latticeValue(channelSeed(seed, 'nether:ruined-nether-portal:axis'), region.x, region.z))
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   carvePortalRuinFloor(mutable, candidate, axis, baseY)
   carvePortalRuinFrame(mutable, candidate, {
     axis,
     baseY,
     missing: Math.floor(
-      latticeValue(channelSeed(seed, 'nether:ruined-nether-portal:damage'), regionX, regionZ) * PORTAL_RUIN_DAMAGE_VARIANTS,
+      latticeValue(channelSeed(seed, 'nether:ruined-nether-portal:damage'), region.x, region.z) * PORTAL_RUIN_DAMAGE_VARIANTS,
     ),
   })
   placePortalRuinLoot(mutable, candidate, baseY, axis)
-  return Option.some(finishPlan(
+  return Result.map(finishPlan(
     {
       dimension: 'nether',
-      id: `ruined-nether-portal:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      id: `ruined-nether-portal:${String(seed)}:${String(region.x)}:${String(region.z)}`,
       kind: 'ruined-nether-portal',
       origin: { x: candidate.x, y: baseY, z: candidate.z },
-      region: { x: regionX, z: regionZ },
+      region,
     },
     mutable,
-  ))
+  ), Option.some)
+}
+
+export const planRuinedNetherPortalForValidatedRegion = (
+  seed: NoiseSeed,
+  region: ValidatedNaturalStructureRegion,
+  sampleTerrain: NetherStructureTerrainSampler,
+  presenceChannelSeed?: CandidateChannelInput,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const siteOption = portalRuinSiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
+  if (Option.isNone(siteOption)) {return NO_PORTAL_RUIN_PLAN}
+  return planRuinedNetherPortalAtSite(seed, region, siteOption.value)
+}
+
+/** Plans an intentionally incomplete, unlit Nether portal ruin. */
+export const planRuinedNetherPortalForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: NetherStructureTerrainSampler,
+  presenceChannelSeed?: CandidateChannelInput,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const region = { x: regionX, z: regionZ }
+  const validation = validateNaturalStructureRegion('ruined-nether-portal', region)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return planRuinedNetherPortalForValidatedRegion(seed, validation.success, sampleTerrain, presenceChannelSeed)
 }

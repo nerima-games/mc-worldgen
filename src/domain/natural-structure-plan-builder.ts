@@ -1,27 +1,53 @@
+import {
+  InvalidNaturalStructureCoordinate as InvalidNaturalStructureCoordinateTag,
+  type InvalidNaturalStructureCoordinate as InvalidNaturalStructureCoordinateType,
+  type ValidatedNaturalStructureRegion,
+  validateNaturalStructureRegionCoordinates,
+} from './natural-structure-coordinate-validation.js'
+import { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT, NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type {
   NaturalStructureBlockPlacement,
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureBounds,
   NaturalStructureKind,
   NaturalStructureMarker,
+  NaturalStructureMarkerDraft,
   NaturalStructurePlan,
   NaturalStructurePosition,
+  NaturalStructurePositionDraft,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { Option, Result } from 'effect'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
-import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
-import { Option } from 'effect'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
 export const UNIT_STEP = 1
 
 export type Candidate = NaturalStructureRegion
 
+export const InvalidNaturalStructureCoordinate: typeof InvalidNaturalStructureCoordinateTag =
+  InvalidNaturalStructureCoordinateTag
+export type InvalidNaturalStructureCoordinate = InvalidNaturalStructureCoordinateType
+
+export const validateNaturalStructureRegion = (
+  kind: NaturalStructureKind,
+  region: NaturalStructureRegion,
+): Result.Result<ValidatedNaturalStructureRegion, InvalidNaturalStructureCoordinate> => validateNaturalStructureRegionCoordinates(
+  kind,
+  region,
+  NATURAL_STRUCTURE_GRID[kind],
+  MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+)
+
 export const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
 
 export type MutablePlan = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
@@ -30,31 +56,66 @@ const PERMILLE_DENOMINATOR = 1000
 const CANDIDATE_MARGIN_DIVISOR = 2
 
 export const candidatePresenceChannelSeedFor = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
-): number => channelSeed(seed, `${dimension}:${kind}:present`)
+): NoiseSeed => channelSeed(seed, `${dimension}:${kind}:present`)
+
+export const VALIDATED_NATURAL_STRUCTURE_REGION: unique symbol = Symbol('validated natural structure region')
+const CANDIDATE_PRESENCE_VALIDATED: unique symbol = Symbol('candidate presence validated')
 
 export type CandidateChannelSeeds = Readonly<{
-  readonly presence: number
-  readonly x: number
-  readonly z: number
+  readonly presence: NoiseSeed
+  readonly x: NoiseSeed
+  readonly z: NoiseSeed
+  readonly [CANDIDATE_PRESENCE_VALIDATED]?: true
+  readonly [VALIDATED_NATURAL_STRUCTURE_REGION]?: true
 }>
 
-export type CandidateChannelInput = number | CandidateChannelSeeds
+export type CandidateChannelInput = NoiseSeed | CandidateChannelSeeds
 
-export const candidateChannelSeedsFor = (
-  seed: number,
+export type CandidateForRegionContext = Readonly<{
+  candidateChannelInput?: CandidateChannelInput | undefined
+  dimension: Dimension
+  seed: NoiseSeed
+}>
+
+const candidateChannelSeedValues = (
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
-): CandidateChannelSeeds => Object.freeze({
-  presence: candidatePresenceChannelSeedFor(seed, dimension, kind),
-  x: channelSeed(seed, `${dimension}:${kind}:x`),
-  z: channelSeed(seed, `${dimension}:${kind}:z`),
-})
+  validatedRegion: boolean,
+): CandidateChannelSeeds => {
+  const presence = candidatePresenceChannelSeedFor(seed, dimension, kind)
+  const x = channelSeed(seed, `${dimension}:${kind}:x`)
+  const z = channelSeed(seed, `${dimension}:${kind}:z`)
+  if (validatedRegion) {return Object.freeze({ presence, x, z, [VALIDATED_NATURAL_STRUCTURE_REGION]: true })}
+  return Object.freeze({ presence, x, z })
+}
+
+export const candidateChannelSeedsFor = (
+  seed: NoiseSeed,
+  dimension: Dimension,
+  kind: NaturalStructureKind,
+): CandidateChannelSeeds => candidateChannelSeedValues(seed, dimension, kind, false)
+
+export const validatedCandidateChannelSeedsFor = (
+  seed: NoiseSeed,
+  dimension: Dimension,
+  kind: NaturalStructureKind,
+): CandidateChannelSeeds => candidateChannelSeedValues(seed, dimension, kind, true)
+
+export const candidateChannelSeedsForKnownCandidate = (seeds: CandidateChannelSeeds): CandidateChannelSeeds =>
+  Object.freeze({ ...seeds, [CANDIDATE_PRESENCE_VALIDATED]: true })
+
+export const isValidatedCandidateChannelInput = (input?: CandidateChannelInput): boolean =>
+  typeof input === 'object' && input !== null && input[VALIDATED_NATURAL_STRUCTURE_REGION] === true
+
+export const isCandidatePresenceValidatedInput = (input?: CandidateChannelInput): boolean =>
+  typeof input === 'object' && input !== null && input[CANDIDATE_PRESENCE_VALIDATED] === true
 
 const candidateChannelSeedsForInput = (
-  seed: number,
+  seed: NoiseSeed,
   dimension: Dimension,
   kind: NaturalStructureKind,
   channelInput?: CandidateChannelInput,
@@ -72,40 +133,43 @@ const candidateChannelSeedsForInput = (
   return candidateChannelSeedsFor(seed, dimension, kind)
 }
 
-export const candidateForRegion = (
-  seed: number,
-  dimension: Dimension,
+export const candidateExistsForRegion = (
   kind: NaturalStructureKind,
-  region: NaturalStructureRegion,
-  channelInput?: CandidateChannelInput,
+  regionX: number,
+  regionZ: number,
+  presenceChannelSeed: NoiseSeed,
+): boolean =>
+  latticeValue(presenceChannelSeed, regionX, regionZ) < NATURAL_STRUCTURE_GRID[kind].spawnPermille / PERMILLE_DENOMINATOR
+
+export const candidateForRegion = (
+  context: CandidateForRegionContext,
+  kind: NaturalStructureKind,
+  regionX: number,
+  regionZ: number,
 ): Option.Option<Candidate> => {
+  const { candidateChannelInput, dimension, seed } = context
   const grid = NATURAL_STRUCTURE_GRID[kind]
-  const channelSeeds = candidateChannelSeedsForInput(seed, dimension, kind, channelInput)
-  if (latticeValue(channelSeeds.presence, region.x, region.z) >= grid.spawnPermille / PERMILLE_DENOMINATOR) {
+  const channelSeeds = candidateChannelSeedsForInput(seed, dimension, kind, candidateChannelInput)
+  if (!isCandidatePresenceValidatedInput(channelSeeds) && !candidateExistsForRegion(kind, regionX, regionZ, channelSeeds.presence)) {
     return Option.none()
   }
   const margin = grid.separation / CANDIDATE_MARGIN_DIVISOR
   const span = grid.spacing - grid.separation
   return Option.some(Object.freeze({
-    x: region.x * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.x, region.x, region.z) * span),
-    z: region.z * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.z, region.x, region.z) * span),
+    x: regionX * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.x, regionX, regionZ) * span),
+    z: regionZ * grid.spacing + margin + Math.floor(latticeValue(channelSeeds.z, regionX, regionZ) * span),
   }))
 }
 
 const NATURAL_STRUCTURE_WORLD_MIN_Y = 0
 
-export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockPlacement): void => {
+export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockPlacementDraft): void => {
   const { block, x, y, z } = placement
   if (y < NATURAL_STRUCTURE_WORLD_MIN_Y || y >= CHUNK_HEIGHT) {return}
-  const key = keyOf(x, y, z)
-  if (Object.isFrozen(placement)) {
-    mutable.blocks.set(key, placement)
-    return
-  }
-  mutable.blocks.set(key, Object.freeze({ block, x, y, z }))
+  mutable.blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarker): void => {
+export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarkerDraft): void => {
   mutable.markers.push(Object.freeze(marker))
 }
 
@@ -114,7 +178,7 @@ export type NaturalStructureDraftMeta = {
   readonly dimension: Dimension
   readonly id: string
   readonly kind: NaturalStructureKind
-  readonly origin: NaturalStructurePosition
+  readonly origin: NaturalStructurePositionDraft
   readonly region: NaturalStructureRegion
 }
 
@@ -141,7 +205,7 @@ const extendBounds = (bounds: BoundsAccumulator, positions: ReadonlyArray<Natura
 const boundsFor = (
   blocks: ReadonlyArray<NaturalStructureBlockPlacement>,
   markers: ReadonlyArray<NaturalStructureMarker>,
-): Readonly<BoundsAccumulator> => {
+): NaturalStructureBounds => {
   const bounds: BoundsAccumulator = {
     maxX: Number.NEGATIVE_INFINITY,
     maxY: Number.NEGATIVE_INFINITY,
@@ -152,41 +216,60 @@ const boundsFor = (
   }
   extendBounds(bounds, blocks)
   extendBounds(bounds, markers)
-  return Object.freeze(bounds)
+  return Object.freeze({
+    maxX: blockAxisFromKnownSafeInteger(bounds.maxX),
+    maxY: blockAxisFromKnownSafeInteger(bounds.maxY),
+    maxZ: blockAxisFromKnownSafeInteger(bounds.maxZ),
+    minX: blockAxisFromKnownSafeInteger(bounds.minX),
+    minY: blockAxisFromKnownSafeInteger(bounds.minY),
+    minZ: blockAxisFromKnownSafeInteger(bounds.minZ),
+  })
 }
 
-export const finishPlan = (meta: NaturalStructureDraftMeta, mutable: MutablePlan): NaturalStructurePlan => {
-  const blocks = Object.freeze([...mutable.blocks.values()])
-  const markers = Object.freeze([...mutable.markers])
-  const bounds = boundsFor(blocks, markers)
+const brandPlan = (
+  meta: NaturalStructureDraftMeta,
+  draftBlocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>,
+  draftMarkers: ReadonlyArray<NaturalStructureMarkerDraft>,
+): NaturalStructurePlan => {
+  const blocks = Object.freeze(draftBlocks.map((placement): NaturalStructureBlockPlacement => Object.freeze({
+    ...placement,
+    x: blockAxisFromKnownSafeInteger(placement.x),
+    y: blockAxisFromKnownSafeInteger(placement.y),
+    z: blockAxisFromKnownSafeInteger(placement.z),
+  })))
+  const markers = Object.freeze(draftMarkers.map((marker): NaturalStructureMarker => Object.freeze({
+    ...marker,
+    x: blockAxisFromKnownSafeInteger(marker.x),
+    y: blockAxisFromKnownSafeInteger(marker.y),
+    z: blockAxisFromKnownSafeInteger(marker.z),
+  })))
   return Object.freeze({
     blocks,
-    bounds,
+    bounds: boundsFor(blocks, markers),
     dimension: meta.dimension,
     id: meta.id,
     kind: meta.kind,
     markers,
-    origin: Object.freeze(meta.origin),
+    origin: Object.freeze({
+      x: blockAxisFromKnownSafeInteger(meta.origin.x),
+      y: blockAxisFromKnownSafeInteger(meta.origin.y),
+      z: blockAxisFromKnownSafeInteger(meta.origin.z),
+    }),
     region: Object.freeze(meta.region),
   })
 }
 
+export const finishPlan = (
+  meta: NaturalStructureDraftMeta,
+  mutable: MutablePlan,
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
+  const draftBlocks = [...mutable.blocks.values()]
+  const draftMarkers = [...mutable.markers]
+  return Result.succeed(brandPlan(meta, draftBlocks, draftMarkers))
+}
+
 export const finishPlanFromValidatedPlacements = (
   meta: NaturalStructureDraftMeta,
-  placements: ReadonlyArray<NaturalStructureBlockPlacement>,
-  markers: ReadonlyArray<NaturalStructureMarker>,
-): NaturalStructurePlan => {
-  const blocks = Object.freeze([...placements])
-  const frozenMarkers = Object.freeze([...markers])
-  const bounds = boundsFor(blocks, frozenMarkers)
-  return Object.freeze({
-    blocks,
-    bounds,
-    dimension: meta.dimension,
-    id: meta.id,
-    kind: meta.kind,
-    markers: frozenMarkers,
-    origin: Object.freeze(meta.origin),
-    region: Object.freeze(meta.region),
-  })
-}
+  placements: ReadonlyArray<NaturalStructureBlockPlacementDraft>,
+  markers: ReadonlyArray<NaturalStructureMarkerDraft>,
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => Result.succeed(brandPlan(meta, placements, markers))

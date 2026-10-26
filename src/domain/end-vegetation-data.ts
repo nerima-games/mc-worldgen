@@ -1,14 +1,15 @@
 /* oxlint-disable no-magic-numbers */
 
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
 
 /** Block roster used by the deterministic End vegetation pass. */
 export const END_VEGETATION_BLOCK: Readonly<
   Record<'CHORUS_FLOWER' | 'CHORUS_PLANT' | 'END_STONE', BlockId>
 > = Object.freeze({
-  CHORUS_FLOWER: blockIdOf('chorus_flower'),
-  CHORUS_PLANT: blockIdOf('chorus_plant'),
-  END_STONE: blockIdOf('end_stone'),
+  CHORUS_FLOWER: Option.getOrThrow(blockIdOf('chorus_flower')),
+  CHORUS_PLANT: Option.getOrThrow(blockIdOf('chorus_plant')),
+  END_STONE: Option.getOrThrow(blockIdOf('end_stone')),
 })
 
 /** Candidate columns are kept away from chunk edges so a branch stays local. */

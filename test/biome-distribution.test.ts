@@ -92,7 +92,8 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BIOMES, type BiomeType } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { biomeFor, climateAt, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, climateAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
+import { blockAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
  * Wavelengths of the three fields biome selection reads, as written in
@@ -140,8 +141,8 @@ const survey = (seed: number, span: number, stride: number): BiomeSurvey => {
     for (let dx = 0; dx < span; dx += stride) {
       const wx = dx - half
       const wz = dz - half
-      const surfaceY = surfaceHeightAt(seed, wx, wz)
-      const biome = biomeFor(seed, wx, wz, surfaceY, DEFAULT_TERRAIN_LEVELS)
+      const surfaceY = surfaceHeightAt(noiseSeed(seed), blockAxis(wx), blockAxis(wz))
+      const biome = biomeFor(noiseSeed(seed), blockAxis(wx), blockAxis(wz), surfaceY, DEFAULT_TERRAIN_LEVELS)
       const submerged = surfaceY < DEFAULT_TERRAIN_LEVELS.seaLevel
 
       total += 1
@@ -359,14 +360,14 @@ describe('the height overrides agree with the heights', () => {
         for (let dx = 0; dx < SURVEY_SPAN; dx += SURVEY_STRIDE * 2) {
           const wx = dx - half
           const wz = dz - half
-          const surfaceY = surfaceHeightAt(SEED, wx, wz)
+          const surfaceY = surfaceHeightAt(noiseSeed(SEED), blockAxis(wx), blockAxis(wz))
           if (
             surfaceY >= DEFAULT_TERRAIN_LEVELS.seaLevel - 2 &&
             surfaceY <= DEFAULT_TERRAIN_LEVELS.seaLevel + 1
           ) {
             inShorelineBand += 1
           }
-          if (biomeFor(SEED, wx, wz, surfaceY, DEFAULT_TERRAIN_LEVELS) === 'BEACH') {
+          if (biomeFor(noiseSeed(SEED), blockAxis(wx), blockAxis(wz), surfaceY, DEFAULT_TERRAIN_LEVELS) === 'BEACH') {
             beach += 1
           }
         }
@@ -387,8 +388,8 @@ describe('the height overrides agree with the heights', () => {
 describe('climateAt, the public climate query', () => {
   it.effect('is deterministic: the same (seed, wx, wz) always answers identically', () =>
     Effect.sync(() => {
-      const first = climateAt(SEED, 100, 200)
-      const second = climateAt(SEED, 100, 200)
+      const first = climateAt(noiseSeed(SEED), blockAxis(100), blockAxis(200))
+      const second = climateAt(noiseSeed(SEED), blockAxis(100), blockAxis(200))
       expect(second).toStrictEqual(first)
     }),
   )
@@ -400,7 +401,7 @@ describe('climateAt, the public climate query', () => {
       // humidity and the unscaled `riverNoise` stay in `[0, 1)`.
       // `continentalness` and `erosion` go through `toBipolar` (`value * 2 -
       // 1`), so they land in `[-1, 1)`.
-      const sample = climateAt(SEED, -4096, 3072)
+      const sample = climateAt(noiseSeed(SEED), blockAxis(-4096), blockAxis(3072))
 
       expect(sample.temperature).toBeGreaterThanOrEqual(0)
       expect(sample.temperature).toBeLessThan(1)
@@ -418,8 +419,8 @@ describe('climateAt, the public climate query', () => {
 
   it.effect('actually samples position-dependent noise rather than a constant', () =>
     Effect.sync(() => {
-      const here = climateAt(SEED, 0, 0)
-      const farAway = climateAt(SEED, 6000, -6000)
+      const here = climateAt(noiseSeed(SEED), blockAxis(0), blockAxis(0))
+      const farAway = climateAt(noiseSeed(SEED), blockAxis(6000), blockAxis(-6000))
       expect(farAway).not.toStrictEqual(here)
     }),
   )

@@ -9,17 +9,18 @@ import {
 } from '../src/index'
 // eslint-disable-next-line sort-imports -- Kernel coordinates follow the public API import.
 import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
+import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const FORWARDING_SEED = 20260803
 // eslint-disable-next-line no-magic-numbers -- Negative and positive coordinates exercise forwarding.
-const FORWARDING_COORD = chunkCoord(-3, 7)
+const FORWARDING_COORD = chunkCoord(chunkAxis(-3), chunkAxis(7))
 // eslint-disable-next-line no-magic-numbers -- Representative negative, origin, and positive chunks cover parity.
-const PARITY_COORDINATES = [chunkCoord(-2, -1), chunkCoord(0, 0), chunkCoord(4, 3)]
+const PARITY_COORDINATES = [chunkCoord(chunkAxis(-2), chunkAxis(-1)), chunkCoord(chunkAxis(0), chunkAxis(0)), chunkCoord(chunkAxis(4), chunkAxis(3))]
 
 describe('TerrainWorkerPoolPort', () => {
   it.effect('adapts a host port without changing the ChunkSource contract', () =>
     Effect.gen(function* forwardsChunkSource() {
-      const expected = yield* generatedChunkSource(FORWARDING_SEED)(FORWARDING_COORD)
+      const expected = yield* generatedChunkSource(noiseSeed(FORWARDING_SEED))(FORWARDING_COORD)
       const requested: Array<ChunkCoord> = []
       const port: TerrainWorkerPoolPort = {
         generateTerrain: (requestedCoord) => {
@@ -38,7 +39,7 @@ describe('TerrainWorkerPoolPort', () => {
   it.effect('preserves byte-identical terrain output across the host boundary', () =>
     Effect.gen(function* preservesTerrainParity() {
       const seed = 777
-      const mainThread = generatedChunkSource(seed)
+      const mainThread = generatedChunkSource(noiseSeed(seed))
       const port: TerrainWorkerPoolPort = {
         generateTerrain: (coord) => mainThread(coord),
       }

@@ -12,10 +12,11 @@ import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planPillagerOutpostForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
+const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 
 type LocatedPillagerOutpost = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<PillagerOutpostDraft>): PillagerOutpo
 const findPillagerOutpost = (seed: number): LocatedPillagerOutpost => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planPillagerOutpostForRegion(seed, regionX, regionZ, FLAT_PLAINS)
+      const plan = planPillagerOutpostForRegion(noiseSeed(seed), regionX, regionZ, FLAT_PLAINS)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findPillagerOutpost = (seed: number): LocatedPillagerOutpost => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planPillagerOutpostForRegion(seed, regionX, regionZ, FLAT_PLAINS))) return [regionX, regionZ]
+      if (Option.isNone(planPillagerOutpostForRegion(noiseSeed(seed), regionX, regionZ, FLAT_PLAINS))) return [regionX, regionZ]
     }
   }
   throw new Error('pillager outpost absent-region search range exhausted')
@@ -76,19 +77,19 @@ describe('pillager outpost plans', () => {
   })
 
   it('rejects unsuitable sites and accepts the maximum supported relief', () => {
-    const invalidBiome: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: 63, surfaceY: 70 })
-    const wetSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 64 })
-    const lowSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: -10, surfaceY: -2 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: -10, surfaceY: CHUNK_HEIGHT })
+    const invalidBiome: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const wetSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(64) })
+    const lowSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(-10), surfaceY: blockAxis(-2) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(-10), surfaceY: blockAxis(CHUNK_HEIGHT) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'PLAINS',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 70 : 74,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 74),
     })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'PLAINS',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 70 : 73,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 73),
     })
 
     expect(Option.isNone(planPillagerOutpostForCandidate({ x: 0, z: 0 }, invalidBiome))).toBe(true)
@@ -102,19 +103,19 @@ describe('pillager outpost plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findPillagerOutpost(seed)
-    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: 63, surfaceY: 70 })
-    const repeated = planPillagerOutpostForRegion(seed, located.regionX, located.regionZ, FLAT_PLAINS)
+    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'FOREST', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const repeated = planPillagerOutpostForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_PLAINS)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_PLAINS })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_PLAINS })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planPillagerOutpostForRegion(seed, located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
-    expect(Option.isNone(planPillagerOutpostForRegion(seed, absentX, absentZ, FLAT_PLAINS))).toBe(true)
+    expect(Option.isNone(planPillagerOutpostForRegion(noiseSeed(seed), located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
+    expect(Option.isNone(planPillagerOutpostForRegion(noiseSeed(seed), absentX, absentZ, FLAT_PLAINS))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID['pillager-outpost']).toStrictEqual({ separation: 128, spacing: 320, spawnPermille: 120 })
     expect(located.plan.kind).toBe('pillager-outpost')
     expect(located.plan.dimension).toBe('overworld')

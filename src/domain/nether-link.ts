@@ -48,6 +48,7 @@
  */
 import { type BlockPosition, blockPosition } from '@nerima-games/mc-kernel'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 /**
  * Overworld blocks per Nether block, on the horizontal axes only.
@@ -73,9 +74,9 @@ export const NETHER_HORIZONTAL_RATIO = 8
  */
 export const overworldToNether = (pos: BlockPosition): BlockPosition =>
   blockPosition(
-    Math.floor(pos.x / NETHER_HORIZONTAL_RATIO),
+    blockAxis(Math.floor(pos.x / NETHER_HORIZONTAL_RATIO)),
     pos.y,
-    Math.floor(pos.z / NETHER_HORIZONTAL_RATIO),
+    blockAxis(Math.floor(pos.z / NETHER_HORIZONTAL_RATIO)),
   )
 
 /**
@@ -90,7 +91,11 @@ export const overworldToNether = (pos: BlockPosition): BlockPosition =>
  * that had quietly made the lossy direction lossless.
  */
 export const netherToOverworld = (pos: BlockPosition): BlockPosition =>
-  blockPosition(pos.x * NETHER_HORIZONTAL_RATIO, pos.y, pos.z * NETHER_HORIZONTAL_RATIO)
+  blockPosition(
+    blockAxis(pos.x * NETHER_HORIZONTAL_RATIO),
+    pos.y,
+    blockAxis(pos.z * NETHER_HORIZONTAL_RATIO),
+  )
 
 /** Squared Euclidean distance. Squared because nothing here needs the root. */
 const distanceSquared = (a: BlockPosition, b: BlockPosition): number => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { generateChunkAt } from '../src/domain/terrain'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import {
   TREE_CELL_JITTER_ORIGIN,
   TREE_CELL_JITTER_SPAN,
@@ -10,6 +10,7 @@ import {
   TREE_GRID_SIZE,
   TREE_MIN_SPACING,
 } from '../src/domain/tree-placement'
+import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
  * ---------------------------------------------------------------------------
@@ -86,7 +87,7 @@ const stitch = (
 
   for (let cx = origin.cx; cx < origin.cx + chunkSpan; cx += 1) {
     for (let cz = origin.cz; cz < origin.cz + chunkSpan; cz += 1) {
-      const chunk = generateChunkAt(seed, cx, cz)
+      const chunk = generateChunkAt(noiseSeed(seed), chunkAxis(cx), chunkAxis(cz))
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
           const x = (cx - origin.cx) * CHUNK_SIZE_XZ + lx

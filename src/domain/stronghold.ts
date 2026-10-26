@@ -1,7 +1,11 @@
 import { type BlockId, type Dimension, blockIdOf } from '@nerima-games/mc-kernel'
 import { STRONGHOLD_FLOOR_Y, type StrongholdSite } from './structure-siting.js'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { BLOCK } from './biome.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 const STRONGHOLD_WALL_THICKNESS = 1
 const STRONGHOLD_ABOVE_FLOOR_Y_OFFSET = 1
@@ -23,15 +27,15 @@ export const STRONGHOLD_BLOCK: Readonly<
     BlockId
   >
 > = {
-  COBBLESTONE: blockIdOf('cobblestone'),
-  END_PORTAL_FRAME: blockIdOf('end_portal_frame'),
-  END_PORTAL_FRAME_FILLED: blockIdOf('end_portal_frame_filled'),
-  LAVA: blockIdOf('lava'),
-  PLANKS: blockIdOf('oak_planks'),
+  COBBLESTONE: Option.getOrThrow(blockIdOf('cobblestone')),
+  END_PORTAL_FRAME: Option.getOrThrow(blockIdOf('end_portal_frame')),
+  END_PORTAL_FRAME_FILLED: Option.getOrThrow(blockIdOf('end_portal_frame_filled')),
+  LAVA: Option.getOrThrow(blockIdOf('lava')),
+  PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
 } as const
 
 export type StrongholdPieceKind = 'portal-room' | 'corridor' | 'stair' | 'library'
-export type StrongholdMutation = { readonly x: number; readonly y: number; readonly z: number; readonly block: BlockId }
+export type StrongholdMutation = { readonly x: BlockAxis; readonly y: BlockAxis; readonly z: BlockAxis; readonly block: BlockId }
 export type StrongholdFrame = StrongholdMutation & { readonly facing: 'north' | 'east' | 'south' | 'west'; readonly eye: boolean }
 export type StrongholdPlan = {
   readonly dimension: 'overworld'
@@ -44,6 +48,7 @@ export type StrongholdPlan = {
 const STRONGHOLD_FRAME_CENTER_OFFSET = 0
 const STRONGHOLD_FRAME_NEAR_OFFSET = 1
 const STRONGHOLD_FRAME_FAR_OFFSET = 2
+
 
 const FRAME_OFFSETS = [
   [-STRONGHOLD_FRAME_NEAR_OFFSET, -STRONGHOLD_FRAME_FAR_OFFSET, 'south'],
@@ -98,8 +103,9 @@ type StrongholdRoomBounds = {
   readonly minZ: number
 }
 
-const putStrongholdMutation = (mutations: Map<string, StrongholdMutation>, mutation: StrongholdMutation): void => {
-  mutations.set(`${mutation.x},${mutation.y},${mutation.z}`, mutation)
+const putStrongholdMutation = (mutations: Map<string, StrongholdMutation>, mutation: Omit<StrongholdMutation, 'x' | 'y' | 'z'> & { readonly x: number; readonly y: number; readonly z: number }): void => {
+  const brandedMutation = { ...mutation, x: blockAxis(mutation.x), y: blockAxis(mutation.y), z: blockAxis(mutation.z) }
+  mutations.set(`${brandedMutation.x},${brandedMutation.y},${brandedMutation.z}`, brandedMutation)
 }
 
 /** Fills one hollow box: floor, ceiling and walls get `wall`; the interior gets air. */
@@ -198,9 +204,10 @@ const placeStrongholdLavaTraps = (mutations: Map<string, StrongholdMutation>, si
 }
 
 /** The ring of 12 end-portal-frame blocks, each independently lit or unlit. */
+
 const buildStrongholdFrames = (
   mutations: Map<string, StrongholdMutation>,
-  seed: number,
+  seed: NoiseSeed,
   site: StrongholdSite,
 ): ReadonlyArray<StrongholdFrame> =>
   FRAME_OFFSETS.map(([dx, dz, facing], index) => {
@@ -211,16 +218,26 @@ const buildStrongholdFrames = (
       block,
       eye,
       facing,
-      x: site.x + dx,
-      y: STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET,
-      z: site.z + dz,
+      x: blockAxis(site.x + dx),
+      y: blockAxis(STRONGHOLD_FLOOR_Y + STRONGHOLD_ABOVE_FLOOR_Y_OFFSET),
+      z: blockAxis(site.z + dz),
     }
     putStrongholdMutation(mutations, frame)
     return frame
   })
 
 /** Builds one complete plan before chunks select their slices; coordinate keys prevent duplicate writes. */
-export const generateStrongholdPlan = (seed: number, site: StrongholdSite, dimension: Dimension = 'overworld'): StrongholdPlan | undefined => {
+export function generateStrongholdPlan(seed: NoiseSeed, site: StrongholdSite): StrongholdPlan
+export function generateStrongholdPlan(
+  seed: NoiseSeed,
+  site: StrongholdSite,
+  dimension: Dimension,
+): StrongholdPlan | undefined
+export function generateStrongholdPlan(
+  seed: NoiseSeed,
+  site: StrongholdSite,
+  dimension: Dimension = 'overworld',
+): StrongholdPlan | undefined {
   if (dimension !== 'overworld') {return}
   const mutations = new Map<string, StrongholdMutation>()
   carveStrongholdRooms(mutations, site)
@@ -259,9 +276,9 @@ const isStrongholdFrameLevel = (y: number): boolean =>
 /** Returns the stronghold block at a world position, or undefined outside its room. */
 export const strongholdBlockAt = (
   site: StrongholdSite,
-  wx: number,
-  y: number,
-  wz: number,
+  wx: BlockAxis,
+  y: BlockAxis,
+  wz: BlockAxis,
 ): BlockId | undefined => {
   const dx = Math.abs(wx - site.x)
   const dz = Math.abs(wz - site.z)

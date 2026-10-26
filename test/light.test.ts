@@ -15,11 +15,12 @@
  * existed that sentence was an intention.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
+import { Effect, Option, Result } from 'effect'
+import { ChunkCapacity, ChunkStore, ChunkStoreLayer, type ChunkSource } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockTransmitsLight, lightEmissionAt } from '../src/domain/light-block-data'
 import {
   computeChunkLight,
   computeChunkLights,
@@ -35,7 +36,15 @@ import {
   updateChunkLights,
 } from '../src/domain/light'
 import { readQueueValue, sourceAt } from '../src/domain/light-propagation'
-import { BlockId, blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { BlockId, blockIdOf, type ChunkCoord } from '@nerima-games/mc-kernel'
+import {
+  blockAxis,
+  chunkAxis,
+  localAxis,
+  validatedBlockPosition as blockPosition,
+  validatedChunkCoord as chunkCoord,
+} from './fixtures/validated-inputs'
+
 
 // ---------------------------------------------------------------------------
 // Block ids kernel names and `domain/biome.ts`'s `BLOCK` does not.
@@ -55,11 +64,11 @@ import { BlockId, blockIdOf, blockPosition, chunkCoord, type ChunkCoord } from '
  * takes a `BlockId` and the brand is the whole reason a chunk buffer cannot be
  * handed a number nobody validated.
  */
-const TORCH = BlockId(14)
+const TORCH = Result.getOrThrow(BlockId.result(14))
 /** `lightEmission: 15`, and `opacity: 'opaque'` — the case that needs its own rule. */
-const GLOWSTONE = BlockId(15)
-const REDSTONE_ORE = blockIdOf('redstone_ore')
-const DEEPSLATE_REDSTONE_ORE = blockIdOf('deepslate_redstone_ore')
+const GLOWSTONE = Result.getOrThrow(BlockId.result(15))
+const REDSTONE_ORE = Option.getOrThrow(blockIdOf('redstone_ore'))
+const DEEPSLATE_REDSTONE_ORE = Option.getOrThrow(blockIdOf('deepslate_redstone_ore'))
 
 const PLAINS_BIOMES = Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const)
 
@@ -80,6 +89,18 @@ const flatChunk = (coord: ChunkCoord, surfaceY: number): Chunk => {
 }
 
 const SURFACE_Y = 63
+const TEST_CHUNK_CAPACITY = Result.getOrThrow(ChunkCapacity.result(64))
+
+describe('cached kernel light attributes', () => {
+  it.effect('preserves unregistered block defaults and rejects ids outside the BlockId range', () =>
+    Effect.sync(() => {
+      expect(lightEmissionAt(65_534)).toBe(0)
+      expect(blockTransmitsLight(65_534)).toBe(false)
+      expect(() => lightEmissionAt(65_536)).toThrow()
+      expect(() => blockTransmitsLight(65_536)).toThrow()
+    }),
+  )
+})
 
 // ---------------------------------------------------------------------------
 // Packing
@@ -213,7 +234,7 @@ describe('light propagation queue boundaries', () => {
 describe('sky light', () => {
   it.effect('is full brightness everywhere the sky is open', () =>
     Effect.sync(() => {
-      const light = computeChunkLight(flatChunk(chunkCoord(0, 0), SURFACE_Y))
+      const light = computeChunkLight(flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y))
 
       expect(getLightAt(light.sky, blockIndex(0, SURFACE_Y + 1, 0))).toBe(15)
       expect(getLightAt(light.sky, blockIndex(8, CHUNK_HEIGHT - 1, 8))).toBe(15)
@@ -226,7 +247,7 @@ describe('sky light', () => {
       // is the obvious reading of "BFS from the top" and it would put the ground
       // at 15 - 192 = dark at noon, which would make every hostile-spawn rule
       // downstream read the world as permanently night.
-      const light = computeChunkLight(flatChunk(chunkCoord(0, 0), SURFACE_Y))
+      const light = computeChunkLight(flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y))
 
       for (let y = SURFACE_Y + 1; y < CHUNK_HEIGHT; y += 1) {
         expect(getLightAt(light.sky, blockIndex(4, y, 4))).toBe(15)
@@ -236,7 +257,7 @@ describe('sky light', () => {
 
   it.effect('stops at the first block that does not transmit', () =>
     Effect.sync(() => {
-      const light = computeChunkLight(flatChunk(chunkCoord(0, 0), SURFACE_Y))
+      const light = computeChunkLight(flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y))
 
       // The surface block itself is stone, and stone is opaque.
       expect(getLightAt(light.sky, blockIndex(4, SURFACE_Y, 4))).toBe(0)
@@ -249,7 +270,7 @@ describe('sky light', () => {
       // A stone lid over the whole chunk at SURFACE_Y + 2 with ONE hole in it at
       // (0, 0), and air beneath. Light falls through the hole at 15 and has to
       // walk horizontally to reach the rest of the cavity.
-      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const chunk = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
       const lidY = SURFACE_Y + 2
 
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
@@ -276,7 +297,7 @@ describe('sky light', () => {
 
   it.effect('is dark under a sealed lid, because nothing reaches it at all', () =>
     Effect.sync(() => {
-      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const chunk = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
       const lidY = SURFACE_Y + 2
 
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
@@ -300,7 +321,7 @@ describe('sky light', () => {
 
 describe('block light', () => {
   /** The sealed room the sky cannot reach, so that only emitters are measured. */
-  const sealedRoom = (coord = chunkCoord(0, 0)): Chunk => {
+  const sealedRoom = (coord = chunkCoord(chunkAxis(0), 0)): Chunk => {
     const chunk = flatChunk(coord, SURFACE_Y)
     const lidY = SURFACE_Y + 2
 
@@ -343,11 +364,11 @@ describe('block light', () => {
   it.effect('resolves a source after 256 loaded chunks without wrapping its id', () =>
     Effect.sync(() => {
       const loaded = new Map<string, Chunk>()
-      const sourceCoord = chunkCoord(256, 0)
+      const sourceCoord = chunkCoord(chunkAxis(256), 0)
       const source = { coord: sourceCoord, blocks: emptyBlocks(), biomes: PLAINS_BIOMES }
       source.blocks[blockIndex(1, SURFACE_Y + 1, 1)] = TORCH
       for (let cx = 0; cx <= 256; cx += 1) {
-        const coord = chunkCoord(cx, 0)
+        const coord = chunkCoord(chunkAxis(cx), 0)
         loaded.set(`${cx},0`, cx === 256 ? source : { coord, blocks: emptyBlocks(), biomes: PLAINS_BIOMES })
       }
 
@@ -525,7 +546,7 @@ describe('block light', () => {
       // open sky must not raise the sky grid, and daylight must not raise the
       // block grid — otherwise the spawn rule refuses a cell for the wrong
       // reason and `too-bright` stops meaning anything.
-      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const chunk = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
       const y = SURFACE_Y + 1
       chunk.blocks[blockIndex(4, y, 4)] = TORCH
 
@@ -587,8 +608,8 @@ describe('block light', () => {
 
   it.effect('propagates block light across a resident chunk boundary', () =>
     Effect.sync(() => {
-      const left = sealedRoom(chunkCoord(0, 0))
-      const right = sealedRoom(chunkCoord(1, 0))
+      const left = sealedRoom(chunkCoord(chunkAxis(0), 0))
+      const right = sealedRoom(chunkCoord(chunkAxis(1), 0))
       const y = SURFACE_Y + 1
       left.blocks[blockIndex(15, y, 8)] = TORCH
 
@@ -600,9 +621,9 @@ describe('block light', () => {
 
   it.effect('incremental edits match a full recompute across three resident chunks', () =>
     Effect.sync(() => {
-      const left = sealedRoom(chunkCoord(-1, 0))
-      const centre = sealedRoom(chunkCoord(0, 0))
-      const right = sealedRoom(chunkCoord(1, 0))
+      const left = sealedRoom(chunkCoord(chunkAxis(-1), 0))
+      const centre = sealedRoom(chunkCoord(chunkAxis(0), 0))
+      const right = sealedRoom(chunkCoord(chunkAxis(1), 0))
       const loaded = new Map([
         ['left', left],
         ['centre', centre],
@@ -627,7 +648,7 @@ describe('block light', () => {
         z: number,
         block: BlockId,
       ): void => {
-        setBlockAt(chunk.blocks, x, editY, z, block)
+        setBlockAt(chunk.blocks, localAxis(x), blockAxis(editY), localAxis(z), block)
         incremental = updateChunkLights(loaded, incremental, [
           { coord: chunk.coord, x, y: editY, z },
         ])
@@ -671,8 +692,8 @@ describe('updateChunkLights edge inputs', () => {
       // check alone cannot catch this — the cache has to be walked key by key
       // to discover 'b' has no light at all, which is `registerCurrentChunk`'s
       // own reason to exist rather than being folded into the size check.
-      const a = flatChunk(chunkCoord(0, 0), SURFACE_Y)
-      const b = flatChunk(chunkCoord(5, 5), SURFACE_Y)
+      const a = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
+      const b = flatChunk(chunkCoord(chunkAxis(5), 5), SURFACE_Y)
       const loaded = new Map([['a', a], ['b', b]])
       const stale = computeChunkLights(new Map([['a', a], ['stray', b]]))
 
@@ -687,8 +708,8 @@ describe('updateChunkLights edge inputs', () => {
 
   it.effect('falls back to a full recompute when the cache and loaded are different sizes', () =>
     Effect.sync(() => {
-      const a = flatChunk(chunkCoord(0, 0), SURFACE_Y)
-      const b = flatChunk(chunkCoord(5, 5), SURFACE_Y)
+      const a = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
+      const b = flatChunk(chunkCoord(chunkAxis(5), 5), SURFACE_Y)
       const loaded = new Map([['a', a]])
       const stale = computeChunkLights(new Map([['a', a], ['b', b]]))
 
@@ -702,7 +723,7 @@ describe('updateChunkLights edge inputs', () => {
 
   it.effect('an empty change list answers the SAME cache, not an equal copy of it', () =>
     Effect.sync(() => {
-      const loaded = new Map([['only', flatChunk(chunkCoord(0, 0), SURFACE_Y)]])
+      const loaded = new Map([['only', flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)]])
       const current = computeChunkLights(loaded)
 
       expect(updateChunkLights(loaded, current, [])).toBe(current)
@@ -716,12 +737,12 @@ describe('updateChunkLights edge inputs', () => {
       // loaded — so the incremental queue starts and ends empty, and
       // `finalizeUpdate` hands back the SAME map rather than a copy nothing
       // actually wrote into.
-      const loaded = new Map([['only', flatChunk(chunkCoord(0, 0), SURFACE_Y)]])
+      const loaded = new Map([['only', flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)]])
       const current = computeChunkLights(loaded)
 
       const result = updateChunkLights(loaded, current, [
-        { coord: chunkCoord(0, 0), x: CHUNK_SIZE_XZ, y: SURFACE_Y, z: 0 },
-        { coord: chunkCoord(99, 99), x: 0, y: SURFACE_Y, z: 0 },
+        { coord: chunkCoord(chunkAxis(0), 0), x: CHUNK_SIZE_XZ, y: SURFACE_Y, z: 0 },
+        { coord: chunkCoord(chunkAxis(99), 99), x: 0, y: SURFACE_Y, z: 0 },
       ])
 
       expect(result).toBe(current)
@@ -730,7 +751,7 @@ describe('updateChunkLights edge inputs', () => {
 
   it.effect('an edit at the very bottom of the world does not look past y = 0 for a neighbour', () =>
     Effect.sync(() => {
-      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const chunk = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
       const loaded = new Map([['only', chunk]])
       const current = computeChunkLights(loaded)
 
@@ -747,7 +768,7 @@ describe('updateChunkLights edge inputs', () => {
 
   it.effect('an edit at the very top of the world does not look past the last y for a neighbour', () =>
     Effect.sync(() => {
-      const chunk = flatChunk(chunkCoord(0, 0), SURFACE_Y)
+      const chunk = flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y)
       const loaded = new Map([['only', chunk]])
       const current = computeChunkLights(loaded)
 
@@ -769,7 +790,7 @@ describe('updateChunkLights edge inputs', () => {
       // nothing to find, and that is real: `application/chunk-store.ts` can
       // hand an unloaded neighbour's fallback source an empty chunk, and this
       // is the column that produces.
-      const empty: Chunk = { coord: chunkCoord(0, 0), blocks: emptyBlocks(), biomes: PLAINS_BIOMES }
+      const empty: Chunk = { coord: chunkCoord(chunkAxis(0), 0), blocks: emptyBlocks(), biomes: PLAINS_BIOMES }
       const loaded = new Map([['only', empty]])
       const current = computeChunkLights(loaded)
 
@@ -807,9 +828,9 @@ describe('ChunkStore.getLight', () => {
     Effect.gen(function* () {
       const store = yield* ChunkStore
 
-      expect((yield* store.getLight(blockPosition(0, -1, 0)))._tag).toBe('OutOfWorld')
-      expect((yield* store.getLight(blockPosition(0, CHUNK_HEIGHT, 0)))._tag).toBe('OutOfWorld')
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+      expect((yield* store.getLight(blockPosition(blockAxis(0), -1, 0)))._tag).toBe('OutOfWorld')
+      expect((yield* store.getLight(blockPosition(blockAxis(0), CHUNK_HEIGHT, 0)))._tag).toBe('OutOfWorld')
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('answers ChunkNotLoaded rather than darkness for a chunk nobody loaded', () =>
@@ -819,85 +840,85 @@ describe('ChunkStore.getLight', () => {
       // THE DISTINCTION THE WHOLE THREE-VALUED SHAPE EXISTS FOR. Collapsing this
       // into 0 would read as pitch dark, and the spawn rule would put a hostile
       // at the edge of the loaded area in broad daylight.
-      expect((yield* store.getLight(blockPosition(0, ROOM_Y, 0)))._tag).toBe('ChunkNotLoaded')
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+      expect((yield* store.getLight(blockPosition(blockAxis(0), ROOM_Y, 0)))._tag).toBe('ChunkNotLoaded')
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('reports sky and block light separately for a loaded chunk', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
 
-      const reading = yield* store.getLight(blockPosition(4, ROOM_Y, 4))
+      const reading = yield* store.getLight(blockPosition(blockAxis(4), ROOM_Y, 4))
       expect(reading).toStrictEqual({ _tag: 'Light', sky: 0, block: 0 })
 
-      const open = yield* store.getLight(blockPosition(4, ROOF_Y + 1, 4))
+      const open = yield* store.getLight(blockPosition(blockAxis(4), ROOF_Y + 1, 4))
       expect(open).toStrictEqual({ _tag: 'Light', sky: 15, block: 0 })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('A BLOCK WRITE INVALIDATES LIGHT — the claim the store header rests on', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
 
       // Read FIRST, so that the grid is computed and cached. Without this read
       // the test would pass against an implementation that never caches at all,
       // and it is the cached-and-stale case that is the bug.
-      const roofed = yield* store.getLight(blockPosition(4, ROOM_Y, 4))
+      const roofed = yield* store.getLight(blockPosition(blockAxis(4), ROOM_Y, 4))
       expect(roofed).toStrictEqual({ _tag: 'Light', sky: 0, block: 0 })
 
       // Mine a hole in the roof directly above the cell just read.
-      const written = yield* store.setBlock(blockPosition(4, ROOF_Y, 4), BLOCK.AIR)
+      const written = yield* store.setBlock(blockPosition(blockAxis(4), ROOF_Y, 4), BLOCK.AIR)
       expect(written._tag).toBe('Written')
 
-      const opened = yield* store.getLight(blockPosition(4, ROOM_Y, 4))
+      const opened = yield* store.getLight(blockPosition(blockAxis(4), ROOM_Y, 4))
       expect(opened).toStrictEqual({ _tag: 'Light', sky: 15, block: 0 })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('a placed torch is visible to the very next read', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
 
-      expect(yield* store.getLight(blockPosition(5, ROOM_Y, 4))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 0,
         block: 0,
       })
 
-      yield* store.setBlock(blockPosition(4, ROOM_Y, 4), TORCH)
+      yield* store.setBlock(blockPosition(blockAxis(4), ROOM_Y, 4), TORCH)
 
-      expect(yield* store.getLight(blockPosition(5, ROOM_Y, 4))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 0,
         block: 13,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('is load-order invariant and relights both sides after a boundary write', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(1, 0))
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.setBlock(blockPosition(15, ROOM_Y, 8), TORCH)
+      yield* store.load(chunkCoord(chunkAxis(1), 0))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.setBlock(blockPosition(blockAxis(15), ROOM_Y, 8), TORCH)
 
-      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
 
-      yield* store.setBlock(blockPosition(16, ROOM_Y, 8), BLOCK.STONE)
-      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+      yield* store.setBlock(blockPosition(blockAxis(16), ROOM_Y, 8), BLOCK.STONE)
+      expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 0,
       })
 
-      yield* store.setBlock(blockPosition(16, ROOM_Y, 8), BLOCK.AIR)
-      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+      yield* store.setBlock(blockPosition(blockAxis(16), ROOM_Y, 8), BLOCK.AIR)
+      expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('relights both sides of a Z boundary write too, not only the X boundary above', () =>
@@ -907,138 +928,150 @@ describe('ChunkStore.getLight', () => {
       // nothing else in this suite writes on that edge — this is the seam the
       // X test cannot stand in for.
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 1))
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.setBlock(blockPosition(8, ROOM_Y, 15), TORCH)
+      yield* store.load(chunkCoord(chunkAxis(0), 1))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.setBlock(blockPosition(blockAxis(8), ROOM_Y, 15), TORCH)
 
-      expect(yield* store.getLight(blockPosition(8, ROOM_Y, 16))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(8), ROOM_Y, 16))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
 
-      yield* store.setBlock(blockPosition(8, ROOM_Y, 16), BLOCK.STONE)
-      expect(yield* store.getLight(blockPosition(8, ROOM_Y, 16))).toStrictEqual({
+      yield* store.setBlock(blockPosition(blockAxis(8), ROOM_Y, 16), BLOCK.STONE)
+      expect(yield* store.getLight(blockPosition(blockAxis(8), ROOM_Y, 16))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
+  )
+
+  it.effect('keeps boundary invalidation safe at the largest BlockAxis coordinate', () =>
+    Effect.gen(function* () {
+      const position = blockPosition(blockAxis(Number.MAX_SAFE_INTEGER), ROOM_Y, blockAxis(0))
+      const coord = chunkCoord(chunkAxis(Math.floor(Number.MAX_SAFE_INTEGER / CHUNK_SIZE_XZ)), 0)
+      const store = yield* ChunkStore
+      yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.STONE)
+
+      expect(yield* store.getBlock(position)).toStrictEqual({ _tag: 'Block', block: BLOCK.STONE })
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('spreads sky light sideways through an opening at a resident seam', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.load(chunkCoord(1, 0))
-      yield* store.setBlock(blockPosition(15, ROOF_Y, 8), BLOCK.AIR)
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.load(chunkCoord(chunkAxis(1), 0))
+      yield* store.setBlock(blockPosition(blockAxis(15), ROOF_Y, 8), BLOCK.AIR)
 
-      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 14, block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('treats an unloaded seam as closed and relights it after reload', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.setBlock(blockPosition(15, ROOM_Y, 8), TORCH)
-      expect((yield* store.getLight(blockPosition(16, ROOM_Y, 8)))._tag).toBe('ChunkNotLoaded')
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.setBlock(blockPosition(blockAxis(15), ROOM_Y, 8), TORCH)
+      expect((yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8)))._tag).toBe('ChunkNotLoaded')
 
-      yield* store.load(chunkCoord(1, 0))
-      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+      yield* store.load(chunkCoord(chunkAxis(1), 0))
+      expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
-      yield* store.unload(chunkCoord(1, 0))
-      yield* store.load(chunkCoord(1, 0))
-      expect(yield* store.getLight(blockPosition(16, ROOM_Y, 8))).toStrictEqual({
+      yield* store.unload(chunkCoord(chunkAxis(1), 0))
+      yield* store.load(chunkCoord(chunkAxis(1), 0))
+      expect(yield* store.getLight(blockPosition(blockAxis(16), ROOM_Y, 8))).toStrictEqual({
         _tag: 'Light', sky: 0, block: 13,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('an Unchanged write does not invalidate, for the reason it does not dirty', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
 
-      yield* store.setBlock(blockPosition(4, ROOM_Y, 4), TORCH)
-      const lit = yield* store.getLight(blockPosition(5, ROOM_Y, 4))
+      yield* store.setBlock(blockPosition(blockAxis(4), ROOM_Y, 4), TORCH)
+      const lit = yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))
 
       // Re-placing the block that is already there. A fluid re-asserting its
       // level does this every tick, and invalidating on it would relight the
       // chunk every tick forever — the light-side twin of the remesh-forever
       // bug `withBlockAt` guards against for the dirty channel.
-      const again = yield* store.setBlock(blockPosition(4, ROOM_Y, 4), TORCH)
+      const again = yield* store.setBlock(blockPosition(blockAxis(4), ROOM_Y, 4), TORCH)
       expect(again._tag).toBe('Unchanged')
 
-      expect(yield* store.getLight(blockPosition(5, ROOM_Y, 4))).toStrictEqual(lit)
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+      expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual(lit)
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('a write to ANOTHER chunk does not invalidate this one', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.load(chunkCoord(1, 0))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.load(chunkCoord(chunkAxis(1), 0))
 
-      yield* store.getLight(blockPosition(4, ROOM_Y, 4))
+      yield* store.getLight(blockPosition(blockAxis(4), ROOM_Y, 4))
       // Chunk (1, 0) starts at world x = 16.
-      yield* store.setBlock(blockPosition(20, ROOF_Y, 4), BLOCK.AIR)
+      yield* store.setBlock(blockPosition(blockAxis(20), ROOF_Y, 4), BLOCK.AIR)
 
-      expect(yield* store.getLight(blockPosition(4, ROOM_Y, 4))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(4), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 0,
         block: 0,
       })
-      expect(yield* store.getLight(blockPosition(20, ROOM_Y, 4))).toStrictEqual({
+      expect(yield* store.getLight(blockPosition(blockAxis(20), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 15,
         block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('unloading drops the grid, and reloading recomputes it', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.setBlock(blockPosition(4, ROOM_Y, 4), TORCH)
-      expect(yield* store.getLight(blockPosition(5, ROOM_Y, 4))).toStrictEqual({
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.setBlock(blockPosition(blockAxis(4), ROOM_Y, 4), TORCH)
+      expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 0,
         block: 13,
       })
 
-      yield* store.unload(chunkCoord(0, 0))
-      expect((yield* store.getLight(blockPosition(5, ROOM_Y, 4)))._tag).toBe('ChunkNotLoaded')
+      yield* store.unload(chunkCoord(chunkAxis(0), 0))
+      expect((yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4)))._tag).toBe('ChunkNotLoaded')
 
       // The source regenerates a torchless chunk, and the light must follow the
       // blocks rather than the coordinate. A grid kept across an unload would
       // light the fresh chunk with the old one's torch.
-      yield* store.load(chunkCoord(0, 0))
-      expect(yield* store.getLight(blockPosition(5, ROOM_Y, 4))).toStrictEqual({
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 0,
         block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 
   it.effect('reset drops every grid along with every chunk', () =>
     Effect.gen(function* () {
       const store = yield* ChunkStore
-      yield* store.load(chunkCoord(0, 0))
-      yield* store.setBlock(blockPosition(4, ROOM_Y, 4), TORCH)
-      yield* store.getLight(blockPosition(5, ROOM_Y, 4))
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      yield* store.setBlock(blockPosition(blockAxis(4), ROOM_Y, 4), TORCH)
+      yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))
 
       yield* store.reset
 
-      expect((yield* store.getLight(blockPosition(5, ROOM_Y, 4)))._tag).toBe('ChunkNotLoaded')
+      expect((yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4)))._tag).toBe('ChunkNotLoaded')
 
-      yield* store.load(chunkCoord(0, 0))
-      expect(yield* store.getLight(blockPosition(5, ROOM_Y, 4))).toStrictEqual({
+      yield* store.load(chunkCoord(chunkAxis(0), 0))
+      expect(yield* store.getLight(blockPosition(blockAxis(5), ROOM_Y, 4))).toStrictEqual({
         _tag: 'Light',
         sky: 0,
         block: 0,
       })
-    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource))),
+    }).pipe(Effect.provide(ChunkStoreLayer(roofedSource, TEST_CHUNK_CAPACITY))),
   )
 })

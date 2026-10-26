@@ -48,12 +48,27 @@ import {
   CHUNK_SIZE_XZ,
   climateAt,
   DEFAULT_TERRAIN_LEVELS,
-  emptyBlocks,
   generateChunk,
   surfaceHeightAt,
 } from '../src/index'
-import { chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
-import { channelSeed, fbm2D, valueNoise2D } from '@nerima-games/mc-noise'
+import { emptyBlocks } from '../src/testing'
+import { Result } from 'effect'
+import { chunkCoord as createChunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { blockAxis, chunkAxis } from '../src/domain/coordinate-compatibility'
+import {
+  channelSeed,
+  fbm2D,
+  NoiseChannelLabel,
+  NoiseFrequency,
+  NoiseSeed,
+  OctaveAmplitude,
+  OctaveCount,
+  valueNoise2D,
+  ValueNoiseFbmSample,
+  type NoiseSeed as NoiseSeedValue,
+  type ValueNoiseFbmOptions,
+  type ValueNoiseFbmSample as ValueNoiseFbmSampleValue,
+} from '@nerima-games/mc-noise'
 import { worldX, worldZ } from '../src/domain/generator-coordinates'
 import {
   checkGuards,
@@ -79,7 +94,7 @@ const BASELINE_PATH = new URL('./bench-baseline.json', import.meta.url).pathname
 /** The reference's run count for the terrain workload. */
 const RUNS = 9
 
-const SEED = 20260726
+const SEED = Result.getOrThrow(NoiseSeed.result(20260726))
 
 /** Columns in a chunk. The unit the sampling workloads are quoted per. */
 const COLUMNS_PER_CHUNK = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
@@ -92,7 +107,7 @@ const COLUMNS_PER_CHUNK = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
  * caching)." Generating chunk (0,0) two hundred times would measure a warm
  * lattice-hash cache rather than terrain generation.
  */
-const coordFor = (index: number): ChunkCoord => chunkCoord((index % 64) - 32, ((index >> 6) % 64) - 32)
+const coordFor = (index: number): ChunkCoord => createChunkCoord(chunkAxis((index % 64) - 32), chunkAxis(((index >> 6) % 64) - 32))
 
 /** Anything a measured loop computes has to be observed, or the JIT may delete it. */
 let sink = 0
@@ -143,24 +158,25 @@ const yardstick = (): void => {
  * pins the shipped function, and the ratio collapses if it gets slower.
  */
 const fbm2DFrozen = (
-  seed: number,
+  seed: NoiseSeedValue,
   x: number,
   z: number,
-  options: { readonly octaves: number; readonly frequency: number; readonly persistence: number },
-): number => {
+  options: ValueNoiseFbmOptions,
+): Result.Result<ValueNoiseFbmSampleValue, RangeError> => {
   let total = 0
   let amplitude = 1
-  let frequency = options.frequency
+  let frequency: number = options.frequency
   let normalisation = 0
 
   for (let octave = 0; octave < options.octaves; octave += 1) {
-    total += valueNoise2D(channelSeed(seed, `octave-${String(octave)}`), x, z, frequency) * amplitude
+    const channel = Result.getOrThrow(NoiseChannelLabel.result(`octave-${String(octave)}`))
+    total += Result.getOrThrow(valueNoise2D(channelSeed(seed, channel), x, z, Result.getOrThrow(NoiseFrequency.result(frequency)))) * amplitude
     normalisation += amplitude
     amplitude *= options.persistence
     frequency *= 2
   }
 
-  return normalisation === 0 ? 0 : total / normalisation
+  return ValueNoiseFbmSample.result(normalisation === 0 ? 0 : total / normalisation)
 }
 
 /**
@@ -168,11 +184,11 @@ const fbm2DFrozen = (
  * `fbmEquivalence` checks that before anything is timed.
  */
 const fbm2DArrayReduce = (
-  seed: number,
+  seed: NoiseSeedValue,
   x: number,
   z: number,
-  options: { readonly octaves: number; readonly frequency: number; readonly persistence: number },
-): number => {
+  options: ValueNoiseFbmOptions,
+): Result.Result<ValueNoiseFbmSampleValue, RangeError> => {
   const folded = Array.from({ length: options.octaves }).reduce<{
     readonly total: number
     readonly amplitude: number
@@ -180,27 +196,34 @@ const fbm2DArrayReduce = (
     readonly normalisation: number
     readonly octave: number
   }>(
-    (accumulator) => ({
-      total:
-        accumulator.total +
-        valueNoise2D(
-          channelSeed(seed, `octave-${String(accumulator.octave)}`),
-          x,
-          z,
-          accumulator.frequency,
-        ) *
-          accumulator.amplitude,
-      normalisation: accumulator.normalisation + accumulator.amplitude,
-      amplitude: accumulator.amplitude * options.persistence,
-      frequency: accumulator.frequency * 2,
-      octave: accumulator.octave + 1,
-    }),
+    (accumulator) => {
+      const channel = Result.getOrThrow(NoiseChannelLabel.result(`octave-${String(accumulator.octave)}`))
+      return {
+        total:
+          accumulator.total +
+          Result.getOrThrow(valueNoise2D(
+            channelSeed(seed, channel),
+            x,
+            z,
+            Result.getOrThrow(NoiseFrequency.result(accumulator.frequency)),
+          )) *
+            accumulator.amplitude,
+        normalisation: accumulator.normalisation + accumulator.amplitude,
+        amplitude: accumulator.amplitude * options.persistence,
+        frequency: accumulator.frequency * 2,
+        octave: accumulator.octave + 1,
+      }
+    },
     { total: 0, amplitude: 1, frequency: options.frequency, normalisation: 0, octave: 0 },
   )
-  return folded.normalisation === 0 ? 0 : folded.total / folded.normalisation
+  return ValueNoiseFbmSample.result(folded.normalisation === 0 ? 0 : folded.total / folded.normalisation)
 }
 
-const FBM_OPTIONS = { octaves: 4, frequency: 1 / 180, persistence: 0.5 } as const
+const FBM_OPTIONS: ValueNoiseFbmOptions = {
+  octaves: Result.getOrThrow(OctaveCount.result(4)),
+  frequency: Result.getOrThrow(NoiseFrequency.result(1 / 180)),
+  persistence: Result.getOrThrow(OctaveAmplitude.result(0.5)),
+}
 
 type FbmImplementation = typeof fbm2D
 
@@ -209,7 +232,7 @@ const FBM_SAMPLES = 100_000
 const fbmArm = (implementation: FbmImplementation) => (): void => {
   let total = 0
   for (let index = 0; index < FBM_SAMPLES; index += 1) {
-    total += implementation(SEED, index * 1.7, index * 0.9, FBM_OPTIONS)
+    total += Result.getOrThrow(implementation(SEED, index * 1.7, index * 0.9, FBM_OPTIONS))
   }
   sink += total
 }
@@ -217,11 +240,11 @@ const fbmArm = (implementation: FbmImplementation) => (): void => {
 const fbmEquivalence = (): string => {
   const disagreements: Array<string> = []
   for (let index = 0; index < 1024; index += 1) {
-    const expected = fbm2D(SEED, index * 1.7, index * 0.9, FBM_OPTIONS)
-    if (fbm2DFrozen(SEED, index * 1.7, index * 0.9, FBM_OPTIONS) !== expected) {
+    const expected = Result.getOrThrow(fbm2D(SEED, index * 1.7, index * 0.9, FBM_OPTIONS))
+    if (Result.getOrThrow(fbm2DFrozen(SEED, index * 1.7, index * 0.9, FBM_OPTIONS)) !== expected) {
       disagreements.push('frozen copy')
     }
-    if (fbm2DArrayReduce(SEED, index * 1.7, index * 0.9, FBM_OPTIONS) !== expected) {
+    if (Result.getOrThrow(fbm2DArrayReduce(SEED, index * 1.7, index * 0.9, FBM_OPTIONS)) !== expected) {
       disagreements.push('Array.from().reduce')
     }
   }
@@ -239,7 +262,7 @@ const surfaceOnly = (): void => {
   let total = 0
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      total += surfaceHeightAt(SEED, worldX(coord, lx), worldZ(coord, lz))
+      total += surfaceHeightAt(SEED, blockAxis(worldX(coord, lx)), blockAxis(worldZ(coord, lz)))
     }
   }
   sink += total
@@ -250,7 +273,7 @@ const climateOnly = (): void => {
   let total = 0
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      total += climateAt(SEED, worldX(coord, lx), worldZ(coord, lz)).temperature
+      total += climateAt(SEED, blockAxis(worldX(coord, lx)), blockAxis(worldZ(coord, lz))).temperature
     }
   }
   sink += total
@@ -276,7 +299,7 @@ const carvePool: ReadonlyArray<{ readonly coord: ChunkCoord; readonly blocks: Ui
   (_unused, index) => {
     const coord = coordFor(index)
     const blocks = emptyBlocks()
-    blocks.set(generateChunk(SEED, coord, { decorate: false }).blocks)
+    blocks.set(Result.getOrThrow(generateChunk(SEED, coord, { decorate: false })).blocks)
     return { coord, blocks }
   },
 )
@@ -361,7 +384,7 @@ const main = async (): Promise<number> => {
     {
       name: 'generateChunk/no-decorate',
       msPerUnit: measure(() => {
-        sink += generateChunk(SEED, nextCoord(), { decorate: false }).blocks[0] ?? 0
+        sink += Result.getOrThrow(generateChunk(SEED, nextCoord(), { decorate: false })).blocks[0] ?? 0
       }, options(40, 80)),
       unit: 'chunk',
       detail: 'height + biome + column fill + carve + ore + ravines + structures; vegetation is disabled by decorate:false',
@@ -375,7 +398,7 @@ const main = async (): Promise<number> => {
     {
       name: 'generateChunk/full',
       msPerUnit: measure(() => {
-        sink += generateChunk(SEED, nextCoord()).blocks[0] ?? 0
+        sink += Result.getOrThrow(generateChunk(SEED, nextCoord())).blocks[0] ?? 0
       }, options(30, 60)),
       unit: 'chunk',
       detail: 'height + biome + column fill + carve + ore + vegetation + ravines + structures',

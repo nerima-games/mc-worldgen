@@ -28,10 +28,10 @@
  * an ordinary current-format `Chunk`.
  */
 import { describe, expect, it } from '@effect/vitest'
+import * as validated from './fixtures/validated-inputs'
 import { Effect } from 'effect'
 import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_NAME, CHUNK_FORMAT_V1, migrateChunkV1ToV2 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
-import { chunkCoord } from '@nerima-games/mc-kernel'
 import { decodeSave, encodeSave, saveEnvelope } from '@nerima-games/mc-save'
 
 /**
@@ -51,7 +51,7 @@ const legacyPayload = {
   coord: { cx: 2, cz: -3 },
 }
 
-const legacyEnvelope = saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT_V1.version, legacyPayload)
+const legacyEnvelope = saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT_V1.version, legacyPayload)
 
 describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
   it('CF-V1-0: is the same format name as the current format, at version 1', () => {
@@ -79,7 +79,7 @@ describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
       expect(legacy.blocks[0]).toBe(1)
       expect(legacy.blocks[1]).toBe(255)
       expect(legacy.blocks[2]).toBe(44)
-      expect(legacy.coord).toStrictEqual(chunkCoord(2, -3))
+      expect(legacy.coord).toStrictEqual(validated.validatedChunkCoord(2, -3))
       // Absent in `legacyPayload`, so `CHUNK_STRUCT_V1`'s defaults fill in —
       // the same optional-field behaviour CF-17 pins for the current struct.
       expect(legacy.naturalStructureIds).toStrictEqual([])
@@ -124,7 +124,7 @@ describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
   it.effect('CF-V1-5: a wrong-sized v1 block buffer is refused, not silently accepted', () =>
     Effect.gen(function* () {
       const truncatedPayload = { ...legacyPayload, blocks: legacyPayload.blocks.slice(0, 8) }
-      const truncatedEnvelope = saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT_V1.version, truncatedPayload)
+      const truncatedEnvelope = saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT_V1.version, truncatedPayload)
 
       const failure = yield* Effect.flip(decodeSave(CHUNK_FORMAT_V1, truncatedEnvelope))
 
@@ -150,7 +150,7 @@ describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
    */
   it.effect('CF-V1-6: the v1 schema round-trips through its own encode direction too', () =>
     Effect.gen(function* () {
-      const terrainOnly = { biomes: legacyPayload.biomes, blocks: legacyBlocks, coord: chunkCoord(2, -3) }
+      const terrainOnly = { biomes: legacyPayload.biomes, blocks: legacyBlocks, coord: validated.validatedChunkCoord(2, -3) }
 
       const reencoded = yield* encodeSave(CHUNK_FORMAT_V1, terrainOnly)
       expect(reencoded.version).toBe(CHUNK_FORMAT_V1.version)

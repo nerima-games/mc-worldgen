@@ -7,7 +7,7 @@ import {
   StoragePort,
   type StorageService,
 } from '@nerima-games/mc-save'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option, Result } from 'effect'
 import { blockPosition } from '@nerima-games/mc-kernel'
 import {
   makePersistentPortalRegistry,
@@ -24,6 +24,7 @@ import {
   unregisterPortal,
 } from '../src/domain/portal-registry'
 import { PORTAL_REGISTRY_FORMAT } from '../src/domain/portal-registry-format'
+import { blockAxis } from './fixtures/validated-inputs'
 
 const context = { worldId: 'world/one' }
 
@@ -35,9 +36,9 @@ const makePersistentLayer = (storage: StorageService) =>
 
 describe('portal registry domain', () => {
   it('keeps dimension-specific portals immutable and deduplicated', () => {
-    const nether = blockPosition(8, 64, 8)
-    const overworld = blockPosition(64, 64, 64)
-    const end = blockPosition(0, 64, 0)
+    const nether = blockPosition(blockAxis(8), blockAxis(64), blockAxis(8))
+    const overworld = blockPosition(blockAxis(64), blockAxis(64), blockAxis(64))
+    const end = blockPosition(blockAxis(0), blockAxis(64), blockAxis(0))
 
     const withNether = registerPortal(emptyPortalRegistryState, 'nether', nether)
     const withAll = registerPortal(registerPortal(withNether, 'overworld', overworld), 'end', end)
@@ -58,32 +59,32 @@ describe('portal registry domain', () => {
   it.effect('registers, resolves, unregisters, and resets portals in memory', () =>
     Effect.gen(function* () {
       const registry = yield* makePortalRegistry()
-      const netherPortal = blockPosition(80, 64, 0)
-      const overworldPortal = blockPosition(800, 64, 0)
+      const netherPortal = blockPosition(blockAxis(80), blockAxis(64), blockAxis(0))
+      const overworldPortal = blockPosition(blockAxis(800), blockAxis(64), blockAxis(0))
 
       expect(yield* registry.register('nether', netherPortal)).toBe(true)
       expect(yield* registry.register('nether', netherPortal)).toBe(false)
       expect(yield* registry.portalsIn('nether')).toStrictEqual([netherPortal])
 
-      const overworldTravel = yield* registry.resolveTravel('overworld', blockPosition(640, 64, 0), 0)
+      const overworldTravel = yield* registry.resolveTravel('overworld', blockPosition(blockAxis(640), blockAxis(64), blockAxis(0)), 0)
       expect(overworldTravel.toDimension).toBe('nether')
       expect(overworldTravel.destination).toStrictEqual(netherPortal)
       expect(Option.isNone(overworldTravel.portalToCreate)).toBe(true)
 
       expect(yield* registry.register('overworld', overworldPortal)).toBe(true)
-      const netherTravel = yield* registry.resolveTravel('nether', blockPosition(100, 64, 0), 0)
+      const netherTravel = yield* registry.resolveTravel('nether', blockPosition(blockAxis(100), blockAxis(64), blockAxis(0)), 0)
       expect(netherTravel.toDimension).toBe('overworld')
       expect(netherTravel.destination).toStrictEqual(overworldPortal)
       expect(Option.isNone(netherTravel.portalToCreate)).toBe(true)
 
-      const endTravel = yield* registry.resolveTravel('end', blockPosition(100, 64, 0), 0)
+      const endTravel = yield* registry.resolveTravel('end', blockPosition(blockAxis(100), blockAxis(64), blockAxis(0)), 0)
       expect(endTravel.toDimension).toBe('overworld')
       expect(endTravel.destination).toStrictEqual(overworldPortal)
       expect(Option.isNone(endTravel.portalToCreate)).toBe(true)
 
       expect(yield* registry.unregister('nether', netherPortal)).toBe(true)
       expect(yield* registry.unregister('nether', netherPortal)).toBe(false)
-      const newTravel = yield* registry.resolveTravel('overworld', blockPosition(640, 64, 0), 0)
+      const newTravel = yield* registry.resolveTravel('overworld', blockPosition(blockAxis(640), blockAxis(64), blockAxis(0)), 0)
       expect(Option.isSome(newTravel.portalToCreate)).toBe(true)
 
       yield* registry.reset
@@ -95,7 +96,7 @@ describe('portal registry domain', () => {
   it.effect('persists portals and reloads the saved state', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
-      const portal = blockPosition(12, 70, -4)
+      const portal = blockPosition(blockAxis(12), blockAxis(70), blockAxis(-4))
       const key = portalRegistrySaveKey(context)
       const first = yield* makePersistent(storage)
 
@@ -119,7 +120,7 @@ describe('portal registry domain', () => {
         put: (key) => Effect.fail(new StorageError({ operation: 'test.put', key })),
       }
       const registry = yield* makePersistent(failing)
-      const portal = blockPosition(1, 64, 1)
+      const portal = blockPosition(blockAxis(1), blockAxis(64), blockAxis(1))
 
       const failure = yield* Effect.flip(registry.register('nether', portal))
       expect(failure._tag).toBe('StorageError')
@@ -133,13 +134,13 @@ describe('portal registry domain', () => {
       const storage = yield* makeInMemoryStorage
       yield* storage.put(
         portalRegistrySaveKey(context),
-        sealSaveEnvelope(
+        Result.getOrThrow(sealSaveEnvelope(
           saveEnvelope(PORTAL_REGISTRY_FORMAT.name, PORTAL_REGISTRY_FORMAT.version, {
             end: [],
             nether: 'not-a-portal-list',
             overworld: [],
           }),
-        ),
+        )),
       )
 
       const failure = yield* Effect.flip(makePersistent(storage))
@@ -154,7 +155,7 @@ describe('portal registry domain', () => {
 
       const storage = yield* makeInMemoryStorage
       const persistent = yield* Effect.provide(PortalRegistry, makePersistentLayer(storage))
-      const portal = blockPosition(20, 65, 20)
+      const portal = blockPosition(blockAxis(20), blockAxis(65), blockAxis(20))
       expect(yield* persistent.register('overworld', portal)).toBe(true)
 
       const reloaded = yield* Effect.provide(PortalRegistry, makePersistentLayer(storage))

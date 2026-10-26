@@ -5,10 +5,12 @@ import {
   blockIdOf,
   blockPosition,
 } from '@nerima-games/mc-kernel'
+import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 export const END_GATEWAY_BLOCK: Readonly<Record<'BEDROCK' | 'GATEWAY', BlockId>> = Object.freeze({
-  BEDROCK: blockIdOf('bedrock'),
-  GATEWAY: blockIdOf('end_gateway'),
+  BEDROCK: Option.getOrThrow(blockIdOf('bedrock')),
+  GATEWAY: Option.getOrThrow(blockIdOf('end_gateway')),
 })
 
 export type EndGatewayConfiguration = {
@@ -67,7 +69,11 @@ const gatewayShellOffsets = (): ReadonlyArray<GatewayOffset> => {
 const END_GATEWAY_SHELL_OFFSETS = gatewayShellOffsets()
 
 const offsetPosition = (origin: BlockPosition, [offsetX, offsetY, offsetZ]: GatewayOffset): BlockPosition =>
-  blockPosition(origin.x + offsetX, origin.y + offsetY, origin.z + offsetZ)
+  blockPosition(
+    blockAxis(origin.x + offsetX),
+    blockAxis(origin.y + offsetY),
+    blockAxis(origin.z + offsetZ),
+  )
 
 const gatewayBlocksAt = (position: BlockPosition): ReadonlyArray<EndGatewayBlockPlacement> =>
   Object.freeze([

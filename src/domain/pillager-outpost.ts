@@ -1,20 +1,21 @@
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import { PILLAGER_OUTPOST_BLOCK, PILLAGER_OUTPOST_LAYOUT } from './pillager-outpost-data.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type PillagerOutpostCandidate = { readonly x: number; readonly z: number }
 
 export type PillagerOutpostDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -29,7 +30,7 @@ const PILLAGER_POSITIONS = Object.freeze([
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -38,7 +39,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -48,11 +49,11 @@ const terrainProbesFor = (
 ): ReadonlyArray<OverworldTerrainSample> => {
   const probeExtent = PILLAGER_OUTPOST_LAYOUT.baseHalfExtent
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - probeExtent, candidate.z),
-    sampleTerrain(candidate.x + probeExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - probeExtent),
-    sampleTerrain(candidate.x, candidate.z + probeExtent),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
 }
 
@@ -132,7 +133,7 @@ const roofBlockFor = (offsetX: number, offsetZ: number, halfExtent: number): Blo
 }
 
 const addBasePlatform = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: PillagerOutpostCandidate,
   baseY: number,
 ): void => {
@@ -150,7 +151,7 @@ const addBasePlatform = (
 }
 
 const addFloor = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: PillagerOutpostCandidate,
   floorY: number,
 ): void => {
@@ -162,7 +163,7 @@ const addFloor = (
 }
 
 const addWallLayer = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: PillagerOutpostCandidate,
   y: number,
 ): void => {
@@ -182,7 +183,7 @@ const addWallLayer = (
 }
 
 const addTower = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: PillagerOutpostCandidate,
   baseY: number,
 ): void => {
@@ -197,7 +198,7 @@ const addTower = (
 }
 
 const addRoof = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: PillagerOutpostCandidate,
   baseY: number,
 ): void => {
@@ -217,8 +218,8 @@ const addRoof = (
 }
 
 const addMarkersAndDetails = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: PillagerOutpostCandidate,
   baseY: number,
 ): void => {
@@ -243,16 +244,16 @@ const addMarkersAndDetails = (
 }
 
 type PillagerOutpostPlanBuffers = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const buildPillagerOutpostPlan = (
   candidate: PillagerOutpostCandidate,
   baseY: number,
 ): PillagerOutpostPlanBuffers => {
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   addBasePlatform(blocks, candidate, baseY)
   addTower(blocks, candidate, baseY)
   addRoof(blocks, candidate, baseY)

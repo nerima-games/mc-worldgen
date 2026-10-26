@@ -35,6 +35,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BLOCK, type BiomeType } from '../src/domain/biome'
 import { columnIndex, readBlock } from '../src/domain/chunk'
+import { localAxis } from '../src/domain/coordinate-compatibility'
 import {
   BEDROCK_Y,
   blockIndex,
@@ -56,9 +57,10 @@ import {
   RAVINE_MAX_DEPTH,
   RAVINE_MIN_DEPTH,
 } from '../src/domain/ravine'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 import { PLANT_IDS } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /** The chunk the sixteenth golden row pins: 166 ravine-band columns, 127 below sea. */
 const RAVINE_CHUNK = { cx: 21, cz: 12 } as const
@@ -67,7 +69,7 @@ const bandColumns = (seed: number, cx: number, cz: number): ReadonlyArray<readon
   const found: Array<readonly [number, number]> = []
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-      if (ravineDepthAt(ravineDistanceAt(seed, cx * CHUNK_SIZE_XZ + lx, cz * CHUNK_SIZE_XZ + lz)) > 0) {
+      if (ravineDepthAt(ravineDistanceAt(noiseSeed(seed), cx * CHUNK_SIZE_XZ + lx, cz * CHUNK_SIZE_XZ + lz)) > 0) {
         found.push([lx, lz] as const)
       }
     }
@@ -146,7 +148,7 @@ describe('the band', () => {
         for (let wx = -half; wx < half; wx += stride) {
           for (let wz = -half; wz < half; wz += stride) {
             total += 1
-            if (ravineDistanceAt(seed, wx, wz) < RAVINE_HALF_WIDTH) {
+            if (ravineDistanceAt(noiseSeed(seed), wx, wz) < RAVINE_HALF_WIDTH) {
               inBand += 1
             }
           }
@@ -248,7 +250,7 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
    */
   it.effect('R-3: a submerged PLAINS column keeps its bed — and loses it under the biome-only guard', () =>
     Effect.sync(() => {
-      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       expect(band.length, 'the fixture chunk has no band columns').toBeGreaterThan(0)
 
@@ -297,7 +299,7 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
    */
   it.effect('R-4: an OCEAN column is refused by the biome layer alone', () =>
     Effect.sync(() => {
-      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
 
       // Dry ground — the block layer has nothing to find — but classified OCEAN.
@@ -324,7 +326,7 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
    */
   it.effect('R-5: dry ground on the band really is carved, so the guard tests are not vacuous', () =>
     Effect.sync(() => {
-      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       const world = flatWorld(SEA_LEVEL + 10, 'PLAINS')
 
@@ -346,7 +348,7 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
 
   it.effect('R-5a: a floor at the lava boundary is filled with canonical lava', () =>
     Effect.sync(() => {
-      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       const world = flatWorld(10, 'PLAINS')
 
@@ -384,7 +386,7 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
       // And the clamp, on an input the terrain cannot currently produce.
       expect(ravineFloorY(10, RAVINE_MAX_DEPTH)).toBe(RAVINE_FLOOR_Y)
 
-      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       const world = flatWorld(SEA_LEVEL + 10, 'PLAINS')
       carveRavines(
         { biomes: world.biomes, blocks: world.blocks, coord, seed: GOLDEN_SEED, surfaces: world.surfaces },
@@ -414,14 +416,14 @@ describe('the pass order', () => {
    */
   it.effect('R-6: decoration cannot change what the ravine carves', () =>
     Effect.sync(() => {
-      const decorated = generateChunkAt(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz, { decorate: true })
-      const bare = generateChunkAt(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz, { decorate: false })
+      const decorated = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz), { decorate: true })
+      const bare = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz), { decorate: false })
 
       let compared = 0
       let cut = 0
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-          const surfaceY = surfaceHeightAt(GOLDEN_SEED, RAVINE_CHUNK.cx * 16 + lx, RAVINE_CHUNK.cz * 16 + lz)
+          const surfaceY = surfaceHeightAt(GOLDEN_SEED, blockAxis(RAVINE_CHUNK.cx * 16 + lx), blockAxis(RAVINE_CHUNK.cz * 16 + lz))
           for (let y = 0; y <= surfaceY; y += 1) {
             const index = blockIndex(lx, y, lz)
             expect(
@@ -500,7 +502,7 @@ describe('the pass order', () => {
 
       for (let dx = -1; dx <= 1; dx += 1) {
         for (let dz = -1; dz <= 1; dz += 1) {
-          const chunk = generateChunkAt(GOLDEN_SEED, RAVINE_CHUNK.cx + dx, RAVINE_CHUNK.cz + dz)
+          const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx + dx), chunkAxis(RAVINE_CHUNK.cz + dz))
           for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
             for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
               for (let y = 1; y < CHUNK_HEIGHT; y += 1) {
@@ -553,7 +555,7 @@ describe('the pass order', () => {
 
       for (let cx = RAVINE_CHUNK.cx - 3; cx <= RAVINE_CHUNK.cx + 3; cx += 1) {
         for (let cz = RAVINE_CHUNK.cz - 3; cz <= RAVINE_CHUNK.cz + 3; cz += 1) {
-          const chunk = generateChunkAt(GOLDEN_SEED, cx, cz)
+          const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz))
           for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
             for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
               columns += 1
@@ -593,7 +595,7 @@ describe('defensive input handling — caller-supplied column data shorter than 
    */
   it.effect('R-13: missing column data skips the cut without mutating the buffer', () =>
     Effect.sync(() => {
-      const coord = chunkCoord(RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
       expect(band.length, 'the fixture chunk has no band columns').toBeGreaterThan(0)
 
@@ -671,7 +673,7 @@ describe('what the pass does to a real chunk', () => {
         [1, 0],
         [4, 9],
       ] as const) {
-        const chunk = generateChunkAt(GOLDEN_SEED, cx, cz)
+        const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz))
         let cut = 0
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -701,15 +703,15 @@ describe('what the pass does to a real chunk', () => {
    */
   it.effect('R-11: the ravine chunk regenerates byte-identically', () =>
     Effect.sync(() => {
-      const once = generateChunkAt(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
-      const twice = generateChunkAt(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const once = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
+      const twice = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
 
       expect(twice.blocks).toStrictEqual(once.blocks)
 
       // And the carve is a function of (seed, coord) alone: a different seed
       // must produce a different cut on the same coordinate, or the field is
       // not seeded at all.
-      const otherSeed = generateChunkAt(1, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const otherSeed = generateChunkAt(noiseSeed(1), chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
       expect(otherSeed.blocks).not.toStrictEqual(once.blocks)
     }),
   )
@@ -721,14 +723,14 @@ describe('what the pass does to a real chunk', () => {
    */
   it.effect('R-12: carving changes no biome', () =>
     Effect.sync(() => {
-      const chunk = generateChunkAt(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
 
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
           const wx = RAVINE_CHUNK.cx * CHUNK_SIZE_XZ + lx
           const wz = RAVINE_CHUNK.cz * CHUNK_SIZE_XZ + lz
-          expect(chunk.biomes[columnIndex(lx, lz)]).toBe(
-            biomeFor(GOLDEN_SEED, wx, wz, surfaceHeightAt(GOLDEN_SEED, wx, wz), DEFAULT_TERRAIN_LEVELS),
+          expect(chunk.biomes[columnIndex(localAxis(lx), localAxis(lz))]).toBe(
+            biomeFor(GOLDEN_SEED, blockAxis(wx), blockAxis(wz), surfaceHeightAt(GOLDEN_SEED, blockAxis(wx), blockAxis(wz)), DEFAULT_TERRAIN_LEVELS),
           )
         }
       }

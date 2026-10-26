@@ -12,10 +12,11 @@ import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planShipwreckForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_OCEAN: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: 63, surfaceY: 55 })
+const FLAT_OCEAN: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(63), surfaceY: blockAxis(55) })
 
 type LocatedShipwreck = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<ShipwreckDraft>): ShipwreckDraft => {
 const findShipwreck = (seed: number): LocatedShipwreck => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planShipwreckForRegion(seed, regionX, regionZ, FLAT_OCEAN)
+      const plan = planShipwreckForRegion(noiseSeed(seed), regionX, regionZ, FLAT_OCEAN)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findShipwreck = (seed: number): LocatedShipwreck => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planShipwreckForRegion(seed, regionX, regionZ, FLAT_OCEAN))) return [regionX, regionZ]
+      if (Option.isNone(planShipwreckForRegion(noiseSeed(seed), regionX, regionZ, FLAT_OCEAN))) return [regionX, regionZ]
     }
   }
   throw new Error('shipwreck absent-region search range exhausted')
@@ -76,19 +77,19 @@ describe('shipwreck plans', () => {
   })
 
   it('rejects unsuitable ocean sites and accepts the maximum supported relief', () => {
-    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 55 })
-    const shallow: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: 55, surfaceY: 54 })
+    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(55) })
+    const shallow: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(55), surfaceY: blockAxis(54) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'OCEAN',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 55 : 58,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 55 : 58),
     })
-    const lowSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: 0, surfaceY: -2 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: CHUNK_HEIGHT + 10, surfaceY: CHUNK_HEIGHT - 2 })
+    const lowSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(0), surfaceY: blockAxis(-2) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'OCEAN', seaLevel: blockAxis(CHUNK_HEIGHT + 10), surfaceY: blockAxis(CHUNK_HEIGHT - 2) })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'OCEAN',
-      seaLevel: 63,
-      surfaceY: x === 0 && z === 0 ? 55 : 57,
+      seaLevel: blockAxis(63),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 55 : 57),
     })
 
     expect(Option.isNone(planShipwreckForCandidate({ x: 0, z: 0 }, plains))).toBe(true)
@@ -102,19 +103,19 @@ describe('shipwreck plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findShipwreck(seed)
-    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 20 })
-    const repeated = planShipwreckForRegion(seed, located.regionX, located.regionZ, FLAT_OCEAN)
+    const unsuitableTerrain: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(20) })
+    const repeated = planShipwreckForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_OCEAN)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_OCEAN })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_OCEAN })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planShipwreckForRegion(seed, located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
-    expect(Option.isNone(planShipwreckForRegion(seed, absentX, absentZ, FLAT_OCEAN))).toBe(true)
+    expect(Option.isNone(planShipwreckForRegion(noiseSeed(seed), located.regionX, located.regionZ, unsuitableTerrain))).toBe(true)
+    expect(Option.isNone(planShipwreckForRegion(noiseSeed(seed), absentX, absentZ, FLAT_OCEAN))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID.shipwreck).toStrictEqual({ separation: 96, spacing: 256, spawnPermille: 160 })
     expect(located.plan.kind).toBe('shipwreck')
     expect(located.plan.dimension).toBe('overworld')

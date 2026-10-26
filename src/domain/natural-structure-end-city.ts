@@ -1,12 +1,14 @@
 import {
   type Candidate,
   type CandidateChannelInput,
+  type InvalidNaturalStructureCoordinate,
   type MutablePlan,
   UNIT_STEP,
   addBlock,
   addMarker,
   candidateForRegion,
   finishPlan,
+  validateNaturalStructureRegion,
 } from './natural-structure-plan-builder.js'
 import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain.js'
 import type {
@@ -14,10 +16,17 @@ import type {
   NaturalStructurePlan,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { Option, Predicate } from 'effect'
-import { channelSeed, latticeValue } from '@nerima-games/mc-noise'
+import { Option, Predicate, Result } from 'effect'
+import {
+  type ValidatedNaturalStructureRegionAxis,
+  validatedNaturalStructureRegionAxisFrom,
+} from './natural-structure-coordinate-validation.js'
+import { channelSeed, latticeValue } from './noise-compatibility.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
+import { blockAxis } from './coordinate-compatibility.js'
 
 const END_CITY_PROBE_OFFSET = 6
 const END_CITY_MAX_SURFACE_VARIATION = 5
@@ -25,12 +34,13 @@ const END_CITY_BASE_Y_CLEARANCE = 1
 
 const endTerrainFits = (candidate: Candidate, sample: EndStructureTerrainSampler): Option.Option<number> => {
   if (Math.hypot(candidate.x, candidate.z) < END_OUTER_ISLAND_START) {return Option.none()}
+  const sampleAt = (x: number, z: number): BlockAxis | undefined => sample(blockAxis(x), blockAxis(z))
   const heights = [
-    sample(candidate.x, candidate.z),
-    sample(candidate.x - END_CITY_PROBE_OFFSET, candidate.z),
-    sample(candidate.x + END_CITY_PROBE_OFFSET, candidate.z),
-    sample(candidate.x, candidate.z - END_CITY_PROBE_OFFSET),
-    sample(candidate.x, candidate.z + END_CITY_PROBE_OFFSET),
+    sampleAt(candidate.x, candidate.z),
+    sampleAt(candidate.x - END_CITY_PROBE_OFFSET, candidate.z),
+    sampleAt(candidate.x + END_CITY_PROBE_OFFSET, candidate.z),
+    sampleAt(candidate.x, candidate.z - END_CITY_PROBE_OFFSET),
+    sampleAt(candidate.x, candidate.z + END_CITY_PROBE_OFFSET),
   ]
   if (heights.some(Predicate.isUndefined)) {return Option.none()}
   const present = heights.filter(Predicate.isNotUndefined)
@@ -87,12 +97,17 @@ const addEndShip = (mutable: MutablePlan, x: number, y: number, z: number): void
 type EndCitySite = { readonly candidate: Candidate; readonly baseY: number }
 
 const endCitySiteForRegion = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   sampleTerrain: EndStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
 ): Option.Option<EndCitySite> => {
-  const candidateOption = candidateForRegion(seed, 'end', 'end-city', region, presenceChannelSeed)
+  const candidateOption = candidateForRegion(
+    { candidateChannelInput: presenceChannelSeed, dimension: 'end', seed },
+    'end-city',
+    region.x,
+    region.z,
+  )
   if (Option.isNone(candidateOption)) {return Option.none()}
   const candidate = candidateOption.value
   const baseYOption = endTerrainFits(candidate, sampleTerrain)
@@ -116,7 +131,7 @@ const endShipDirection = (chance: number): number => {
 type EndCityShipPosition = { readonly shipX: number; readonly shipY: number }
 
 const endShipPositionFor = (
-  seed: number,
+  seed: NoiseSeed,
   region: NaturalStructureRegion,
   candidate: Candidate,
   baseY: number,
@@ -130,6 +145,7 @@ const END_CITY_CHEST_Y_OFFSET = 1
 const END_CITY_SPAWNER_Y_OFFSET = 10
 const END_SHIP_LOOT_OFFSET_X = 4
 const END_SHIP_LOOT_Y_OFFSET = 1
+const NO_END_CITY_PLAN: Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> = Result.succeed(Option.none())
 
 const placeEndCityDecorations = (mutable: MutablePlan, candidate: Candidate, baseY: number, ship: EndCityShipPosition): void => {
   addBlock(mutable, { block: NATURAL_STRUCTURE_BLOCK.END_STONE_BRICKS, x: candidate.x, y: baseY, z: candidate.z })
@@ -157,30 +173,62 @@ const placeEndCityDecorations = (mutable: MutablePlan, candidate: Candidate, bas
   })
 }
 
-/** Plans an End city tower and its ship on a broad, level outer island. */
-export const planEndCityForRegion = (
-  seed: number,
-  regionX: number,
-  regionZ: number,
-  sampleTerrain: EndStructureTerrainSampler = (x, z) => endSurfaceHeightAt(seed, x, z),
-  presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const siteOption = endCitySiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain, presenceChannelSeed)
-  if (Option.isNone(siteOption)) {return Option.none()}
-  const { candidate, baseY } = siteOption.value
-  const ship = endShipPositionFor(seed, { x: regionX, z: regionZ }, candidate, baseY)
+type EndCityPlanRequest = {
+  readonly baseY: number
+  readonly candidate: Candidate
+  readonly region: NaturalStructureRegion
+  readonly seed: NoiseSeed
+  readonly ship: EndCityShipPosition
+}
+
+const finishEndCityPlan = ({ baseY, candidate, region, seed, ship }: EndCityPlanRequest): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   addEndTower(mutable, candidate.x, baseY, candidate.z)
   addEndShip(mutable, ship.shipX, ship.shipY, candidate.z)
   placeEndCityDecorations(mutable, candidate, baseY, ship)
-  return Option.some(finishPlan(
+  return finishPlan(
     {
       dimension: 'end',
-      id: `end-city:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      id: `end-city:${String(seed)}:${String(region.x)}:${String(region.z)}`,
       kind: 'end-city',
       origin: { x: candidate.x, y: baseY, z: candidate.z },
-      region: { x: regionX, z: regionZ },
+      region,
     },
     mutable,
-  ))
+  )
+}
+
+export const planEndCityForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: EndStructureTerrainSampler = (x, z) => endSurfaceHeightAt(seed, blockAxis(x), blockAxis(z)),
+  presenceChannelSeed?: CandidateChannelInput,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const region = { x: regionX, z: regionZ }
+  const siteOption = endCitySiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
+  if (Option.isNone(siteOption)) {return NO_END_CITY_PLAN}
+  const { candidate, baseY } = siteOption.value
+  const ship = endShipPositionFor(seed, region, candidate, baseY)
+  return Result.map(finishEndCityPlan({ baseY, candidate, region, seed, ship }), Option.some)
+}
+
+/** Plans an End city tower and its ship on a broad, level outer island. */
+export const planEndCityForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: EndStructureTerrainSampler = (x, z) => endSurfaceHeightAt(seed, blockAxis(x), blockAxis(z)),
+  presenceChannelSeed?: CandidateChannelInput,
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const region = { x: regionX, z: regionZ }
+  const validation = validateNaturalStructureRegion('end-city', region)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return planEndCityForValidatedRegion(
+    seed,
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'x'),
+    validatedNaturalStructureRegionAxisFrom(validation.success, 'z'),
+    sampleTerrain,
+    presenceChannelSeed,
+  )
 }

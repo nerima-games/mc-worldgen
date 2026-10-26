@@ -14,11 +14,11 @@
  *   lossy direction lossless — by rounding instead of flooring, say — passes
  *   every assertion the reference makes.
  *
- *   THE PLANNED PORTAL IS DETECTABLE. mc-kernel's `portal-frame.ts` bounds note
+ *   THE PLANNED PORTAL IS DETECTABLE. The kernel's retained portal bounds note
  *   justifies `MIN_PORTAL_WIDTH`/`MIN_PORTAL_HEIGHT` by citing this file's
  *   `DEFAULT_PORTAL_WIDTH`/`DEFAULT_PORTAL_HEIGHT` as independent corroboration.
  *   The citation is checkable across the repository boundary: a planned
- *   portal goes through mc-kernel's `detectNetherPortal` and comes back. The
+ *   portal goes through mc-worldgen's `detectNetherPortal` and comes back. The
  *   reference asserts `interior` has six cells, which a generator producing six
  *   cells in the wrong shape would also satisfy.
  *
@@ -42,7 +42,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 import { BLOCK } from '../src/domain/biome'
-import { blockPosition, detectNetherPortal, type BlockAt, type BlockPosition } from '@nerima-games/mc-kernel'
+import { blockPosition, type BlockAt, type BlockPosition } from '@nerima-games/mc-kernel'
+import { detectNetherPortal } from '../src/domain/portal-frame.js'
 import {
   NETHER_HORIZONTAL_RATIO,
   findNearestPortal,
@@ -54,8 +55,9 @@ import {
   resolveNetherTravel,
   type Dimension,
 } from '../src/domain/nether-travel'
+import { blockAxis } from './fixtures/validated-inputs'
 
-const at = (x: number, y: number, z: number): BlockPosition => blockPosition(x, y, z)
+const at = (x: number, y: number, z: number): BlockPosition => blockPosition(blockAxis(x), blockAxis(y), blockAxis(z))
 
 const plain = (p: BlockPosition): { x: number; y: number; z: number } => ({ x: p.x, y: p.y, z: p.z })
 
@@ -302,10 +304,10 @@ describe('resolveNetherTravel', () => {
 
   it.effect('plans a portal that detection actually accepts', () =>
     Effect.sync(() => {
-      // THE CORROBORATION mc-kernel's `portal-frame.ts` bounds note relies on, made
+      // THE CORROBORATION the kernel's retained portal bounds note relies on, made
       // checkable. That file justifies MIN 2 x 3 by citing this rule's
       // auto-generated size as an independent second source; this test RUNS that
-      // citation across the repository boundary. A generator that stopped
+      // citation within the worldgen package. A generator that stopped
       // agreeing with the detector's minimum would produce a portal nothing can
       // light, and the reference's `interior.toHaveLength(6)` would still pass.
       const layout = Option.getOrThrow(resolveNetherTravel('overworld', at(800, 64, 160), []).portalToCreate)

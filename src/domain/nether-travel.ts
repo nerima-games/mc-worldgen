@@ -5,7 +5,7 @@
  * the position into the opposite dimension, reuse the nearest existing portal
  * within `PORTAL_SEARCH_RADIUS`, and otherwise plan a fresh one at the scaled
  * point. It composes `./nether-link` (the coordinate relation) with
- * mc-kernel's `generatePortalLayout` (the shape of a portal) and adds
+ * `./portal-frame` (the shape of a portal) and adds
  * nothing else.
  *
  * ---------------------------------------------------------------------------
@@ -28,9 +28,8 @@
  *   THE ARGUMENT'S OWN SECOND CLAUSE POINTS THE OTHER WAY. 「上の 3 つを合成する
  *   だけ」 — and by §6's own table all three of those are mc-worldgen's:
  *   `overworldToNether`, `netherToOverworld` and `findNearestPortal` are the
- *   rows immediately above, and `generatePortalLayout` now comes from
- *   mc-kernel (W1-M8 moved the duplicate `./portal-frame` out of this
- *   repository). A composition placed away from all four of its parts is
+ *   rows immediately above, and `generatePortalLayout` lives in the adjacent
+ *   `./portal-frame` module. A composition placed away from all four of its parts is
  *   not a dependency direction that 「合っている」; it is four symbols crossing a
  *   repository boundary to save one from crossing it.
  *
@@ -75,14 +74,14 @@
  * pure callers can pass their own candidate list without editing this file.
  *
  * `DEFAULT_PORTAL_WIDTH = 2` / `DEFAULT_PORTAL_HEIGHT = 3` — JUSTIFIED, and this
- * is the OTHER END of the corroboration mc-kernel's `portal-frame.ts` bounds
- * note relies on. That file argues `MIN_PORTAL_WIDTH`/`MIN_PORTAL_HEIGHT` are
+ * is the OTHER END of the corroboration the kernel's portal bounds note relies
+ * on. That contract sets `MIN_PORTAL_WIDTH`/`MIN_PORTAL_HEIGHT` to these values
  * justified because a second reference file — this one, at
  * `nether-travel.ts:23-24` — independently defines the auto-generated size as
  * 2 x 3 with the comment 「Auto-generated portals use the vanilla minimum
- * interior」. The corroboration is checkable across the repository boundary
- * rather than merely cited: `test/nether-travel.test.ts` runs a planned
- * portal back through mc-kernel's `detectNetherPortal`, so a generator that
+ * interior」. The corroboration is checkable in this package rather than merely
+ * cited: `test/nether-travel.test.ts` runs a planned portal back through
+ * `./portal-frame`'s `detectNetherPortal`, so a generator that
  * stopped agreeing with the detector's minimum fails a named test instead of
  * producing an unlightable portal.
  *
@@ -92,9 +91,17 @@
  * runs over one world plan the same portal — the same reasoning
  * `detectNetherPortal` gives for trying the X plane before the Z plane.
  */
-import { type BlockPosition, type Dimension, type PortalAxis, type PortalLayout, generatePortalLayout } from '@nerima-games/mc-kernel'
+import {
+  type BlockPosition,
+  type Dimension,
+  type PortalAxis,
+  PortalHeight,
+  type PortalLayout,
+  PortalWidth,
+} from '@nerima-games/mc-kernel'
+import { Option, Result } from 'effect'
 import { findNearestPortal, netherToOverworld, overworldToNether } from './nether-link.js'
-import { Option } from 'effect'
+import { generatePortalLayout } from './portal-frame.js'
 
 /** The canonical dimension union is supplied by mc-kernel and re-exported here. */
 export type { Dimension } from '@nerima-games/mc-kernel'
@@ -103,8 +110,10 @@ export type { Dimension } from '@nerima-games/mc-kernel'
 export const PORTAL_SEARCH_RADIUS = 128
 
 /** The vanilla minimum interior, which is what an auto-generated portal gets. */
-const DEFAULT_PORTAL_WIDTH = 2
-const DEFAULT_PORTAL_HEIGHT = 3
+// eslint-disable-next-line no-magic-numbers -- This is the vanilla interior width of a portal.
+const DEFAULT_PORTAL_WIDTH = Result.getOrThrow(PortalWidth.result(2))
+// eslint-disable-next-line no-magic-numbers -- This is the vanilla interior height of a portal.
+const DEFAULT_PORTAL_HEIGHT = Result.getOrThrow(PortalHeight.result(3))
 
 /** Deterministic rather than correct; see the header. */
 const DEFAULT_PORTAL_AXIS: PortalAxis = 'x'

@@ -34,14 +34,15 @@ export const JUNGLE_PYRAMID_LAYOUT: Readonly<
   templeWallHeight: 3,
 })
 
+import { Option } from 'effect'
 export const JUNGLE_PYRAMID_BLOCK: Readonly<
   Record<'CHEST' | 'COBBLESTONE' | 'OAK_PLANKS' | 'SANDSTONE' | 'STONE' | 'TNT' | 'TORCH', BlockId>
 > = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  COBBLESTONE: blockIdOf('cobblestone'),
-  OAK_PLANKS: blockIdOf('oak_planks'),
-  SANDSTONE: blockIdOf('sandstone'),
-  STONE: blockIdOf('stone'),
-  TNT: blockIdOf('tnt'),
-  TORCH: blockIdOf('torch'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  COBBLESTONE: Option.getOrThrow(blockIdOf('cobblestone')),
+  OAK_PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
+  SANDSTONE: Option.getOrThrow(blockIdOf('sandstone')),
+  STONE: Option.getOrThrow(blockIdOf('stone')),
+  TNT: Option.getOrThrow(blockIdOf('tnt')),
+  TORCH: Option.getOrThrow(blockIdOf('torch')),
 })

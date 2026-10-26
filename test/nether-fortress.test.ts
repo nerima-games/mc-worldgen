@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS, chunkCoord } from '@nerima-games/mc-kernel'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   FORTRESS_BLAZE_RADIUS,
@@ -14,17 +14,19 @@ import {
   NETHER_FORTRESS_BLOCK,
   isNearFortressSite,
   planNetherFortressForRegion,
-} from '../src/domain/nether-fortress'
+} from './helpers/unwrapped-worldgen'
 import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planNaturalStructureForRegion,
   type NaturalStructurePlan,
-} from '../src/domain/natural-structure'
-import type { NetherStructureTerrainSampler } from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
+import type { NetherStructureTerrainSampler } from './helpers/unwrapped-worldgen'
 import { candidatePresenceChannelSeedFor } from '../src/domain/natural-structure-plan-builder'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { planNetherFortressForRegion as planNetherFortressForRegionRaw } from '../src/domain/nether-fortress'
 
-const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: 96, surfaceY: 48 })
+const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(48) })
 
 type LocatedPlan = {
   readonly plan: NaturalStructurePlan
@@ -35,7 +37,7 @@ type LocatedPlan = {
 const findFortress = (seed: number): LocatedPlan => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planNetherFortressForRegion(seed, regionX, regionZ, FLAT_NETHER)
+      const plan = planNetherFortressForRegion(noiseSeed(seed), regionX, regionZ, FLAT_NETHER)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -45,7 +47,7 @@ const findFortress = (seed: number): LocatedPlan => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planNetherFortressForRegion(seed, regionX, regionZ, FLAT_NETHER))) return [regionX, regionZ]
+      if (Option.isNone(planNetherFortressForRegion(noiseSeed(seed), regionX, regionZ, FLAT_NETHER))) return [regionX, regionZ]
     }
   }
   throw new Error('Nether fortress absent-region search range exhausted')
@@ -58,7 +60,7 @@ describe('Nether fortress plans', () => {
   it('are deterministic, immutable, sparse, and registry-safe', () => {
     const seed = 0x1234
     const located = findFortress(seed)
-    const repeatedOption = planNetherFortressForRegion(seed, located.regionX, located.regionZ, FLAT_NETHER)
+    const repeatedOption = planNetherFortressForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_NETHER)
     if (Option.isNone(repeatedOption)) throw new Error('expected repeated fortress plan')
     const { plan } = located
 
@@ -117,41 +119,54 @@ describe('Nether fortress plans', () => {
     const located = findFortress(seed)
     const [absentX, absentZ] = findAbsentRegion(seed)
 
-    expect(Option.isNone(planNetherFortressForRegion(seed, absentX, absentZ, FLAT_NETHER))).toBe(true)
-    expect(Option.isNone(planNetherFortressForRegion(seed, located.regionX, located.regionZ, () => undefined))).toBe(true)
+    expect(Option.isNone(planNetherFortressForRegion(noiseSeed(seed), absentX, absentZ, FLAT_NETHER))).toBe(true)
+    expect(Option.isNone(planNetherFortressForRegion(noiseSeed(seed), located.regionX, located.regionZ, () => undefined))).toBe(true)
     expect(Option.isNone(planNetherFortressForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
-      () => ({ ceilingY: 96, surfaceY: -1 }),
+      () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(-1) }),
     ))).toBe(true)
     expect(Option.isNone(planNetherFortressForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
-      () => ({ ceilingY: CHUNK_HEIGHT * 2, surfaceY: CHUNK_HEIGHT }),
+      () => ({ ceilingY: blockAxis(CHUNK_HEIGHT * 2), surfaceY: blockAxis(CHUNK_HEIGHT) }),
     ))).toBe(true)
     expect(Option.isNone(planNetherFortressForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
-      () => ({ ceilingY: FORTRESS_FLOOR_Y + FORTRESS_MIN_HEADROOM - 1, surfaceY: FORTRESS_FLOOR_Y }),
+      () => ({ ceilingY: blockAxis(FORTRESS_FLOOR_Y + FORTRESS_MIN_HEADROOM - 1), surfaceY: blockAxis(FORTRESS_FLOOR_Y) }),
     ))).toBe(true)
     expect(Option.isNone(planNetherFortressForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
-      () => ({ ceilingY: CHUNK_HEIGHT * 2, surfaceY: CHUNK_HEIGHT - FORTRESS_MIN_HEADROOM + 1 }),
+      () => ({ ceilingY: blockAxis(CHUNK_HEIGHT * 2), surfaceY: blockAxis(CHUNK_HEIGHT - FORTRESS_MIN_HEADROOM + 1) }),
     ))).toBe(true)
 
     const raised = planNetherFortressForRegion(
-      seed,
+      noiseSeed(seed),
       located.regionX,
       located.regionZ,
-      () => ({ ceilingY: 96, surfaceY: 64 }),
+      () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(64) }),
     )
     if (Option.isNone(raised)) throw new Error('expected raised fortress plan')
     expect(raised.value.origin.y).toBe(64)
+  })
+
+  it('returns a typed failure for invalid fortress region coordinates', () => {
+    const result = planNetherFortressForRegionRaw(noiseSeed(1), Number.NaN, 0, FLAT_NETHER)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid fortress region failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'nether-fortress',
+      value: Number.NaN,
+    })
   })
 
   it('answers proximity from accepted candidates and ignores absent regions', () => {
@@ -164,10 +179,10 @@ describe('Nether fortress plans', () => {
       z: absentZ * FORTRESS_REGION_SIZE + FORTRESS_SITE_MARGIN,
     }
 
-    expect(isNearFortressSite(seed, x, z, 0)).toBe(true)
-    expect(isNearFortressSite(seed, x + 1, z, 0)).toBe(false)
-    expect(isNearFortressSite(seed, absentPoint.x, absentPoint.z, 0)).toBe(false)
-    expect(isNearFortressSite(seed, x, z, FORTRESS_BLAZE_RADIUS)).toBe(true)
+    expect(isNearFortressSite(noiseSeed(seed), blockAxis(x), blockAxis(z), 0)).toBe(true)
+    expect(isNearFortressSite(noiseSeed(seed), blockAxis(x + 1), blockAxis(z), 0)).toBe(false)
+    expect(isNearFortressSite(noiseSeed(seed), blockAxis(absentPoint.x), blockAxis(absentPoint.z), 0)).toBe(false)
+    expect(isNearFortressSite(noiseSeed(seed), blockAxis(x), blockAxis(z), FORTRESS_BLAZE_RADIUS)).toBe(true)
   })
 
   it('dispatches through the Nether chunk plan and preserves chunk ownership', () => {
@@ -176,18 +191,18 @@ describe('Nether fortress plans', () => {
     const routed = planNaturalStructureForRegion({
       dimension: 'nether',
       kind: 'nether-fortress',
-      presenceChannelSeed: candidatePresenceChannelSeedFor(seed, 'nether', 'nether-fortress'),
+      presenceChannelSeed: candidatePresenceChannelSeedFor(noiseSeed(seed), 'nether', 'nether-fortress'),
       region: { x: located.regionX, z: located.regionZ },
       samplers: { nether: FLAT_NETHER },
-      seed,
+      seed: noiseSeed(seed),
     })
     expect(routed).toStrictEqual(Option.some(located.plan))
 
     const coordinate = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'nether', coordinate, { nether: FLAT_NETHER })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'nether', coordinate, { nether: FLAT_NETHER })
     const fortress = plans.find(({ id }) => id === located.plan.id)
     if (fortress === undefined) throw new Error('expected fortress in Nether chunk plans')
 

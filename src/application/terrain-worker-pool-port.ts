@@ -11,10 +11,11 @@ import type { Chunk } from '../domain/chunk.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import type { ChunkSource } from './chunk-store.js'
 import { Effect } from 'effect'
+import type { InvalidNaturalStructureCoordinate } from '../domain/natural-structure-plan-builder.js'
 
 /** A terrain generator supplied by the application host. */
 export type TerrainWorkerPoolPort = {
-  readonly generateTerrain: (coord: ChunkCoord) => Effect.Effect<Chunk>
+  readonly generateTerrain: (coord: ChunkCoord) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate>
 }
 
 /** Adapt a host-provided terrain Port to the ChunkStore injection seam. */

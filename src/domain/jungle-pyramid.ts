@@ -1,20 +1,21 @@
 import { JUNGLE_PYRAMID_BLOCK, JUNGLE_PYRAMID_LAYOUT } from './jungle-pyramid-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type JunglePyramidCandidate = { readonly x: number; readonly z: number }
 
 export type JunglePyramidDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -28,7 +29,7 @@ const PYRAMID_GROUND_PROBE_OFFSET = JUNGLE_PYRAMID_LAYOUT.baseHalfExtent
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -37,7 +38,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -45,11 +46,11 @@ const terrainProbesFor = (
   candidate: JunglePyramidCandidate,
   sampleTerrain: OverworldTerrainSampler,
 ): ReadonlyArray<OverworldTerrainSample> => [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - PYRAMID_GROUND_PROBE_OFFSET, candidate.z),
-    sampleTerrain(candidate.x + PYRAMID_GROUND_PROBE_OFFSET, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - PYRAMID_GROUND_PROBE_OFFSET),
-    sampleTerrain(candidate.x, candidate.z + PYRAMID_GROUND_PROBE_OFFSET),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - PYRAMID_GROUND_PROBE_OFFSET)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + PYRAMID_GROUND_PROBE_OFFSET)),
   ]
 
 const terrainIsSuitable = (probes: ReadonlyArray<OverworldTerrainSample>): boolean =>
@@ -99,7 +100,7 @@ const roofBlockAt = (offsetX: number, offsetZ: number): BlockId => {
 }
 
 const addFoundation = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: JunglePyramidCandidate,
   baseY: number,
 ): void => {
@@ -117,7 +118,7 @@ const addFoundation = (
 }
 
 const addTempleFloor = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: JunglePyramidCandidate,
   floorY: number,
 ): void => {
@@ -129,7 +130,7 @@ const addTempleFloor = (
 }
 
 const addTempleWalls = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: JunglePyramidCandidate,
   baseY: number,
 ): void => {
@@ -155,7 +156,7 @@ const addTempleWalls = (
 }
 
 const addRoof = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: JunglePyramidCandidate,
   baseY: number,
 ): void => {
@@ -174,7 +175,7 @@ const addRoof = (
 }
 
 const addChamberShell = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: JunglePyramidCandidate,
   floorY: number,
 ): void => {
@@ -191,8 +192,8 @@ const addChamberShell = (
 }
 
 const addChamberDetails = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: JunglePyramidCandidate,
   floorY: number,
 ): void => {
@@ -206,7 +207,7 @@ const addChamberDetails = (
 }
 
 const addTempleDetails = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: JunglePyramidCandidate,
   baseY: number,
 ): void => {
@@ -220,16 +221,16 @@ const addTempleDetails = (
 }
 
 type JunglePyramidPlanBuffers = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const buildJunglePyramidPlan = (
   candidate: JunglePyramidCandidate,
   baseY: number,
 ): JunglePyramidPlanBuffers => {
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   addFoundation(blocks, candidate, baseY)
   addTempleFloor(blocks, candidate, baseY + FIRST_WALL_Y_OFFSET)
   addTempleWalls(blocks, candidate, baseY)

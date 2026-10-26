@@ -1,21 +1,22 @@
 import { describe, expect, it } from '@effect/vitest'
 // eslint-disable-next-line sort-imports -- External imports precede project modules.
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 // eslint-disable-next-line sort-imports -- Project modules follow domain dependency order.
 import { BLOCK } from '../src/domain/biome'
 import { getBlockAt } from '../src/domain/chunk'
 // eslint-disable-next-line sort-imports -- Domain imports follow their dependency order.
 import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { chunkCoord } from '@nerima-games/mc-kernel'
+import { localAxis } from '../src/domain/coordinate-compatibility'
 // eslint-disable-next-line sort-imports -- Grouped siting types and values stay together.
 import {
   VILLAGE_HALF_EXTENT,
   VILLAGE_REGION_SIZE,
   VILLAGE_REGION_SPAWN_PERMILLE,
   type OverworldTerrainSampler,
-  villageSiteForRegion,
 } from '../src/domain/structure-siting'
-import { biomeFor, generateChunk, surfaceHeightAt } from '../src/domain/terrain'
+import { villageSiteForRegion as villageSiteForRegionRaw } from '../src/domain/structure-siting'
+import { biomeFor, generateChunk, surfaceHeightAt, villageSiteForRegion } from './helpers/unwrapped-worldgen'
 // eslint-disable-next-line sort-imports -- Layout assertions import the public village resolver last.
 import {
   VILLAGE_BLOCK,
@@ -24,18 +25,19 @@ import {
   villageVillagerSpawnsForChunk,
   villageVillagerSpawnsForSite,
 } from '../src/domain/village'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const SEED = 20260726
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed accepted site is a deterministic integration fixture.
-const SITE = { x: -4603, z: -3890 }
+const SITE = { x: blockAxis(-4603), z: blockAxis(-3890) }
 // eslint-disable-next-line no-magic-numbers -- Flat fixture models dry buildable plains.
-const flatPlains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
+const flatPlains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
 const actualTerrain: OverworldTerrainSampler = (x, z) => {
-  const surfaceY = surfaceHeightAt(SEED, x, z)
+  const surfaceY = surfaceHeightAt(noiseSeed(SEED), x, z)
   return {
-    biome: biomeFor(SEED, x, z, surfaceY, DEFAULT_TERRAIN_LEVELS),
-    seaLevel: DEFAULT_TERRAIN_LEVELS.seaLevel,
+    biome: biomeFor(noiseSeed(SEED), x, z, surfaceY, DEFAULT_TERRAIN_LEVELS),
+    seaLevel: blockAxis(DEFAULT_TERRAIN_LEVELS.seaLevel),
     surfaceY,
   }
 }
@@ -51,10 +53,10 @@ const actualTerrain: OverworldTerrainSampler = (x, z) => {
  */
 // eslint-disable-next-line id-length -- x/z are canonical world axes.
 const makeActualTerrain = (seed: number): OverworldTerrainSampler => (x, z) => {
-  const surfaceY = surfaceHeightAt(seed, x, z)
+  const surfaceY = surfaceHeightAt(noiseSeed(seed), x, z)
   return {
-    biome: biomeFor(seed, x, z, surfaceY, DEFAULT_TERRAIN_LEVELS),
-    seaLevel: DEFAULT_TERRAIN_LEVELS.seaLevel,
+    biome: biomeFor(noiseSeed(seed), x, z, surfaceY, DEFAULT_TERRAIN_LEVELS),
+    seaLevel: blockAxis(DEFAULT_TERRAIN_LEVELS.seaLevel),
     surfaceY,
   }
 }
@@ -109,9 +111,9 @@ const villageSpawnsInSearchWindow = (
   const spawns: Array<VillageVillagerSpawn> = []
   for (let regionX = -VILLAGE_SEARCH_REGION_RADIUS; regionX <= VILLAGE_SEARCH_REGION_RADIUS; regionX += 1) {
     for (let regionZ = -VILLAGE_SEARCH_REGION_RADIUS; regionZ <= VILLAGE_SEARCH_REGION_RADIUS; regionZ += 1) {
-      const site = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
+      const site = villageSiteForRegion(noiseSeed(seed), regionX, regionZ, sampleTerrain)
       if (Option.isSome(site)) {
-        spawns.push(...villageVillagerSpawnsForSite(seed, site.value, sampleTerrain))
+        spawns.push(...villageVillagerSpawnsForSite(noiseSeed(seed), site.value, sampleTerrain))
       }
     }
   }
@@ -150,9 +152,9 @@ describe('village siting', () => {
       for (let rx = -20; rx <= 20; rx += 1) {
         // eslint-disable-next-line no-magic-numbers -- Scan bounds provide a representative 41-region square.
         for (let rz = -20; rz <= 20; rz += 1) {
-          if (Option.isSome(villageSiteForRegion(SEED, rx, rz, flatPlains))) {first.push(`${String(rx)},${String(rz)}`)}
+          if (Option.isSome(villageSiteForRegion(noiseSeed(SEED), rx, rz, flatPlains))) {first.push(`${String(rx)},${String(rz)}`)}
           // eslint-disable-next-line no-magic-numbers -- Adjacent seed proves seed sensitivity.
-          if (Option.isSome(villageSiteForRegion(SEED + 1, rx, rz, flatPlains))) {otherSeed.push(`${String(rx)},${String(rz)}`)}
+          if (Option.isSome(villageSiteForRegion(noiseSeed(SEED + 1), rx, rz, flatPlains))) {otherSeed.push(`${String(rx)},${String(rz)}`)}
         }
       }
 
@@ -161,7 +163,7 @@ describe('village siting', () => {
       for (let rx = -20; rx <= 20; rx += 1) {
         // eslint-disable-next-line no-magic-numbers -- Repeat the identical representative scan.
         for (let rz = -20; rz <= 20; rz += 1) {
-          if (Option.isSome(villageSiteForRegion(SEED, rx, rz, flatPlains))) {repeated.push(`${String(rx)},${String(rz)}`)}
+          if (Option.isSome(villageSiteForRegion(noiseSeed(SEED), rx, rz, flatPlains))) {repeated.push(`${String(rx)},${String(rz)}`)}
         }
       }
       expect(first).toStrictEqual(repeated)
@@ -180,7 +182,7 @@ describe('village siting', () => {
       for (let rx = -10; rx <= 10 && candidate === undefined; rx += 1) {
         // eslint-disable-next-line no-magic-numbers -- Bounded search only needs one seeded candidate.
         for (let rz = -10; rz <= 10; rz += 1) {
-          if (Option.isSome(villageSiteForRegion(SEED, rx, rz, flatPlains))) {
+          if (Option.isSome(villageSiteForRegion(noiseSeed(SEED), rx, rz, flatPlains))) {
             candidate = [rx, rz]
             break
           }
@@ -190,10 +192,10 @@ describe('village siting', () => {
       // eslint-disable-next-line no-undefined -- Guard narrows the fixture after the explicit assertion.
       if (candidate === undefined) { return }
       const [rx, rz] = candidate
-      const flatSite = villageSiteForRegion(SEED, rx, rz, flatPlains)
+      const flatSite = villageSiteForRegion(noiseSeed(SEED), rx, rz, flatPlains)
       if (Option.isNone(flatSite)) {throw new Error('expected candidate to remain accepted')}
       // eslint-disable-next-line no-magic-numbers -- Fixed dry heights isolate the biome rejection gate.
-      expect(Option.isNone(villageSiteForRegion(SEED, rx, rz, () => ({ biome: 'DESERT', seaLevel: 63, surfaceY: 70 })))).toBe(true)
+      expect(Option.isNone(villageSiteForRegion(noiseSeed(SEED), rx, rz, () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })))).toBe(true)
       /**
        * A world-coordinate stripe, not a threshold relative to any one
        * candidate: `VILLAGE_SITE_ATTEMPTS` retries mean a threshold like
@@ -211,12 +213,36 @@ describe('village siting', () => {
       // eslint-disable-next-line id-length, no-magic-numbers -- x/z are canonical axes; the stripe period matches VILLAGE_HALF_EXTENT.
       const stripedHeight: OverworldTerrainSampler = (x, z) => ({
         biome: 'PLAINS',
-        seaLevel: 63,
-        surfaceY: (((x + z) % (2 * VILLAGE_HALF_EXTENT)) + 2 * VILLAGE_HALF_EXTENT) % (2 * VILLAGE_HALF_EXTENT) < VILLAGE_HALF_EXTENT ? 70 : 90,
+        seaLevel: blockAxis(63),
+        surfaceY: blockAxis((((x + z) % (2 * VILLAGE_HALF_EXTENT)) + 2 * VILLAGE_HALF_EXTENT) % (2 * VILLAGE_HALF_EXTENT) < VILLAGE_HALF_EXTENT ? 70 : 90),
       })
-      expect(Option.isNone(villageSiteForRegion(SEED, rx, rz, stripedHeight))).toBe(true)
+      expect(Option.isNone(villageSiteForRegion(noiseSeed(SEED), rx, rz, stripedHeight))).toBe(true)
     }),
   )
+})
+
+describe('village coordinate bounds', () => {
+  it.effect('returns a typed failure before sampling terrain when the candidate footprint is out of range', () => Effect.sync(() => {
+    // This fixed seed and region pass the presence roll, but all candidate x-coordinates exceed BlockAxis.
+    // eslint-disable-next-line no-magic-numbers -- The offset selects the fixed out-of-range presence hit.
+    const regionX = Math.ceil(Number.MAX_SAFE_INTEGER / VILLAGE_REGION_SIZE) + 4
+    let terrainSamples = 0
+    const countedTerrain: OverworldTerrainSampler = (x, z) => {
+      terrainSamples += 1
+      return flatPlains(x, z)
+    }
+
+    const result = villageSiteForRegionRaw(noiseSeed(SEED), regionX, 0, countedTerrain)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
+    expect(terrainSamples).toBe(0)
+  }))
 })
 
 describe('villages are findable on real terrain (worldgen-village-availability)', () => {
@@ -254,7 +280,7 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
 describe('village layout and chunk integration', () => {
   it.effect('describes one deterministic, safe villager spawn per house', () =>
     Effect.sync(() => {
-      const spawns = villageVillagerSpawnsForSite(SEED, SITE, flatPlains)
+      const spawns = villageVillagerSpawnsForSite(noiseSeed(SEED), SITE, flatPlains)
       expect(spawns).toStrictEqual([
         {
           id: 'village:20260726:-4603:-3890:house:0',
@@ -279,30 +305,34 @@ describe('village layout and chunk integration', () => {
           z: -3880,
         },
       ])
-      expect(villageVillagerSpawnsForSite(SEED, SITE, flatPlains)).toStrictEqual(spawns)
+      expect(villageVillagerSpawnsForSite(noiseSeed(SEED), SITE, flatPlains)).toStrictEqual(spawns)
 
       for (const spawn of spawns) {
         // eslint-disable-next-line id-length, no-magic-numbers -- x/y/z are canonical axes; one block below is the floor.
-        expect(villageBlockAt(SITE, spawn.x, spawn.y - 1, spawn.z, flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
+        expect(villageBlockAt(SITE, spawn.x, blockAxis(spawn.y - 1), spawn.z, flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
         // eslint-disable-next-line id-length -- x/y/z are canonical world axes.
         expect(villageBlockAt(SITE, spawn.x, spawn.y, spawn.z, flatPlains)).toBe(BLOCK.AIR)
         // eslint-disable-next-line id-length, no-magic-numbers -- x/y/z are canonical axes; one block above is headroom.
-        expect(villageBlockAt(SITE, spawn.x, spawn.y + 1, spawn.z, flatPlains)).toBe(BLOCK.AIR)
+        expect(villageBlockAt(SITE, spawn.x, blockAxis(spawn.y + 1), spawn.z, flatPlains)).toBe(BLOCK.AIR)
       }
     }),
   )
 
   it.effect('assigns each spawn to exactly one chunk independent of chunk load order', () =>
     Effect.sync(() => {
-      const expected = villageVillagerSpawnsForSite(SEED, SITE, flatPlains)
+      const expected = villageVillagerSpawnsForSite(noiseSeed(SEED), SITE, flatPlains)
       const chunks = expected.map((spawn) => ({
         // eslint-disable-next-line id-length -- x is the canonical world axis.
         cx: Math.floor(spawn.x / CHUNK_SIZE_XZ),
         // eslint-disable-next-line id-length -- z is the canonical world axis.
         cz: Math.floor(spawn.z / CHUNK_SIZE_XZ),
       }))
-      const forward = chunks.flatMap(({ cx, cz }) => villageVillagerSpawnsForChunk(SEED, cx, cz, flatPlains))
-      const reverse = [...chunks].reverse().flatMap(({ cx, cz }) => villageVillagerSpawnsForChunk(SEED, cx, cz, flatPlains))
+      const forward = chunks.flatMap(({ cx, cz }) => Result.getOrThrow(
+        villageVillagerSpawnsForChunk(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), flatPlains),
+      ))
+      const reverse = [...chunks].reverse().flatMap(({ cx, cz }) => Result.getOrThrow(
+        villageVillagerSpawnsForChunk(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), flatPlains),
+      ))
 
       expect(new Set(forward.map(({ id }) => id)).size).toBe(expected.length)
       expect(forward.map(({ id }) => id).sort()).toStrictEqual(expected.map(({ id }) => id).sort())
@@ -312,23 +342,40 @@ describe('village layout and chunk integration', () => {
     }),
   )
 
+  it.effect('propagates invalid chunk bounds as a typed coordinate failure', () => Effect.sync(() => {
+    const result = villageVillagerSpawnsForChunk(
+      noiseSeed(SEED),
+      chunkAxis(Number.MAX_SAFE_INTEGER),
+      chunkAxis(0),
+      flatPlains,
+    )
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
+  }))
+
   it.effect('builds two enclosed houses, foundations, doors and a safe road', () =>
     Effect.sync(() => {
       // eslint-disable-next-line no-magic-numbers -- Fixture height is the flat-plains surface.
-      expect(villageBlockAt(SITE, SITE.x, 70, SITE.z, flatPlains)).toBe(VILLAGE_BLOCK.ROAD)
+      expect(villageBlockAt(SITE, blockAxis(SITE.x), blockAxis(70), blockAxis(SITE.z), flatPlains)).toBe(VILLAGE_BLOCK.ROAD)
       // eslint-disable-next-line no-magic-numbers -- One block above the road must be clear.
-      expect(villageBlockAt(SITE, SITE.x, 71, SITE.z, flatPlains)).toBe(BLOCK.AIR)
+      expect(villageBlockAt(SITE, blockAxis(SITE.x), blockAxis(71), blockAxis(SITE.z), flatPlains)).toBe(BLOCK.AIR)
 
       // eslint-disable-next-line no-magic-numbers -- These are the two house centres in the fixed plan.
       for (const [dx, dz] of [[-14, -10], [14, 10]] as const) {
         // eslint-disable-next-line no-magic-numbers -- Floor level is one above the flat surface.
-        expect(villageBlockAt(SITE, SITE.x + dx, 71, SITE.z + dz, flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
+        expect(villageBlockAt(SITE, blockAxis(SITE.x + dx), blockAxis(71), blockAxis(SITE.z + dz), flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
         // eslint-disable-next-line no-magic-numbers -- Edge at wall height verifies enclosure.
-        expect(villageBlockAt(SITE, SITE.x + dx + 4, 73, SITE.z + dz, flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
+        expect(villageBlockAt(SITE, blockAxis(SITE.x + dx + 4), blockAxis(73), blockAxis(SITE.z + dz), flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
         // eslint-disable-next-line no-magic-numbers -- Interior above the floor must be air.
-        expect(villageBlockAt(SITE, SITE.x + dx, 72, SITE.z + dz, flatPlains)).toBe(BLOCK.AIR)
+        expect(villageBlockAt(SITE, blockAxis(SITE.x + dx), blockAxis(72), blockAxis(SITE.z + dz), flatPlains)).toBe(BLOCK.AIR)
         // eslint-disable-next-line no-magic-numbers -- Roof level caps each house.
-        expect(villageBlockAt(SITE, SITE.x + dx, 76, SITE.z + dz, flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
+        expect(villageBlockAt(SITE, blockAxis(SITE.x + dx), blockAxis(76), blockAxis(SITE.z + dz), flatPlains)).toBe(VILLAGE_BLOCK.TIMBER)
       }
     }),
   )
@@ -337,36 +384,36 @@ describe('village layout and chunk integration', () => {
     // eslint-disable-next-line max-statements -- Integration checks both seam chunks in both request orders.
     Effect.sync(() => {
       // eslint-disable-next-line no-magic-numbers -- Region is the known real-terrain accepted fixture (VILLAGE_REGION_SPAWN_PERMILLE=500, VILLAGE_SITE_ATTEMPTS=64 — see structure-siting.ts for why).
-      const accepted = villageSiteForRegion(SEED, -29, -25, actualTerrain)
+      const accepted = villageSiteForRegion(noiseSeed(SEED), -29, -25, actualTerrain)
       expect(accepted).toStrictEqual(Option.some(SITE))
-      const actualSpawns = villageVillagerSpawnsForSite(SEED, SITE, actualTerrain)
+      const actualSpawns = villageVillagerSpawnsForSite(noiseSeed(SEED), SITE, actualTerrain)
       for (const spawn of actualSpawns) {
         // eslint-disable-next-line id-length, no-magic-numbers -- The actual house floor must support the spawn.
-        expect(villageBlockAt(SITE, spawn.x, spawn.y - 1, spawn.z, actualTerrain)).toBe(VILLAGE_BLOCK.TIMBER)
+        expect(villageBlockAt(SITE, spawn.x, blockAxis(spawn.y - 1), spawn.z, actualTerrain)).toBe(VILLAGE_BLOCK.TIMBER)
         // eslint-disable-next-line id-length -- The actual spawn block must be clear.
         expect(villageBlockAt(SITE, spawn.x, spawn.y, spawn.z, actualTerrain)).toBe(BLOCK.AIR)
         // eslint-disable-next-line id-length, no-magic-numbers -- Actual terrain must leave headroom above the spawn.
-        expect(villageBlockAt(SITE, spawn.x, spawn.y + 1, spawn.z, actualTerrain)).toBe(BLOCK.AIR)
+        expect(villageBlockAt(SITE, spawn.x, blockAxis(spawn.y + 1), spawn.z, actualTerrain)).toBe(BLOCK.AIR)
       }
 
       const leftChunkX = Math.floor(SITE.x / CHUNK_SIZE_XZ)
       const rightChunkX = leftChunkX + 1
       const seamChunkZ = Math.floor(SITE.z / CHUNK_SIZE_XZ)
-      const leftCoord = chunkCoord(leftChunkX, seamChunkZ)
-      const rightCoord = chunkCoord(rightChunkX, seamChunkZ)
-      const leftFirst = generateChunk(SEED, leftCoord)
-      const rightSecond = generateChunk(SEED, rightCoord)
-      const rightFirst = generateChunk(SEED, rightCoord)
-      const leftSecond = generateChunk(SEED, leftCoord)
+      const leftCoord = chunkCoord(chunkAxis(leftChunkX), chunkAxis(seamChunkZ))
+      const rightCoord = chunkCoord(chunkAxis(rightChunkX), chunkAxis(seamChunkZ))
+      const leftFirst = generateChunk(noiseSeed(SEED), leftCoord)
+      const rightSecond = generateChunk(noiseSeed(SEED), rightCoord)
+      const rightFirst = generateChunk(noiseSeed(SEED), rightCoord)
+      const leftSecond = generateChunk(noiseSeed(SEED), leftCoord)
       expect(leftFirst.blocks).toStrictEqual(leftSecond.blocks)
       expect(rightFirst.blocks).toStrictEqual(rightSecond.blocks)
 
       const leftX = leftChunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1
       const rightX = rightChunkX * CHUNK_SIZE_XZ
-      const leftY = surfaceHeightAt(SEED, leftX, SITE.z)
-      const rightY = surfaceHeightAt(SEED, rightX, SITE.z)
-      expect(getBlockAt(leftFirst, CHUNK_SIZE_XZ - 1, leftY, SITE.z - leftCoord.cz * CHUNK_SIZE_XZ)).toBe(VILLAGE_BLOCK.ROAD)
-      expect(getBlockAt(rightFirst, 0, rightY, SITE.z - rightCoord.cz * CHUNK_SIZE_XZ)).toBe(VILLAGE_BLOCK.ROAD)
+      const leftY = surfaceHeightAt(noiseSeed(SEED), blockAxis(leftX), SITE.z)
+      const rightY = surfaceHeightAt(noiseSeed(SEED), blockAxis(rightX), SITE.z)
+      expect(getBlockAt(leftFirst, localAxis(CHUNK_SIZE_XZ - 1), blockAxis(leftY), localAxis(SITE.z - leftCoord.cz * CHUNK_SIZE_XZ))).toBe(VILLAGE_BLOCK.ROAD)
+      expect(getBlockAt(rightFirst, localAxis(0), blockAxis(rightY), localAxis(SITE.z - rightCoord.cz * CHUNK_SIZE_XZ))).toBe(VILLAGE_BLOCK.ROAD)
     }),
   )
 })

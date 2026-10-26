@@ -7,9 +7,12 @@ import {
   blockPosition,
 } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from './constants.js'
-import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
+import { type NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
+import { blockAxis, localAxis } from './coordinate-compatibility.js'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NaturalStructureChunk } from './natural-structure.js'
 import { Option } from 'effect'
+import { channelSeed } from './noise-compatibility.js'
 import { setBlockAt } from './chunk.js'
 
 const END_SPIKE_COUNT = 10
@@ -28,13 +31,13 @@ const ZERO = 0
 const ONE = 1
 
 export const END_FEATURE_BLOCK: Readonly<Record<'CRYSTAL' | 'OBSIDIAN', BlockId>> = Object.freeze({
-  CRYSTAL: blockIdOf('end_crystal'),
-  OBSIDIAN: blockIdOf('obsidian'),
+  CRYSTAL: Option.getOrThrow(blockIdOf('end_crystal')),
+  OBSIDIAN: Option.getOrThrow(blockIdOf('obsidian')),
 })
 
 export type EndSpike = {
-  readonly centerX: number
-  readonly centerZ: number
+  readonly centerX: BlockAxis
+  readonly centerZ: BlockAxis
   readonly radius: number
   readonly height: number
   readonly guarded: boolean
@@ -60,8 +63,8 @@ type EndCrystalCageMarker = {
   readonly featureId: string
   readonly center: BlockPosition
   readonly radius: number
-  readonly minY: number
-  readonly maxY: number
+  readonly minY: BlockAxis
+  readonly maxY: BlockAxis
   readonly material: 'iron_bars'
 }
 
@@ -79,8 +82,8 @@ const spikeForIndex = (random: () => number, index: number): EndSpike => {
   const angle = SPIKE_ANGLE_TURNS * (-Math.PI + Math.PI * index / END_SPIKE_COUNT)
 
   return Object.freeze({
-    centerX: Math.floor(END_SPIKE_DISTANCE * Math.cos(angle)),
-    centerZ: Math.floor(END_SPIKE_DISTANCE * Math.sin(angle)),
+    centerX: blockAxis(Math.floor(END_SPIKE_DISTANCE * Math.cos(angle))),
+    centerZ: blockAxis(Math.floor(END_SPIKE_DISTANCE * Math.sin(angle))),
     guarded: randomInt(random, END_SPIKE_GUARD_CHANCE) === ZERO,
     height: END_SPIKE_MIN_HEIGHT + randomInt(random, END_SPIKE_HEIGHT_VARIATION),
     radius: END_SPIKE_MIN_RADIUS + randomInt(random, END_SPIKE_RADIUS_VARIATION),
@@ -99,7 +102,7 @@ const spikeForIndex = (random: () => number, index: number): EndSpike => {
  * is cheaper than the alternatives: a fallback would be a branch no test can
  * reach under this repository's 100% coverage gate.
  */
-const spikeAt = (spikes: { readonly [index: number]: EndSpike }, index: number): EndSpike => Option.getOrThrow(Option.fromNullable(spikes[index]))
+const spikeAt = (spikes: { readonly [index: number]: EndSpike }, index: number): EndSpike => Option.getOrThrow(Option.fromNullishOr(spikes[index]))
 
 const shuffledSpikes = (spikes: ReadonlyArray<EndSpike>, random: () => number): ReadonlyArray<EndSpike> => {
   const result = [...spikes]
@@ -115,8 +118,8 @@ const shuffledSpikes = (spikes: ReadonlyArray<EndSpike>, random: () => number): 
 }
 
 /** Build the ten deterministic vanilla-shaped End spike definitions for a seed. */
-export const endFeaturePlanForSeed = (seed: number): EndFeaturePlan => {
-  const random = mulberry32(NoiseSeed(channelSeed(seed, 'end-spikes')))
+export const endFeaturePlanForSeed = (seed: NoiseSeed): EndFeaturePlan => {
+  const random = mulberry32(channelSeed(seed, 'end-spikes'))
   const spikes = Array.from({ length: END_SPIKE_COUNT }, (_value, index) => spikeForIndex(random, index))
 
   return Object.freeze({
@@ -160,7 +163,7 @@ const spikeChunkBounds = (spike: EndSpike, coord: ChunkCoord): SpikeChunkBounds 
 
 const fillSpikeColumn = (blocks: Uint16Array, spike: EndSpike, localX: number, localZ: number): void => {
   for (let y = ZERO; y < CHUNK_HEIGHT && y <= spike.height; y += ONE) {
-    setBlockAt(blocks, localX, y, localZ, END_FEATURE_BLOCK.OBSIDIAN)
+    setBlockAt(blocks, localAxis(localX), blockAxis(y), localAxis(localZ), END_FEATURE_BLOCK.OBSIDIAN)
   }
 }
 
@@ -189,7 +192,7 @@ const applySpikeBlocks = (blocks: Uint16Array, spike: EndSpike, coord: ChunkCoor
 }
 
 const markersForSpike = (plan: EndFeaturePlan, spike: EndSpike): Array<EndFeatureMarker> => {
-  const crystal = blockPosition(spike.centerX, spike.height + CRYSTAL_Y_OFFSET, spike.centerZ)
+  const crystal = blockPosition(blockAxis(spike.centerX), blockAxis(spike.height + CRYSTAL_Y_OFFSET), blockAxis(spike.centerZ))
   const markers: Array<EndFeatureMarker> = [Object.freeze({
     at: crystal,
     block: END_FEATURE_BLOCK.CRYSTAL,
@@ -204,8 +207,8 @@ const markersForSpike = (plan: EndFeaturePlan, spike: EndSpike): Array<EndFeatur
       featureId: plan.id,
       kind: 'end-crystal-cage',
       material: 'iron_bars',
-      maxY: Math.min(CHUNK_HEIGHT - ONE, spike.height + CAGE_MAX_Y_OFFSET),
-      minY: Math.max(ZERO, spike.height - CAGE_MIN_Y_OFFSET),
+      maxY: blockAxis(Math.min(CHUNK_HEIGHT - ONE, spike.height + CAGE_MAX_Y_OFFSET)),
+      minY: blockAxis(Math.max(ZERO, spike.height - CAGE_MIN_Y_OFFSET)),
       radius: CAGE_RADIUS,
     }))
   }

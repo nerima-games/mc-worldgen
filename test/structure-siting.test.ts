@@ -10,22 +10,38 @@
  * regeneration and nothing here backs one.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
 import { BEDROCK_Y, blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   STRONGHOLD_FLOOR_Y,
   STRONGHOLD_REGION_SIZE,
+  STRONGHOLD_SEARCH_RADIUS,
   STRONGHOLD_REGION_SPAWN_PERMILLE,
   STRONGHOLD_SITE_MARGIN,
+  VILLAGE_HALF_EXTENT,
   locateStronghold,
   nearestStrongholdSite,
-  strongholdSiteForRegion,
+  strongholdSiteForRegion as strongholdSiteForRegionRaw,
   strongholdSitesNearChunk,
+  type StrongholdSite,
+  type OverworldTerrainSampler,
+  villageSiteForRegion as villageSiteForRegionRaw,
+  villageSitesNearChunk,
 } from '../src/domain/structure-siting'
-import { MIN_SURFACE_Y, generateChunkAt } from '../src/domain/terrain'
+import { MIN_SURFACE_Y, generateChunkAt, strongholdSiteForRegion, villageSiteForRegion } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+
+const VILLAGE_TEST_REGION = { x: -29, z: -25 }
+const FLAT_VILLAGE_TERRAIN: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+const villageTestSite = () => Option.getOrThrow(villageSiteForRegion(
+  GOLDEN_SEED,
+  VILLAGE_TEST_REGION.x,
+  VILLAGE_TEST_REGION.z,
+  FLAT_VILLAGE_TERRAIN,
+))
 
 describe('the region rule', () => {
   it.effect('transcribes the reference’s four constants', () =>
@@ -130,8 +146,8 @@ describe('the region rule', () => {
       let differing = 0
       for (let regionX = -30; regionX < 30; regionX += 1) {
         for (let regionZ = -30; regionZ < 30; regionZ += 1) {
-          const a = strongholdSiteForRegion(1, regionX, regionZ)
-          const b = strongholdSiteForRegion(2, regionX, regionZ)
+          const a = strongholdSiteForRegion(noiseSeed(1), regionX, regionZ)
+          const b = strongholdSiteForRegion(noiseSeed(2), regionX, regionZ)
           if (Option.isSome(a) !== Option.isSome(b)) {
             differing += 1
           } else if (Option.isSome(a) && Option.isSome(b) && (a.value.x !== b.value.x || a.value.z !== b.value.z)) {
@@ -195,7 +211,7 @@ describe('the nearest-site query', () => {
       // the neighbour's site beats your own and where first-hit gets it wrong.
       for (const x of [0, 1, 191, 192, 383, 384, 385, -1, -383, -385, 4321, -7654]) {
         for (const z of [0, 383, 384, -1, -384, 2048, -2049]) {
-          const fast = nearestStrongholdSite(GOLDEN_SEED, x, z)
+          const fast = nearestStrongholdSite(GOLDEN_SEED, blockAxis(x), blockAxis(z))
           const slow = bruteForce(x, z)
           if (JSON.stringify(fast) !== JSON.stringify(slow)) {
             disagreements.push(`(${String(x)}, ${String(z)})`)
@@ -214,7 +230,7 @@ describe('the nearest-site query', () => {
         [100000, -100000],
         [-999999, 555555],
       ] as const) {
-        expect(Option.isSome(nearestStrongholdSite(GOLDEN_SEED, x, z))).toBe(true)
+        expect(Option.isSome(nearestStrongholdSite(GOLDEN_SEED, blockAxis(x), blockAxis(z)))).toBe(true)
       }
     }),
   )
@@ -222,7 +238,7 @@ describe('the nearest-site query', () => {
   it.effect('is never further away than a whole search radius', () =>
     Effect.sync(() => {
       for (let x = -2000; x <= 2000; x += 371) {
-        const site = nearestStrongholdSite(GOLDEN_SEED, x, x)
+        const site = nearestStrongholdSite(GOLDEN_SEED, blockAxis(x), blockAxis(x))
         expect(Option.isSome(site)).toBe(true)
         if (Option.isSome(site)) {
           const dx = site.value.x - x
@@ -240,9 +256,8 @@ describe('the ranked list — locateStronghold', () => {
    *
    * `locateStronghold` orders candidates by squared distance, then by `x`, then
    * by `z`. An origin chosen at random essentially never ties two real sites'
-   * distances (they are continuous-valued and independent), so the tie-break
-   * arms have never fired — this constructs one deliberately instead of
-   * leaving it to chance.
+   * distances (they vary independently), so the tie-break arms have never
+   * fired — this constructs one deliberately instead of leaving it to chance.
    *
    * The construction is exact rather than approximate: for any two points A
    * and B, EVERY point on their perpendicular bisector is equidistant from
@@ -257,22 +272,33 @@ describe('the ranked list — locateStronghold', () => {
       // this is a tie between two candidates `locateStronghold` would
       // actually produce, not two points the comparator was never meant to
       // see.
-      const sites: Array<{ x: number; z: number }> = []
-      for (let regionX = 0; regionX < 12 && sites.length < 2; regionX += 1) {
+      const sites: Array<{ regionX: number; value: StrongholdSite }> = []
+      let pair: readonly [StrongholdSite, StrongholdSite] | undefined
+      for (let regionX = 0; regionX < 60 && pair === undefined; regionX += 1) {
         const candidate = strongholdSiteForRegion(GOLDEN_SEED, regionX, 0)
         if (Option.isSome(candidate)) {
-          sites.push(candidate.value)
+          const first = sites.find(({ regionX: firstRegionX, value }) =>
+            regionX - firstRegionX <= STRONGHOLD_SEARCH_RADIUS * 2 &&
+            candidate.value.x !== value.x &&
+            Math.abs(candidate.value.x - value.x) % 2 === 0 &&
+            Math.abs(candidate.value.z - value.z) % 2 === 0,
+          )
+          if (first === undefined) {
+            sites.push({ regionX, value: candidate.value })
+          } else {
+            pair = [first.value, candidate.value]
+          }
         }
       }
-      const [a, b] = sites
-      expect(sites, 'need two real stronghold sites to construct a tie').toHaveLength(2)
-      if (a === undefined || b === undefined) {
+      expect(pair, 'need two searchable real stronghold sites to construct a tie').toBeDefined()
+      if (pair === undefined) {
         return
       }
+      const [a, b] = pair
       expect(a.x, 'the two sites must differ in x for this to be a meaningful x tie-break').not.toBe(b.x)
 
       // The exact midpoint: equidistant from `a` and `b` by construction.
-      const origin = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }
+      const origin = { x: blockAxis((a.x + b.x) / 2), z: blockAxis((a.z + b.z) / 2) }
       const leftDistance = (a.x - origin.x) ** 2 + (a.z - origin.z) ** 2
       const rightDistance = (b.x - origin.x) ** 2 + (b.z - origin.z) ** 2
       expect(leftDistance, 'the midpoint construction did not produce an exact tie').toBe(rightDistance)
@@ -326,7 +352,11 @@ describe('the ranked list — locateStronghold', () => {
           }
           const offsetX = candidate.value.x - regionX * STRONGHOLD_REGION_SIZE
           const existing = byOffsetX.get(offsetX)
-          if (existing !== undefined && Math.abs(existing.regionZ - regionZ) <= MAX_USABLE_REGION_GAP) {
+          if (
+            existing !== undefined &&
+            Math.abs(existing.regionZ - regionZ) <= MAX_USABLE_REGION_GAP &&
+            Math.abs(existing.site.z - candidate.value.z) % 2 === 0
+          ) {
             duplicate = [existing.site, candidate.value]
             break
           }
@@ -346,7 +376,7 @@ describe('the ranked list — locateStronghold', () => {
 
       // `a.x === b.x` already ties the x term for any `origin.x`, so only
       // `origin.z` needs choosing — the exact midpoint of `a.z`/`b.z`.
-      const origin = { x: a.x, z: (a.z + b.z) / 2 }
+      const origin = { x: blockAxis(a.x), z: blockAxis((a.z + b.z) / 2) }
       const leftDistance = (a.x - origin.x) ** 2 + (a.z - origin.z) ** 2
       const rightDistance = (b.x - origin.x) ** 2 + (b.z - origin.z) ** 2
       expect(leftDistance, 'the construction did not produce an exact distance tie').toBe(rightDistance)
@@ -365,13 +395,148 @@ describe('the ranked list — locateStronghold', () => {
   )
 })
 
+describe('region coordinate bounds', () => {
+  it.effect('returns a typed failure when a region would exceed BlockAxis', () => Effect.sync(() => {
+    // This region is within Number's safe-integer range, but its derived block coordinate is not.
+    const regionX = Math.ceil(Number.MAX_SAFE_INTEGER / STRONGHOLD_REGION_SIZE)
+    const result = strongholdSiteForRegionRaw(GOLDEN_SEED, regionX, 0)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+    })
+  }))
+
+  it.effect('returns a typed failure for a NaN region index', () => Effect.sync(() => {
+    const result = strongholdSiteForRegionRaw(GOLDEN_SEED, Number.NaN, 0)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'stronghold',
+      value: Number.NaN,
+    })
+  }))
+
+  it.effect('skips unrepresentable stronghold sites near the largest block coordinate', () => Effect.sync(() => {
+    const sites = locateStronghold(noiseSeed(0), { x: blockAxis(Number.MAX_SAFE_INTEGER), z: blockAxis(0) }, 20)
+
+    expect(sites.length).toBeGreaterThan(0)
+    expect(sites.every((site) => Number.isSafeInteger(site.x) && Number.isSafeInteger(site.z))).toBe(true)
+  }))
+})
+
+describe('village chunk query coordinate bounds', () => {
+  it.effect('returns a typed failure for an invalid village region', () => Effect.sync(() => {
+    const result = villageSiteForRegionRaw(GOLDEN_SEED, Number.NaN, 0, () => {
+      throw new Error('invalid village regions must not sample terrain')
+    })
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'village',
+      value: Number.NaN,
+    })
+  }))
+
+  it.effect('returns a typed failure when the chunk query bounds are outside the block-coordinate range', () => Effect.sync(() => {
+    const result = villageSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Number.MAX_SAFE_INTEGER),
+      chunkAxis(0),
+      () => {
+        throw new Error('invalid candidate regions must not sample terrain')
+      },
+    )
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
+  }))
+
+  it.effect('rejects each unrepresentable chunk-query footprint edge', () => Effect.sync(() => {
+    const edgeChunk = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1)) / CHUNK_SIZE_XZ)
+    const negativeEdgeChunk = Math.floor((-Number.MAX_SAFE_INTEGER + (CHUNK_SIZE_XZ - 1)) / CHUNK_SIZE_XZ)
+    const invalidQueries = [
+      [chunkAxis(edgeChunk), chunkAxis(0), 'footprint-x'],
+      [chunkAxis(0), chunkAxis(negativeEdgeChunk), 'footprint-z'],
+      [chunkAxis(0), chunkAxis(edgeChunk), 'footprint-z'],
+    ] as const
+
+    for (const [chunkX, chunkZ, axis] of invalidQueries) {
+      const result = villageSitesNearChunk(GOLDEN_SEED, chunkX, chunkZ, FLAT_VILLAGE_TERRAIN)
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+      expect(result.failure).toMatchObject({
+        _tag: 'InvalidNaturalStructureCoordinate',
+        axis,
+        kind: 'village',
+      })
+    }
+  }))
+
+  it.effect('propagates an invalid candidate-region footprint after validating safe query bounds', () => Effect.sync(() => {
+    const chunkX = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1) - VILLAGE_HALF_EXTENT) / CHUNK_SIZE_XZ)
+    const maxBlockX = chunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1 + VILLAGE_HALF_EXTENT
+    expect(Number.isSafeInteger(maxBlockX)).toBe(true)
+
+    const result = villageSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX), chunkAxis(0), FLAT_VILLAGE_TERRAIN)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
+  }))
+
+  it.effect('finds accepted sites whose footprint overlaps a queried chunk', () => Effect.sync(() => {
+    const site = villageTestSite()
+    const sites = Result.getOrThrow(villageSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
+      FLAT_VILLAGE_TERRAIN,
+    ))
+
+    expect(sites).toContainEqual(site)
+  }))
+
+  it.effect('omits a candidate whose terrain is not suitable for a village', () => Effect.sync(() => {
+    const site = villageTestSite()
+    const sampleTerrain: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const sites = Result.getOrThrow(villageSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
+      sampleTerrain,
+    ))
+
+    expect(sites).toStrictEqual([])
+  }))
+})
+
 describe('the chunk query the block half would start from', () => {
   it.effect('reports a site exactly when it lies within the chunk plus its extent', () =>
     Effect.sync(() => {
       const halfExtent = 6
 
       // Take a real site and ask its own chunk, then a chunk far away.
-      const site = nearestStrongholdSite(GOLDEN_SEED, 0, 0)
+      const site = nearestStrongholdSite(GOLDEN_SEED, blockAxis(0), blockAxis(0))
       expect(Option.isSome(site)).toBe(true)
       if (Option.isNone(site)) {
         return
@@ -380,8 +545,8 @@ describe('the chunk query the block half would start from', () => {
       const chunkX = Math.floor(site.value.x / CHUNK_SIZE_XZ)
       const chunkZ = Math.floor(site.value.z / CHUNK_SIZE_XZ)
 
-      expect(strongholdSitesNearChunk(GOLDEN_SEED, chunkX, chunkZ, halfExtent)).toContainEqual(site.value)
-      expect(strongholdSitesNearChunk(GOLDEN_SEED, chunkX + 40, chunkZ + 40, halfExtent)).not.toContainEqual(
+      expect(Result.getOrThrow(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX), chunkAxis(chunkZ), halfExtent))).toContainEqual(site.value)
+      expect(Result.getOrThrow(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX + 40), chunkAxis(chunkZ + 40), halfExtent))).not.toContainEqual(
         site.value,
       )
     }),
@@ -390,7 +555,7 @@ describe('the chunk query the block half would start from', () => {
   it.effect('is reported by every chunk the footprint straddles, which is why it is not per-chunk state', () =>
     Effect.sync(() => {
       const halfExtent = 6
-      const site = nearestStrongholdSite(GOLDEN_SEED, 0, 0)
+      const site = nearestStrongholdSite(GOLDEN_SEED, blockAxis(0), blockAxis(0))
       expect(Option.isSome(site)).toBe(true)
       if (Option.isNone(site)) {
         return
@@ -404,7 +569,7 @@ describe('the chunk query the block half would start from', () => {
       const chunkZ = Math.floor(site.value.z / CHUNK_SIZE_XZ)
       for (let dx = -1; dx <= 1; dx += 1) {
         for (let dz = -1; dz <= 1; dz += 1) {
-          if (strongholdSitesNearChunk(GOLDEN_SEED, chunkX + dx, chunkZ + dz, halfExtent).length > 0) {
+          if (Result.getOrThrow(strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(chunkX + dx), chunkAxis(chunkZ + dz), halfExtent)).length > 0) {
             reporting += 1
           }
         }
@@ -412,6 +577,49 @@ describe('the chunk query the block half would start from', () => {
       expect(reporting).toBeGreaterThan(0)
     }),
   )
+
+  it.effect('returns a typed failure when chunk bounds are outside the block-coordinate range', () => Effect.sync(() => {
+    const invalidBounds = strongholdSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Number.MAX_SAFE_INTEGER),
+      chunkAxis(0),
+      6,
+    )
+    expect(Result.isFailure(invalidBounds)).toBe(true)
+    if (Result.isSuccess(invalidBounds)) throw new Error('expected an invalid-coordinate failure')
+    expect(invalidBounds.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+    })
+  }))
+
+  it.effect('returns a typed failure for a negative half extent', () => Effect.sync(() => {
+    const invalidExtent = strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(0), chunkAxis(0), -1)
+    expect(Result.isFailure(invalidExtent)).toBe(true)
+    if (Result.isSuccess(invalidExtent)) throw new Error('expected an invalid half-extent failure')
+    expect(invalidExtent.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+      value: -1,
+    })
+  }))
+
+  it.effect('propagates an invalid candidate region after validating safe query bounds', () => Effect.sync(() => {
+    const halfExtent = 6
+    const safeChunkX = Math.floor((Number.MAX_SAFE_INTEGER - (CHUNK_SIZE_XZ - 1) - halfExtent) / CHUNK_SIZE_XZ)
+    const maxBlockX = safeChunkX * CHUNK_SIZE_XZ + CHUNK_SIZE_XZ - 1 + halfExtent
+    expect(Number.isSafeInteger(maxBlockX)).toBe(true)
+    const invalidRegion = strongholdSitesNearChunk(GOLDEN_SEED, chunkAxis(safeChunkX), chunkAxis(0), halfExtent)
+    expect(Result.isFailure(invalidRegion)).toBe(true)
+    if (Result.isSuccess(invalidRegion)) throw new Error('expected an invalid candidate-region failure')
+    expect(invalidRegion.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+    })
+  }))
 })
 
 describe('STRONGHOLD_FLOOR_Y survives the port', () => {
@@ -427,7 +635,7 @@ describe('STRONGHOLD_FLOOR_Y survives the port', () => {
 
       for (let cx = -3; cx < 3; cx += 1) {
         for (let cz = -3; cz < 3; cz += 1) {
-          const chunk = generateChunkAt(GOLDEN_SEED, cx, cz, { decorate: false })
+          const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz), { decorate: false })
           for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
             for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
               cells += 1

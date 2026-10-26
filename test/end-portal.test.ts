@@ -12,8 +12,9 @@ import {
   endArrivalDescriptor,
 } from '../src/domain/end-portal'
 import { blockPosition } from '@nerima-games/mc-kernel'
+import { blockAxis } from './fixtures/validated-inputs'
 
-const center = blockPosition(100, 32, -200)
+const center = blockPosition(blockAxis(100), blockAxis(32), blockAxis(-200))
 const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
 
 const completedFrame = (): Map<string, EndPortalFrameState> =>
@@ -64,19 +65,30 @@ describe('detectCompletedEndPortal', () => {
   }))
 })
 
+describe('detectCompletedEndPortal coordinate bounds', () => {
+  it.effect('rejects a fully populated frame when its outer ring exceeds BlockAxis', () => Effect.sync(() => {
+    const edgeCenter = blockPosition(blockAxis(Number.MAX_SAFE_INTEGER), blockAxis(32), blockAxis(-200))
+    const edgeFrames: Map<string, EndPortalFrameState> = new Map(END_PORTAL_FRAME_OFFSETS.map(({ dx, dz, facing }) => [
+      key(edgeCenter.x + dx, edgeCenter.y, edgeCenter.z + dz),
+      { block: END_PORTAL_BLOCK.FRAME_FILLED, facing },
+    ]))
+    expect(Option.isNone(detectCompletedEndPortal(accessor(edgeFrames), 'overworld', edgeCenter))).toBe(true)
+  }))
+})
+
 describe('endArrivalDescriptor', () => {
   it.effect('builds a stable 5x5 platform, clears headroom, and spawns above its center', () => Effect.sync(() => {
-    const descriptor = endArrivalDescriptor(blockPosition(-4, 60, 9))
+    const descriptor = endArrivalDescriptor(blockPosition(blockAxis(-4), blockAxis(60), blockAxis(9)))
     expect(descriptor.dimension).toBe('end')
     expect(descriptor.platform).toHaveLength(25)
     expect(descriptor.clear).toHaveLength(27)
-    expect(descriptor.spawn).toStrictEqual(blockPosition(-4, 61, 9))
+    expect(descriptor.spawn).toStrictEqual(blockPosition(blockAxis(-4), blockAxis(61), blockAxis(9)))
     expect(new Set(descriptor.platform.map(({ at }) => key(at.x, at.y, at.z))).size).toBe(25)
     expect(new Set(descriptor.clear.map(({ x, y, z }) => key(x, y, z))).size).toBe(27)
   }))
 
   it.effect('is deterministic and rejects unsafe coordinates at the public codec boundary', () => Effect.sync(() => {
-    const origin = blockPosition(7, 70, 8)
+    const origin = blockPosition(blockAxis(7), blockAxis(70), blockAxis(8))
     expect(endArrivalDescriptor(origin)).toStrictEqual(endArrivalDescriptor(origin))
     expect(Schema.decodeUnknownSync(EndPortalCenterSchema)({ x: 7, y: 70, z: 8 })).toStrictEqual(origin)
     expect(() => Schema.decodeUnknownSync(EndPortalCenterSchema)({ x: 1.5, y: 70, z: 8 })).toThrow()

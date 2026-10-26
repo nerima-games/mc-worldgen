@@ -196,10 +196,11 @@
  */
 import { BLOCK, type BiomeType } from './biome.js'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
-import { channelSeed, valueNoise2D } from '@nerima-games/mc-noise'
-import { columnIndex, readBlock } from './chunk.js'
+import { channelSeedValue, valueNoise2D } from './noise-compatibility.js'
+import { columnIndexForKnownLocalRange, readBlock } from './chunk.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { PLANT_IDS } from './vegetation.js'
 
 /** Frequency of the ravine field. `ravine-carver.ts:10`; a 250-block wavelength. */
@@ -271,8 +272,8 @@ export type RavineOptions = {
  * preview asks it per column, the same way it asks `shouldPlaceTree` — it must
  * not have to generate a 64 KB chunk to colour one pixel.
  */
-export const ravineDistanceAt = (seed: number, wx: number, wz: number): number =>
-  Math.abs(valueNoise2D(channelSeed(seed, 'ravines'), wx, wz, RAVINE_NOISE_SCALE) - RAVINE_CENTER)
+export const ravineDistanceAt = (seed: NoiseSeed, wx: number, wz: number): number =>
+  Math.abs(valueNoise2D(channelSeedValue(seed, 'ravines'), wx, wz, RAVINE_NOISE_SCALE) - RAVINE_CENTER)
 
 /**
  * Depth of the cut at a band distance, or 0 where nothing is carved.
@@ -386,7 +387,7 @@ type RavineCarveContext = {
   readonly blocks: Uint16Array
   readonly coord: ChunkCoord
   readonly guard: RavineWaterGuard
-  readonly seed: number
+  readonly seed: NoiseSeed
   readonly surfaces: Int16Array
 }
 
@@ -425,7 +426,7 @@ const resolveRavineCutAt = (
   lz: number,
   depth: number,
 ): RavineCut | null => {
-  const column = columnIndex(lx, lz)
+  const column = columnIndexForKnownLocalRange(lx, lz)
   const recordedColumn = recordedColumnAt(surfaces, biomes, column)
   if (recordedColumn === null) {
     return null

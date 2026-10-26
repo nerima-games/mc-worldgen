@@ -49,6 +49,7 @@ export const IGLOO_LAYOUT: Readonly<{
 })
 
 /** Registry-backed palette for the supported igloo geometry. */
+import { Option } from 'effect'
 export const IGLOO_BLOCK: Readonly<
   Record<
     | 'AIR'
@@ -64,14 +65,14 @@ export const IGLOO_BLOCK: Readonly<
     BlockId
   >
 > = Object.freeze({
-  AIR: blockIdOf('air'),
-  BED: blockIdOf('bed'),
-  CAULDRON: blockIdOf('cauldron'),
-  CHEST: blockIdOf('chest'),
-  COBBLESTONE: blockIdOf('cobblestone'),
-  CRAFTING_TABLE: blockIdOf('crafting_table'),
-  FURNACE: blockIdOf('furnace'),
-  LADDER: blockIdOf('ladder'),
-  OAK_PLANKS: blockIdOf('oak_planks'),
-  SNOW: blockIdOf('snow'),
+  AIR: Option.getOrThrow(blockIdOf('air')),
+  BED: Option.getOrThrow(blockIdOf('bed')),
+  CAULDRON: Option.getOrThrow(blockIdOf('cauldron')),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  COBBLESTONE: Option.getOrThrow(blockIdOf('cobblestone')),
+  CRAFTING_TABLE: Option.getOrThrow(blockIdOf('crafting_table')),
+  FURNACE: Option.getOrThrow(blockIdOf('furnace')),
+  LADDER: Option.getOrThrow(blockIdOf('ladder')),
+  OAK_PLANKS: Option.getOrThrow(blockIdOf('oak_planks')),
+  SNOW: Option.getOrThrow(blockIdOf('snow')),
 })

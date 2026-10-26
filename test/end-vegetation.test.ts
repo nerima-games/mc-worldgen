@@ -1,7 +1,9 @@
 /* oxlint-disable id-length, max-lines-per-function, max-statements, no-magic-numbers, no-undefined, sort-imports */
 
 import { describe, expect, it } from '@effect/vitest'
+import * as Option from 'effect/Option'
 import { AIR_BLOCK_ID, blockIdOf, chunkCoord, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks, readBlock, setBlockAt, type Chunk } from '../src/domain/chunk'
 import {
@@ -9,7 +11,7 @@ import {
   endSurfaceHeightAt,
   generateEndChunk,
   generateEndTerrainChunk,
-} from '../src/domain/end-terrain'
+} from './helpers/unwrapped-worldgen'
 import {
   applyEndChorusPlansToChunk,
   END_VEGETATION_BLOCK,
@@ -18,6 +20,7 @@ import {
   type EndChorusPlan,
   type EndChorusPlant,
 } from '../src/domain/end-vegetation'
+import { blockAxis, chunkAxis, localAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const emptyChunk = (coord: ChunkCoord): Chunk => ({
   blocks: emptyBlocks(),
@@ -27,9 +30,9 @@ const emptyChunk = (coord: ChunkCoord): Chunk => ({
 
 const makePlacement = (block: BlockId, x: number, y: number, z: number): EndChorusPlacement => ({
   block,
-  x,
-  y,
-  z,
+  x: blockAxis(x),
+  y: blockAxis(y),
+  z: blockAxis(z),
 })
 
 const makePlant = (
@@ -37,7 +40,7 @@ const makePlant = (
   baseY: number,
   baseZ: number,
   placements: ReadonlyArray<EndChorusPlacement>,
-): EndChorusPlant => ({ baseX, baseY, baseZ, placements })
+): EndChorusPlant => ({ baseX: blockAxis(baseX), baseY: blockAxis(baseY), baseZ: blockAxis(baseZ), placements })
 
 const makePlan = (id: string, plants: ReadonlyArray<EndChorusPlant>): EndChorusPlan => ({
   dimension: 'end',
@@ -48,10 +51,10 @@ const makePlan = (id: string, plants: ReadonlyArray<EndChorusPlant>): EndChorusP
 describe('End vegetation', () => {
   it('creates deterministic immutable plants with and without branches', () => {
     const input = {
-      coord: chunkCoord(0, 0),
+      coord: chunkCoord(chunkAxis(0), chunkAxis(0)),
       isOuterIsland: () => true,
-      seed: 0,
-      surfaceHeightAt: () => 64,
+      seed: noiseSeed(0),
+      surfaceHeightAt: () => blockAxis(64),
     }
     const first = endChorusPlanForChunk(input)
     const second = endChorusPlanForChunk(input)
@@ -76,28 +79,33 @@ describe('End vegetation', () => {
   })
 
   it('rejects non-island and invalid surface candidates, including empty chunks', () => {
+    const fractionalSurfaceHeight = BlockAxis.option(64.5)
     const base = {
-      coord: chunkCoord(0, 0),
+      coord: chunkCoord(chunkAxis(0), chunkAxis(0)),
       isOuterIsland: () => true,
-      seed: 0,
-      surfaceHeightAt: () => 64,
+      seed: noiseSeed(0),
+      surfaceHeightAt: () => blockAxis(64),
     }
 
     expect(endChorusPlanForChunk({ ...base, isOuterIsland: () => false }).plants).toStrictEqual([])
     expect(endChorusPlanForChunk({ ...base, surfaceHeightAt: () => undefined }).plants).toStrictEqual([])
-    expect(endChorusPlanForChunk({ ...base, surfaceHeightAt: () => -1 }).plants).toStrictEqual([])
-    expect(endChorusPlanForChunk({ ...base, surfaceHeightAt: () => 64.5 }).plants).toStrictEqual([])
-    expect(endChorusPlanForChunk({ ...base, surfaceHeightAt: () => 250 }).plants).toStrictEqual([])
-    expect(endChorusPlanForChunk({ ...base, coord: chunkCoord(1, 9) }).plants).toStrictEqual([])
+    expect(endChorusPlanForChunk({ ...base, surfaceHeightAt: () => blockAxis(-1) }).plants).toStrictEqual([])
+    expect(Option.isNone(fractionalSurfaceHeight)).toBe(true)
+    expect(endChorusPlanForChunk({
+      ...base,
+      surfaceHeightAt: () => Option.isSome(fractionalSurfaceHeight) ? fractionalSurfaceHeight.value : undefined,
+    }).plants).toStrictEqual([])
+    expect(endChorusPlanForChunk({ ...base, surfaceHeightAt: () => blockAxis(250) }).plants).toStrictEqual([])
+    expect(endChorusPlanForChunk({ ...base, coord: chunkCoord(chunkAxis(1), chunkAxis(9)) }).plants).toStrictEqual([])
   })
 
   it('applies only supported, local, air targets without mutating the source', () => {
-    const source = emptyChunk(chunkCoord(0, 0))
+    const source = emptyChunk(chunkCoord(chunkAxis(0), chunkAxis(0)))
     const endStone = END_VEGETATION_BLOCK.END_STONE
-    const stone = blockIdOf('stone')
-    setBlockAt(source.blocks, 1, 64, 1, endStone)
-    setBlockAt(source.blocks, 2, 64, 2, stone)
-    setBlockAt(source.blocks, 2, 65, 2, stone)
+    const stone = Option.getOrThrow(blockIdOf('stone'))
+    setBlockAt(source.blocks, localAxis(1), blockAxis(64), localAxis(1), endStone)
+    setBlockAt(source.blocks, localAxis(2), blockAxis(64), localAxis(2), stone)
+    setBlockAt(source.blocks, localAxis(2), blockAxis(65), localAxis(2), stone)
 
     const validPlant = makePlant(1, 65, 1, [
       makePlacement(END_VEGETATION_BLOCK.CHORUS_PLANT, 1, 65, 1),
@@ -135,15 +143,15 @@ describe('End vegetation', () => {
 
   it('connects deterministic chorus plans to generated End chunks', () => {
     const seed = 0
-    const coord = chunkCoord(24, 20)
+    const coord = chunkCoord(chunkAxis(24), chunkAxis(20))
     const plan = endChorusPlanForChunk({
       coord,
       isOuterIsland: (worldX, worldZ) => Math.hypot(worldX, worldZ) >= END_OUTER_ISLAND_START,
-      seed,
+      seed: noiseSeed(seed),
       surfaceHeightAt: endSurfaceHeightAt,
     })
-    const terrain = generateEndTerrainChunk(seed, coord)
-    const generated = generateEndChunk(seed, coord)
+    const terrain = generateEndTerrainChunk(noiseSeed(seed), coord)
+    const generated = generateEndChunk(noiseSeed(seed), coord)
     const chorusBlocks = new Set<number>([
       END_VEGETATION_BLOCK.CHORUS_FLOWER,
       END_VEGETATION_BLOCK.CHORUS_PLANT,

@@ -11,10 +11,11 @@ import {
   moveEndGatewayPlacement,
   resolveEndGatewayExit,
 } from '../src/domain/end-gateway'
+import { blockAxis } from './fixtures/validated-inputs'
 
 describe('End gateway', () => {
   it('creates an immutable bedrock shell with a gateway center', () => {
-    const position = blockPosition(10, 64, -3)
+    const position = blockPosition(blockAxis(10), blockAxis(64), blockAxis(-3))
     const placement = createEndGatewayPlacement(position)
     const center = placement.blocks.find(({ position: at }) => at === position)
     const bedrock = placement.blocks.filter(({ block }) => block === END_GATEWAY_BLOCK.BEDROCK)
@@ -34,9 +35,9 @@ describe('End gateway', () => {
   })
 
   it('preserves known and delayed exits through movement and configuration changes', () => {
-    const origin = blockPosition(0, 64, 0)
-    const movedTo = blockPosition(8, 70, -4)
-    const exit = blockPosition(100, 80, -200)
+    const origin = blockPosition(blockAxis(0), blockAxis(64), blockAxis(0))
+    const movedTo = blockPosition(blockAxis(8), blockAxis(70), blockAxis(-4))
+    const exit = blockPosition(blockAxis(100), blockAxis(80), blockAxis(-200))
     const known = knownEndGatewayExit(exit, true)
     const delayed = delayedEndGatewayExitSearch()
     const placement = createEndGatewayPlacement(origin, known)
@@ -44,7 +45,7 @@ describe('End gateway', () => {
     const configured = configureEndGatewayPlacement(moved, delayed)
 
     expect(resolveEndGatewayExit(known)).toStrictEqual({ position: exit, exact: true })
-    expect(resolveEndGatewayExit(known, blockPosition(1, 2, 3))).toStrictEqual({ position: exit, exact: true })
+    expect(resolveEndGatewayExit(known, blockPosition(blockAxis(1), blockAxis(2), blockAxis(3)))).toStrictEqual({ position: exit, exact: true })
     expect(resolveEndGatewayExit(delayed)).toBeUndefined()
     expect(resolveEndGatewayExit(delayed, exit)).toStrictEqual({ position: exit, exact: false })
     expect(placement.position).toStrictEqual(origin)

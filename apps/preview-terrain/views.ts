@@ -34,6 +34,7 @@
  * sea level off a first-person camera means counting blocks you are standing
  * in. The cross-section shows both at a glance.
  */
+import type { BlockAt } from '@nerima-games/mc-kernel'
 import type { BiomeType } from '../../src/domain/biome'
 import { BLOCK } from '../../src/domain/biome'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../src/domain/constants'
@@ -52,6 +53,7 @@ import {
 import { overlayBlockAt, type PortalOverlay } from './portal'
 import { createRaster, setPixel, toAnsiLines, toAsciiLines, type Raster } from './raster'
 import { blockAt, positiveMod, sampleColumn, type ChunkCache, type ColumnSample, type WorldParams } from './sampler'
+import { blockAxis } from '../../src/domain/coordinate-compatibility'
 
 export type ViewMode = 'map' | 'height' | 'slice'
 
@@ -348,7 +350,7 @@ const renderSlice = (
   // the two lie in the same plane by construction. That is the reason the portal
   // is shown HERE and not in a fourth view: a cross-section of a vertical frame
   // is the frame, and the map views would show it as four pixels.
-  const world = (x: number, y: number, z: number): number => blockAt(cache, params, x, y, z)
+  const world: BlockAt = (x, y, z) => blockAt(cache, params, x, y, z)
   const sample = portal === null ? world : overlayBlockAt(portal, world)
 
   for (let px = 0; px < raster.width; px += 1) {
@@ -360,7 +362,7 @@ const renderSlice = (
 
     for (let px = 0; px < raster.width; px += 1) {
       const wx = sliceWorldX(camera, raster, px)
-      const block = wy >= 0 && wy < CHUNK_HEIGHT ? sample(wx, wy, camera.z) : BLOCK.AIR
+      const block = wy >= 0 && wy < CHUNK_HEIGHT ? sample(blockAxis(wx), blockAxis(wy), blockAxis(camera.z)) : BLOCK.AIR
 
       let color = blockColor(block)
       let glyph = blockGlyph(block)
@@ -395,7 +397,7 @@ const renderSlice = (
   const centreX = Math.floor(raster.width / 2)
   for (let py = 0; py < raster.height; py += 1) {
     const wy = camera.yBottom + (raster.height - 1 - py)
-    if (wy >= 0 && wy < CHUNK_HEIGHT && sample(camera.x, wy, camera.z) === BLOCK.AIR) {
+    if (wy >= 0 && wy < CHUNK_HEIGHT && sample(blockAxis(camera.x), blockAxis(wy), blockAxis(camera.z)) === BLOCK.AIR) {
       setPixel(raster, centreX, py, blend(blockColor(BLOCK.AIR), CROSSHAIR, 0.45), '|')
     }
   }

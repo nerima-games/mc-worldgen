@@ -182,9 +182,10 @@ import {
   blockIndex,
 } from './constants.js'
 import { type BlockId, type ChunkCoord, blockIdOf } from '@nerima-games/mc-kernel'
-import { NoiseSeed, channelSeed, mulberry32 } from '@nerima-games/mc-noise'
+import { Brand, Option } from 'effect'
+import { type NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
 import { BLOCK } from './biome.js'
-import { Option } from 'effect'
+import { channelSeed } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
 
 /**
@@ -202,25 +203,25 @@ import { readBlock } from './chunk.js'
 export const ORE_BLOCK: Readonly<
   Record<'COAL' | 'DIAMOND' | 'EMERALD' | 'GOLD' | 'IRON' | 'LAPIS' | 'REDSTONE', BlockId>
 > = {
-  COAL: blockIdOf('coal_ore'),
-  DIAMOND: blockIdOf('diamond_ore'),
-  EMERALD: blockIdOf('emerald_ore'),
-  GOLD: blockIdOf('gold_ore'),
-  IRON: blockIdOf('iron_ore'),
-  LAPIS: blockIdOf('lapis_ore'),
-  REDSTONE: blockIdOf('redstone_ore'),
+  COAL: Option.getOrThrow(blockIdOf('coal_ore')),
+  DIAMOND: Option.getOrThrow(blockIdOf('diamond_ore')),
+  EMERALD: Option.getOrThrow(blockIdOf('emerald_ore')),
+  GOLD: Option.getOrThrow(blockIdOf('gold_ore')),
+  IRON: Option.getOrThrow(blockIdOf('iron_ore')),
+  LAPIS: Option.getOrThrow(blockIdOf('lapis_ore')),
+  REDSTONE: Option.getOrThrow(blockIdOf('redstone_ore')),
 } as const
 
 export const DEEPSLATE_ORE_BLOCK: Readonly<
   Record<'COAL' | 'DIAMOND' | 'EMERALD' | 'GOLD' | 'IRON' | 'LAPIS' | 'REDSTONE', BlockId>
 > = {
-  COAL: blockIdOf('deepslate_coal_ore'),
-  DIAMOND: blockIdOf('deepslate_diamond_ore'),
-  EMERALD: blockIdOf('deepslate_emerald_ore'),
-  GOLD: blockIdOf('deepslate_gold_ore'),
-  IRON: blockIdOf('deepslate_iron_ore'),
-  LAPIS: blockIdOf('deepslate_lapis_ore'),
-  REDSTONE: blockIdOf('deepslate_redstone_ore'),
+  COAL: Option.getOrThrow(blockIdOf('deepslate_coal_ore')),
+  DIAMOND: Option.getOrThrow(blockIdOf('deepslate_diamond_ore')),
+  EMERALD: Option.getOrThrow(blockIdOf('deepslate_emerald_ore')),
+  GOLD: Option.getOrThrow(blockIdOf('deepslate_gold_ore')),
+  IRON: Option.getOrThrow(blockIdOf('deepslate_iron_ore')),
+  LAPIS: Option.getOrThrow(blockIdOf('deepslate_lapis_ore')),
+  REDSTONE: Option.getOrThrow(blockIdOf('deepslate_redstone_ore')),
 } as const
 
 export type OreName = keyof typeof ORE_BLOCK
@@ -340,9 +341,9 @@ const FINALIZE_MIX_SHIFT_1 = 16
 const FINALIZE_MIX_PRIME_2 = 0x846ca68b
 const FINALIZE_MIX_SHIFT_2 = 15
 const FINALIZE_MIX_SHIFT_3 = 16
-
-export const oreStreamSeed = (seed: number, config: OreConfig, baseWorldX: number, baseWorldZ: number): number => {
-  let hash = channelSeed(seed, `ore-${config.name}`)
+const noiseSeedFromUint32 = Brand.nominal<NoiseSeed>()
+export const oreStreamSeed = (seed: NoiseSeed, config: OreConfig, baseWorldX: number, baseWorldZ: number): NoiseSeed => {
+  let hash: number = channelSeed(seed, `ore-${config.name}`)
   hash =
     (Math.imul(baseWorldX | INT32_ZERO, WORLD_X_MIX_PRIME) ^
       Math.imul(baseWorldZ | INT32_ZERO, WORLD_Z_MIX_PRIME) ^
@@ -352,7 +353,8 @@ export const oreStreamSeed = (seed: number, config: OreConfig, baseWorldX: numbe
   hash = (hash ^ Math.imul(config.saltZ | INT32_ZERO, SALT_Z_MIX_PRIME)) >>> INT32_ZERO
   hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_1), FINALIZE_MIX_PRIME_1) >>> INT32_ZERO
   hash = Math.imul(hash ^ (hash >>> FINALIZE_MIX_SHIFT_2), FINALIZE_MIX_PRIME_2) >>> INT32_ZERO
-  return (hash ^ (hash >>> FINALIZE_MIX_SHIFT_3)) >>> INT32_ZERO
+  /** Unsigned coercion already guarantees the `NoiseSeed` range. */
+  return noiseSeedFromUint32((hash ^ (hash >>> FINALIZE_MIX_SHIFT_3)) >>> INT32_ZERO)
 }
 
 /**
@@ -481,7 +483,7 @@ type DepthBand = {
  */
 const readPackedCell = (stack: Array<number>, base: number): VeinCandidate => {
   const values = stack.slice(base, base + CELL_COMPONENT_COUNT)
-  const componentAt = (componentIndex: number): number => Option.getOrThrow(Option.fromNullable(values[componentIndex]))
+  const componentAt = (componentIndex: number): number => Option.getOrThrow(Option.fromNullishOr(values[componentIndex]))
   return { cx: componentAt(MIN_LOCAL_COORD), cy: componentAt(Y_COMPONENT_OFFSET), cz: componentAt(Z_COMPONENT_OFFSET) }
 }
 
@@ -662,12 +664,12 @@ const placeVeinsForConfig = (options: PlaceVeinsOptions): void => {
  * confinement argument applies: the buffer belongs to `generateChunk`, which has
  * not shared it yet.
  */
-export const placeOres = (blocks: Uint16Array, seed: number, coord: ChunkCoord): void => {
+export const placeOres = (blocks: Uint16Array, seed: NoiseSeed, coord: ChunkCoord): void => {
   const baseWorldX = coord.cx * CHUNK_SIZE_XZ
   const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
 
   for (const config of ORE_CONFIGS) {
-    const next = mulberry32(NoiseSeed(oreStreamSeed(seed, config, baseWorldX, baseWorldZ)))
+    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
 
     // `avgVeins - 1 + rng * 2` — the reference's ±1 variance around the mean.
     const count = Math.max(MIN_VEIN_COUNT, Math.round(config.avgVeins - VEIN_COUNT_VARIANCE + next() * VEIN_COUNT_VARIANCE_RANGE))

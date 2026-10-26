@@ -3,7 +3,8 @@ import { Effect } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, LAKE_LEVEL, SEA_LEVEL } from '../src/domain/constants'
 import { readBlock } from '../src/domain/chunk'
-import { generateChunkAt } from '../src/domain/terrain'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
+import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
  * ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ describe('water level invariant', () => {
   it.effect('never places water above LAKE_LEVEL, anywhere, in any chunk', () =>
     Effect.sync(() => {
       for (const [cx, cz] of COORDS) {
-        const chunk = generateChunkAt(1234, cx, cz)
+        const chunk = generateChunkAt(noiseSeed(1234), chunkAxis(cx), chunkAxis(cz))
 
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -86,7 +87,7 @@ describe('water level invariant', () => {
       // `terrainLevels: TerrainLevels = DEFAULT_TERRAIN_LEVELS` through its
       // pipeline (`terrain/generator.ts:34`). A superflat or exaggerated-sea
       // preview must not require editing generation code.
-      const lowered = generateChunkAt(1234, 0, 0, { terrainLevels: { seaLevel: 20, lakeLevel: 20 } })
+      const lowered = generateChunkAt(noiseSeed(1234), chunkAxis(0), chunkAxis(0), { terrainLevels: { seaLevel: 20, lakeLevel: 20 } })
 
       for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
         for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
@@ -98,6 +99,28 @@ describe('water level invariant', () => {
     }),
   )
 
+  it.effect('rejects explicit null terrain levels instead of treating them as omitted', () =>
+    Effect.sync(() => {
+      // Keep the invalid runtime value unasserted against the valid options type.
+      expect(() =>
+        Reflect.apply(generateChunkAt, undefined, [
+          noiseSeed(1234),
+          chunkAxis(0),
+          chunkAxis(0),
+          { terrainLevels: null },
+        ]),
+      ).toThrow(TypeError)
+    }),
+  )
+
+  it.effect('rejects chunk coordinates whose block origin is outside the safe integer range', () =>
+    Effect.sync(() => {
+      expect(() =>
+        generateChunkAt(noiseSeed(1234), chunkAxis(Number.MAX_SAFE_INTEGER), chunkAxis(0), { decorate: false }),
+      ).toThrow()
+    }),
+  )
+
   it.effect('does put water somewhere, so the sweep above is not vacuously true', () =>
     Effect.sync(() => {
       const anyWater = [
@@ -106,7 +129,7 @@ describe('water level invariant', () => {
         [-9, 12],
         [20, 20],
         [-30, 7],
-      ].some(([cx, cz]) => generateChunkAt(1234, cx ?? 0, cz ?? 0).blocks.includes(BLOCK.WATER))
+      ].some(([cx, cz]) => generateChunkAt(noiseSeed(1234), chunkAxis(cx ?? 0), chunkAxis(cz ?? 0)).blocks.includes(BLOCK.WATER))
 
       expect(anyWater).toBe(true)
     }),

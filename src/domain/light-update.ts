@@ -1,13 +1,7 @@
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
-import { type Chunk, getBlockAt } from './chunk.js'
-import {
-  type ChunkCoord,
-  LIGHT_LEVEL_MAX,
-  LIGHT_LEVEL_MIN,
-  lightEmissionOfBlockId,
-  transmitsLight,
-} from '@nerima-games/mc-kernel'
-import { type ChunkLight, getLightAt, setLightAt } from './light-grid.js'
+import { type Chunk, readBlock } from './chunk.js'
+import { type ChunkCoord, LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN } from '@nerima-games/mc-kernel'
+import { type ChunkLight, getLightAt, setLightAtKnownLevel } from './light-grid.js'
 import {
   LIGHT_DECAY_PER_HOP,
   MIN_CHUNK_COORD,
@@ -16,6 +10,7 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
+import { blockTransmitsLight, lightEmissionAt } from './light-block-data.js'
 import { Option } from 'effect'
 import { computeChunkLights } from './light-propagation.js'
 
@@ -65,7 +60,7 @@ type ChunkIndexBuilder<Key extends string> = {
   readonly chunksByCoord: Map<string, number>
 }
 
-const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => Option.getOrThrow(Option.fromNullable(items[index]))
+const elementAt = <Value>(items: { readonly [index: number]: Value }, index: number): Value => Option.getOrThrow(Option.fromNullishOr(items[index]))
 
 /** Append one cached chunk, returning false when the cache is incomplete. */
 const registerCurrentChunk = <Key extends string>(
@@ -177,10 +172,12 @@ const neighbourIdOf = <Key extends string>(
 }
 
 const NO_OPAQUE_BLOCK_FOUND = -1
+const MIN_LIGHT_LEVEL = LIGHT_LEVEL_MIN
+const MAX_LIGHT_LEVEL = LIGHT_LEVEL_MAX
 
 const scanHighestOpaque = (chunk: Chunk, x: number, z: number): number => {
   for (let scanY = CHUNK_HEIGHT - STEP; scanY >= MIN_CHUNK_COORD; scanY -= STEP) {
-    if (!transmitsLight(getBlockAt(chunk, x, scanY, z))) {
+    if (!blockTransmitsLight(readBlock(chunk.blocks, blockIndex(x, scanY, z)))) {
       return scanY
     }
   }
@@ -280,16 +277,16 @@ const nextLightLevel = <Key extends string>(
   voxel: VoxelRef,
   chunk: Chunk,
 ): number => {
-  const block = getBlockAt(chunk, voxel.x, voxel.y, voxel.z)
-  let next = LIGHT_LEVEL_MIN
+  const block = readBlock(chunk.blocks, blockIndex(voxel.x, voxel.y, voxel.z))
+  let next = MIN_LIGHT_LEVEL
   if (channel === 'block') {
-    next = lightEmissionOfBlockId(block)
+    next = lightEmissionAt(block)
   }
-  if (!transmitsLight(block)) {
+  if (!blockTransmitsLight(block)) {
     return next
   }
   if (channel === 'sky' && isDirectSky(context, voxel)) {
-    return LIGHT_LEVEL_MAX
+    return MAX_LIGHT_LEVEL
   }
   return brightestNeighbourLevel(context, channel, voxel, next)
 }
@@ -313,7 +310,7 @@ type ChannelRun<Key extends string> = {
 
 const writeRelaxedVoxel = <Key extends string>(run: ChannelRun<Key>, voxel: VoxelRef, id: number, next: number): void => {
   const writable = cloneLight(run.context, voxel.chunkIndex)
-  setLightAt(writable[run.channel], id % CHUNK_VOLUME, next)
+  setLightAtKnownLevel(writable[run.channel], id % CHUNK_VOLUME, next)
   enqueueNeighbours(run.context, run.queue, voxel)
 }
 

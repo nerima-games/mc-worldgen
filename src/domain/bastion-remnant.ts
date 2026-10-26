@@ -1,14 +1,15 @@
 import { BASTION_REMNANT_BLOCK, BASTION_REMNANT_LAYOUT } from './bastion-remnant-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
   NetherStructureTerrainSample,
   NetherStructureTerrainSampler,
-} from './natural-structure.js'
+} from './natural-structure-types.js'
 import { Option, Predicate } from 'effect'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type BastionRemnantCandidate = {
   readonly x: number
@@ -16,9 +17,9 @@ type BastionRemnantCandidate = {
 }
 
 export type BastionRemnantDraft = {
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
-  readonly origin: NaturalStructurePosition
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
+  readonly origin: NaturalStructurePositionDraft
 }
 
 const UNIT_STEP = 1
@@ -28,22 +29,24 @@ const GOLD_EDGE_INSET = 2
 
 const keyOf = (x: number, y: number, z: number): string => `${String(x)}:${String(y)}:${String(z)}`
 
-const addBlock = (blocks: Map<string, NaturalStructureBlockPlacement>, block: BlockId, x: number, y: number, z: number): void => {
+const addBlock = (blocks: Map<string, NaturalStructureBlockPlacementDraft>, block: BlockId, x: number, y: number, z: number): void => {
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
 const terrainProbesFor = (candidate: BastionRemnantCandidate, sampleTerrain: NetherStructureTerrainSampler): ReadonlyArray<NetherStructureTerrainSample | undefined> => {
   const { halfExtent } = BASTION_REMNANT_LAYOUT
+  const sampleAt = (x: number, z: number): NetherStructureTerrainSample | undefined =>
+    sampleTerrain(blockAxis(x), blockAxis(z))
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - halfExtent, candidate.z),
-    sampleTerrain(candidate.x + halfExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - halfExtent),
-    sampleTerrain(candidate.x, candidate.z + halfExtent),
+    sampleAt(candidate.x, candidate.z),
+    sampleAt(candidate.x - halfExtent, candidate.z),
+    sampleAt(candidate.x + halfExtent, candidate.z),
+    sampleAt(candidate.x, candidate.z - halfExtent),
+    sampleAt(candidate.x, candidate.z + halfExtent),
   ]
 }
 
@@ -91,7 +94,7 @@ const isBoundary = (x: number, z: number, halfExtent: number): boolean =>
   Math.abs(x) === halfExtent || Math.abs(z) === halfExtent
 
 const placeFoundation = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: BastionRemnantCandidate,
   baseY: number,
 ): void => {
@@ -108,7 +111,7 @@ const placeFoundation = (
 }
 
 const placeOuterWalls = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: BastionRemnantCandidate,
   baseY: number,
 ): void => {
@@ -125,7 +128,7 @@ const placeOuterWalls = (
 }
 
 const placeBridge = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: BastionRemnantCandidate,
   baseY: number,
   axis: 'x' | 'z',
@@ -146,7 +149,7 @@ const placeBridge = (
 }
 
 const placeCentralTower = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: BastionRemnantCandidate,
   baseY: number,
 ): void => {
@@ -163,7 +166,7 @@ const placeCentralTower = (
 }
 
 const placeGoldDetails = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: BastionRemnantCandidate,
   baseY: number,
 ): void => {
@@ -181,8 +184,8 @@ const placeGoldDetails = (
 }
 
 const placeLootAndEntities = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: BastionRemnantCandidate,
   baseY: number,
 ): void => {
@@ -197,8 +200,8 @@ const buildBastionRemnant = (
   candidate: BastionRemnantCandidate,
   baseY: number,
 ): BastionRemnantDraft => {
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   placeFoundation(blocks, candidate, baseY)
   placeOuterWalls(blocks, candidate, baseY)
   placeBridge(blocks, candidate, baseY, 'x')

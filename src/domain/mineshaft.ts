@@ -1,20 +1,21 @@
 import { MINESHAFT_BLOCK, MINESHAFT_LAYOUT } from './mineshaft-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type MineshaftCandidate = { readonly x: number; readonly z: number }
 
 export type MineshaftDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -27,7 +28,7 @@ const ZERO_OFFSET = 0
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -36,7 +37,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -46,11 +47,11 @@ const terrainProbesFor = (
 ): ReadonlyArray<OverworldTerrainSample> => {
   const probeExtent = MINESHAFT_LAYOUT.branchHalfExtent
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - probeExtent, candidate.z),
-    sampleTerrain(candidate.x + probeExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - probeExtent),
-    sampleTerrain(candidate.x, candidate.z + probeExtent),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
 }
 
@@ -90,7 +91,7 @@ const MINESHAFT_CORRIDOR_CELLS: ReadonlyArray<RelativeCell> = (() => {
 })()
 
 const carveCorridors = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: MineshaftCandidate,
   baseY: number,
 ): void => {
@@ -103,10 +104,10 @@ const carveCorridors = (
 }
 
 const translateBlock = (
-  placement: NaturalStructureBlockPlacement,
+  placement: NaturalStructureBlockPlacementDraft,
   candidate: MineshaftCandidate,
   baseY: number,
-): NaturalStructureBlockPlacement => Object.freeze({
+): NaturalStructureBlockPlacementDraft => Object.freeze({
   block: placement.block,
   x: candidate.x + placement.x,
   y: baseY + placement.y,
@@ -114,10 +115,10 @@ const translateBlock = (
 })
 
 const translateMarker = (
-  marker: NaturalStructureMarker,
+  marker: NaturalStructureMarkerDraft,
   candidate: MineshaftCandidate,
   baseY: number,
-): NaturalStructureMarker => Object.freeze({
+): NaturalStructureMarkerDraft => Object.freeze({
   ...marker,
   x: candidate.x + marker.x,
   y: baseY + marker.y,
@@ -125,7 +126,7 @@ const translateMarker = (
 })
 
 const addSupportFrame = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: MineshaftCandidate,
   baseY: number,
   centerX: number,
@@ -142,7 +143,7 @@ const addSupportFrame = (
 }
 
 const addSupportFrames = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: MineshaftCandidate,
   baseY: number,
 ): void => {
@@ -158,7 +159,7 @@ const addSupportFrames = (
 }
 
 const addRails = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: MineshaftCandidate,
   baseY: number,
 ): void => {
@@ -176,8 +177,8 @@ const addRails = (
 }
 
 const addDecorationsAndLoot = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: MineshaftCandidate,
   baseY: number,
 ): void => {
@@ -191,16 +192,16 @@ const addDecorationsAndLoot = (
 }
 
 type MineshaftPlanBuffers = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const buildMineshaftPlan = (
   candidate: MineshaftCandidate,
   baseY: number,
 ): MineshaftPlanBuffers => {
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   carveCorridors(blocks, candidate, baseY)
   addSupportFrames(blocks, candidate, baseY)
   addRails(blocks, candidate, baseY)
@@ -209,8 +210,8 @@ const buildMineshaftPlan = (
 }
 
 type MineshaftRelativePlan = {
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const mineshaftRelativePlan: MineshaftRelativePlan = (() => {

@@ -4,13 +4,15 @@ import {
   type CompactStructureKind,
 } from './compact-structure-data.js'
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE_XZ } from './constants.js'
 import { Option } from 'effect'
 import type { OverworldTerrainSampler } from './structure-siting.js'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type CompactStructureCandidate = Readonly<{
   x: number
@@ -18,9 +20,9 @@ type CompactStructureCandidate = Readonly<{
 }>
 
 export type CompactStructureDraft = Readonly<{
-  origin: NaturalStructurePosition
-  blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  markers: ReadonlyArray<NaturalStructureMarker>
+  origin: NaturalStructurePositionDraft
+  blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }>
 
 const PROBE_OFFSETS = Object.freeze([
@@ -81,7 +83,7 @@ const siteIsValid = (
 }
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   x: number,
   y: number,
   z: number,
@@ -94,9 +96,9 @@ const structureBlocksForCandidate = (
   kind: CompactStructureKind,
   candidate: CompactStructureCandidate,
   baseY: number,
-): Map<string, NaturalStructureBlockPlacement> => {
+): Map<string, NaturalStructureBlockPlacementDraft> => {
   const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
   for (let dy = 0; dy <= descriptor.height; dy += STRUCTURE_STEP) {
     for (let dx = -descriptor.radius; dx <= descriptor.radius; dx += STRUCTURE_STEP) {
       for (let dz = -descriptor.radius; dz <= descriptor.radius; dz += STRUCTURE_STEP) {
@@ -111,11 +113,11 @@ const structureBlocksForCandidate = (
 }
 
 const addLootChest = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   kind: CompactStructureKind,
   candidate: CompactStructureCandidate,
   baseY: number,
-): NaturalStructureMarker => {
+): NaturalStructureMarkerDraft => {
   const chestY = baseY + CHEST_HEIGHT_OFFSET
   addBlock(blocks, candidate.x, chestY, candidate.z, COMPACT_STRUCTURE_BLOCK.CHEST)
   return Object.freeze({
@@ -127,25 +129,59 @@ const addLootChest = (
   })
 }
 
+// eslint-disable-next-line no-magic-numbers -- The divisor places a single-chunk mansion at the chunk midpoint.
+const CHUNK_MIDPOINT_DIVISOR = 2
+
+const placementCandidateFor = (
+  kind: CompactStructureKind,
+  candidate: CompactStructureCandidate,
+): CompactStructureCandidate => {
+  if (kind !== 'woodland-mansion-single-chunk') {
+    return candidate
+  }
+  const chunkX = Math.floor(candidate.x / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ
+  const chunkZ = Math.floor(candidate.z / CHUNK_SIZE_XZ) * CHUNK_SIZE_XZ
+  return {
+    x: chunkX + CHUNK_SIZE_XZ / CHUNK_MIDPOINT_DIVISOR,
+    z: chunkZ + CHUNK_SIZE_XZ / CHUNK_MIDPOINT_DIVISOR,
+  }
+}
+const terrainSamplesFor = (
+  kind: CompactStructureKind,
+  candidate: CompactStructureCandidate,
+  sampleTerrain: OverworldTerrainSampler,
+): Readonly<{
+  placementCandidate: CompactStructureCandidate
+  originSample: ReturnType<OverworldTerrainSampler>
+  samples: ReadonlyArray<ReturnType<OverworldTerrainSampler>>
+}> => {
+  const placementCandidate = placementCandidateFor(kind, candidate)
+  const originSample = sampleTerrain(blockAxis(placementCandidate.x), blockAxis(placementCandidate.z))
+  const samples = [
+    originSample,
+    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(
+      blockAxis(placementCandidate.x + offset.x),
+      blockAxis(placementCandidate.z + offset.z),
+    )),
+  ]
+  return { originSample, placementCandidate, samples }
+}
+
 export const planCompactStructureForCandidate = (
   kind: CompactStructureKind,
   candidate: CompactStructureCandidate,
   sampleTerrain: OverworldTerrainSampler,
 ): Option.Option<CompactStructureDraft> => {
-  const originSample = sampleTerrain(candidate.x, candidate.z)
-  const samples = [
-    originSample,
-    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => sampleTerrain(candidate.x + offset.x, candidate.z + offset.z)),
-  ]
+  const { originSample, placementCandidate, samples } = terrainSamplesFor(kind, candidate, sampleTerrain)
   if (!siteIsValid(kind, samples)) {
     return Option.none()
   }
 
   const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
   const baseY = originSample.surfaceY + descriptor.baseOffset
-  const blocks = structureBlocksForCandidate(kind, candidate, baseY)
-  const marker = addLootChest(blocks, kind, candidate, baseY)
-  const origin = Object.freeze({ x: candidate.x, y: baseY, z: candidate.z })
+  const blocks = structureBlocksForCandidate(kind, placementCandidate, baseY)
+  const marker = addLootChest(blocks, kind, placementCandidate, baseY)
+  const origin = Object.freeze({ x: placementCandidate.x, y: baseY, z: placementCandidate.z })
   return Option.some(
     Object.freeze({
       blocks: Object.freeze([...blocks.values()]),

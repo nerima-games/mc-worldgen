@@ -12,6 +12,7 @@ import {
   shouldFreezeWaterSurface,
 } from '../src/domain/lake-generator'
 import { resolveSurfaceMaterial } from '../src/domain/surface-resolver'
+import { blockAxis } from './fixtures/validated-inputs'
 
 describe('lake and river terrain resolution', () => {
   it.effect('carves only eligible inland basins and applies the maximum basin depth', () =>
@@ -28,7 +29,7 @@ describe('lake and river terrain resolution', () => {
       expect(resolveSurfaceY('RIVER', 80, Option.none())).toBe(60)
       expect(resolveSurfaceY('RIVER', 50, Option.none())).toBe(52)
       expect(resolveSurfaceY('RIVER', 65, Option.none())).toBe(60)
-      expect(resolveSurfaceY('RIVER', 80, Option.some(44))).toBe(44)
+      expect(resolveSurfaceY('RIVER', 80, Option.some(blockAxis(44)))).toBe(44)
       expect(resolveSurfaceY('PLAINS', 80, Option.none())).toBe(80)
     }),
   )
@@ -38,8 +39,8 @@ describe('lake and river terrain resolution', () => {
       expect(determineWaterLevel('RIVER', 80, Option.none())).toStrictEqual(Option.some(62))
       expect(determineWaterLevel('PLAINS', 60, Option.none())).toStrictEqual(Option.some(63))
       expect(determineWaterLevel('PLAINS', 80, Option.none())).toStrictEqual(Option.none())
-      expect(determineWaterLevel('PLAINS', 45, Option.some(45))).toStrictEqual(Option.some(63))
-      expect(determineWaterLevel('PLAINS', 45, Option.some(45), { seaLevel: 70, lakeLevel: 68 })).toStrictEqual(Option.some(68))
+      expect(determineWaterLevel('PLAINS', 45, Option.some(blockAxis(45)))).toStrictEqual(Option.some(63))
+      expect(determineWaterLevel('PLAINS', 45, Option.some(blockAxis(45)), { seaLevel: 70, lakeLevel: 68 })).toStrictEqual(Option.some(68))
     }),
   )
 
@@ -59,7 +60,7 @@ describe('lake and river terrain resolution', () => {
         blocks,
         freezeSurface: true,
         iceBlockIndex: BLOCK.ICE,
-        lakeBasinY: Option.some(60),
+        lakeBasinY: Option.some(blockAxis(60)),
         lx: 3,
         lz: 4,
         surfaceY: 60,
@@ -78,7 +79,7 @@ describe('lake and river terrain resolution', () => {
       expect(isLakeShoreColumn(Option.none(), 0.67, 65, DEFAULT_TERRAIN_LEVELS)).toBe(true)
       expect(isLakeShoreColumn(Option.none(), 0.659, 65, DEFAULT_TERRAIN_LEVELS)).toBe(false)
       expect(isLakeShoreColumn(Option.none(), 0.67, 67, DEFAULT_TERRAIN_LEVELS)).toBe(false)
-      expect(isLakeShoreColumn(Option.some(64), 0.99, 60, DEFAULT_TERRAIN_LEVELS)).toBe(false)
+      expect(isLakeShoreColumn(Option.some(blockAxis(64)), 0.99, 60, DEFAULT_TERRAIN_LEVELS)).toBe(false)
     }),
   )
 })

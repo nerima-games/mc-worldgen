@@ -1,20 +1,21 @@
 import type {
-  NaturalStructureBlockPlacement,
-  NaturalStructureMarker,
-  NaturalStructurePosition,
-} from './natural-structure.js'
+  NaturalStructureBlockPlacementDraft,
+  NaturalStructureMarkerDraft,
+  NaturalStructurePositionDraft,
+} from './natural-structure-types.js'
 import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
 import { SHIPWRECK_BLOCK, SHIPWRECK_LAYOUT } from './shipwreck-data.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
 import { Option } from 'effect'
+import { blockAxis } from './coordinate-compatibility.js'
 
 type ShipwreckCandidate = { readonly x: number; readonly z: number }
 
 export type ShipwreckDraft = {
-  readonly origin: NaturalStructurePosition
-  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacement>
-  readonly markers: ReadonlyArray<NaturalStructureMarker>
+  readonly origin: NaturalStructurePositionDraft
+  readonly blocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>
+  readonly markers: ReadonlyArray<NaturalStructureMarkerDraft>
 }
 
 const UNIT_STEP = 1
@@ -27,7 +28,7 @@ const DECK_CHEST_Y_OFFSET = 1
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
 
 const addBlock = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   block: BlockId,
   x: number,
   y: number,
@@ -36,7 +37,7 @@ const addBlock = (
   blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
-const addMarker = (markers: Array<NaturalStructureMarker>, marker: NaturalStructureMarker): void => {
+const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalStructureMarkerDraft): void => {
   markers.push(Object.freeze(marker))
 }
 
@@ -46,11 +47,11 @@ const terrainProbesFor = (
 ): ReadonlyArray<OverworldTerrainSample> => {
   const probeExtent = SHIPWRECK_LAYOUT.halfLength
   return [
-    sampleTerrain(candidate.x, candidate.z),
-    sampleTerrain(candidate.x - probeExtent, candidate.z),
-    sampleTerrain(candidate.x + probeExtent, candidate.z),
-    sampleTerrain(candidate.x, candidate.z - probeExtent),
-    sampleTerrain(candidate.x, candidate.z + probeExtent),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x - probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x + probeExtent), blockAxis(candidate.z)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
+    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
 }
 
@@ -94,7 +95,7 @@ const hullWidthFor = (x: number): number => {
 }
 
 const addHull = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: ShipwreckCandidate,
   baseY: number,
 ): void => {
@@ -110,7 +111,7 @@ const addHull = (
 }
 
 const addDeck = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: ShipwreckCandidate,
   deckY: number,
 ): void => {
@@ -124,7 +125,7 @@ const addDeck = (
 }
 
 const addCabinWalls = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: ShipwreckCandidate,
   cabinBaseY: number,
   cabinMinZ: number,
@@ -146,7 +147,7 @@ const addCabinWalls = (
 }
 
 const addCabinRoof = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: ShipwreckCandidate,
   roofY: number,
   cabinMinZ: number,
@@ -160,7 +161,7 @@ const addCabinRoof = (
 }
 
 const addCabin = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: ShipwreckCandidate,
   deckY: number,
 ): void => {
@@ -172,7 +173,7 @@ const addCabin = (
 }
 
 const addMast = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
   candidate: ShipwreckCandidate,
   deckY: number,
 ): void => {
@@ -186,8 +187,8 @@ const addMast = (
 }
 
 const addLoot = (
-  blocks: Map<string, NaturalStructureBlockPlacement>,
-  markers: Array<NaturalStructureMarker>,
+  blocks: Map<string, NaturalStructureBlockPlacementDraft>,
+  markers: Array<NaturalStructureMarkerDraft>,
   candidate: ShipwreckCandidate,
   deckY: number,
 ): void => {
@@ -200,16 +201,16 @@ const addLoot = (
 }
 
 type ShipwreckPlanBuffers = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const buildShipwreckPlan = (
   candidate: ShipwreckCandidate,
   baseY: number,
 ): ShipwreckPlanBuffers => {
-  const blocks = new Map<string, NaturalStructureBlockPlacement>()
-  const markers: Array<NaturalStructureMarker> = []
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
   const deckY = baseY + SHIPWRECK_LAYOUT.deckYOffset
   addHull(blocks, candidate, baseY)
   addDeck(blocks, candidate, deckY)

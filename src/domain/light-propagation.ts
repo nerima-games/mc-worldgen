@@ -1,11 +1,11 @@
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
-import { type Chunk, getBlockAt } from './chunk.js'
+import { type Chunk, readBlock } from './chunk.js'
 import {
   type ChunkLight,
   emptyChunkLight,
   getLightAt,
   packPosLevel,
-  setLightAt,
+  setLightAtKnownLevel,
   unpackLevel,
   unpackX,
   unpackY,
@@ -19,7 +19,8 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
-import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, lightEmissionOfBlockId, transmitsLight } from '@nerima-games/mc-kernel'
+import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN } from '@nerima-games/mc-kernel'
+import { blockTransmitsLight, lightEmissionAt } from './light-block-data.js'
 import { Data } from 'effect'
 
 type LightChunk = {
@@ -41,6 +42,8 @@ type SourceTable = ReadonlyArray<LightChunk>
 class LightQueueUnderflowError extends Data.TaggedError('LightQueueUnderflowError')<{
   readonly index: number
 }> {}
+
+const MAX_LIGHT_LEVEL = LIGHT_LEVEL_MAX
 
 export const readQueueValue = (queue: ReadonlyArray<number>, index: number): number => {
   const value = queue[index]
@@ -83,12 +86,12 @@ const seedSkyLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
   for (let x = MIN_CHUNK_COORD; x < CHUNK_SIZE_XZ; x += STEP) {
     for (let z = MIN_CHUNK_COORD; z < CHUNK_SIZE_XZ; z += STEP) {
       for (let y = CHUNK_HEIGHT - STEP; y >= MIN_CHUNK_COORD; y -= STEP) {
-        if (!transmitsLight(getBlockAt(chunk, x, y, z))) {
+        if (!blockTransmitsLight(readBlock(chunk.blocks, blockIndex(x, y, z)))) {
           break
         }
 
-        setLightAt(grid, blockIndex(x, y, z), LIGHT_LEVEL_MAX)
-        queue.push(packPosLevel(x, y, z, LIGHT_LEVEL_MAX))
+        setLightAtKnownLevel(grid, blockIndex(x, y, z), MAX_LIGHT_LEVEL)
+        queue.push(packPosLevel(x, y, z, MAX_LIGHT_LEVEL))
       }
     }
   }
@@ -103,9 +106,9 @@ const seedBlockLight = (chunk: Chunk, grid: Uint8Array): Array<number> => {
   for (let x = MIN_CHUNK_COORD; x < CHUNK_SIZE_XZ; x += STEP) {
     for (let z = MIN_CHUNK_COORD; z < CHUNK_SIZE_XZ; z += STEP) {
       for (let y = MIN_CHUNK_COORD; y < CHUNK_HEIGHT; y += STEP) {
-        const emission = lightEmissionOfBlockId(getBlockAt(chunk, x, y, z))
+        const emission = lightEmissionAt(readBlock(chunk.blocks, blockIndex(x, y, z)))
         if (emission > LIGHT_LEVEL_MIN) {
-          setLightAt(grid, blockIndex(x, y, z), emission)
+          setLightAtKnownLevel(grid, blockIndex(x, y, z), emission)
           queue.push(packPosLevel(x, y, z, emission))
         }
       }
@@ -168,10 +171,10 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
             target = null
           }
         }
-        if (target !== null && transmitsLight(getBlockAt(target.chunk, targetX, ny, targetZ))) {
+        if (target !== null && blockTransmitsLight(readBlock(target.chunk.blocks, blockIndex(targetX, ny, targetZ)))) {
           const grid = context.gridOf(target.light)
           if (getLightAt(grid, targetVoxel) < next) {
-            setLightAt(grid, targetVoxel, next)
+            setLightAtKnownLevel(grid, targetVoxel, next)
             context.queue.packed.push(packPosLevel(targetX, ny, targetZ, next))
             context.queue.source.push(target.sourceIndex)
             context.queue.tail += STEP

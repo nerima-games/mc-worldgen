@@ -12,10 +12,11 @@ import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planIglooForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-const FLAT_SNOW: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: 63, surfaceY: 70 })
+const FLAT_SNOW: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 
 type LocatedIgloo = {
   readonly plan: NaturalStructurePlan
@@ -31,7 +32,7 @@ const unwrapDraft = (option: Option.Option<IglooDraft>): IglooDraft => {
 const findIgloo = (seed: number): LocatedIgloo => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      const plan = planIglooForRegion(seed, regionX, regionZ, FLAT_SNOW)
+      const plan = planIglooForRegion(noiseSeed(seed), regionX, regionZ, FLAT_SNOW)
       if (Option.isSome(plan)) return { plan: plan.value, regionX, regionZ }
     }
   }
@@ -41,7 +42,7 @@ const findIgloo = (seed: number): LocatedIgloo => {
 const findAbsentRegion = (seed: number): readonly [number, number] => {
   for (let regionX = -20; regionX <= 20; regionX += 1) {
     for (let regionZ = -20; regionZ <= 20; regionZ += 1) {
-      if (Option.isNone(planIglooForRegion(seed, regionX, regionZ, FLAT_SNOW))) return [regionX, regionZ]
+      if (Option.isNone(planIglooForRegion(noiseSeed(seed), regionX, regionZ, FLAT_SNOW))) return [regionX, regionZ]
     }
   }
   throw new Error('igloo absent-region search range exhausted')
@@ -79,19 +80,19 @@ describe('igloo plans', () => {
   })
 
   it('rejects unsuitable snow sites and accepts the maximum supported relief', () => {
-    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: 63, surfaceY: 70 })
-    const wetSnow: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: 70, surfaceY: 71 })
+    const plains: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const wetSnow: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: blockAxis(70), surfaceY: blockAxis(71) })
     const excessiveRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'SNOW',
-      seaLevel: 0,
-      surfaceY: x === 0 && z === 0 ? 80 : 70,
+      seaLevel: blockAxis(0),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 80 : 70),
     })
-    const lowSite: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: 0, surfaceY: 3 })
-    const highSite: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: 0, surfaceY: CHUNK_HEIGHT - 1 })
+    const lowSite: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: blockAxis(0), surfaceY: blockAxis(3) })
+    const highSite: OverworldTerrainSampler = () => ({ biome: 'SNOW', seaLevel: blockAxis(0), surfaceY: blockAxis(CHUNK_HEIGHT - 1) })
     const maximumRelief: OverworldTerrainSampler = (x, z) => ({
       biome: 'SNOW',
-      seaLevel: 0,
-      surfaceY: x === 0 && z === 0 ? 70 : 73,
+      seaLevel: blockAxis(0),
+      surfaceY: blockAxis(x === 0 && z === 0 ? 70 : 73),
     })
 
     expect(Option.isNone(planIglooForCandidate({ x: 0, z: 0 }, plains))).toBe(true)
@@ -105,17 +106,17 @@ describe('igloo plans', () => {
   it('routes through the shared planner and owns only the target chunk slice', () => {
     const seed = 0x1234
     const located = findIgloo(seed)
-    const repeated = planIglooForRegion(seed, located.regionX, located.regionZ, FLAT_SNOW)
+    const repeated = planIglooForRegion(noiseSeed(seed), located.regionX, located.regionZ, FLAT_SNOW)
     const [absentX, absentZ] = findAbsentRegion(seed)
     const originChunk = chunkCoord(
-      Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ),
-      Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ),
+      chunkAxis(Math.floor(located.plan.origin.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(located.plan.origin.z / CHUNK_SIZE_XZ)),
     )
-    const plans = naturalStructurePlansForChunk(seed, 'overworld', originChunk, { overworld: FLAT_SNOW })
+    const plans = naturalStructurePlansForChunk(noiseSeed(seed), 'overworld', originChunk, { overworld: FLAT_SNOW })
     const routed = plans.find((plan) => plan.id === located.plan.id)
 
     expect(Option.isSome(repeated)).toBe(true)
-    expect(Option.isNone(planIglooForRegion(seed, absentX, absentZ, FLAT_SNOW))).toBe(true)
+    expect(Option.isNone(planIglooForRegion(noiseSeed(seed), absentX, absentZ, FLAT_SNOW))).toBe(true)
     expect(NATURAL_STRUCTURE_GRID.igloo).toStrictEqual({ separation: 64, spacing: 128, spawnPermille: 200 })
     expect(located.plan.kind).toBe('igloo')
     expect(located.plan.dimension).toBe('overworld')

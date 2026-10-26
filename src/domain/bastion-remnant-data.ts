@@ -7,14 +7,15 @@ export const BASTION_REMNANT_GRID: NaturalStructureGrid = Object.freeze({
   spawnPermille: 180,
 })
 
+import { Option } from 'effect'
 export const BASTION_REMNANT_BLOCK: Readonly<
   Record<'CHEST' | 'GOLD_BLOCK' | 'NETHERRACK' | 'NETHER_BRICK' | 'SMOOTH_BASALT', BlockId>
 > = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  GOLD_BLOCK: blockIdOf('gold_block'),
-  NETHERRACK: blockIdOf('netherrack'),
-  NETHER_BRICK: blockIdOf('nether_brick'),
-  SMOOTH_BASALT: blockIdOf('smooth_basalt'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  GOLD_BLOCK: Option.getOrThrow(blockIdOf('gold_block')),
+  NETHERRACK: Option.getOrThrow(blockIdOf('netherrack')),
+  NETHER_BRICK: Option.getOrThrow(blockIdOf('nether_brick')),
+  SMOOTH_BASALT: Option.getOrThrow(blockIdOf('smooth_basalt')),
 })
 
 export const BASTION_REMNANT_LAYOUT: Readonly<

@@ -48,6 +48,7 @@
  * worldgen-chunk-format-wire-shape.
  */
 import { describe, expect, it } from '@effect/vitest'
+import * as validated from './fixtures/validated-inputs'
 import { Effect, Option } from 'effect'
 import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
@@ -57,18 +58,18 @@ import {
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
-import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
-import { BLOCK_ID_MAX, chunkCoord } from '@nerima-games/mc-kernel'
-import { planEndCityForRegion, type NaturalStructureChunk } from '../src/domain/natural-structure'
+import { endSurfaceHeightAt, generateEndChunk } from './helpers/unwrapped-worldgen'
+import { BLOCK_ID_MAX } from '@nerima-games/mc-kernel'
+import { planEndCityForRegion, type NaturalStructureChunk } from './helpers/unwrapped-worldgen'
 import {
   decodeSave,
   encodeSave,
   saveEnvelope,
   type SaveEnvelopeDraft,
 } from '@nerima-games/mc-save'
-import { generateChunk } from '../src/domain/terrain'
+import { generateChunk } from './helpers/unwrapped-worldgen'
 
-const SEED = 20260728
+const SEED = validated.noiseSeed(20260728)
 
 /**
  * One generated chunk, at a coordinate with a NEGATIVE component.
@@ -79,7 +80,7 @@ const SEED = 20260728
  *
  * Memoised because a chunk is 64KB and docs/testing.md §6 says so.
  */
-const FIXTURE = generateChunk(SEED, chunkCoord(3, -5))
+const FIXTURE = generateChunk(SEED, validated.validatedChunkCoord(3, -5))
 
 /** The encoded payload of `FIXTURE`, built once and treated as read-only. */
 const ENCODED: ChunkEncoded = Effect.runSync(
@@ -88,7 +89,7 @@ const ENCODED: ChunkEncoded = Effect.runSync(
 
 /** An envelope carrying `ENCODED` with one field replaced. */
 const envelopeWith = (patch: Partial<ChunkEncoded>) =>
-  saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT.version, { ...ENCODED, ...patch })
+  saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, { ...ENCODED, ...patch })
 
 /**
  * Both outcomes of a decode, reduced to something SMALL.
@@ -236,7 +237,7 @@ describe('the chunk format round-trips', () => {
       }
       const restored = yield* decodeSave(
         CHUNK_FORMAT,
-        saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT.version, minimalPayload),
+        saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, minimalPayload),
       )
 
       expect(restored.naturalStructureIds).toStrictEqual([])
@@ -246,7 +247,7 @@ describe('the chunk format round-trips', () => {
 
   it.effect('CF-18: an End city chunk preserves structure ids and every marker field', () =>
     Effect.gen(function* () {
-      const seed = 1
+      const seed = validated.noiseSeed(1)
       const planOption = planEndCityForRegion(seed, -12, -7, (x, z) => endSurfaceHeightAt(seed, x, z))
       if (Option.isNone(planOption)) throw new Error('expected the known End city candidate to fit real terrain')
       const plan = planOption.value
@@ -254,7 +255,7 @@ describe('the chunk format round-trips', () => {
       if (marker === undefined) throw new Error('expected the End city plan to contain markers')
       const chunk = generateEndChunk(
         seed,
-        chunkCoord(Math.floor(marker.x / 16), Math.floor(marker.z / 16)),
+        validated.validatedChunkCoord(Math.floor(marker.x / 16), Math.floor(marker.z / 16)),
       )
 
       expect(chunk.naturalStructureIds).toContain(plan.id)
@@ -275,12 +276,10 @@ describe('the chunk format round-trips', () => {
         structureKind: 'desert-pyramid',
         kind: 'loot-chest',
         lootTable: 'desert-pyramid',
-        x: 2,
-        y: 70,
-        z: 3,
+        ...validated.validatedBlockPosition(2, 70, 3),
       }
       const chunk = {
-        ...generateChunk(SEED, chunkCoord(0, 0)),
+        ...generateChunk(SEED, validated.validatedChunkCoord(0, 0)),
         endFeatureIds: [],
         endFeatureMarkers: [],
         naturalStructureIds: [structureId],
@@ -311,72 +310,56 @@ describe('the chunk format round-trips', () => {
           structureKind: 'igloo',
           kind: 'loot-chest',
           lootTable: 'igloo',
-          x: 2,
-          y: 70,
-          z: 3,
+          ...validated.validatedBlockPosition(2, 70, 3),
         },
         {
           structureId,
           structureKind: 'igloo',
           kind: 'entity-spawn',
           entity: 'zombie-villager',
-          x: 1,
-          y: 70,
-          z: 1,
+          ...validated.validatedBlockPosition(1, 70, 1),
         },
         {
           structureId: junglePyramidStructureId,
           structureKind: 'jungle-pyramid',
           kind: 'loot-chest',
           lootTable: 'jungle-pyramid',
-          x: 2,
-          y: 67,
-          z: 2,
+          ...validated.validatedBlockPosition(2, 67, 2),
         },
         {
           structureId: mineshaftStructureId,
           structureKind: 'mineshaft',
           kind: 'loot-chest',
           lootTable: 'mineshaft',
-          x: 3,
-          y: 53,
-          z: 4,
+          ...validated.validatedBlockPosition(3, 53, 4),
         },
         {
           structureId: oceanMonumentStructureId,
           structureKind: 'ocean-monument',
           kind: 'loot-chest',
           lootTable: 'ocean-monument',
-          x: 4,
-          y: 53,
-          z: 4,
+          ...validated.validatedBlockPosition(4, 53, 4),
         },
         {
           structureId: bastionRemnantStructureId,
           structureKind: 'bastion-remnant',
           kind: 'loot-chest',
           lootTable: 'bastion-remnant',
-          x: 5,
-          y: 50,
-          z: 5,
+          ...validated.validatedBlockPosition(5, 50, 5),
         },
         {
           structureId: bastionRemnantStructureId,
           structureKind: 'bastion-remnant',
           kind: 'entity-spawn',
           entity: 'piglin',
-          x: 6,
-          y: 49,
-          z: 5,
+          ...validated.validatedBlockPosition(6, 49, 5),
         },
         {
           structureId: bastionRemnantStructureId,
           structureKind: 'bastion-remnant',
           kind: 'entity-spawn',
           entity: 'piglin-brute',
-          x: 4,
-          y: 49,
-          z: 5,
+          ...validated.validatedBlockPosition(4, 49, 5),
         },
         {
           structureId: strongholdStructureId,
@@ -384,49 +367,39 @@ describe('the chunk format round-trips', () => {
           kind: 'end-portal-frame',
           facing: 'north',
           eye: true,
-          x: 7,
-          y: 30,
-          z: 7,
+          ...validated.validatedBlockPosition(7, 30, 7),
         },
         {
           structureId: oceanStructureId,
           structureKind: 'ocean-ruin',
           kind: 'loot-chest',
           lootTable: 'ocean-ruin',
-          x: 4,
-          y: 56,
-          z: 4,
+          ...validated.validatedBlockPosition(4, 56, 4),
         },
         {
           structureId: outpostStructureId,
           structureKind: 'pillager-outpost',
           kind: 'loot-chest',
           lootTable: 'pillager-outpost',
-          x: 0,
-          y: 73,
-          z: 1,
+          ...validated.validatedBlockPosition(0, 73, 1),
         },
         {
           structureId: outpostStructureId,
           structureKind: 'pillager-outpost',
           kind: 'entity-spawn',
           entity: 'pillager',
-          x: 1,
-          y: 73,
-          z: 1,
+          ...validated.validatedBlockPosition(1, 73, 1),
         },
         {
           structureId: shipwreckStructureId,
           structureKind: 'shipwreck',
           kind: 'loot-chest',
           lootTable: 'shipwreck',
-          x: 4,
-          y: 59,
-          z: 0,
+          ...validated.validatedBlockPosition(4, 59, 0),
         },
       ]
       const chunk = {
-        ...generateChunk(SEED, chunkCoord(0, 0)),
+        ...generateChunk(SEED, validated.validatedChunkCoord(0, 0)),
         endFeatureIds: [],
         endFeatureMarkers: [],
         naturalStructureIds: [structureId, junglePyramidStructureId, mineshaftStructureId, oceanMonumentStructureId, bastionRemnantStructureId, strongholdStructureId, oceanStructureId, outpostStructureId, shipwreckStructureId],
@@ -501,7 +474,7 @@ describe('the biome roster is a closed save format', () => {
       const outcome = yield* decodeOutcome(envelopeWith({ biomes: unknown as ChunkEncoded['biomes'] }))
 
       expect(outcome._tag).toBe('Refused')
-      expect(outcome.cause).toContain('MUSHROOM_ISLAND')
+      expect(outcome.cause).toMatch(/SchemaError\(Expected .+ at \["biomes"\]\[255\]\)/su)
     }),
   )
 
@@ -523,7 +496,7 @@ describe('the biome roster is a closed save format', () => {
 describe('an envelope that is not ours', () => {
   it.effect('CF-10: a foreign envelope is refused even though the payload would fit', () =>
     Effect.gen(function* () {
-      const foreign = saveEnvelope('@nerima-games/mc-worldgen/chunk-v2-experiment', 1, ENCODED)
+      const foreign = saveEnvelope(validated.saveFormatName('@nerima-games/mc-worldgen/chunk-v2-experiment'), validated.saveFormatVersion(1), ENCODED)
       const outcome = yield* decodeOutcome(foreign)
 
       expect(outcome._tag).toBe('Refused')
@@ -535,7 +508,7 @@ describe('an envelope that is not ours', () => {
     Effect.gen(function* () {
       // The distinction the reference could not make: it partitioned worlds on
       // whether `Schema` accepted them and offered a delete button for the rest.
-      const fromFuture = saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT.version + 1, ENCODED)
+      const fromFuture = saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), validated.saveFormatVersion(CHUNK_FORMAT.version + 1), ENCODED)
       const outcome = yield* decodeOutcome(fromFuture)
 
       expect(outcome._tag).toBe('Refused')
@@ -583,7 +556,7 @@ describe('the coordinate keeps kernel’s refinement', () => {
 
   it.effect('CF-16: a negative coordinate round-trips with its sign', () =>
     Effect.gen(function* () {
-      const restored = yield* decodeSave(CHUNK_FORMAT, saveEnvelope(CHUNK_FORMAT_NAME, CHUNK_FORMAT.version, ENCODED))
+      const restored = yield* decodeSave(CHUNK_FORMAT, saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, ENCODED))
 
       expect(restored.coord.cx).toBe(3)
       expect(restored.coord.cz).toBe(-5)

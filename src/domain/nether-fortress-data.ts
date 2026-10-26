@@ -2,6 +2,7 @@ import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 import type { NaturalStructureGrid } from './natural-structure-types.js'
 
 /** Candidate spacing and terrain-independent block data for Nether fortresses. */
+import { Option } from 'effect'
 export const NETHER_FORTRESS_GRID: NaturalStructureGrid = Object.freeze({
   separation: 128,
   spacing: 256,
@@ -25,13 +26,13 @@ export const NETHER_FORTRESS_BLOCK: Readonly<
     BlockId
   >
 > = Object.freeze({
-  AIR: blockIdOf('air'),
-  BREWING_STAND: blockIdOf('brewing_stand'),
-  CHEST: blockIdOf('chest'),
-  NETHER_BRICK: blockIdOf('nether_brick'),
-  NETHER_WART_CROP: blockIdOf('nether_wart_crop'),
-  SOUL_SAND: blockIdOf('soul_sand'),
-  WITHER_SKELETON_SKULL: blockIdOf('wither_skeleton_skull'),
+  AIR: Option.getOrThrow(blockIdOf('air')),
+  BREWING_STAND: Option.getOrThrow(blockIdOf('brewing_stand')),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  NETHER_BRICK: Option.getOrThrow(blockIdOf('nether_brick')),
+  NETHER_WART_CROP: Option.getOrThrow(blockIdOf('nether_wart_crop')),
+  SOUL_SAND: Option.getOrThrow(blockIdOf('soul_sand')),
+  WITHER_SKELETON_SKULL: Option.getOrThrow(blockIdOf('wither_skeleton_skull')),
 })
 
 /** Geometry data kept separate from the deterministic placement algorithm. */
@@ -51,6 +52,7 @@ export const FORTRESS_LAYOUT: Readonly<{
 
 const FORTRESS_HEADROOM_OFFSET = 2
 const FORTRESS_SITE_MARGIN_DIVISOR = 2
+
 
 export const FORTRESS_BLAZE_RADIUS = 48
 export const FORTRESS_MIN_HEADROOM: number = FORTRESS_LAYOUT.wallHeight + FORTRESS_HEADROOM_OFFSET

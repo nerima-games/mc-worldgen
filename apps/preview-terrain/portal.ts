@@ -39,13 +39,16 @@
  * portal is how a corner rule that is too strict would look.
  */
 import { BLOCK } from '../../src/domain/biome'
+import { Option } from 'effect'
 import {
+  PortalHeight,
+  PortalWidth,
   blockPosition,
-  detectNetherPortal,
-  generatePortalLayout,
   type BlockAt,
   type BlockPosition,
 } from '@nerima-games/mc-kernel'
+import { blockAxis } from '../../src/domain/coordinate-compatibility'
+import { detectNetherPortal, generatePortalLayout } from '../../src/domain/portal-frame'
 
 export type PortalOverlay = {
   /** Bottom-left INTERIOR cell. What `detectNetherPortal` is asked about. */
@@ -78,7 +81,12 @@ const brokenCell = (origin: BlockPosition): string =>
   key(origin.x + Math.floor(OVERLAY_PORTAL_WIDTH / 2), origin.y - 1, origin.z)
 
 export const createPortalOverlay = (origin: BlockPosition, broken: boolean): PortalOverlay => {
-  const layout = generatePortalLayout(origin, 'x', OVERLAY_PORTAL_WIDTH, OVERLAY_PORTAL_HEIGHT)
+  const layout = generatePortalLayout(
+    origin,
+    'x',
+    Option.getOrThrow(PortalWidth.option(OVERLAY_PORTAL_WIDTH)),
+    Option.getOrThrow(PortalHeight.option(OVERLAY_PORTAL_HEIGHT)),
+  )
   const obsidian = new Set(layout.frame.map((cell) => key(cell.x, cell.y, cell.z)))
   if (broken) obsidian.delete(brokenCell(origin))
   return { origin, width: OVERLAY_PORTAL_WIDTH, height: OVERLAY_PORTAL_HEIGHT, obsidian, broken }
@@ -113,7 +121,7 @@ export const overlayBlockAt = (overlay: PortalOverlay, world: BlockAt): BlockAt 
 export const portalOriginOn = (x: number, surfaceY: number, z: number): BlockPosition =>
   // The ring's bottom row is one below the interior, so an interior starting at
   // surfaceY + 2 puts that row at surfaceY + 1: directly on the surface block.
-  blockPosition(x, surfaceY + 2, z)
+  blockPosition(blockAxis(x), blockAxis(surfaceY + 2), blockAxis(z))
 
 /** The HUD verdict. This is the line the whole overlay exists to print. */
 export const describePortalVerdict = (overlay: PortalOverlay, world: BlockAt): string => {

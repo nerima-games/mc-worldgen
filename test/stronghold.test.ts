@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
@@ -8,7 +8,7 @@ import { detectCompletedEndPortal, endPortalCenterForStronghold } from '../src/d
 import {
   NATURAL_STRUCTURE_GRID,
   planNaturalStructureForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import {
   STRONGHOLD_BLOCK,
   STRONGHOLD_CEILING_Y,
@@ -23,11 +23,13 @@ import {
   locateStronghold,
   type StrongholdSite,
 } from '../src/domain/structure-siting'
-import { generateChunk } from '../src/domain/terrain'
+import { generateChunk } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { planStrongholdForRegion as planStrongholdForRegionRaw } from '../src/domain/stronghold-structure'
 
 const requiredSite = (): StrongholdSite => {
-  const site = nearestStrongholdSite(GOLDEN_SEED, 0, 0)
+  const site = nearestStrongholdSite(GOLDEN_SEED, blockAxis(0), blockAxis(0))
   if (Option.isNone(site)) throw new Error('expected a stronghold site')
   return site.value
 }
@@ -42,9 +44,9 @@ describe('stronghold room layout', () => {
 
       for (let dx = -6; dx <= 6; dx += 1) {
         for (let dz = -6; dz <= 6; dz += 1) {
-          if (strongholdBlockAt(site, site.x + dx, STRONGHOLD_FLOOR_Y, site.z + dz) === STRONGHOLD_BLOCK.COBBLESTONE) floor += 1
-          if (strongholdBlockAt(site, site.x + dx, STRONGHOLD_CEILING_Y, site.z + dz) === STRONGHOLD_BLOCK.COBBLESTONE) ceiling += 1
-          if (strongholdBlockAt(site, site.x + dx, STRONGHOLD_FLOOR_Y + 2, site.z + dz) === STRONGHOLD_BLOCK.COBBLESTONE) middleWall += 1
+          if (strongholdBlockAt(site, blockAxis(site.x + dx), blockAxis(STRONGHOLD_FLOOR_Y), blockAxis(site.z + dz)) === STRONGHOLD_BLOCK.COBBLESTONE) floor += 1
+          if (strongholdBlockAt(site, blockAxis(site.x + dx), blockAxis(STRONGHOLD_CEILING_Y), blockAxis(site.z + dz)) === STRONGHOLD_BLOCK.COBBLESTONE) ceiling += 1
+          if (strongholdBlockAt(site, blockAxis(site.x + dx), blockAxis(STRONGHOLD_FLOOR_Y + 2), blockAxis(site.z + dz)) === STRONGHOLD_BLOCK.COBBLESTONE) middleWall += 1
         }
       }
 
@@ -63,7 +65,7 @@ describe('stronghold room layout', () => {
       for (let dx = -5; dx <= 5; dx += 1) {
         for (let dz = -5; dz <= 5; dz += 1) {
           if (
-            strongholdBlockAt(site, site.x + dx, STRONGHOLD_FLOOR_Y + 1, site.z + dz) ===
+            strongholdBlockAt(site, blockAxis(site.x + dx), blockAxis(STRONGHOLD_FLOOR_Y + 1), blockAxis(site.z + dz)) ===
             STRONGHOLD_BLOCK.END_PORTAL_FRAME
           ) {
             frames.push(`${String(dx)},${String(dz)}`)
@@ -74,16 +76,16 @@ describe('stronghold room layout', () => {
       expect(frames).toHaveLength(12)
       expect(frames).toContain('0,-2')
       expect(frames).toContain('2,1')
-      expect(strongholdBlockAt(site, site.x, STRONGHOLD_FLOOR_Y + 1, site.z)).toBe(BLOCK.AIR)
+      expect(strongholdBlockAt(site, blockAxis(site.x), blockAxis(STRONGHOLD_FLOOR_Y + 1), blockAxis(site.z))).toBe(BLOCK.AIR)
     }),
   )
 
   it.effect('does not affect positions outside the room', () =>
     Effect.sync(() => {
       const site = requiredSite()
-      expect(strongholdBlockAt(site, site.x + 7, STRONGHOLD_FLOOR_Y, site.z)).toBeUndefined()
-      expect(strongholdBlockAt(site, site.x, STRONGHOLD_FLOOR_Y - 1, site.z)).toBeUndefined()
-      expect(strongholdBlockAt(site, site.x, STRONGHOLD_CEILING_Y + 1, site.z)).toBeUndefined()
+      expect(strongholdBlockAt(site, blockAxis(site.x + 7), blockAxis(STRONGHOLD_FLOOR_Y), blockAxis(site.z))).toBeUndefined()
+      expect(strongholdBlockAt(site, blockAxis(site.x), blockAxis(STRONGHOLD_FLOOR_Y - 1), blockAxis(site.z))).toBeUndefined()
+      expect(strongholdBlockAt(site, blockAxis(site.x), blockAxis(STRONGHOLD_CEILING_Y + 1), blockAxis(site.z))).toBeUndefined()
     }),
   )
 })
@@ -108,7 +110,7 @@ describe('stronghold chunk generation', () => {
 
       for (let cx = minChunkX; cx <= maxChunkX; cx += 1) {
         for (let cz = minChunkZ; cz <= maxChunkZ; cz += 1) {
-          chunks.set(`${String(cx)},${String(cz)}`, generateChunk(GOLDEN_SEED, chunkCoord(cx, cz)))
+          chunks.set(`${String(cx)},${String(cz)}`, generateChunk(GOLDEN_SEED, chunkCoord(chunkAxis(cx), chunkAxis(cz))))
         }
       }
 
@@ -136,8 +138,8 @@ describe('stronghold chunk generation', () => {
     Effect.sync(() => {
       const site = requiredSite()
       const coord = chunkCoord(
-        Math.floor(site.x / CHUNK_SIZE_XZ),
-        Math.floor(site.z / CHUNK_SIZE_XZ),
+        chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
+        chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
       )
       const decorated = generateChunk(GOLDEN_SEED, coord)
       const bare = generateChunk(GOLDEN_SEED, coord, { decorate: false })
@@ -154,6 +156,29 @@ describe('stronghold chunk generation', () => {
 })
 
 describe('stronghold plan', () => {
+  it.effect('plans a valid region and propagates invalid region coordinates', () => Effect.sync(() => {
+    const invalid = planStrongholdForRegionRaw(GOLDEN_SEED, Number.NaN, 0)
+    expect(Result.isFailure(invalid)).toBe(true)
+    if (Result.isSuccess(invalid)) throw new Error('expected an invalid stronghold region failure')
+    expect(invalid.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'stronghold',
+      value: Number.NaN,
+    })
+
+    const site = requiredSite()
+    const regionX = Math.floor(site.x / STRONGHOLD_REGION_SIZE)
+    const regionZ = Math.floor(site.z / STRONGHOLD_REGION_SIZE)
+    const planned = planStrongholdForRegionRaw(GOLDEN_SEED, regionX, regionZ)
+
+    expect(Result.isSuccess(planned)).toBe(true)
+    if (Result.isFailure(planned)) throw new Error('expected a valid stronghold region plan')
+    expect(Option.isSome(planned.success)).toBe(true)
+    if (Option.isNone(planned.success)) throw new Error('expected a stronghold plan')
+    expect(planned.success.value.kind).toBe('stronghold')
+  }))
+
   it.effect('is deterministic, unique, complete, and overworld-only', () => Effect.sync(() => {
     const site = requiredSite()
     const first = generateStrongholdPlan(GOLDEN_SEED, site)
@@ -167,9 +192,9 @@ describe('stronghold plan', () => {
   }))
 
   it.effect('locates multiple ordered candidates and changes with the seed', () => Effect.sync(() => {
-    const first = locateStronghold(GOLDEN_SEED, { x: 0, z: 0 }, 4)
-    const repeated = locateStronghold(GOLDEN_SEED, { x: 0, z: 0 }, 4)
-    const other = locateStronghold(GOLDEN_SEED + 1, { x: 0, z: 0 }, 4)
+    const first = locateStronghold(GOLDEN_SEED, { x: blockAxis(0), z: blockAxis(0) }, 4)
+    const repeated = locateStronghold(GOLDEN_SEED, { x: blockAxis(0), z: blockAxis(0) }, 4)
+    const other = locateStronghold(noiseSeed(GOLDEN_SEED + 1), { x: blockAxis(0), z: blockAxis(0) }, 4)
     expect(first).toHaveLength(4)
     expect(first).toEqual(repeated)
     expect(other).not.toEqual(first)
@@ -199,7 +224,7 @@ describe('stronghold plan', () => {
     const planned = planNaturalStructureForRegion({
       dimension: 'overworld',
       kind: 'stronghold',
-      presenceChannelSeed: 0,
+      presenceChannelSeed: noiseSeed(0),
       region,
       samplers: {},
       seed: GOLDEN_SEED,

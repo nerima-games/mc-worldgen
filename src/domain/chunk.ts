@@ -13,6 +13,7 @@
  * confused with a block coordinate through the old `{x, z}` spelling.
  */
 import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import type { BlockAxis, LocalAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
 import { type ChunkBiomeType } from './biome.js'
 
@@ -48,7 +49,7 @@ export const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_VOLUME)
  */
 export const readBlock = (blocks: Uint16Array, index: number): number => blocks[index] ?? AIR_BLOCK_ID
 
-export const getBlockAt = (chunk: Chunk, lx: number, y: number, lz: number): number =>
+export const getBlockAt = (chunk: Chunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis): number =>
   readBlock(chunk.blocks, blockIndex(lx, y, lz))
 
 /**
@@ -63,12 +64,15 @@ export const getBlockAt = (chunk: Chunk, lx: number, y: number, lz: number): num
  * parameter, which is what satisfies `max-params` without touching either
  * caller.
  */
-export const setBlockAt = (blocks: Uint16Array, ...coordinate: readonly [lx: number, y: number, lz: number, block: BlockId]): void => {
+export const setBlockAt = (blocks: Uint16Array, ...coordinate: readonly [lx: LocalAxis, y: BlockAxis, lz: LocalAxis, block: BlockId]): void => {
   const [lx, y, lz, block] = coordinate
   blocks[blockIndex(lx, y, lz)] = block
 }
 
-export const columnIndex = (lx: number, lz: number): number => lz * CHUNK_SIZE_XZ + lx
+export const columnIndex = (lx: LocalAxis, lz: LocalAxis): number => lz * CHUNK_SIZE_XZ + lx
 
-export const biomeAt = (chunk: Chunk, lx: number, lz: number): ChunkBiomeType =>
+/** The caller has already bounded both offsets to the local chunk range. */
+export const columnIndexForKnownLocalRange = (lx: number, lz: number): number => lz * CHUNK_SIZE_XZ + lx
+
+export const biomeAt = (chunk: Chunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'

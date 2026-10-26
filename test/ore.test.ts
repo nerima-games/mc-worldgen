@@ -25,7 +25,7 @@ import { BLOCK } from '../src/domain/biome'
 import { readBlock, type Chunk } from '../src/domain/chunk'
 import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { worldX, worldZ } from '../src/domain/generator-coordinates'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import type { ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   DEEPSLATE_ORE_BLOCK,
   MAX_SEED_ATTEMPTS,
@@ -40,9 +40,11 @@ import {
   type OreConfig,
   type OreName,
 } from '../src/domain/ore'
-import { NoiseSeed, mulberry32 } from '@nerima-games/mc-noise'
-import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from '../src/domain/terrain'
+import { mulberry32, type NoiseSeed } from '@nerima-games/mc-noise'
+import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 
 const ORE_ID_SET = new Set<number>(ORE_IDS)
 
@@ -70,12 +72,20 @@ const intendedRate = (config: OreConfig): number => config.avgVeins * ((config.m
 
 /** A survey block. 36 chunks is enough for a 4-per-chunk ore to have ~144 samples. */
 const SURVEY = 3
+const SURVEY_CHUNK_AXES: ReadonlyArray<ChunkAxis> = [
+  chunkAxis(-3),
+  chunkAxis(-2),
+  chunkAxis(-1),
+  chunkAxis(0),
+  chunkAxis(1),
+  chunkAxis(2),
+]
 
 const surveyChunks = (seed: number): ReadonlyArray<Chunk> => {
   const chunks: Array<Chunk> = []
   for (let cx = -SURVEY; cx < SURVEY; cx += 1) {
     for (let cz = -SURVEY; cz < SURVEY; cz += 1) {
-      chunks.push(generateChunkAt(seed, cx, cz))
+      chunks.push(generateChunkAt(noiseSeed(seed), chunkAxis(cx), chunkAxis(cz)))
     }
   }
   return chunks
@@ -101,21 +111,26 @@ const countOre = (chunks: ReadonlyArray<Chunk>): ReadonlyMap<number, number> => 
  * makes the O-5 comparison fair: both band tables are scored against the same
  * rock.
  */
-const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: number, cz: number): number => {
-  const chunk = generateChunkAt(seed, cx, cz, { decorate: false })
+const placeWithBands = (
+  configs: ReadonlyArray<OreConfig>,
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
+): number => {
+  const chunk = generateChunkAt(seed, chunkX, chunkZ, { decorate: false })
   for (let index = 0; index < chunk.blocks.length; index += 1) {
     if (ORE_ID_SET.has(readBlock(chunk.blocks, index))) {
       chunk.blocks[index] = BLOCK.STONE
     }
   }
 
-  const coord = chunkCoord(cx, cz)
+  const coord: ChunkCoord = { cx: chunkX, cz: chunkZ }
   const baseWorldX = coord.cx * CHUNK_SIZE_XZ
   const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
   let placed = 0
 
   for (const config of configs) {
-    const next = mulberry32(NoiseSeed(oreStreamSeed(seed, config, baseWorldX, baseWorldZ)))
+    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
     const count = Math.max(0, Math.round(config.avgVeins - 1 + next() * 2))
     const yMin = Math.max(config.minY, ORE_MIN_Y_FLOOR)
     const yMax = Math.min(config.maxY, CHUNK_HEIGHT - 1)
@@ -153,13 +168,13 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: number, cx: num
   return placed
 }
 
-const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed: number): number => {
+const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed: NoiseSeed): number => {
   let total = 0
   let chunks = 0
-  for (let cx = -SURVEY; cx < SURVEY; cx += 1) {
-    for (let cz = -SURVEY; cz < SURVEY; cz += 1) {
+  for (const chunkX of SURVEY_CHUNK_AXES) {
+    for (const chunkZ of SURVEY_CHUNK_AXES) {
       chunks += 1
-      total += placeWithBands([config], seed, cx, cz)
+      total += placeWithBands([config], seed, chunkX, chunkZ)
     }
   }
   void configs
@@ -295,7 +310,7 @@ describe('vein growth', () => {
       const placed = growVein({
         blocks,
         host: BLOCK.STONE,
-        next: mulberry32(NoiseSeed(12345)),
+        next: mulberry32(noiseSeed(12345)),
         ore: ORE_BLOCK.COAL,
         seedX: 8,
         seedY: 21,
@@ -328,7 +343,7 @@ describe('vein growth', () => {
       growVein({
         blocks,
         host: BLOCK.STONE,
-        next: mulberry32(NoiseSeed(999)),
+        next: mulberry32(noiseSeed(999)),
         ore: ORE_BLOCK.IRON,
         seedX: 8,
         seedY: 30,
@@ -360,7 +375,7 @@ describe('vein growth', () => {
         return
       }
 
-      const next = mulberry32(NoiseSeed(42))
+      const next = mulberry32(noiseSeed(42))
       const histogram = new Map<number, number>()
       for (let draw = 0; draw < 20000; draw += 1) {
         const y = sampleOreY(config, config.minY, config.maxY, next)
@@ -393,7 +408,7 @@ describe('vein growth', () => {
         return
       }
 
-      const next = mulberry32(NoiseSeed(7))
+      const next = mulberry32(noiseSeed(7))
       for (let draw = 0; draw < 50; draw += 1) {
         expect(sampleOreY(config, 40, 40, next)).toBe(40)
       }
@@ -420,7 +435,7 @@ describe('what backs the ore half of the golden move', () => {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
             const wx = worldX(chunk.coord, lx)
             const wz = worldZ(chunk.coord, lz)
-            const column = terrainColumnAt(GOLDEN_SEED, wx, wz)
+            const column = terrainColumnAt(GOLDEN_SEED, blockAxis(wx), blockAxis(wz))
             const stoneTop = column.surface.top === BLOCK.STONE
               ? column.surfaceY
               : column.surface.filler === BLOCK.STONE
@@ -484,8 +499,8 @@ describe('what backs the ore half of the golden move', () => {
 
   it.effect('O-4: ore is not decoration — `decorate: false` still carries it', () =>
     Effect.sync(() => {
-      const bare = generateChunkAt(GOLDEN_SEED, 1, 0, { decorate: false })
-      const decorated = generateChunkAt(GOLDEN_SEED, 1, 0, { decorate: true })
+      const bare = generateChunkAt(GOLDEN_SEED, chunkAxis(1), chunkAxis(0), { decorate: false })
+      const decorated = generateChunkAt(GOLDEN_SEED, chunkAxis(1), chunkAxis(0), { decorate: true })
 
       expect(countOre([bare]).size).toBeGreaterThan(0)
       // And the two agree on every ore cell: decoration must not move a vein.
@@ -513,6 +528,7 @@ describe('what backs the ore half of the golden move', () => {
    */
   it.effect('O-5: the reference’s own bands starve COAL and EMERALD here, and nothing else', () =>
     Effect.sync(() => {
+      const seed = noiseSeed(GOLDEN_SEED)
       for (const shipped of ORE_CONFIGS) {
         const reference = REFERENCE_CONFIGS.find((candidate) => candidate.name === shipped.name)
         expect(reference).toBeDefined()
@@ -521,8 +537,8 @@ describe('what backs the ore half of the golden move', () => {
         }
 
         const intended = intendedRate(shipped)
-        const withShipped = ratePerChunk(ORE_CONFIGS, shipped, GOLDEN_SEED) / intended
-        const withReference = ratePerChunk(REFERENCE_CONFIGS, reference, GOLDEN_SEED) / intended
+        const withShipped = ratePerChunk(ORE_CONFIGS, shipped, seed) / intended
+        const withReference = ratePerChunk(REFERENCE_CONFIGS, reference, seed) / intended
 
         // The shipped bands hit the rate the tuning asks for, every row.
         expect(withShipped, `${shipped.name} shipped bands realise ${String(withShipped)} of intended`).toBeGreaterThan(
@@ -546,8 +562,8 @@ describe('what backs the ore half of the golden move', () => {
 describe('determinism', () => {
   it.effect('places identical ore for the same seed and coordinate', () =>
     Effect.sync(() => {
-      const first = generateChunkAt(GOLDEN_SEED, 2, -3)
-      const second = generateChunkAt(GOLDEN_SEED, 2, -3)
+      const first = generateChunkAt(GOLDEN_SEED, chunkAxis(2), chunkAxis(-3))
+      const second = generateChunkAt(GOLDEN_SEED, chunkAxis(2), chunkAxis(-3))
       expect(first.blocks).toStrictEqual(second.blocks)
     }),
   )
@@ -564,10 +580,10 @@ describe('determinism', () => {
       if (config === undefined) {
         return
       }
-      expect(oreStreamSeed(1, config, 0, 0)).not.toBe(oreStreamSeed(2, config, 0, 0))
+      expect(oreStreamSeed(noiseSeed(1), config, 0, 0)).not.toBe(oreStreamSeed(noiseSeed(2), config, 0, 0))
 
-      const a = generateChunkAt(1, 0, 0, { decorate: false })
-      const b = generateChunkAt(2, 0, 0, { decorate: false })
+      const a = generateChunkAt(noiseSeed(1), chunkAxis(0), chunkAxis(0), { decorate: false })
+      const b = generateChunkAt(noiseSeed(2), chunkAxis(0), chunkAxis(0), { decorate: false })
 
       const oreCells = (chunk: Chunk): string => {
         const parts: Array<string> = []

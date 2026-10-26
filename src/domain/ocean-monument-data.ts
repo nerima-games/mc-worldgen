@@ -27,11 +27,12 @@ export const OCEAN_MONUMENT_LAYOUT: Readonly<{
   outerWallHeight: 5,
 })
 
+import { Option } from 'effect'
 export const OCEAN_MONUMENT_BLOCK: Readonly<
   Record<'CHEST' | 'PRISMARINE' | 'STONE' | 'WATER', BlockId>
 > = Object.freeze({
-  CHEST: blockIdOf('chest'),
-  PRISMARINE: blockIdOf('prismarine'),
-  STONE: blockIdOf('stone'),
-  WATER: blockIdOf('water'),
+  CHEST: Option.getOrThrow(blockIdOf('chest')),
+  PRISMARINE: Option.getOrThrow(blockIdOf('prismarine')),
+  STONE: Option.getOrThrow(blockIdOf('stone')),
+  WATER: Option.getOrThrow(blockIdOf('water')),
 })
