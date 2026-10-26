@@ -1,5 +1,6 @@
 import {
   type CandidateChannelSeeds,
+  InvalidNaturalStructureCoordinate,
   UNIT_STEP,
   candidateChannelSeedsFor,
   floorDiv,
@@ -12,14 +13,16 @@ import type {
   NaturalStructureRegion,
   NaturalStructureSamplers,
 } from './natural-structure-types.js'
+import { Option, Result } from 'effect'
 import { CHUNK_SIZE_XZ } from './constants.js'
 import { COMPACT_STRUCTURE_KINDS } from './compact-structure-data.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
 import { plansInStableOrder } from './natural-structure-order.js'
 
-const OVERWORLD_NATURAL_STRUCTURE_KINDS: ReadonlyArray<NaturalStructureKind> = Object.freeze([
+type NonEmptyReadonlyArray<Element> = readonly [Element, ...Array<Element>]
+
+const OVERWORLD_NATURAL_STRUCTURE_KINDS: NonEmptyReadonlyArray<NaturalStructureKind> = Object.freeze([
   ...COMPACT_STRUCTURE_KINDS,
   'desert-pyramid',
   'desert-well',
@@ -33,14 +36,15 @@ const OVERWORLD_NATURAL_STRUCTURE_KINDS: ReadonlyArray<NaturalStructureKind> = O
   'stronghold',
   'village',
 ])
-const NETHER_NATURAL_STRUCTURE_KINDS: ReadonlyArray<NaturalStructureKind> = Object.freeze([
+const NETHER_NATURAL_STRUCTURE_KINDS: NonEmptyReadonlyArray<NaturalStructureKind> = Object.freeze([
   'bastion-remnant',
   'ruined-nether-portal',
   'nether-fortress',
 ])
-const END_NATURAL_STRUCTURE_KINDS: ReadonlyArray<NaturalStructureKind> = Object.freeze(['end-city'])
+const END_NATURAL_STRUCTURE_KINDS: NonEmptyReadonlyArray<NaturalStructureKind> = Object.freeze(['end-city'])
+const FIRST_NATURAL_STRUCTURE_KIND_INDEX = 0
 
-const naturalStructureKindsFor = (dimension: Dimension): ReadonlyArray<NaturalStructureKind> => {
+const naturalStructureKindsFor = (dimension: Dimension): NonEmptyReadonlyArray<NaturalStructureKind> => {
   if (dimension === 'overworld') {
     return OVERWORLD_NATURAL_STRUCTURE_KINDS
   }
@@ -97,6 +101,30 @@ const regionSpanForChunk = (coord: { readonly cx: number; readonly cz: number },
   }
 }
 
+export const validateNaturalStructureChunkCoordinates = (
+  dimension: Dimension,
+  coord: { readonly cx: number; readonly cz: number },
+): Result.Result<void, InvalidNaturalStructureCoordinate> => {
+  const kind = naturalStructureKindsFor(dimension)[FIRST_NATURAL_STRUCTURE_KIND_INDEX]
+  const region = { x: Number(coord.cx), z: Number(coord.cz) }
+  const xStart = coord.cx * CHUNK_SIZE_XZ
+  const zStart = coord.cz * CHUNK_SIZE_XZ
+  const coordinates = [
+    ['footprint-x', Number(coord.cx)],
+    ['footprint-z', Number(coord.cz)],
+    ['footprint-x', xStart],
+    ['footprint-x', xStart + CHUNK_SIZE_XZ - CHUNK_LOCAL_LAST_INDEX_OFFSET],
+    ['footprint-z', zStart],
+    ['footprint-z', zStart + CHUNK_SIZE_XZ - CHUNK_LOCAL_LAST_INDEX_OFFSET],
+  ] as const
+  for (const [axis, value] of coordinates) {
+    if (!Number.isSafeInteger(value)) {
+      return Result.fail(new InvalidNaturalStructureCoordinate({ axis, kind, region, value }))
+    }
+  }
+  return Result.void
+}
+
 type ChunkPlanContext = {
   readonly coord: { readonly cx: number; readonly cz: number }
   readonly dimension: Dimension
@@ -125,7 +153,7 @@ const appendPlanForRegion = (
   context: StructurePlanContext,
   regionX: number,
   regionZ: number,
-): void => {
+): Result.Result<void, InvalidNaturalStructureCoordinate> => {
   const {
     candidateChannelSeeds,
     dimension,
@@ -134,7 +162,7 @@ const appendPlanForRegion = (
     samplers,
     seed,
   } = context
-  const option = planForRegion({
+  const result = planForRegion({
     candidateChannelSeeds,
     dimension,
     kind,
@@ -143,16 +171,18 @@ const appendPlanForRegion = (
     samplers,
     seed,
   })
-  if (Option.isSome(option)) {
-    plans.push(option.value)
+  if (Result.isFailure(result)) {return Result.fail(result.failure)}
+  if (Option.isSome(result.success)) {
+    plans.push(result.success.value)
   }
+  return Result.void
 }
 
 const appendPlansForKind = (
   plans: Array<NaturalStructurePlan>,
   context: ChunkPlanContext,
   kind: NaturalStructureKind,
-): void => {
+): Result.Result<void, InvalidNaturalStructureCoordinate> => {
   const grid = NATURAL_STRUCTURE_GRID[kind]
   const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = regionSpanForChunk(context.coord, grid)
   const structureContext: StructurePlanContext = {
@@ -162,14 +192,16 @@ const appendPlansForKind = (
   }
   for (let regionX = minRegionX; regionX <= maxRegionX; regionX += UNIT_STEP) {
     for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += UNIT_STEP) {
-      appendPlanForRegion(plans, structureContext, regionX, regionZ)
+      const result = appendPlanForRegion(plans, structureContext, regionX, regionZ)
+      if (Result.isFailure(result)) {return Result.fail(result.failure)}
     }
   }
+  return Result.void
 }
 
 export type NaturalStructureRegionPlanner = (
   request: NaturalStructureRegionPlanRequest,
-) => Option.Option<NaturalStructurePlan>
+) => Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
 
 /**
  * Enumerates only candidate regions that can overlap a chunk. The bounds are
@@ -182,12 +214,15 @@ export const naturalStructurePlansForChunk = (
   coord: { readonly cx: number; readonly cz: number },
   samplers: NaturalStructureSamplers,
   planForRegion: NaturalStructureRegionPlanner,
-): ReadonlyArray<NaturalStructurePlan> => {
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const coordinateValidation = validateNaturalStructureChunkCoordinates(dimension, coord)
+  if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
   const plans: Array<NaturalStructurePlan> = []
   const context: ChunkPlanContext = { coord, dimension, planForRegion, samplers, seed }
 
   for (const kind of naturalStructureKindsFor(dimension)) {
-    appendPlansForKind(plans, context, kind)
+    const result = appendPlansForKind(plans, context, kind)
+    if (Result.isFailure(result)) {return Result.fail(result.failure)}
   }
-  return Object.freeze(plansInStableOrder(plans))
+  return Result.succeed(Object.freeze(plansInStableOrder(plans)))
 }

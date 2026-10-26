@@ -1,3 +1,9 @@
+import {
+  InvalidNaturalStructureCoordinate as InvalidNaturalStructureCoordinateTag,
+  type InvalidNaturalStructureCoordinate as InvalidNaturalStructureCoordinateType,
+  validateNaturalStructureRegionCoordinates,
+} from './natural-structure-coordinate-validation.js'
+import { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT, NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type {
   NaturalStructureBlockPlacement,
   NaturalStructureBlockPlacementDraft,
@@ -10,24 +16,37 @@ import type {
   NaturalStructurePositionDraft,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
+import { Option, Result } from 'effect'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import { CHUNK_HEIGHT } from './constants.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
-import { NATURAL_STRUCTURE_GRID } from './natural-structure-grid-data.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 /** Advances a loop counter, or a coordinate offset, by one unit. */
 export const UNIT_STEP = 1
 
 export type Candidate = NaturalStructureRegion
 
+export const InvalidNaturalStructureCoordinate: typeof InvalidNaturalStructureCoordinateTag =
+  InvalidNaturalStructureCoordinateTag
+export type InvalidNaturalStructureCoordinate = InvalidNaturalStructureCoordinateType
+
+export const validateNaturalStructureRegion = (
+  kind: NaturalStructureKind,
+  region: NaturalStructureRegion,
+): Result.Result<void, InvalidNaturalStructureCoordinate> => validateNaturalStructureRegionCoordinates(
+  kind,
+  region,
+  NATURAL_STRUCTURE_GRID[kind],
+  MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+)
+
 export const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
 
 export type MutablePlan = {
-  readonly blocks: Map<string, NaturalStructureBlockPlacement>
-  readonly markers: Array<NaturalStructureMarker>
+  readonly blocks: Map<string, NaturalStructureBlockPlacementDraft>
+  readonly markers: Array<NaturalStructureMarkerDraft>
 }
 
 const keyOf = (x: number, y: number, z: number): string => `${String(x)},${String(y)},${String(z)}`
@@ -103,22 +122,11 @@ const NATURAL_STRUCTURE_WORLD_MIN_Y = 0
 export const addBlock = (mutable: MutablePlan, placement: NaturalStructureBlockPlacementDraft): void => {
   const { block, x, y, z } = placement
   if (y < NATURAL_STRUCTURE_WORLD_MIN_Y || y >= CHUNK_HEIGHT) {return}
-  const brandedPlacement: NaturalStructureBlockPlacement = Object.freeze({
-    block,
-    x: blockAxisFromKnownSafeInteger(x),
-    y: blockAxisFromKnownSafeInteger(y),
-    z: blockAxisFromKnownSafeInteger(z),
-  })
-  mutable.blocks.set(keyOf(x, y, z), brandedPlacement)
+  mutable.blocks.set(keyOf(x, y, z), Object.freeze({ block, x, y, z }))
 }
 
 export const addMarker = (mutable: MutablePlan, marker: NaturalStructureMarkerDraft): void => {
-  mutable.markers.push(Object.freeze({
-    ...marker,
-    x: blockAxisFromKnownSafeInteger(marker.x),
-    y: blockAxisFromKnownSafeInteger(marker.y),
-    z: blockAxisFromKnownSafeInteger(marker.z),
-  }))
+  mutable.markers.push(Object.freeze(marker))
 }
 
 /** Everything about a plan except its accumulated blocks and markers. */
@@ -165,65 +173,59 @@ const boundsFor = (
   extendBounds(bounds, blocks)
   extendBounds(bounds, markers)
   return Object.freeze({
-    maxX: blockAxis(bounds.maxX),
-    maxY: blockAxis(bounds.maxY),
-    maxZ: blockAxis(bounds.maxZ),
-    minX: blockAxis(bounds.minX),
-    minY: blockAxis(bounds.minY),
-    minZ: blockAxis(bounds.minZ),
+    maxX: blockAxisFromKnownSafeInteger(bounds.maxX),
+    maxY: blockAxisFromKnownSafeInteger(bounds.maxY),
+    maxZ: blockAxisFromKnownSafeInteger(bounds.maxZ),
+    minX: blockAxisFromKnownSafeInteger(bounds.minX),
+    minY: blockAxisFromKnownSafeInteger(bounds.minY),
+    minZ: blockAxisFromKnownSafeInteger(bounds.minZ),
   })
 }
 
-export const finishPlan = (meta: NaturalStructureDraftMeta, mutable: MutablePlan): NaturalStructurePlan => {
-  const blocks = Object.freeze([...mutable.blocks.values()])
-  const markers = Object.freeze([...mutable.markers])
-  const bounds = boundsFor(blocks, markers)
+const brandPlan = (
+  meta: NaturalStructureDraftMeta,
+  draftBlocks: ReadonlyArray<NaturalStructureBlockPlacementDraft>,
+  draftMarkers: ReadonlyArray<NaturalStructureMarkerDraft>,
+): NaturalStructurePlan => {
+  const blocks = Object.freeze(draftBlocks.map((placement): NaturalStructureBlockPlacement => Object.freeze({
+    ...placement,
+    x: blockAxisFromKnownSafeInteger(placement.x),
+    y: blockAxisFromKnownSafeInteger(placement.y),
+    z: blockAxisFromKnownSafeInteger(placement.z),
+  })))
+  const markers = Object.freeze(draftMarkers.map((marker): NaturalStructureMarker => Object.freeze({
+    ...marker,
+    x: blockAxisFromKnownSafeInteger(marker.x),
+    y: blockAxisFromKnownSafeInteger(marker.y),
+    z: blockAxisFromKnownSafeInteger(marker.z),
+  })))
   return Object.freeze({
     blocks,
-    bounds,
+    bounds: boundsFor(blocks, markers),
     dimension: meta.dimension,
     id: meta.id,
     kind: meta.kind,
     markers,
     origin: Object.freeze({
-      x: blockAxis(meta.origin.x),
-      y: blockAxis(meta.origin.y),
-      z: blockAxis(meta.origin.z),
+      x: blockAxisFromKnownSafeInteger(meta.origin.x),
+      y: blockAxisFromKnownSafeInteger(meta.origin.y),
+      z: blockAxisFromKnownSafeInteger(meta.origin.z),
     }),
     region: Object.freeze(meta.region),
   })
+}
+
+export const finishPlan = (
+  meta: NaturalStructureDraftMeta,
+  mutable: MutablePlan,
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
+  const draftBlocks = [...mutable.blocks.values()]
+  const draftMarkers = [...mutable.markers]
+  return Result.succeed(brandPlan(meta, draftBlocks, draftMarkers))
 }
 
 export const finishPlanFromValidatedPlacements = (
   meta: NaturalStructureDraftMeta,
   placements: ReadonlyArray<NaturalStructureBlockPlacementDraft>,
   markers: ReadonlyArray<NaturalStructureMarkerDraft>,
-): NaturalStructurePlan => {
-  const blocks = Object.freeze(placements.map((placement): NaturalStructureBlockPlacement => Object.freeze({
-    ...placement,
-    x: blockAxisFromKnownSafeInteger(placement.x),
-    y: blockAxisFromKnownSafeInteger(placement.y),
-    z: blockAxisFromKnownSafeInteger(placement.z),
-  })))
-  const frozenMarkers = Object.freeze(markers.map((marker): NaturalStructureMarker => Object.freeze({
-    ...marker,
-    x: blockAxisFromKnownSafeInteger(marker.x),
-    y: blockAxisFromKnownSafeInteger(marker.y),
-    z: blockAxisFromKnownSafeInteger(marker.z),
-  })))
-  const bounds = boundsFor(blocks, frozenMarkers)
-  return Object.freeze({
-    blocks,
-    bounds,
-    dimension: meta.dimension,
-    id: meta.id,
-    kind: meta.kind,
-    markers: frozenMarkers,
-    origin: Object.freeze({
-      x: blockAxis(meta.origin.x),
-      y: blockAxis(meta.origin.y),
-      z: blockAxis(meta.origin.z),
-    }),
-    region: Object.freeze(meta.region),
-  })
-}
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => Result.succeed(brandPlan(meta, placements, markers))

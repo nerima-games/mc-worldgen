@@ -18,6 +18,7 @@ import { OCEAN_MONUMENT_GRID } from './ocean-monument-data.js'
 import { OCEAN_RUIN_GRID } from './ocean-ruin-data.js'
 import { PILLAGER_OUTPOST_GRID } from './pillager-outpost-data.js'
 import { SHIPWRECK_GRID } from './shipwreck-data.js'
+export { MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT } from './natural-structure-coordinate-validation.js'
 
 const VILLAGE_SEPARATION_MULTIPLIER = 2
 const STRONGHOLD_SEPARATION_MULTIPLIER = 2
@@ -48,14 +49,6 @@ export const NATURAL_STRUCTURE_GRID: Readonly<Record<NaturalStructureKind, Natur
     spawnPermille: 120,
   }),
 })
-
-/**
- * The widest current horizontal structure footprint around its candidate.
- * Village terrain probing reaches 30 blocks, and End-ship/fortress markers
- * remain inside that envelope; the extra margin keeps this planner guard
- * conservative when a plan is sliced into chunks.
- */
-export const MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT = 64
 
 export const MAX_NATURAL_STRUCTURE_BLOCKS = 4096
 export const MAX_NATURAL_STRUCTURE_MARKERS = 32

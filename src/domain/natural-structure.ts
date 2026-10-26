@@ -5,7 +5,9 @@ import {
   type CompactStructureKind,
 } from './compact-structure-data.js'
 import {
+  type Candidate,
   type CandidateChannelInput,
+  type InvalidNaturalStructureCoordinate,
   type MutablePlan,
   UNIT_STEP,
   addBlock,
@@ -13,6 +15,7 @@ import {
   candidateForRegion,
   finishPlan,
   finishPlanFromValidatedPlacements,
+  validateNaturalStructureRegion,
 } from './natural-structure-plan-builder.js'
 import { type CompactStructureDraft, planCompactStructureForCandidate } from './compact-structure.js'
 import { type DesertPyramidDraft, planDesertPyramidForCandidate } from './desert-pyramid.js'
@@ -34,7 +37,7 @@ import {
 export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
 import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
 import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin.js'
-import { Option, Predicate } from 'effect'
+import { Option, Predicate, Result } from 'effect'
 import {
   type OverworldTerrainSampler,
   VILLAGE_HALF_EXTENT,
@@ -83,6 +86,48 @@ export {
 export { planEndCityForRegion } from './natural-structure-end-city.js'
 export { planRuinedNetherPortalForRegion } from './natural-structure-portal.js'
 export { planStrongholdForRegion } from './stronghold-structure.js'
+export { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
+
+export type NaturalStructurePlanResult = Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
+
+const planForValidatedRegion = (
+  kind: NaturalStructureKind,
+  regionX: number,
+  regionZ: number,
+  plan: () => NaturalStructurePlanResult,
+): NaturalStructurePlanResult => {
+  const validation = validateNaturalStructureRegion(kind, { x: regionX, z: regionZ })
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return plan()
+}
+
+type CandidateStructureRegionPlanRequest<Draft> = {
+  readonly candidateChannelInput?: CandidateChannelInput | undefined
+  readonly dimension: Dimension
+  readonly finish: (draft: Draft) => Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate>
+  readonly kind: NaturalStructureKind
+  readonly regionX: number
+  readonly regionZ: number
+  readonly sampleCandidate: (candidate: Candidate) => Option.Option<Draft>
+  readonly seed: NoiseSeed
+}
+
+const planCandidateStructureForRegion = <Draft>({
+  candidateChannelInput,
+  dimension,
+  finish,
+  kind,
+  regionX,
+  regionZ,
+  sampleCandidate,
+  seed,
+}: CandidateStructureRegionPlanRequest<Draft>): NaturalStructurePlanResult => planForValidatedRegion(kind, regionX, regionZ, () => {
+  const candidateOption = candidateForRegion(seed, dimension, kind, { x: regionX, z: regionZ }, candidateChannelInput)
+  if (Option.isNone(candidateOption)) {return Result.succeed(Option.none())}
+  const draftOption = sampleCandidate(candidateOption.value)
+  if (Option.isNone(draftOption)) {return Result.succeed(Option.none())}
+  return Result.map(finish(draftOption.value), Option.some)
+})
 
 const finishCompactStructurePlan = (
   seed: NoiseSeed,
@@ -90,7 +135,7 @@ const finishCompactStructurePlan = (
   regionZ: number,
   kind: CompactStructureKind,
   draft: CompactStructureDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -123,19 +168,13 @@ const planCompactStructureForRegionWithPresence = ({
   sampleTerrain,
   seed,
   presenceChannelSeed,
-}: CompactStructureRegionPlanRequest): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(
-    seed,
-    'overworld',
-    kind,
-    { x: regionX, z: regionZ },
-    presenceChannelSeed,
-  )
-  if (Option.isNone(candidateOption)) {return Option.none()}
+}: CompactStructureRegionPlanRequest): NaturalStructurePlanResult => planForValidatedRegion(kind, regionX, regionZ, () => {
+  const candidateOption = candidateForRegion(seed, 'overworld', kind, { x: regionX, z: regionZ }, presenceChannelSeed)
+  if (Option.isNone(candidateOption)) {return Result.succeed(Option.none())}
   const draftOption = planCompactStructureForCandidate(kind, candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishCompactStructurePlan(seed, regionX, regionZ, kind, draftOption.value))
-}
+  if (Option.isNone(draftOption)) {return Result.succeed(Option.none())}
+  return Result.map(finishCompactStructurePlan(seed, regionX, regionZ, kind, draftOption.value), Option.some)
+})
 
 export const planCompactStructureForRegion = (
   seed: NoiseSeed,
@@ -143,7 +182,7 @@ export const planCompactStructureForRegion = (
   regionX: number,
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
-): Option.Option<NaturalStructurePlan> => planCompactStructureForRegionWithPresence({
+): NaturalStructurePlanResult => planCompactStructureForRegionWithPresence({
   kind,
   regionX,
   regionZ,
@@ -188,20 +227,17 @@ const placeVillageSpawnsAndLoot = (mutable: MutablePlan, spawns: ReadonlyArray<V
   }
 }
 
-/** Plans the same village layout used by the Overworld chunk generator. */
-export const planVillageForRegion = (
+const createVillagePlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
+  site: VillageSite,
   sampleTerrain: OverworldTerrainSampler,
-): Option.Option<NaturalStructurePlan> => {
-  const siteOption = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
-  if (Option.isNone(siteOption)) {return Option.none()}
-  const site = siteOption.value
+): NaturalStructurePlanResult => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   carveVillageBlocks(mutable, site, sampleTerrain)
   placeVillageSpawnsAndLoot(mutable, villageVillagerSpawnsForSite(seed, site, sampleTerrain))
-  return Option.some(finishPlan(
+  return Result.map(finishPlan(
     {
       dimension: 'overworld',
       id: `village:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
@@ -210,7 +246,21 @@ export const planVillageForRegion = (
       region: { x: regionX, z: regionZ },
     },
     mutable,
-  ))
+  ), Option.some)
+}
+
+/** Plans the same village layout used by the Overworld chunk generator. */
+export const planVillageForRegion = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainSampler,
+): NaturalStructurePlanResult => {
+  const siteResult = villageSiteForRegion(seed, regionX, regionZ, sampleTerrain)
+  if (Result.isFailure(siteResult)) {return Result.fail(siteResult.failure)}
+  const siteOption = siteResult.success
+  if (Option.isNone(siteOption)) {return Result.succeed(Option.none())}
+  return createVillagePlan(seed, regionX, regionZ, siteOption.value, sampleTerrain)
 }
 
 const finishDesertPyramidPlan = (
@@ -218,7 +268,7 @@ const finishDesertPyramidPlan = (
   regionX: number,
   regionZ: number,
   draft: DesertPyramidDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -241,20 +291,20 @@ export const planDesertPyramidForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => planForValidatedRegion('desert-pyramid', regionX, regionZ, () => {
   const candidateOption = candidateForRegion(seed, 'overworld', 'desert-pyramid', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
+  if (Option.isNone(candidateOption)) {return Result.succeed(Option.none())}
   const draftOption = planDesertPyramidForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishDesertPyramidPlan(seed, regionX, regionZ, draftOption.value))
-}
+  if (Option.isNone(draftOption)) {return Result.succeed(Option.none())}
+  return Result.map(finishDesertPyramidPlan(seed, regionX, regionZ, draftOption.value), Option.some)
+})
 
 const finishDesertWellPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: DesertWellDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   return finishPlan(
@@ -276,20 +326,23 @@ export const planDesertWellForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'desert-well', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planDesertWellForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishDesertWellPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<DesertWellDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishDesertWellPlan(seed, regionX, regionZ, draft),
+  kind: 'desert-well',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planDesertWellForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishIglooPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: IglooDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -312,20 +365,23 @@ export const planIglooForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'igloo', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planIglooForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishIglooPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<IglooDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishIglooPlan(seed, regionX, regionZ, draft),
+  kind: 'igloo',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planIglooForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishJunglePyramidPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: JunglePyramidDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -348,20 +404,23 @@ export const planJunglePyramidForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'jungle-pyramid', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planJunglePyramidForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishJunglePyramidPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<JunglePyramidDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishJunglePyramidPlan(seed, regionX, regionZ, draft),
+  kind: 'jungle-pyramid',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planJunglePyramidForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishMineshaftPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: MineshaftDraft,
-): NaturalStructurePlan => finishPlanFromValidatedPlacements(
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => finishPlanFromValidatedPlacements(
     {
       dimension: 'overworld',
       id: `mineshaft:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
@@ -380,20 +439,23 @@ export const planMineshaftForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'mineshaft', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planMineshaftForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishMineshaftPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<MineshaftDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishMineshaftPlan(seed, regionX, regionZ, draft),
+  kind: 'mineshaft',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planMineshaftForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishOceanRuinPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: OceanRuinDraft,
-): NaturalStructurePlan => finishPlanFromValidatedPlacements(
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => finishPlanFromValidatedPlacements(
     {
       dimension: 'overworld',
       id: `ocean-ruin:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
@@ -410,7 +472,7 @@ const finishOceanMonumentPlan = (
   regionX: number,
   regionZ: number,
   draft: OceanMonumentDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -433,13 +495,16 @@ export const planOceanMonumentForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'ocean-monument', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planOceanMonumentForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishOceanMonumentPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<OceanMonumentDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishOceanMonumentPlan(seed, regionX, regionZ, draft),
+  kind: 'ocean-monument',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planOceanMonumentForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 /** Plans the supported submerged ocean-ruin geometry on a dry-free, level ocean floor. */
 export const planOceanRuinForRegion = (
@@ -448,20 +513,23 @@ export const planOceanRuinForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'ocean-ruin', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planOceanRuinForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishOceanRuinPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<OceanRuinDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishOceanRuinPlan(seed, regionX, regionZ, draft),
+  kind: 'ocean-ruin',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planOceanRuinForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishShipwreckPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: ShipwreckDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -484,20 +552,23 @@ export const planShipwreckForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'shipwreck', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planShipwreckForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishShipwreckPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<ShipwreckDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishShipwreckPlan(seed, regionX, regionZ, draft),
+  kind: 'shipwreck',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planShipwreckForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishPillagerOutpostPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: PillagerOutpostDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -520,20 +591,23 @@ export const planPillagerOutpostForRegion = (
   regionZ: number,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'overworld', 'pillager-outpost', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planPillagerOutpostForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishPillagerOutpostPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<PillagerOutpostDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'overworld',
+  finish: (draft) => finishPillagerOutpostPlan(seed, regionX, regionZ, draft),
+  kind: 'pillager-outpost',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planPillagerOutpostForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 const finishBastionRemnantPlan = (
   seed: NoiseSeed,
   regionX: number,
   regionZ: number,
   draft: BastionRemnantDraft,
-): NaturalStructurePlan => {
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
   const mutable: MutablePlan = { blocks: new Map(), markers: [] }
   for (const block of draft.blocks) {addBlock(mutable, block)}
   for (const marker of draft.markers) {addMarker(mutable, marker)}
@@ -556,13 +630,16 @@ export const planBastionRemnantForRegion = (
   regionZ: number,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const candidateOption = candidateForRegion(seed, 'nether', 'bastion-remnant', { x: regionX, z: regionZ }, presenceChannelSeed)
-  if (Option.isNone(candidateOption)) {return Option.none()}
-  const draftOption = planBastionRemnantForCandidate(candidateOption.value, sampleTerrain)
-  if (Option.isNone(draftOption)) {return Option.none()}
-  return Option.some(finishBastionRemnantPlan(seed, regionX, regionZ, draftOption.value))
-}
+): NaturalStructurePlanResult => planCandidateStructureForRegion<BastionRemnantDraft>({
+  candidateChannelInput: presenceChannelSeed,
+  dimension: 'nether',
+  finish: (draft) => finishBastionRemnantPlan(seed, regionX, regionZ, draft),
+  kind: 'bastion-remnant',
+  regionX,
+  regionZ,
+  sampleCandidate: (candidate) => planBastionRemnantForCandidate(candidate, sampleTerrain),
+  seed,
+})
 
 type OverworldWaterStructureKind = 'ocean-monument' | 'ocean-ruin' | 'shipwreck'
 
@@ -579,7 +656,7 @@ const planOverworldWaterKind = (
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => {
   if (kind === 'ocean-monument') {
     return planOceanMonumentForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
   }
@@ -595,7 +672,7 @@ const planOverworldLandKind = (
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => {
   if (kind === 'mineshaft') {
     return planMineshaftForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
   }
@@ -611,7 +688,7 @@ const planOverworldSurfaceKind = (
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => {
   if (kind === 'desert-pyramid') {
     return planDesertPyramidForRegion(seed, region.x, region.z, sampleTerrain, presenceChannelSeed)
   }
@@ -627,7 +704,7 @@ const planOverworldKind = (
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => {
   if (kind === 'desert-pyramid' || kind === 'desert-well' || kind === 'igloo') {
     return planOverworldSurfaceKind(seed, kind, region, sampleTerrain, presenceChannelSeed)
   }
@@ -656,12 +733,12 @@ const planOverworldRegion = (
   region: NaturalStructureRegion,
   sampleTerrain: OverworldTerrainSampler | undefined,
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => {
   if (kind === 'stronghold') {
     return planStrongholdForRegion(seed, region.x, region.z)
   }
   if (Predicate.isUndefined(sampleTerrain)) {
-    return Option.none()
+    return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
   }
   return planOverworldKind(seed, kind, region, sampleTerrain, presenceChannelSeed)
 }
@@ -681,9 +758,9 @@ const planNetherRegion = (
   region: NaturalStructureRegion,
   sampleTerrain: NetherStructureTerrainSampler | undefined,
   candidateChannelInput?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
+): NaturalStructurePlanResult => {
   if (Predicate.isUndefined(sampleTerrain)) {
-    return Option.none()
+    return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
   }
   if (kind === 'bastion-remnant') {
     return planBastionRemnantForRegion(seed, region.x, region.z, sampleTerrain, candidateChannelInput)
@@ -700,6 +777,19 @@ const planNetherRegion = (
   return planRuinedNetherPortalForRegion(seed, region.x, region.z, sampleTerrain, candidateChannelInput)
 }
 
+const planEndRegion = (
+  seed: NoiseSeed,
+  kind: NaturalStructureKind,
+  region: NaturalStructureRegion,
+  samplers: NaturalStructureSamplers,
+  candidateChannelInput?: CandidateChannelInput,
+): NaturalStructurePlanResult => {
+  if (kind !== 'end-city') {
+    return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
+  }
+  return planEndCityForRegion(seed, region.x, region.z, samplers.end, candidateChannelInput)
+}
+
 /** Plans one supported natural structure for a single region. */
 export const planNaturalStructureForRegion = ({
   candidateChannelSeeds,
@@ -709,15 +799,21 @@ export const planNaturalStructureForRegion = ({
   region,
   samplers,
   seed,
-}: NaturalStructureRegionPlanRequest): Option.Option<NaturalStructurePlan> => {
+}: NaturalStructureRegionPlanRequest): NaturalStructurePlanResult => {
   const candidateChannelInput = candidateChannelSeeds ?? presenceChannelSeed
   if (dimension === 'overworld') {
+    if (kind === 'bastion-remnant' || kind === 'end-city' || kind === 'nether-fortress' || kind === 'ruined-nether-portal') {
+      return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
+    }
     return planOverworldRegion(seed, kind, region, samplers.overworld, candidateChannelInput)
   }
   if (dimension === 'nether') {
+    if (kind !== 'bastion-remnant' && kind !== 'nether-fortress' && kind !== 'ruined-nether-portal') {
+      return planForValidatedRegion(kind, region.x, region.z, () => Result.succeed(Option.none()))
+    }
     return planNetherRegion(seed, kind, region, samplers.nether, candidateChannelInput)
   }
-  return planEndCityForRegion(seed, region.x, region.z, samplers.end, candidateChannelInput)
+  return planEndRegion(seed, kind, region, samplers, candidateChannelInput)
 }
 
 /**
@@ -730,5 +826,5 @@ export const naturalStructurePlansForChunk = (
   dimension: Dimension,
   coord: ChunkCoord,
   samplers: NaturalStructureSamplers = {},
-): ReadonlyArray<NaturalStructurePlan> =>
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> =>
   enumerateNaturalStructurePlansForChunk(seed, dimension, coord, samplers, planNaturalStructureForRegion)
