@@ -329,6 +329,9 @@ type EvictionAction =
       readonly snapshot: Chunk
     }
 
+type EvictionAttempt =
+  | { readonly kind: 'room' }
+  | { readonly action: EvictionAction; readonly kind: 'evict' }
 type PersistEvictionAction = Extract<EvictionAction, { readonly kind: 'persist' }>
 type EvictionPlan = (latest: ChunkStoreRuntimeState) => readonly [EvictionAction, ChunkStoreRuntimeState]
 type ChunkStoreStateRef = Ref.Ref<ChunkStoreRuntimeState>
@@ -372,8 +375,9 @@ const makeEvictionPlanner = (
   }
 
   return (latest) => {
-    // Capacity eviction runs only when residents fill the positive capacity.
-    // Ref.modify transitions keep LRU and resident membership aligned.
+    // The caller checks capacity and selects the oldest entry in one Ref
+    // Transition. Every operation that changes resident membership updates the
+    // LRU in that same transition, so reset or unload cannot interleave here.
     const key = Option.getOrThrow(Option.fromNullishOr(lru.oldest()))
     const chunk = Option.getOrThrow(Option.fromNullishOr(latest.chunks.loaded.get(key)))
     if (latest.dirty.has(key)) {
@@ -429,13 +433,19 @@ const makeEvictionRuntime = (
 
   const evictOne = (): Effect.Effect<boolean, ChunkStoreError> =>
     Effect.gen(function* evictOnce() {
-      const current = yield* Ref.get(state)
-      if (current.chunks.loaded.size < capacity) {
+      const attempt = yield* Ref.modify(state, (latest): readonly [EvictionAttempt, ChunkStoreRuntimeState] => {
+        if (latest.chunks.loaded.size < capacity) {
+          return [{ kind: 'room' }, latest]
+        }
+
+        const [action, next] = planEviction(latest)
+        return [{ action, kind: 'evict' }, next]
+      })
+      if (attempt.kind === 'room') {
         return true
       }
 
-      const action = yield* Ref.modify(state, planEviction)
-      yield* processEvictionAction(action)
+      yield* processEvictionAction(attempt.action)
       return false
     })
 
