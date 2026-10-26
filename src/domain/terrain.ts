@@ -93,9 +93,9 @@ import {
   fillWaterAtLevel,
   shouldFreezeWaterSurface,
 } from './lake-generator.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { Option } from 'effect'
 import type { OverworldTerrainSample } from './structure-siting.js'
-import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
 export {
