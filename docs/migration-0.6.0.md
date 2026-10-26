@@ -137,6 +137,8 @@ The chunk queries return these results:
 - `strongholdSitesNearChunk`: `Result.Result<ReadonlyArray<StrongholdSite>, InvalidNaturalStructureCoordinate>`.
 - `villageVillagerSpawnsForChunk`: `Result.Result<ReadonlyArray<VillageVillagerSpawn>, InvalidNaturalStructureCoordinate>`.
 
+`strongholdSitesNearChunk` requires `halfExtent` to be a nonnegative safe integer. An invalid value returns `Failure(InvalidNaturalStructureCoordinate)`.
+
 Handle `Failure(InvalidNaturalStructureCoordinate)` for an invalid chunk
 coordinate or an unrepresentable derived coordinate. `Success([])` means the
 valid query found no sites or spawns.

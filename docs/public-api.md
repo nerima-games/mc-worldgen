@@ -40,6 +40,8 @@ The chunk-scoped queries return these results:
 - `strongholdSitesNearChunk`: `Result.Result<ReadonlyArray<StrongholdSite>, InvalidNaturalStructureCoordinate>`.
 - `villageVillagerSpawnsForChunk`: `Result.Result<ReadonlyArray<VillageVillagerSpawn>, InvalidNaturalStructureCoordinate>`.
 
+`strongholdSitesNearChunk` requires `halfExtent` to be a nonnegative safe integer. An invalid value returns `Failure(InvalidNaturalStructureCoordinate)`.
+
 `Failure(InvalidNaturalStructureCoordinate)` reports an invalid chunk coordinate or an unrepresentable derived coordinate. `Success([])` means the valid query found no sites or spawns.
 
 The End spike and gateway APIs use `EndFeaturePlan` and gateway-specific values. They are separate from natural-structure region planning.
