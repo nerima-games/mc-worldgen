@@ -1,4 +1,4 @@
-import { type LightLevel, LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
+import { LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
 import { CHUNK_VOLUME } from './constants.js'
 import { Result } from 'effect'
 
@@ -41,7 +41,7 @@ export const setLightAt = (grid: Uint8Array, voxel: number, level: number): void
 }
 
 /** Write a level already constrained to the light grid's 0..15 range. */
-export const setLightAtKnownLevel = (grid: Uint8Array, voxel: number, level: LightLevel): void =>
+export const setLightAtKnownLevel = (grid: Uint8Array, voxel: number, level: number): void =>
   writeLightAt(grid, voxel, level)
 
 export type ChunkLight = {

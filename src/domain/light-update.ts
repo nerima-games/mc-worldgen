@@ -1,7 +1,6 @@
-import { Brand, Option } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
 import { type Chunk, readBlock } from './chunk.js'
-import { type ChunkCoord, LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, type LightLevel } from '@nerima-games/mc-kernel'
+import { type ChunkCoord, LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN } from '@nerima-games/mc-kernel'
 import { type ChunkLight, getLightAt, setLightAtKnownLevel } from './light-grid.js'
 import {
   LIGHT_DECAY_PER_HOP,
@@ -12,6 +11,7 @@ import {
   coordKey,
 } from './light-common.js'
 import { blockTransmitsLight, lightEmissionAt } from './light-block-data.js'
+import { Option } from 'effect'
 import { computeChunkLights } from './light-propagation.js'
 
 /** One block mutation whose cached light neighbourhood must reach a new fixed point. */
@@ -172,9 +172,8 @@ const neighbourIdOf = <Key extends string>(
 }
 
 const NO_OPAQUE_BLOCK_FOUND = -1
-const knownLightLevel = Brand.nominal<LightLevel>()
-const MIN_LIGHT_LEVEL = knownLightLevel(LIGHT_LEVEL_MIN)
-const MAX_LIGHT_LEVEL = knownLightLevel(LIGHT_LEVEL_MAX)
+const MIN_LIGHT_LEVEL = LIGHT_LEVEL_MIN
+const MAX_LIGHT_LEVEL = LIGHT_LEVEL_MAX
 
 const scanHighestOpaque = (chunk: Chunk, x: number, z: number): number => {
   for (let scanY = CHUNK_HEIGHT - STEP; scanY >= MIN_CHUNK_COORD; scanY -= STEP) {
@@ -277,7 +276,7 @@ const nextLightLevel = <Key extends string>(
   channel: LightChannel,
   voxel: VoxelRef,
   chunk: Chunk,
-): LightLevel => {
+): number => {
   const block = readBlock(chunk.blocks, blockIndex(voxel.x, voxel.y, voxel.z))
   let next = MIN_LIGHT_LEVEL
   if (channel === 'block') {
@@ -289,7 +288,7 @@ const nextLightLevel = <Key extends string>(
   if (channel === 'sky' && isDirectSky(context, voxel)) {
     return MAX_LIGHT_LEVEL
   }
-  return knownLightLevel(brightestNeighbourLevel(context, channel, voxel, next))
+  return brightestNeighbourLevel(context, channel, voxel, next)
 }
 
 type RelaxationSource = {
@@ -309,7 +308,7 @@ type ChannelRun<Key extends string> = {
   readonly queue: IdQueue
 }
 
-const writeRelaxedVoxel = <Key extends string>(run: ChannelRun<Key>, voxel: VoxelRef, id: number, next: LightLevel): void => {
+const writeRelaxedVoxel = <Key extends string>(run: ChannelRun<Key>, voxel: VoxelRef, id: number, next: number): void => {
   const writable = cloneLight(run.context, voxel.chunkIndex)
   setLightAtKnownLevel(writable[run.channel], id % CHUNK_VOLUME, next)
   enqueueNeighbours(run.context, run.queue, voxel)

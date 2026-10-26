@@ -82,8 +82,7 @@ import {
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
-import { type TerrainColumn, biomeFor, climateAt, resolveTerrainColumn, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
-import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
+import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
@@ -92,11 +91,12 @@ import {
   shouldPlaceGroundPlant,
 } from './vegetation.js'
 import {
-  fillWaterForColumn,
+  fillWaterAtLevel,
   shouldFreezeWaterSurface,
 } from './lake-generator.js'
 import { Option } from 'effect'
 import type { OverworldTerrainSample } from './structure-siting.js'
+import { blockAxis } from './coordinate-compatibility.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
 export {
@@ -126,8 +126,7 @@ export type GenerateOptions = {
 type ColumnFill = {
   readonly lx: number
   readonly lz: number
-  readonly column: TerrainColumn
-  readonly levels: TerrainLevels
+  readonly column: TerrainColumnForGeneration
 }
 
 type FilledColumn = Readonly<{
@@ -150,8 +149,8 @@ const fillStoneCore = (blocks: Uint16Array, lx: number, lz: number, surfaceY: nu
 }
 
 const fillColumn = (blocks: Uint16Array, column: ColumnFill): FilledColumn => {
-  const { levels, lx, lz, column: terrainColumn } = column
-  const { biome, lakeBasinY, surface, surfaceY, temperature, waterLevel } = terrainColumn
+  const { lx, lz, column: terrainColumn } = column
+  const { biome, surface, surfaceY, temperature, waterLevel } = terrainColumn
 
   blocks[blockIndex(lx, BEDROCK_Y, lz)] = BLOCK.BEDROCK
   fillStoneCore(blocks, lx, lz, surfaceY, surface.fillerDepth)
@@ -163,17 +162,15 @@ const fillColumn = (blocks: Uint16Array, column: ColumnFill): FilledColumn => {
 
   // Water fills from just above the surface to the resolved body level. This happens
   // BEFORE carving, because the carver's guard probes for these blocks.
-  fillWaterForColumn({
-    biome,
+  fillWaterAtLevel({
     blocks,
     freezeSurface: shouldFreezeWaterSurface(biome, temperature),
     iceBlockIndex: BLOCK.ICE,
-    lakeBasinY,
     lx,
     lz,
     surfaceY,
-    terrainLevels: levels,
     waterBlockIndex: BLOCK.WATER,
+    waterTopY: waterLevel,
   })
 
   return { surfaceY, waterLevel }
@@ -337,7 +334,7 @@ const columnWaterLevel = (context: ChunkGenerationContext, lx: number, lz: numbe
 const writeColumnBuffers = (
   context: ChunkGenerationContext,
   index: number,
-  terrainColumn: TerrainColumn,
+  terrainColumn: TerrainColumnForGeneration,
   filled: FilledColumn,
 ): void => {
   context.biomes[index] = terrainColumn.biome
@@ -354,10 +351,9 @@ const generateColumns = (context: ChunkGenerationContext): void => {
       const index = columnIndexForKnownLocalRange(localX, localZ)
       const wx = context.minBlockX + lx
       const wz = context.minBlockZ + lz
-      const terrainColumn = resolveTerrainColumn(context.seed, wx, wz, context.levels)
+      const terrainColumn = resolveTerrainColumnForGeneration(context.seed, wx, wz, context.levels)
       const filled = fillColumn(context.blocks, {
         column: terrainColumn,
-        levels: context.levels,
         lx,
         lz,
       })
@@ -376,10 +372,10 @@ const plantTreesPass = (context: ChunkGenerationContext): void => {
       if (
         shouldPlaceTree({
           biome,
-          surfaceY: blockAxisFromKnownSafeInteger(surfaceY),
+          surfaceY,
           terrainLevels: context.levels,
-          worldX: blockAxisFromKnownSafeInteger(context.minBlockX + lx),
-          worldZ: blockAxisFromKnownSafeInteger(context.minBlockZ + lz),
+          worldX: context.minBlockX + lx,
+          worldZ: context.minBlockZ + lz,
         })
       ) {
         plantTree(context.blocks, lx, lz, surfaceY)
@@ -464,12 +460,11 @@ const structureSurfaceBiomeAt = (
   wz: number,
 ): { readonly biome: BiomeType; readonly surfaceY: BlockAxis } => {
   if (localColumn === null) {
-    const terrainColumn = resolveTerrainColumn(context.seed, wx, wz, context.levels)
-    return { biome: terrainColumn.biome, surfaceY: terrainColumn.surfaceY }
+    return surfaceBiomeAt(context.seed, blockAxis(wx), blockAxis(wz), context.levels)
   }
   return {
     biome: readRequired(context.biomes, localColumn),
-    surfaceY: blockAxisFromKnownSafeInteger(readRequired(context.initialSurfaces, localColumn)),
+    surfaceY: blockAxis(readRequired(context.initialSurfaces, localColumn)),
   }
 }
 
@@ -502,7 +497,7 @@ const structureTerrainSampleAt = (
   const resolved = structureSurfaceBiomeAt(context, localColumn, wx, wz)
   const sample = {
     biome: resolved.biome,
-    seaLevel: blockAxisFromKnownSafeInteger(context.levels.seaLevel),
+    seaLevel: blockAxis(context.levels.seaLevel),
     surfaceY: resolved.surfaceY,
   }
   cacheTerrainSample(terrainSamples, wx, wz, sample)

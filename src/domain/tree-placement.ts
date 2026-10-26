@@ -81,7 +81,6 @@
  * cell from 4×4 to 8×8 does not change their tree counts at all.
  */
 import { BIOME_TREE_DENSITY, type BiomeType } from './biome.js'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { TerrainLevels } from './constants.js'
 import { blockAxis } from './coordinate-compatibility.js'
 
@@ -155,8 +154,8 @@ export const TREE_MIN_SPACING: number = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN +
 const fract = (value: number): number => value - Math.floor(value)
 
 export type TreeCandidate = {
-  readonly worldX: BlockAxis
-  readonly worldZ: BlockAxis
+  readonly worldX: number
+  readonly worldZ: number
   readonly cellRng: number
 }
 
@@ -188,7 +187,7 @@ export const treeCellCandidate = (cellX: number, cellZ: number): TreeCandidate =
   }
 }
 
-export const cellOf = (worldCoordinate: BlockAxis): number => Math.floor(worldCoordinate / TREE_GRID_SIZE)
+export const cellOf = (worldCoordinate: number): number => Math.floor(worldCoordinate / TREE_GRID_SIZE)
 
 /**
  * Whether a tree grows at this world column.
@@ -204,9 +203,9 @@ export const cellOf = (worldCoordinate: BlockAxis): number => Math.floor(worldCo
  * or sea bed, and a trunk placed there rises through the water.
  */
 export const shouldPlaceTree = (input: {
-  readonly worldX: BlockAxis
-  readonly worldZ: BlockAxis
-  readonly surfaceY: BlockAxis
+  readonly worldX: number
+  readonly worldZ: number
+  readonly surfaceY: number
   readonly biome: BiomeType
   readonly terrainLevels: TerrainLevels
 }): boolean => {

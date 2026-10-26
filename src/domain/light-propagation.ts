@@ -1,4 +1,3 @@
-import { Brand, Data } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, readBlock } from './chunk.js'
 import {
@@ -20,8 +19,9 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
-import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, type LightLevel } from '@nerima-games/mc-kernel'
+import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN } from '@nerima-games/mc-kernel'
 import { blockTransmitsLight, lightEmissionAt } from './light-block-data.js'
+import { Data } from 'effect'
 
 type LightChunk = {
   readonly chunk: Chunk
@@ -43,8 +43,7 @@ class LightQueueUnderflowError extends Data.TaggedError('LightQueueUnderflowErro
   readonly index: number
 }> {}
 
-const knownLightLevel = Brand.nominal<LightLevel>()
-const MAX_LIGHT_LEVEL = knownLightLevel(LIGHT_LEVEL_MAX)
+const MAX_LIGHT_LEVEL = LIGHT_LEVEL_MAX
 
 export const readQueueValue = (queue: ReadonlyArray<number>, index: number): number => {
   const value = queue[index]
@@ -150,7 +149,7 @@ const LIGHT_X_STRIDE = CHUNK_HEIGHT * CHUNK_SIZE_XZ
 const popAndRelax = (context: PropagationContext, source: LightChunk, packed: number): void => {
   const level = unpackLevel(packed)
   if (level > LOWEST_PROPAGATABLE_LEVEL) {
-    const next = knownLightLevel(level - LIGHT_DECAY_PER_HOP)
+    const next = level - LIGHT_DECAY_PER_HOP
     const x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed)
     const sourceVoxel = blockIndex(x, y, z)
     for (const offset of NEIGHBOUR_OFFSETS) {

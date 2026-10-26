@@ -13,19 +13,14 @@ import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants.js'
 import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config.js'
 import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config.js'
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeedValue, fbm2D, valueNoise2D } from './noise-compatibility.js'
-import {
-  computeLakeBasin,
-  determineWaterLevel,
-  isLakeShoreColumn,
-  resolveSurfaceY,
-} from './lake-generator.js'
 import { continentalnessAt, surfaceHeightFromContinentalness } from './density-function.js'
 import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
-import { blockAxis } from './coordinate-compatibility.js'
+import { resolveLakeColumnValues } from './lake-generator.js'
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
 const NOISE_FREQUENCY_UNIT = 1
@@ -170,6 +165,16 @@ export type TerrainColumn = Readonly<{
   readonly waterLevel: BlockAxis | null
 }>
 
+export type TerrainColumnForGeneration = Readonly<{
+  readonly biome: BiomeType
+  readonly initialSurfaceY: number
+  readonly lakeBasinY: number | null
+  readonly surface: ResolvedSurfaceMaterial
+  readonly surfaceY: number
+  readonly temperature: number
+  readonly waterLevel: number | null
+}>
+
 const lakeNoiseAt = (seed: NoiseSeed, wx: number, wz: number): number =>
   valueNoise2D(
     channelSeedValue(seed, 'lake'),
@@ -178,12 +183,12 @@ const lakeNoiseAt = (seed: NoiseSeed, wx: number, wz: number): number =>
     LAKE_NOISE_UNIT_FREQUENCY,
   )
 
-export const resolveTerrainColumn = (
+export const resolveTerrainColumnForGeneration = (
   seed: NoiseSeed,
   wx: number,
   wz: number,
   levels: TerrainLevels,
-): TerrainColumn => {
+): TerrainColumnForGeneration => {
   const continentalness = continentalnessAt(seed, wx, wz)
   const initialSurfaceY = surfaceHeightFromContinentalness(continentalness)
   const climate = climateAtWithContinentalness(seed, wx, wz, toBipolar(continentalness))
@@ -199,22 +204,47 @@ export const resolveTerrainColumn = (
     climate,
   )
   const lakeNoiseValue = lakeNoiseAt(seed, wx, wz)
-  const lakeBasinY = computeLakeBasin(biome, lakeNoiseValue, initialSurfaceY, levels)
-  const surfaceY = resolveSurfaceY(biome, initialSurfaceY, lakeBasinY)
-  const waterLevel = Option.getOrNull(determineWaterLevel(biome, surfaceY, lakeBasinY, levels))
-  const surface = resolveSurfaceMaterial(biome, surfaceY, waterLevel ?? levels.seaLevel, {
-    hasLakeBasin: Option.isSome(lakeBasinY),
-    isShore: isLakeShoreColumn(lakeBasinY, lakeNoiseValue, surfaceY, levels),
+  const lake = resolveLakeColumnValues(biome, lakeNoiseValue, initialSurfaceY, levels)
+  const surface = resolveSurfaceMaterial(biome, lake.surfaceY, lake.waterLevel ?? levels.seaLevel, {
+    hasLakeBasin: lake.lakeBasinY !== null,
+    isShore: lake.isShore,
   })
 
   return {
     biome,
     initialSurfaceY,
-    lakeBasinY,
+    lakeBasinY: lake.lakeBasinY,
     surface,
-    surfaceY,
+    surfaceY: lake.surfaceY,
     temperature: climate.temperature,
-    waterLevel,
+    waterLevel: lake.waterLevel,
+  }
+}
+
+const blockAxisOrNull = (value: number | null): BlockAxis | null => {
+  if (value === null) {
+    return null
+  }
+  return blockAxisFromKnownSafeInteger(value)
+}
+
+export const resolveTerrainColumn = (seed: NoiseSeed, wx: number, wz: number, levels: TerrainLevels): TerrainColumn => {
+  const column = resolveTerrainColumnForGeneration(seed, wx, wz, levels)
+  if (column.lakeBasinY === null) {
+    return {
+      ...column,
+      initialSurfaceY: blockAxisFromKnownSafeInteger(column.initialSurfaceY),
+      lakeBasinY: Option.none(),
+      surfaceY: blockAxisFromKnownSafeInteger(column.surfaceY),
+      waterLevel: blockAxisOrNull(column.waterLevel),
+    }
+  }
+  return {
+    ...column,
+    initialSurfaceY: blockAxisFromKnownSafeInteger(column.initialSurfaceY),
+    lakeBasinY: Option.some(blockAxisFromKnownSafeInteger(column.lakeBasinY)),
+    surfaceY: blockAxisFromKnownSafeInteger(column.surfaceY),
+    waterLevel: blockAxisOrNull(column.waterLevel),
   }
 }
 
