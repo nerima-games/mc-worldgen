@@ -41,9 +41,12 @@ export const continentalnessAt = (seed: NoiseSeed, wx: number, wz: number): numb
     persistence: 0.5,
   })
 
+export const surfaceHeightValueFromContinentalness = (continentalness: number): number =>
+  Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
+
 /** Convert one sampled continentalness value into the generated surface Y. */
 export const surfaceHeightFromContinentalness = (continentalness: number): BlockAxis => {
-  const height = Math.floor(MIN_SURFACE_Y + (MAX_SURFACE_Y - MIN_SURFACE_Y) * stretch(continentalness))
+  const height = surfaceHeightValueFromContinentalness(continentalness)
   if (Number.isNaN(height)) {
     return blockAxis(height)
   }

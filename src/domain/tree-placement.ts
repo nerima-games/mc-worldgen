@@ -82,7 +82,6 @@
  */
 import { BIOME_TREE_DENSITY, type BiomeType } from './biome.js'
 import type { TerrainLevels } from './constants.js'
-import { blockAxis } from './coordinate-compatibility.js'
 
 /**
  * Cell edge in blocks.
@@ -182,8 +181,8 @@ export const treeCellCandidate = (cellX: number, cellZ: number): TreeCandidate =
 
   return {
     cellRng,
-    worldX: blockAxis(cellX * TREE_GRID_SIZE + jitterOffset(cellRng, TREE_CELL_JITTER_X_SCALE)),
-    worldZ: blockAxis(cellZ * TREE_GRID_SIZE + jitterOffset(cellRng, TREE_CELL_JITTER_Z_SCALE)),
+    worldX: cellX * TREE_GRID_SIZE + jitterOffset(cellRng, TREE_CELL_JITTER_X_SCALE),
+    worldZ: cellZ * TREE_GRID_SIZE + jitterOffset(cellRng, TREE_CELL_JITTER_Z_SCALE),
   }
 }
 

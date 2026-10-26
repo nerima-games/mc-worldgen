@@ -10,6 +10,7 @@ import {
   OctaveCount,
 } from '@nerima-games/mc-noise'
 import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from '../src/domain/terrain'
+import { surfaceHeightFromContinentalness } from '../src/domain/density-function'
 import { blockAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
@@ -131,6 +132,14 @@ const heightFor = (raw: number, contrast: number): number =>
 const wide = survey(SEED, SURVEY_SPAN, SURVEY_STRIDE)
 
 describe('the survey itself', () => {
+  it.effect('keeps surface height brand validation at the public conversion boundary', () =>
+    Effect.sync(() => {
+      expect(surfaceHeightFromContinentalness(0)).toBe(MIN_SURFACE_Y)
+      expect(surfaceHeightFromContinentalness(1)).toBe(MAX_SURFACE_Y)
+      expect(() => surfaceHeightFromContinentalness(Number.NaN)).toThrow()
+    }),
+  )
+
   /**
    * The methodological assertion, and the first one for a reason: every number
    * in this file is worthless if this fails. 8192 / 180 is about 45 features.

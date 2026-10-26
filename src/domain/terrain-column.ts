@@ -15,7 +15,7 @@ import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeedValue, fbm2D, valueNoise2D } from './noise-compatibility.js'
-import { continentalnessAt, surfaceHeightFromContinentalness } from './density-function.js'
+import { continentalnessAt, surfaceHeightFromContinentalness, surfaceHeightValueFromContinentalness } from './density-function.js'
 import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
@@ -190,7 +190,7 @@ export const resolveTerrainColumnForGeneration = (
   levels: TerrainLevels,
 ): TerrainColumnForGeneration => {
   const continentalness = continentalnessAt(seed, wx, wz)
-  const initialSurfaceY = surfaceHeightFromContinentalness(continentalness)
+  const initialSurfaceY = surfaceHeightValueFromContinentalness(continentalness)
   const climate = climateAtWithContinentalness(seed, wx, wz, toBipolar(continentalness))
   const biome = biomeForWithClimate(
     {
