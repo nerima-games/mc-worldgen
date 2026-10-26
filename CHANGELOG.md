@@ -1,5 +1,11 @@
 # @nerima-games/mc-worldgen
 
+## 0.6.0
+
+### Minor Changes
+
+- From 0.6 onward, non-integer world seeds and integers outside the safe-integer range return a typed failure. Region planners, village and stronghold site selectors, chunk enumeration, and chunk generators return `Result` values; invalid region or derived footprint coordinates fail with `InvalidNaturalStructureCoordinate`, separately from a valid region with no candidate.
+
 ## 0.5.0
 
 ### Minor Changes
