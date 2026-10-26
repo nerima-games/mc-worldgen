@@ -110,7 +110,6 @@ export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 /** Single-block iteration step for the per-voxel/per-column loops below. */
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 const AXIS_STEP = 1
-const LAST_LOCAL_AXIS_OFFSET = CHUNK_SIZE_XZ - AXIS_STEP
 /** Sentinel stored for columns whose terrain has no water surface. */
 const NO_WATER_LEVEL = -1
 const LOCAL_COLUMN_MIN = 0
@@ -287,9 +286,8 @@ const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => 
 }
 
 const minBlockCoordinateForChunk = (chunkCoordinate: ChunkAxis): BlockAxis => {
-  const minimum = blockAxis(chunkCoordinate * CHUNK_SIZE_XZ)
-  blockAxis(minimum + LAST_LOCAL_AXIS_OFFSET)
-  return minimum
+  // Chunk origins are multiples of 16, so a safe origin leaves all 15 remaining local offsets safe.
+  return blockAxis(chunkCoordinate * CHUNK_SIZE_XZ)
 }
 
 const createChunkGenerationContext = (

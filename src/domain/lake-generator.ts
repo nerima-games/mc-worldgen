@@ -27,7 +27,7 @@ const smoothstep01 = (value: number): number => {
   return normalized * normalized * (SMOOTHSTEP_CUBIC_FACTOR - SMOOTHSTEP_LINEAR_FACTOR * normalized)
 }
 
-const computeLakeBasinY = (
+export const computeLakeBasinY = (
   biome: BiomeType,
   lakeNoiseValue: number,
   initialSurfaceY: number,
@@ -60,7 +60,7 @@ export const computeLakeBasin = (
   return Option.some(blockAxisFromKnownSafeInteger(basinY))
 }
 
-const resolveSurfaceYFromBasin = (biome: BiomeType, initialSurfaceY: number, lakeBasinY: number | null): number => {
+export const resolveSurfaceYFromBasin = (biome: BiomeType, initialSurfaceY: number, lakeBasinY: number | null): number => {
   let riverSurfaceY = initialSurfaceY
   if (biome === 'RIVER') {
     riverSurfaceY = Math.max(
@@ -72,7 +72,7 @@ const resolveSurfaceYFromBasin = (biome: BiomeType, initialSurfaceY: number, lak
   return lakeBasinY ?? riverSurfaceY
 }
 
-const determineWaterLevelValue = (
+export const determineWaterLevelValue = (
   biome: BiomeType,
   surfaceY: number,
   lakeBasinY: number | null,
@@ -110,28 +110,15 @@ export const determineWaterLevel = (
   return Option.some(blockAxisFromKnownSafeInteger(waterLevel))
 }
 
-export type LakeColumnValues = Readonly<{
-  readonly lakeBasinY: number | null
-  readonly surfaceY: number
-  readonly waterLevel: number | null
-  readonly isShore: boolean
-}>
-
-export const resolveLakeColumnValues = (
-  biome: BiomeType,
+export const isLakeShoreColumnForGeneration = (
+  lakeBasinY: number | null,
   lakeNoiseValue: number,
-  initialSurfaceY: number,
+  surfaceY: number,
   terrainLevels: TerrainLevels,
-): LakeColumnValues => {
-  const lakeBasinY = computeLakeBasinY(biome, lakeNoiseValue, initialSurfaceY, terrainLevels)
-  const surfaceY = resolveSurfaceYFromBasin(biome, initialSurfaceY, lakeBasinY)
-  const waterLevel = determineWaterLevelValue(biome, surfaceY, lakeBasinY, terrainLevels)
-  const isShore = lakeBasinY === null
-    && lakeNoiseValue > LAKE_THRESHOLD - LAKE_SHORE_WIDTH
-    && surfaceY < terrainLevels.lakeLevel + LAKE_SHORE_HEIGHT_MARGIN
-
-  return { isShore, lakeBasinY, surfaceY, waterLevel }
-}
+): boolean =>
+  lakeBasinY === null
+  && lakeNoiseValue > LAKE_THRESHOLD - LAKE_SHORE_WIDTH
+  && surfaceY < terrainLevels.lakeLevel + LAKE_SHORE_HEIGHT_MARGIN
 
 export const shouldFreezeWaterSurface = (biome: BiomeType, temperature: number): boolean =>
   biome === 'SNOW' || temperature <= ICE_FREEZE_TEMPERATURE
@@ -214,7 +201,4 @@ export const isLakeShoreColumn = (
   lakeNoiseValue: number,
   surfaceY: number,
   terrainLevels: TerrainLevels,
-): boolean =>
-  Option.isNone(lakeBasinY)
-  && lakeNoiseValue > LAKE_THRESHOLD - LAKE_SHORE_WIDTH
-  && surfaceY < terrainLevels.lakeLevel + LAKE_SHORE_HEIGHT_MARGIN
+): boolean => isLakeShoreColumnForGeneration(Option.getOrNull(lakeBasinY), lakeNoiseValue, surfaceY, terrainLevels)

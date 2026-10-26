@@ -44,6 +44,7 @@ import { mulberry32, type NoiseSeed } from '@nerima-games/mc-noise'
 import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from '../src/domain/terrain'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 
 const ORE_ID_SET = new Set<number>(ORE_IDS)
 
@@ -71,6 +72,14 @@ const intendedRate = (config: OreConfig): number => config.avgVeins * ((config.m
 
 /** A survey block. 36 chunks is enough for a 4-per-chunk ore to have ~144 samples. */
 const SURVEY = 3
+const SURVEY_CHUNK_AXES: ReadonlyArray<ChunkAxis> = [
+  chunkAxis(-3),
+  chunkAxis(-2),
+  chunkAxis(-1),
+  chunkAxis(0),
+  chunkAxis(1),
+  chunkAxis(2),
+]
 
 const surveyChunks = (seed: number): ReadonlyArray<Chunk> => {
   const chunks: Array<Chunk> = []
@@ -102,9 +111,12 @@ const countOre = (chunks: ReadonlyArray<Chunk>): ReadonlyMap<number, number> => 
  * makes the O-5 comparison fair: both band tables are scored against the same
  * rock.
  */
-const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: NoiseSeed, cx: number, cz: number): number => {
-  const chunkX = chunkAxis(cx)
-  const chunkZ = chunkAxis(cz)
+const placeWithBands = (
+  configs: ReadonlyArray<OreConfig>,
+  seed: NoiseSeed,
+  chunkX: ChunkAxis,
+  chunkZ: ChunkAxis,
+): number => {
   const chunk = generateChunkAt(seed, chunkX, chunkZ, { decorate: false })
   for (let index = 0; index < chunk.blocks.length; index += 1) {
     if (ORE_ID_SET.has(readBlock(chunk.blocks, index))) {
@@ -159,10 +171,10 @@ const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: NoiseSeed, cx: 
 const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed: NoiseSeed): number => {
   let total = 0
   let chunks = 0
-  for (let cx = -SURVEY; cx < SURVEY; cx += 1) {
-    for (let cz = -SURVEY; cz < SURVEY; cz += 1) {
+  for (const chunkX of SURVEY_CHUNK_AXES) {
+    for (const chunkZ of SURVEY_CHUNK_AXES) {
       chunks += 1
-      total += placeWithBands([config], seed, cx, cz)
+      total += placeWithBands([config], seed, chunkX, chunkZ)
     }
   }
   void configs

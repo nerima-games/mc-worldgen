@@ -20,7 +20,12 @@ import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
-import { resolveLakeColumnValues } from './lake-generator.js'
+import {
+  computeLakeBasinY,
+  determineWaterLevelValue,
+  isLakeShoreColumnForGeneration,
+  resolveSurfaceYFromBasin,
+} from './lake-generator.js'
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
 const NOISE_FREQUENCY_UNIT = 1
@@ -204,20 +209,22 @@ export const resolveTerrainColumnForGeneration = (
     climate,
   )
   const lakeNoiseValue = lakeNoiseAt(seed, wx, wz)
-  const lake = resolveLakeColumnValues(biome, lakeNoiseValue, initialSurfaceY, levels)
-  const surface = resolveSurfaceMaterial(biome, lake.surfaceY, lake.waterLevel ?? levels.seaLevel, {
-    hasLakeBasin: lake.lakeBasinY !== null,
-    isShore: lake.isShore,
+  const lakeBasinY = computeLakeBasinY(biome, lakeNoiseValue, initialSurfaceY, levels)
+  const surfaceY = resolveSurfaceYFromBasin(biome, initialSurfaceY, lakeBasinY)
+  const waterLevel = determineWaterLevelValue(biome, surfaceY, lakeBasinY, levels)
+  const surface = resolveSurfaceMaterial(biome, surfaceY, waterLevel ?? levels.seaLevel, {
+    hasLakeBasin: lakeBasinY !== null,
+    isShore: isLakeShoreColumnForGeneration(lakeBasinY, lakeNoiseValue, surfaceY, levels),
   })
 
   return {
     biome,
     initialSurfaceY,
-    lakeBasinY: lake.lakeBasinY,
+    lakeBasinY,
     surface,
-    surfaceY: lake.surfaceY,
+    surfaceY,
     temperature: climate.temperature,
-    waterLevel: lake.waterLevel,
+    waterLevel,
   }
 }
 

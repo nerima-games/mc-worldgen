@@ -113,6 +113,14 @@ describe('water level invariant', () => {
     }),
   )
 
+  it.effect('rejects chunk coordinates whose block origin is outside the safe integer range', () =>
+    Effect.sync(() => {
+      expect(() =>
+        generateChunkAt(noiseSeed(1234), chunkAxis(Number.MAX_SAFE_INTEGER), chunkAxis(0), { decorate: false }),
+      ).toThrow()
+    }),
+  )
+
   it.effect('does put water somewhere, so the sweep above is not vacuously true', () =>
     Effect.sync(() => {
       const anyWater = [
