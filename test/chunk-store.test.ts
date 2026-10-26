@@ -18,6 +18,8 @@ import type { ChunkPersistenceContext } from '../src/application/chunk-persisten
 import {
   ChunkStore,
   ChunkStoreLayer,
+  ChunkStoreRegistry,
+  ChunkStoreRegistryLayer,
   ChunkCapacity,
   GeneratedChunkStoreLayer,
   GeneratedDimensionChunkStoreLayer,
@@ -195,7 +197,65 @@ describe('generated chunk sources', () => {
   })
 })
 
+describe('dimension registry', () => {
+  it.effect('creates an independent store for each dimension', () =>
+    Effect.gen(function* () {
+      const registry = yield* Effect.provide(
+        ChunkStoreRegistry,
+        ChunkStoreRegistryLayer(
+          (dimension) => {
+            const biome =
+              dimension === 'nether'
+                ? 'NETHER'
+                : dimension === 'end'
+                  ? 'END'
+                  : 'PLAINS'
+            return (coord) =>
+              Effect.succeed({
+                blocks: emptyBlocks(),
+                biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => biome),
+                coord,
+              })
+          },
+          TEST_CAPACITY,
+        ),
+      )
+      const coord = chunkCoord(chunkAxis(0), 0)
+      const overworld = registry.forDimension('overworld')
+      const nether = registry.forDimension('nether')
+      const end = registry.forDimension('end')
+
+      expect(overworld).not.toBe(nether)
+      expect(nether).not.toBe(end)
+      expect(new Set((yield* overworld.load(coord)).biomes)).toStrictEqual(new Set(['PLAINS']))
+      expect(new Set((yield* nether.load(coord)).biomes)).toStrictEqual(new Set(['NETHER']))
+      expect(yield* end.isLoaded(coord)).toBe(false)
+      expect(yield* end.peek(coord)).toBeUndefined()
+    }),
+  )
+})
+
 describe('residency', () => {
+  it.effect('fails a dirty eviction when the store has no persistence', () =>
+    Effect.gen(function* () {
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, capacity(1)))
+      const resident = chunkCoord(chunkAxis(0), 0)
+      const requested = chunkCoord(chunkAxis(1), 0)
+
+      yield* store.load(resident)
+      yield* store.setBlock(blockPosition(blockAxis(0), 10, 0), BLOCK.SAND)
+
+      const failure = yield* Effect.flip(store.load(requested))
+
+      if (failure._tag !== 'DirtyChunkEvictionError') {
+        throw new Error(`Expected a dirty eviction error, got ${failure._tag}`)
+      }
+      expect(failure.coord).toStrictEqual(resident)
+      expect(yield* store.isLoaded(resident)).toBe(true)
+      expect(yield* store.isLoaded(requested)).toBe(false)
+      expect((yield* store.peek(resident))?.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+    }),
+  )
   it.effect('generates a chunk on first load and returns the same one after', () =>
     withStore((store) =>
       Effect.gen(function* () {
@@ -328,6 +388,51 @@ describe('residency', () => {
         expect('zPos' in neighbours).toBe(false)
       }),
     ),
+  )
+
+  it.effect('touching a middle chunk moves it after its neighbours in the LRU order', () =>
+    Effect.gen(function* () {
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, capacity(3)))
+      const first = chunkCoord(chunkAxis(0), 0)
+      const middle = chunkCoord(chunkAxis(1), 0)
+      const last = chunkCoord(chunkAxis(2), 0)
+      const next = chunkCoord(chunkAxis(3), 0)
+
+      yield* store.load(first)
+      const middleChunk = yield* store.load(middle)
+      yield* store.load(last)
+      expect(yield* store.load(middle)).toBe(middleChunk)
+      yield* store.load(next)
+
+      expect(yield* store.isLoaded(first)).toBe(false)
+      expect(yield* store.isLoaded(middle)).toBe(true)
+      expect(yield* store.isLoaded(last)).toBe(true)
+      expect(yield* store.isLoaded(next)).toBe(true)
+    }),
+  )
+
+  it.effect('unloading a middle chunk preserves the remaining LRU order', () =>
+    Effect.gen(function* () {
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(flatSource, capacity(3)))
+      const first = chunkCoord(chunkAxis(0), 0)
+      const middle = chunkCoord(chunkAxis(1), 0)
+      const last = chunkCoord(chunkAxis(2), 0)
+      const next = chunkCoord(chunkAxis(3), 0)
+      const final = chunkCoord(chunkAxis(4), 0)
+
+      yield* store.load(first)
+      yield* store.load(middle)
+      yield* store.load(last)
+      expect(yield* store.unload(middle)).toBe(true)
+      yield* store.load(next)
+      yield* store.load(final)
+
+      expect(yield* store.isLoaded(first)).toBe(false)
+      expect(yield* store.isLoaded(middle)).toBe(false)
+      expect(yield* store.isLoaded(last)).toBe(true)
+      expect(yield* store.isLoaded(next)).toBe(true)
+      expect(yield* store.isLoaded(final)).toBe(true)
+    }),
   )
 
   it.effect('a load hit refreshes recency before the next chunk is inserted', () =>

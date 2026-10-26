@@ -8,9 +8,15 @@ import {
   StoragePort,
   type StorageService,
 } from '@nerima-games/mc-save'
-import { Effect, Option, Result } from 'effect'
+import { Deferred, Effect, Fiber, Layer, Option, Result } from 'effect'
 import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
-import { ChunkCapacity, makePersistentChunkStore, type ChunkSource } from '../src/application/chunk-store'
+import {
+  ChunkCapacity,
+  ChunkStoreRegistry,
+  PersistentChunkStoreRegistryLayer,
+  makePersistentChunkStore,
+  type ChunkSource,
+} from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1 } from '../src/domain/chunk-format'
@@ -47,6 +53,43 @@ describe('chunk persistence', () => {
         chunkSaveKey({ worldId: 'a', dimension: 'overworld' }, coord),
       ).not.toBe(chunkSaveKey({ worldId: 'a', dimension: 'nether' }, coord))
     })
+
+  it.effect('persistent registry keeps each dimension in its own namespace', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const worldId = 'registry-world'
+      const coord = validated.validatedChunkCoord(0, 0)
+      const registryLayer = () =>
+        PersistentChunkStoreRegistryLayer(() => source, worldId, TEST_CAPACITY).pipe(
+          Layer.provide(Layer.succeed(StoragePort, storage)),
+        )
+      const registry = yield* Effect.provide(ChunkStoreRegistry, registryLayer())
+      const overworld = registry.forDimension('overworld')
+      const nether = registry.forDimension('nether')
+      const position = validated.validatedBlockPosition(0, 10, 0)
+
+      expect(overworld).not.toBe(nether)
+      yield* overworld.load(coord)
+      yield* nether.load(coord)
+      yield* overworld.setBlock(position, BLOCK.SAND)
+      yield* nether.setBlock(position, BLOCK.STONE)
+      yield* overworld.unload(coord)
+      yield* nether.unload(coord)
+
+      const overworldKey = chunkSaveKey({ dimension: 'overworld', worldId }, coord)
+      const netherKey = chunkSaveKey({ dimension: 'nether', worldId }, coord)
+      expect(overworldKey).not.toBe(netherKey)
+      expect(Option.isSome(yield* storage.get(overworldKey))).toBe(true)
+      expect(Option.isSome(yield* storage.get(netherKey))).toBe(true)
+
+      const reopened = yield* Effect.provide(ChunkStoreRegistry, registryLayer())
+      const restoredOverworld = yield* reopened.forDimension('overworld').load(coord)
+      const restoredNether = yield* reopened.forDimension('nether').load(coord)
+
+      expect(restoredOverworld.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+      expect(restoredNether.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.STONE)
+    }),
+  )
 
   it.effect('loads storage before invoking the generator', () =>
     Effect.gen(function* () {
@@ -226,6 +269,82 @@ describe('chunk persistence', () => {
    * that attempt's compare-and-remove runs, the resident chunk has already
    * moved past the snapshot it just persisted.
    */
+  it.effect('finishes eviction when an unload removes the saved chunk concurrently', () =>
+    Effect.gen(function* () {
+      const backing = yield* makeInMemoryStorage
+      const firstCoord = validated.validatedChunkCoord(0, 0)
+      const secondCoord = validated.validatedChunkCoord(1, 0)
+      const enteredFirstSave = yield* Deferred.make<void>()
+      const continueFirstSave = yield* Deferred.make<void>()
+      let putCount = 0
+
+      const delayedStorage: StorageService = {
+        ...backing,
+        put: (key, envelope) =>
+          Effect.gen(function* () {
+            putCount += 1
+            if (putCount === 1) {
+              yield* Deferred.succeed(enteredFirstSave, undefined)
+              yield* Deferred.await(continueFirstSave)
+            }
+            return yield* backing.put(key, envelope)
+          }),
+      }
+
+      const store = yield* makeStoreWith(delayedStorage, ONE_CHUNK_CAPACITY)
+      yield* store.load(firstCoord)
+      yield* store.setBlock(validated.validatedBlockPosition(0, 10, 0), BLOCK.SAND)
+
+      const loading = yield* store.load(secondCoord).pipe(Effect.forkChild)
+      yield* Deferred.await(enteredFirstSave)
+      expect(yield* store.unload(firstCoord)).toBe(true)
+      yield* Deferred.succeed(continueFirstSave, undefined)
+      yield* Fiber.join(loading)
+
+      expect(putCount).toBe(2)
+      expect(yield* store.isLoaded(firstCoord)).toBe(false)
+      expect(yield* store.isLoaded(secondCoord)).toBe(true)
+    }),
+  )
+
+  it.effect('retries eviction persistence when a write races the eviction save', () =>
+    Effect.gen(function* () {
+      const backing = yield* makeInMemoryStorage
+      const firstCoord = validated.validatedChunkCoord(0, 0)
+      const secondCoord = validated.validatedChunkCoord(1, 0)
+      const position = validated.validatedBlockPosition(0, 10, 0)
+      let putCount = 0
+      const cell: { store?: Effect.Success<ReturnType<typeof makeStoreWith>> } = {}
+
+      const racyDuringSave: StorageService = {
+        ...backing,
+        put: (key, envelope) =>
+          Effect.gen(function* () {
+            putCount += 1
+            if (putCount === 1 && cell.store) {
+              yield* cell.store.setBlock(position, BLOCK.STONE)
+            }
+            return yield* backing.put(key, envelope)
+          }),
+      }
+
+      const store = yield* makeStoreWith(racyDuringSave, ONE_CHUNK_CAPACITY)
+      cell.store = store
+      yield* store.load(firstCoord)
+      yield* store.setBlock(position, BLOCK.SAND)
+
+      yield* store.load(secondCoord)
+
+      expect(putCount).toBe(2)
+      expect(yield* store.isLoaded(firstCoord)).toBe(false)
+      expect(yield* store.isLoaded(secondCoord)).toBe(true)
+
+      const reloaded = yield* makeStoreWith(backing, TEST_CAPACITY)
+      const restored = yield* reloaded.load(firstCoord)
+      expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.STONE)
+    }),
+  )
+
   it.effect('retries the save when a write races the unload, and persists the newer content', () =>
     Effect.gen(function* () {
       const backing = yield* makeInMemoryStorage
