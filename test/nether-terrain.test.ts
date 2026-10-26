@@ -1,7 +1,7 @@
 /* oxlint-disable id-length, max-lines-per-function, max-statements, no-magic-numbers, no-undefined, sort-imports */
 
 import { describe, expect, it } from '@effect/vitest'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from '../src/domain/constants'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import {
@@ -12,9 +12,10 @@ import {
   NETHER_LAVA_LEVEL,
   netherBlockAt,
   netherStructureTerrainAt,
-} from '../src/domain/nether-terrain'
-import { planRuinedNetherPortalForRegion } from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
+import { planRuinedNetherPortalForRegion } from './helpers/unwrapped-worldgen'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { generateNetherChunk as generateNetherChunkRaw } from '../src/domain/nether-terrain'
 
 describe('Nether terrain', () => {
   it('is deterministic, seed-dependent, bounded, and labels every column as NETHER', () => {
@@ -98,6 +99,19 @@ describe('Nether terrain', () => {
     // bodies.
     const seed = 5150
     expect(generateNetherChunkAt(noiseSeed(seed), chunkAxis(-2), chunkAxis(7))).toStrictEqual(generateNetherChunk(noiseSeed(seed), chunkCoord(chunkAxis(-2), chunkAxis(7))))
+  })
+
+  it('propagates invalid chunk coordinates as typed Nether failures', () => {
+    const coordinate = chunkCoord(chunkAxis(Number.MAX_SAFE_INTEGER), chunkAxis(0))
+    const result = generateNetherChunkRaw(noiseSeed(0), coordinate)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid Nether chunk coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'bastion-remnant',
+    })
   })
 
   it('applies a real ruined portal across all touched chunks and preserves markers', () => {

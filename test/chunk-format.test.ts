@@ -58,16 +58,16 @@ import {
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
-import { endSurfaceHeightAt, generateEndChunk } from '../src/domain/end-terrain'
+import { endSurfaceHeightAt, generateEndChunk } from './helpers/unwrapped-worldgen'
 import { BLOCK_ID_MAX } from '@nerima-games/mc-kernel'
-import { planEndCityForRegion, type NaturalStructureChunk } from '../src/domain/natural-structure'
+import { planEndCityForRegion, type NaturalStructureChunk } from './helpers/unwrapped-worldgen'
 import {
   decodeSave,
   encodeSave,
   saveEnvelope,
   type SaveEnvelopeDraft,
 } from '@nerima-games/mc-save'
-import { generateChunk } from '../src/domain/terrain'
+import { generateChunk } from './helpers/unwrapped-worldgen'
 
 const SEED = validated.noiseSeed(20260728)
 

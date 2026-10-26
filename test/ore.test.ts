@@ -41,7 +41,7 @@ import {
   type OreName,
 } from '../src/domain/ore'
 import { mulberry32, type NoiseSeed } from '@nerima-games/mc-noise'
-import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from '../src/domain/terrain'
+import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS, chunkCoord } from '@nerima-games/mc-kernel'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   FORTRESS_BLAZE_RADIUS,
@@ -14,16 +14,17 @@ import {
   NETHER_FORTRESS_BLOCK,
   isNearFortressSite,
   planNetherFortressForRegion,
-} from '../src/domain/nether-fortress'
+} from './helpers/unwrapped-worldgen'
 import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planNaturalStructureForRegion,
   type NaturalStructurePlan,
-} from '../src/domain/natural-structure'
-import type { NetherStructureTerrainSampler } from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
+import type { NetherStructureTerrainSampler } from './helpers/unwrapped-worldgen'
 import { candidatePresenceChannelSeedFor } from '../src/domain/natural-structure-plan-builder'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { planNetherFortressForRegion as planNetherFortressForRegionRaw } from '../src/domain/nether-fortress'
 
 const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(48) })
 
@@ -153,6 +154,19 @@ describe('Nether fortress plans', () => {
     )
     if (Option.isNone(raised)) throw new Error('expected raised fortress plan')
     expect(raised.value.origin.y).toBe(64)
+  })
+
+  it('returns a typed failure for invalid fortress region coordinates', () => {
+    const result = planNetherFortressForRegionRaw(noiseSeed(1), Number.NaN, 0, FLAT_NETHER)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid fortress region failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'nether-fortress',
+      value: Number.NaN,
+    })
   })
 
   it('answers proximity from accepted candidates and ignores absent regions', () => {

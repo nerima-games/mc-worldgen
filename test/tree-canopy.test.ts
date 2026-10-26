@@ -2,7 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { generateChunkAt } from '../src/domain/terrain'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import {
   TREE_CELL_JITTER_ORIGIN,
   TREE_CELL_JITTER_SPAN,

@@ -9,7 +9,7 @@ import {
   OctaveAmplitude,
   OctaveCount,
 } from '@nerima-games/mc-noise'
-import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from '../src/domain/terrain'
+import { CONTINENTALNESS_CONTRAST, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 import { surfaceHeightFromContinentalness } from '../src/domain/density-function'
 import { blockAxis, noiseSeed } from './fixtures/validated-inputs'
 

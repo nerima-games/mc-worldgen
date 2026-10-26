@@ -80,7 +80,7 @@ import {
 } from '../src/domain/constants'
 import { RIVER_WATER_LEVEL } from '../src/domain/lake-config'
 import { ORE_IDS } from '../src/domain/ore'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 import { PLANT_IDS } from '../src/domain/vegetation'
 // Every remaining `*_BLOCK` record in src/domain — the block ids each natural
 // structure carves, none of which are part of `BLOCK` (terrain), `ORE_IDS` or
@@ -99,7 +99,7 @@ import { IGLOO_BLOCK } from '../src/domain/igloo-data'
 import { JUNGLE_PYRAMID_BLOCK } from '../src/domain/jungle-pyramid-data'
 import { MINESHAFT_BLOCK } from '../src/domain/mineshaft-data'
 import { NATURAL_STRUCTURE_BLOCK } from '../src/domain/natural-structure-data'
-import { NETHER_BLOCK } from '../src/domain/nether-terrain'
+import { NETHER_BLOCK } from './helpers/unwrapped-worldgen'
 import { NETHER_FORTRESS_BLOCK } from '../src/domain/nether-fortress-data'
 import { OCEAN_MONUMENT_BLOCK } from '../src/domain/ocean-monument-data'
 import { OCEAN_RUIN_BLOCK } from '../src/domain/ocean-ruin-data'

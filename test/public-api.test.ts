@@ -140,11 +140,11 @@ describe('public API surface', () => {
     const coord = TEST_CHUNK_COORD
 
     expectNaturalStructureChunk(
-      worldgen.generateChunk(TEST_GENERATION_SEED, coord, { decorate: false }),
+      Result.getOrThrow(worldgen.generateChunk(TEST_GENERATION_SEED, coord, { decorate: false })),
       coord,
     )
-    expectNaturalStructureChunk(worldgen.generateNetherChunk(TEST_GENERATION_SEED, coord), coord)
-    expectNaturalStructureChunk(worldgen.generateEndChunk(TEST_GENERATION_SEED, coord), coord)
+    expectNaturalStructureChunk(Result.getOrThrow(worldgen.generateNetherChunk(TEST_GENERATION_SEED, coord)), coord)
+    expectNaturalStructureChunk(Result.getOrThrow(worldgen.generateEndChunk(TEST_GENERATION_SEED, coord)), coord)
   })
 
   it('publishes End feature planning and gateway value APIs from the package root', () => {

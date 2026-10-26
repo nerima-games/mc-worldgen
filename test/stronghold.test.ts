@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
@@ -8,7 +8,7 @@ import { detectCompletedEndPortal, endPortalCenterForStronghold } from '../src/d
 import {
   NATURAL_STRUCTURE_GRID,
   planNaturalStructureForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import {
   STRONGHOLD_BLOCK,
   STRONGHOLD_CEILING_Y,
@@ -23,9 +23,10 @@ import {
   locateStronghold,
   type StrongholdSite,
 } from '../src/domain/structure-siting'
-import { generateChunk } from '../src/domain/terrain'
+import { generateChunk } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { planStrongholdForRegion as planStrongholdForRegionRaw } from '../src/domain/stronghold-structure'
 
 const requiredSite = (): StrongholdSite => {
   const site = nearestStrongholdSite(GOLDEN_SEED, blockAxis(0), blockAxis(0))
@@ -155,6 +156,29 @@ describe('stronghold chunk generation', () => {
 })
 
 describe('stronghold plan', () => {
+  it.effect('plans a valid region and propagates invalid region coordinates', () => Effect.sync(() => {
+    const invalid = planStrongholdForRegionRaw(GOLDEN_SEED, Number.NaN, 0)
+    expect(Result.isFailure(invalid)).toBe(true)
+    if (Result.isSuccess(invalid)) throw new Error('expected an invalid stronghold region failure')
+    expect(invalid.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'stronghold',
+      value: Number.NaN,
+    })
+
+    const site = requiredSite()
+    const regionX = Math.floor(site.x / STRONGHOLD_REGION_SIZE)
+    const regionZ = Math.floor(site.z / STRONGHOLD_REGION_SIZE)
+    const planned = planStrongholdForRegionRaw(GOLDEN_SEED, regionX, regionZ)
+
+    expect(Result.isSuccess(planned)).toBe(true)
+    if (Result.isFailure(planned)) throw new Error('expected a valid stronghold region plan')
+    expect(Option.isSome(planned.success)).toBe(true)
+    if (Option.isNone(planned.success)) throw new Error('expected a stronghold plan')
+    expect(planned.success.value.kind).toBe('stronghold')
+  }))
+
   it.effect('is deterministic, unique, complete, and overworld-only', () => Effect.sync(() => {
     const site = requiredSite()
     const first = generateStrongholdPlan(GOLDEN_SEED, site)

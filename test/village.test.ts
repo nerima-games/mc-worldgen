@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 // eslint-disable-next-line sort-imports -- External imports precede project modules.
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 // eslint-disable-next-line sort-imports -- Project modules follow domain dependency order.
 import { BLOCK } from '../src/domain/biome'
 import { getBlockAt } from '../src/domain/chunk'
@@ -14,9 +14,9 @@ import {
   VILLAGE_REGION_SIZE,
   VILLAGE_REGION_SPAWN_PERMILLE,
   type OverworldTerrainSampler,
-  villageSiteForRegion,
 } from '../src/domain/structure-siting'
-import { biomeFor, generateChunk, surfaceHeightAt } from '../src/domain/terrain'
+import { villageSiteForRegion as villageSiteForRegionRaw } from '../src/domain/structure-siting'
+import { biomeFor, generateChunk, surfaceHeightAt, villageSiteForRegion } from './helpers/unwrapped-worldgen'
 // eslint-disable-next-line sort-imports -- Layout assertions import the public village resolver last.
 import {
   VILLAGE_BLOCK,
@@ -222,7 +222,7 @@ describe('village siting', () => {
 })
 
 describe('village coordinate bounds', () => {
-  it.effect('rejects out-of-range candidate coordinates before sampling terrain', () => Effect.sync(() => {
+  it.effect('returns a typed failure before sampling terrain when the candidate footprint is out of range', () => Effect.sync(() => {
     // This fixed seed and region pass the presence roll, but all candidate x-coordinates exceed BlockAxis.
     // eslint-disable-next-line no-magic-numbers -- The offset selects the fixed out-of-range presence hit.
     const regionX = Math.ceil(Number.MAX_SAFE_INTEGER / VILLAGE_REGION_SIZE) + 4
@@ -232,7 +232,15 @@ describe('village coordinate bounds', () => {
       return flatPlains(x, z)
     }
 
-    expect(Option.isNone(villageSiteForRegion(noiseSeed(SEED), regionX, 0, countedTerrain))).toBe(true)
+    const result = villageSiteForRegionRaw(noiseSeed(SEED), regionX, 0, countedTerrain)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'village',
+    })
     expect(terrainSamples).toBe(0)
   }))
 })

@@ -10,7 +10,7 @@
  * regeneration and nothing here backs one.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
 import { BEDROCK_Y, blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
@@ -22,13 +22,25 @@ import {
   STRONGHOLD_SITE_MARGIN,
   locateStronghold,
   nearestStrongholdSite,
-  strongholdSiteForRegion,
+  strongholdSiteForRegion as strongholdSiteForRegionRaw,
   strongholdSitesNearChunk,
   type StrongholdSite,
+  type OverworldTerrainSampler,
+  villageSiteForRegion as villageSiteForRegionRaw,
+  villageSitesNearChunk,
 } from '../src/domain/structure-siting'
-import { MIN_SURFACE_Y, generateChunkAt } from '../src/domain/terrain'
+import { MIN_SURFACE_Y, generateChunkAt, strongholdSiteForRegion, villageSiteForRegion } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+
+const VILLAGE_TEST_REGION = { x: -29, z: -25 }
+const FLAT_VILLAGE_TERRAIN: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+const villageTestSite = () => Option.getOrThrow(villageSiteForRegion(
+  GOLDEN_SEED,
+  VILLAGE_TEST_REGION.x,
+  VILLAGE_TEST_REGION.z,
+  FLAT_VILLAGE_TERRAIN,
+))
 
 describe('the region rule', () => {
   it.effect('transcribes the reference’s four constants', () =>
@@ -383,10 +395,93 @@ describe('the ranked list — locateStronghold', () => {
 })
 
 describe('region coordinate bounds', () => {
-  it.effect('returns no site when an accepted region would exceed BlockAxis', () => Effect.sync(() => {
-    // GOLDEN_SEED accepts this region; its generated world x-coordinate is outside safe-integer range.
+  it.effect('returns a typed failure when a region would exceed BlockAxis', () => Effect.sync(() => {
+    // This region is within Number's safe-integer range, but its derived block coordinate is not.
     const regionX = Math.ceil(Number.MAX_SAFE_INTEGER / STRONGHOLD_REGION_SIZE)
-    expect(Option.isNone(strongholdSiteForRegion(GOLDEN_SEED, regionX, 0))).toBe(true)
+    const result = strongholdSiteForRegionRaw(GOLDEN_SEED, regionX, 0)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'stronghold',
+    })
+  }))
+
+  it.effect('returns a typed failure for a NaN region index', () => Effect.sync(() => {
+    const result = strongholdSiteForRegionRaw(GOLDEN_SEED, Number.NaN, 0)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'stronghold',
+      value: Number.NaN,
+    })
+  }))
+
+  it.effect('skips unrepresentable stronghold sites near the largest block coordinate', () => Effect.sync(() => {
+    const sites = locateStronghold(noiseSeed(0), { x: blockAxis(Number.MAX_SAFE_INTEGER), z: blockAxis(0) }, 20)
+
+    expect(sites.length).toBeGreaterThan(0)
+    expect(sites.every((site) => Number.isSafeInteger(site.x) && Number.isSafeInteger(site.z))).toBe(true)
+  }))
+})
+
+describe('village chunk query coordinate bounds', () => {
+  it.effect('returns a typed failure for an invalid village region', () => Effect.sync(() => {
+    const result = villageSiteForRegionRaw(GOLDEN_SEED, Number.NaN, 0, () => {
+      throw new Error('invalid village regions must not sample terrain')
+    })
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'village',
+      value: Number.NaN,
+    })
+  }))
+
+  it.effect('skips regions whose candidate footprint is outside the block-coordinate range', () => Effect.sync(() => {
+    const sites = villageSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Number.MAX_SAFE_INTEGER),
+      chunkAxis(0),
+      () => {
+        throw new Error('invalid candidate regions must not sample terrain')
+      },
+    )
+
+    expect(sites).toStrictEqual([])
+  }))
+
+  it.effect('finds accepted sites whose footprint overlaps a queried chunk', () => Effect.sync(() => {
+    const site = villageTestSite()
+    const sites = villageSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
+      FLAT_VILLAGE_TERRAIN,
+    )
+
+    expect(sites).toContainEqual(site)
+  }))
+
+  it.effect('omits a candidate whose terrain is not suitable for a village', () => Effect.sync(() => {
+    const site = villageTestSite()
+    const sampleTerrain: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    const sites = villageSitesNearChunk(
+      GOLDEN_SEED,
+      chunkAxis(Math.floor(site.x / CHUNK_SIZE_XZ)),
+      chunkAxis(Math.floor(site.z / CHUNK_SIZE_XZ)),
+      sampleTerrain,
+    )
+
+    expect(sites).toStrictEqual([])
   }))
 })
 

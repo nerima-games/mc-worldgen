@@ -4,7 +4,7 @@ import { BLOCK } from '../src/domain/biome'
 import { CAVE_CEILING_Y, computeWaterFloorYs } from '../src/domain/carver'
 import { biomeAt, readBlock } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../src/domain/constants'
-import { generateChunkAt } from '../src/domain/terrain'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import { chunkAxis, localAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**

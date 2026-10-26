@@ -3,7 +3,7 @@ import { Effect } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, LAKE_LEVEL, SEA_LEVEL } from '../src/domain/constants'
 import { readBlock } from '../src/domain/chunk'
-import { generateChunkAt } from '../src/domain/terrain'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**

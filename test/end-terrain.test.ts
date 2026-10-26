@@ -1,7 +1,7 @@
 /* oxlint-disable id-length, max-statements, no-magic-numbers, no-undefined, sort-imports */
 
 import { describe, expect, it } from '@effect/vitest'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_VOLUME, blockIndex } from '../src/domain/constants'
 import { END_FEATURE_BLOCK, endFeaturePlanForSeed } from '../src/domain/end-features'
 import {
@@ -12,10 +12,11 @@ import {
   generateEndChunk,
   generateEndChunkAt,
   generateEndTerrainChunk,
-} from '../src/domain/end-terrain'
-import { planEndCityForRegion } from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
+import { planEndCityForRegion } from './helpers/unwrapped-worldgen'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { generateEndChunk as generateEndChunkRaw } from '../src/domain/end-terrain'
 
 describe('End terrain', () => {
   it('builds a solid central island and labels every column as END', () => {
@@ -67,6 +68,32 @@ describe('End terrain', () => {
     expect(chunk.endFeatureMarkers.some((marker) => marker.kind === 'end-crystal' && marker.featureId === plan.id)).toBe(
       true,
     )
+  })
+
+  it('propagates invalid chunk coordinates and structure footprints as typed failures', () => {
+    const seed = noiseSeed(0)
+    const invalidChunk = chunkCoord(chunkAxis(Number.MAX_SAFE_INTEGER), chunkAxis(0))
+    const coordinateFailure = generateEndChunkRaw(seed, invalidChunk)
+
+    expect(Result.isFailure(coordinateFailure)).toBe(true)
+    if (Result.isSuccess(coordinateFailure)) throw new Error('expected an invalid chunk coordinate failure')
+    expect(coordinateFailure.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'end-city',
+    })
+
+    const edgeChunkX = Math.floor((Number.MAX_SAFE_INTEGER - 15) / 16)
+    const edgeChunk = chunkCoord(chunkAxis(edgeChunkX), chunkAxis(edgeChunkX))
+    const footprintFailure = generateEndChunkRaw(seed, edgeChunk)
+
+    expect(Result.isFailure(footprintFailure)).toBe(true)
+    if (Result.isSuccess(footprintFailure)) throw new Error('expected an invalid End structure footprint failure')
+    expect(footprintFailure.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'end-city',
+    })
   })
 
   it('applies every city and ship slice with marker provenance across chunk boundaries', () => {

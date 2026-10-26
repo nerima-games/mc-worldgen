@@ -2,7 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import * as validated from './fixtures/validated-inputs'
 import { Effect } from 'effect'
 import { CHUNK_VOLUME } from '../src/domain/constants'
-import { generateChunk, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { generateChunk, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 
 /**
  * ---------------------------------------------------------------------------

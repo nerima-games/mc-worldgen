@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS } from '@nerima-games/mc-kernel'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks } from '../src/domain/chunk'
 import { chunkCoord } from '@nerima-games/mc-kernel'
@@ -20,10 +20,22 @@ import {
   planEndCityForRegion,
   planRuinedNetherPortalForRegion,
   planVillageForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import { VILLAGE_HALF_EXTENT, type OverworldTerrainSampler } from '../src/domain/structure-siting'
-import { generateChunk } from '../src/domain/terrain'
+import { generateChunk } from './helpers/unwrapped-worldgen'
+import { generateChunk as generateChunkRaw } from '../src/domain/terrain'
+import {
+  InvalidNaturalStructureCoordinate,
+  naturalStructurePlansForChunk as naturalStructurePlansForChunkRaw,
+  planNaturalStructureForRegion as planNaturalStructureForRegionRaw,
+  planVillageForRegion as planVillageForRegionRaw,
+} from '../src/domain/natural-structure'
+import {
+  naturalStructurePlansForChunk as naturalStructurePlansForChunkWithPlanner,
+} from '../src/domain/natural-structure-chunk-planner'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { planEndCityForRegion as planEndCityForRegionRaw } from '../src/domain/natural-structure-end-city'
+import { planRuinedNetherPortalForRegion as planRuinedNetherPortalForRegionRaw } from '../src/domain/natural-structure-portal'
 
 const FLAT_PLAINS: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
 const FLAT_DESERT: OverworldTerrainSampler = () => ({ biome: 'DESERT', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
@@ -226,6 +238,129 @@ describe('natural structure plans', () => {
     expect(sampleCount).toBe(0)
   })
 
+  it('returns a typed coordinate failure for a NaN End city region', () => {
+    const result = planEndCityForRegionRaw(noiseSeed(123456789), Number.NaN, 0, FLAT_END, noiseSeed(0))
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'end-city',
+      value: Number.NaN,
+    })
+  })
+
+  it('returns a typed coordinate failure for a NaN End city region z', () => {
+    const result = planEndCityForRegionRaw(noiseSeed(123456789), 0, Number.NaN, FLAT_END, noiseSeed(0))
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-z',
+      kind: 'end-city',
+      region: { x: 0, z: Number.NaN },
+      value: Number.NaN,
+    })
+  })
+
+  it('returns a typed coordinate failure for a NaN ruined-portal region', () => {
+    const result = planRuinedNetherPortalForRegionRaw(noiseSeed(0), Number.NaN, 0, FLAT_NETHER)
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'ruined-nether-portal',
+      value: Number.NaN,
+    })
+  })
+
+  it('does not hide an invalid region when the selected dimension has no sampler', () => {
+    const result = planNaturalStructureForRegionRaw({
+      dimension: 'overworld',
+      kind: 'village',
+      presenceChannelSeed: noiseSeed(0),
+      region: { x: Number.NaN, z: 0 },
+      samplers: {},
+      seed: noiseSeed(123456789),
+    })
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'village',
+      value: Number.NaN,
+    })
+  })
+
+  it('returns a typed coordinate failure from village region planning', () => {
+    const result = planVillageForRegionRaw(noiseSeed(0), Number.NaN, 0, () => {
+      throw new Error('invalid village regions must not sample terrain')
+    })
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'region-x',
+      kind: 'village',
+      value: Number.NaN,
+    })
+  })
+
+  it('returns a typed coordinate failure when an End city footprint exceeds safe integers', () => {
+    const result = planEndCityForRegionRaw(noiseSeed(123456789), 28147497671065, 0, FLAT_END, noiseSeed(0))
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected an invalid-coordinate failure')
+    expect(result.failure).toMatchObject({
+      _tag: 'InvalidNaturalStructureCoordinate',
+      axis: 'footprint-x',
+      kind: 'end-city',
+      region: { x: 28147497671065, z: 0 },
+    })
+    expect(Number.isSafeInteger(result.failure.value)).toBe(false)
+  })
+
+  it('propagates invalid chunk footprints through plan enumeration and generation', () => {
+    const coord = chunkCoord(chunkAxis(Number.MAX_SAFE_INTEGER), chunkAxis(0))
+    const plans = naturalStructurePlansForChunkRaw(noiseSeed(0), 'end', coord)
+
+    expect(Result.isFailure(plans)).toBe(true)
+    if (Result.isSuccess(plans)) throw new Error('expected an invalid-coordinate failure')
+    expect(plans.failure._tag).toBe('InvalidNaturalStructureCoordinate')
+
+    const generated = generateChunkRaw(noiseSeed(0), coord)
+    expect(Result.isFailure(generated)).toBe(true)
+    if (Result.isSuccess(generated)) throw new Error('expected an invalid-coordinate failure')
+    expect(generated.failure._tag).toBe('InvalidNaturalStructureCoordinate')
+  })
+
+  it('propagates a region-planning failure through chunk enumeration', () => {
+    const failure = new InvalidNaturalStructureCoordinate({
+      axis: 'footprint-x',
+      kind: 'ancient-city',
+      region: { x: 0, z: 0 },
+      value: Number.MAX_SAFE_INTEGER + 1,
+    })
+    const result = naturalStructurePlansForChunkWithPlanner(
+      noiseSeed(0),
+      'overworld',
+      chunkCoord(chunkAxis(0), chunkAxis(0)),
+      {},
+      () => Result.fail(failure),
+    )
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isSuccess(result)) throw new Error('expected the region-planning failure to propagate')
+    expect(result.failure).toBe(failure)
+  })
+
   it('splits a negative-coordinate city across chunks without load-order coupling', () => {
     const plan = findEndCity(444, true)
     expect(plan.origin.x).toBeLessThan(0)
@@ -372,6 +507,25 @@ describe('natural structure plans', () => {
     expect(naturalStructurePlansForChunk(noiseSeed(1), 'overworld', coord)).toStrictEqual([])
     expect(naturalStructurePlansForChunk(noiseSeed(1), 'nether', coord)).toStrictEqual([])
   })
+
+  for (const { dimension, kind } of [
+    { dimension: 'overworld', kind: 'nether-fortress' },
+    { dimension: 'nether', kind: 'village' },
+    { dimension: 'end', kind: 'village' },
+  ] as const) {
+    it(`returns no plan for ${kind} in ${dimension}`, () => {
+      const result = planNaturalStructureForRegionRaw({
+        dimension,
+        kind,
+        presenceChannelSeed: noiseSeed(0),
+        region: { x: 0, z: 0 },
+        samplers: {},
+        seed: noiseSeed(123456789),
+      })
+
+      expect(result).toStrictEqual(Result.succeed(Option.none()))
+    })
+  }
 
   it('drops the slice of a structure that a pathological sampler pushes below the world', () => {
     // `addBlock`'s `y < 0` guard is not reachable through this repository's

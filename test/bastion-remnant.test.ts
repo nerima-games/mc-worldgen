@@ -12,7 +12,7 @@ import {
   planBastionRemnantForRegion,
   type NaturalStructurePlan,
   type NetherStructureTerrainSampler,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 
 const FLAT_NETHER: NetherStructureTerrainSampler = () => ({ ceilingY: blockAxis(96), surfaceY: blockAxis(48) })
 

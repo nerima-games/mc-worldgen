@@ -9,8 +9,8 @@ import {
   type EndFeaturePlan,
   type EndSpike,
 } from '../src/domain/end-features'
-import { generateEndTerrainChunk } from '../src/domain/end-terrain'
-import type { NaturalStructureChunk } from '../src/domain/natural-structure'
+import { generateEndTerrainChunk } from './helpers/unwrapped-worldgen'
+import type { NaturalStructureChunk } from './helpers/unwrapped-worldgen'
 import { blockPosition, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 

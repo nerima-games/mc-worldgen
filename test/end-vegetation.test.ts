@@ -11,7 +11,7 @@ import {
   endSurfaceHeightAt,
   generateEndChunk,
   generateEndTerrainChunk,
-} from '../src/domain/end-terrain'
+} from './helpers/unwrapped-worldgen'
 import {
   applyEndChorusPlansToChunk,
   END_VEGETATION_BLOCK,

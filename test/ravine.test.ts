@@ -57,7 +57,7 @@ import {
   RAVINE_MAX_DEPTH,
   RAVINE_MIN_DEPTH,
 } from '../src/domain/ravine'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 import { PLANT_IDS } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'

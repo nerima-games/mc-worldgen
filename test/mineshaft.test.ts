@@ -12,7 +12,7 @@ import {
   naturalStructurePlansForChunk,
   naturalStructureSliceForChunk,
   planMineshaftForRegion,
-} from '../src/domain/natural-structure'
+} from './helpers/unwrapped-worldgen'
 import type { OverworldTerrainSampler } from '../src/domain/structure-siting'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 

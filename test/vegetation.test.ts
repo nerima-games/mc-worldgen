@@ -26,7 +26,7 @@ import { BIOMES, BIOME_SURFACES, BLOCK, type BiomeType } from '../src/domain/bio
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
 import { localAxis } from '../src/domain/coordinate-compatibility'
 import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { generateChunkAt } from '../src/domain/terrain'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import {
   AQUATIC_PLANT_IDS,
   GROUND_COVER_IDS,

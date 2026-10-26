@@ -92,7 +92,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BIOMES, type BiomeType } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { biomeFor, climateAt, surfaceHeightAt } from '../src/domain/terrain'
+import { biomeFor, climateAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 import { blockAxis, noiseSeed } from './fixtures/validated-inputs'
 
 /**
