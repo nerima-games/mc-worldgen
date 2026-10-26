@@ -60,7 +60,7 @@ import {
   blockIndex,
 } from './constants.js'
 import { BLOCK, type BiomeType } from './biome.js'
-import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import type { BlockAxis, ChunkAxis, ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -75,7 +75,6 @@ import {
   emptyBlocks,
   readBlock,
 } from './chunk.js'
-import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
@@ -552,7 +551,7 @@ export const generateChunkAt = (
   z: ChunkAxis,
   options: GenerateOptions = {},
 ): NaturalStructureChunk =>
-  generateChunk(seed, chunkCoord(x, z), options)
+  generateChunk(seed, { cx: x, cz: z }, options)
 
 /** Re-exported so callers need one import to read a generated chunk. */
 export { biomeAt }

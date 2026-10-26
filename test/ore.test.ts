@@ -25,7 +25,7 @@ import { BLOCK } from '../src/domain/biome'
 import { readBlock, type Chunk } from '../src/domain/chunk'
 import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { worldX, worldZ } from '../src/domain/generator-coordinates'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import type { ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   DEEPSLATE_ORE_BLOCK,
   MAX_SEED_ATTEMPTS,
@@ -103,14 +103,16 @@ const countOre = (chunks: ReadonlyArray<Chunk>): ReadonlyMap<number, number> => 
  * rock.
  */
 const placeWithBands = (configs: ReadonlyArray<OreConfig>, seed: NoiseSeed, cx: number, cz: number): number => {
-  const chunk = generateChunkAt(seed, chunkAxis(cx), chunkAxis(cz), { decorate: false })
+  const chunkX = chunkAxis(cx)
+  const chunkZ = chunkAxis(cz)
+  const chunk = generateChunkAt(seed, chunkX, chunkZ, { decorate: false })
   for (let index = 0; index < chunk.blocks.length; index += 1) {
     if (ORE_ID_SET.has(readBlock(chunk.blocks, index))) {
       chunk.blocks[index] = BLOCK.STONE
     }
   }
 
-  const coord = chunkCoord(chunkAxis(cx), chunkAxis(cz))
+  const coord: ChunkCoord = { cx: chunkX, cz: chunkZ }
   const baseWorldX = coord.cx * CHUNK_SIZE_XZ
   const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
   let placed = 0
