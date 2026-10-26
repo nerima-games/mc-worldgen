@@ -19,13 +19,13 @@ import { continentalnessAt, surfaceHeightFromContinentalness, surfaceHeightValue
 import type { BiomeType } from './biome.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
 import {
   computeLakeBasinY,
   determineWaterLevelValue,
   isLakeShoreColumnForGeneration,
   resolveSurfaceYFromBasin,
 } from './lake-generator.js'
+import { Option } from 'effect'
 
 /** Shared "one" numerator for every `frequency: 1 / wavelength` noise call. */
 const NOISE_FREQUENCY_UNIT = 1

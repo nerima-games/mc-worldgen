@@ -285,10 +285,9 @@ const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => 
   return levels
 }
 
-const minBlockCoordinateForChunk = (chunkCoordinate: ChunkAxis): BlockAxis => {
-  // Chunk origins are multiples of 16, so a safe origin leaves all 15 remaining local offsets safe.
-  return blockAxis(chunkCoordinate * CHUNK_SIZE_XZ)
-}
+// Chunk origins are multiples of 16, so a safe origin leaves all 15 remaining local offsets safe.
+const minBlockCoordinateForChunk = (chunkCoordinate: ChunkAxis): BlockAxis =>
+  blockAxis(chunkCoordinate * CHUNK_SIZE_XZ)
 
 const createChunkGenerationContext = (
   seed: NoiseSeed,
