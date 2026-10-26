@@ -28,9 +28,13 @@ import { BlockAxis, type ChunkAxis } from '@nerima-games/mc-kernel/domain/coordi
 import {
   InvalidNaturalStructureCoordinate,
   MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  type NaturalStructureRegionSpan,
   type ValidatedNaturalStructureRegion,
   type ValidatedNaturalStructureRegionAxis,
+  type ValidatedNaturalStructureRegionSpan,
   validateNaturalStructureRegionCoordinates,
+  validateNaturalStructureRegionSpan,
+  validatedNaturalStructureRegionAxisInSpan,
 } from './natural-structure-coordinate-validation.js'
 import { Option, Result } from 'effect'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
@@ -88,6 +92,7 @@ const PERMILLE_SCALE = 1000
 
 /** A region's margin is subtracted from both of its edges to get the free span inside it. */
 const MARGIN_SIDES = 2
+const STRONGHOLD_REGION_GRID = { separation: STRONGHOLD_SITE_MARGIN * MARGIN_SIDES, spacing: STRONGHOLD_REGION_SIZE }
 
 /** Euclidean floor division — correct for negative operands, as in `mc-kernel`. */
 const floorDiv = (value: number, divisor: number): number => Math.floor(value / divisor)
@@ -162,7 +167,7 @@ const validateStrongholdRegionCoordinates = (
   validateNaturalStructureRegionCoordinates(
     'stronghold',
     { x: regionX, z: regionZ },
-    { separation: STRONGHOLD_SITE_MARGIN * MARGIN_SIDES, spacing: STRONGHOLD_REGION_SIZE },
+    STRONGHOLD_REGION_GRID,
     MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
   )
 
@@ -238,6 +243,7 @@ const CHUNK_SIZE = 16
 const CHUNK_MAX_LOCAL = 15
 const REGION_STEP = 1
 const MIN_HALF_EXTENT = 0
+const VILLAGE_REGION_GRID = { separation: VILLAGE_SITE_MARGIN * MARGIN_SIDES, spacing: VILLAGE_REGION_SIZE }
 
 type SitingChunkBounds = {
   readonly maxX: number
@@ -453,9 +459,17 @@ const validateVillageRegionCoordinates = (
   validateNaturalStructureRegionCoordinates(
     'village',
     { x: regionX, z: regionZ },
-    { separation: VILLAGE_SITE_MARGIN * MARGIN_SIDES, spacing: VILLAGE_REGION_SIZE },
+    VILLAGE_REGION_GRID,
     VILLAGE_HALF_EXTENT,
   )
+
+export const villageSiteOptionForValidatedRegion = (
+  seed: NoiseSeed,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: OverworldTerrainSampler,
+  candidatePresenceChecked = false,
+): Option.Option<VillageSite> => villageSiteOptionForRegion(seed, regionX, regionZ, sampleTerrain, candidatePresenceChecked)
 
 type VillageChunkQuery = {
   readonly bounds: SitingChunkBounds
@@ -466,12 +480,16 @@ type VillageChunkQuery = {
 
 const appendVillageSiteForRegion = (
   query: VillageChunkQuery,
+  span: ValidatedNaturalStructureRegionSpan,
   regionX: number,
   regionZ: number,
-): InvalidNaturalStructureCoordinate | null => {
-  const validation = validateVillageRegionCoordinates(regionX, regionZ)
-  if (Result.isFailure(validation)) {return validation.failure}
-  const site = villageSiteOptionForRegion(query.seed, validation.success.x, validation.success.z, query.sampleTerrain)
+): void => {
+  const site = villageSiteOptionForValidatedRegion(
+    query.seed,
+    validatedNaturalStructureRegionAxisInSpan(span, regionX),
+    validatedNaturalStructureRegionAxisInSpan(span, regionZ),
+    query.sampleTerrain,
+  )
   if (
     Option.isSome(site) &&
     site.value.x >= query.bounds.minX && site.value.x <= query.bounds.maxX &&
@@ -479,21 +497,21 @@ const appendVillageSiteForRegion = (
   ) {
     query.sites.push(site.value)
   }
-  return null
 }
 
 const appendVillageSitesInBounds = (query: VillageChunkQuery): InvalidNaturalStructureCoordinate | null => {
   const { bounds } = query
-  const regionBounds = {
+  const regionBounds: NaturalStructureRegionSpan = {
     maxRegionX: floorDiv(bounds.maxX, VILLAGE_REGION_SIZE),
     maxRegionZ: floorDiv(bounds.maxZ, VILLAGE_REGION_SIZE),
     minRegionX: floorDiv(bounds.minX, VILLAGE_REGION_SIZE),
     minRegionZ: floorDiv(bounds.minZ, VILLAGE_REGION_SIZE),
   }
-  for (let regionX = regionBounds.minRegionX; regionX <= regionBounds.maxRegionX; regionX += REGION_STEP) {
-    for (let regionZ = regionBounds.minRegionZ; regionZ <= regionBounds.maxRegionZ; regionZ += REGION_STEP) {
-      const failure = appendVillageSiteForRegion(query, regionX, regionZ)
-      if (failure) {return failure}
+  const validatedSpan = validateNaturalStructureRegionSpan('village', regionBounds, VILLAGE_REGION_GRID, VILLAGE_HALF_EXTENT)
+  if (validatedSpan instanceof Error) {return validatedSpan}
+  for (let regionX = validatedSpan.minRegionX; regionX <= validatedSpan.maxRegionX; regionX += REGION_STEP) {
+    for (let regionZ = validatedSpan.minRegionZ; regionZ <= validatedSpan.maxRegionZ; regionZ += REGION_STEP) {
+      appendVillageSiteForRegion(query, validatedSpan, regionX, regionZ)
     }
   }
   return null
@@ -509,14 +527,6 @@ export const villageSiteForRegion = (
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
   return Result.succeed(villageSiteOptionForRegion(seed, validation.success.x, validation.success.z, sampleTerrain))
 }
-
-export const villageSiteOptionForValidatedRegion = (
-  seed: NoiseSeed,
-  regionX: ValidatedNaturalStructureRegionAxis,
-  regionZ: ValidatedNaturalStructureRegionAxis,
-  sampleTerrain: OverworldTerrainSampler,
-  candidatePresenceChecked = false,
-): Option.Option<VillageSite> => villageSiteOptionForRegion(seed, regionX, regionZ, sampleTerrain, candidatePresenceChecked)
 
 /** Finds all accepted village centres whose footprint can overlap this chunk. */
 export const villageSitesNearChunk = (
@@ -661,12 +671,15 @@ type StrongholdChunkQuery = {
 
 const appendStrongholdSiteForRegion = (
   query: StrongholdChunkQuery,
+  span: ValidatedNaturalStructureRegionSpan,
   regionX: number,
   regionZ: number,
-): InvalidNaturalStructureCoordinate | null => {
-  const validation = validateStrongholdRegionCoordinates(regionX, regionZ)
-  if (Result.isFailure(validation)) {return validation.failure}
-  const site = strongholdSiteOptionForRegion(query.seed, regionX, regionZ)
+): void => {
+  const site = strongholdSiteOptionForValidatedRegion(
+    query.seed,
+    validatedNaturalStructureRegionAxisInSpan(span, regionX),
+    validatedNaturalStructureRegionAxisInSpan(span, regionZ),
+  )
   if (
     Option.isSome(site) &&
     site.value.x >= query.bounds.minX && site.value.x <= query.bounds.maxX &&
@@ -674,21 +687,26 @@ const appendStrongholdSiteForRegion = (
   ) {
     query.sites.push(site.value)
   }
-  return null
 }
 
 const appendStrongholdSitesInBounds = (query: StrongholdChunkQuery): InvalidNaturalStructureCoordinate | null => {
   const { bounds } = query
-  const regionBounds = {
+  const regionBounds: NaturalStructureRegionSpan = {
     maxRegionX: floorDiv(bounds.maxX, STRONGHOLD_REGION_SIZE),
     maxRegionZ: floorDiv(bounds.maxZ, STRONGHOLD_REGION_SIZE),
     minRegionX: floorDiv(bounds.minX, STRONGHOLD_REGION_SIZE),
     minRegionZ: floorDiv(bounds.minZ, STRONGHOLD_REGION_SIZE),
   }
-  for (let regionX = regionBounds.minRegionX; regionX <= regionBounds.maxRegionX; regionX += REGION_STEP) {
-    for (let regionZ = regionBounds.minRegionZ; regionZ <= regionBounds.maxRegionZ; regionZ += REGION_STEP) {
-      const failure = appendStrongholdSiteForRegion(query, regionX, regionZ)
-      if (failure) {return failure}
+  const validatedSpan = validateNaturalStructureRegionSpan(
+    'stronghold',
+    regionBounds,
+    STRONGHOLD_REGION_GRID,
+    MAX_NATURAL_STRUCTURE_HORIZONTAL_EXTENT,
+  )
+  if (validatedSpan instanceof Error) {return validatedSpan}
+  for (let regionX = validatedSpan.minRegionX; regionX <= validatedSpan.maxRegionX; regionX += REGION_STEP) {
+    for (let regionZ = validatedSpan.minRegionZ; regionZ <= validatedSpan.maxRegionZ; regionZ += REGION_STEP) {
+      appendStrongholdSiteForRegion(query, validatedSpan, regionX, regionZ)
     }
   }
   return null
