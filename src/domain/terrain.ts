@@ -95,7 +95,7 @@ import {
 } from './lake-generator.js'
 import { Option } from 'effect'
 import type { OverworldTerrainSample } from './structure-siting.js'
-import { blockAxis } from './coordinate-compatibility.js'
+import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
 export {
@@ -438,8 +438,8 @@ type TerrainSampleCache = Map<number, Map<number, OverworldTerrainSample>>
 
 const localColumnFor = (
   context: ChunkGenerationContext,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
 ): number | null => {
   const lx = wx - context.minBlockX
   const lz = wz - context.minBlockZ
@@ -452,15 +452,15 @@ const localColumnFor = (
 const structureSurfaceBiomeAt = (
   context: ChunkGenerationContext,
   localColumn: number | null,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
 ): { readonly biome: BiomeType; readonly surfaceY: BlockAxis } => {
   if (localColumn === null) {
-    return surfaceBiomeAt(context.seed, blockAxis(wx), blockAxis(wz), context.levels)
+    return surfaceBiomeAt(context.seed, wx, wz, context.levels)
   }
   return {
     biome: readRequired(context.biomes, localColumn),
-    surfaceY: blockAxis(readRequired(context.initialSurfaces, localColumn)),
+    surfaceY: blockAxisFromKnownSafeInteger(readRequired(context.initialSurfaces, localColumn)),
   }
 }
 
@@ -481,8 +481,8 @@ const cacheTerrainSample = (
 const structureTerrainSampleAt = (
   context: ChunkGenerationContext,
   terrainSamples: TerrainSampleCache,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
 ): OverworldTerrainSample => {
   const samplesAtX = terrainSamples.get(wx)
   const cached = samplesAtX?.get(wz)
@@ -493,7 +493,7 @@ const structureTerrainSampleAt = (
   const resolved = structureSurfaceBiomeAt(context, localColumn, wx, wz)
   const sample = {
     biome: resolved.biome,
-    seaLevel: blockAxis(context.levels.seaLevel),
+    seaLevel: blockAxisFromKnownSafeInteger(context.levels.seaLevel),
     surfaceY: resolved.surfaceY,
   }
   cacheTerrainSample(terrainSamples, wx, wz, sample)
@@ -506,7 +506,7 @@ const writeStructures = (
   context: ChunkGenerationContext,
 ): NaturalStructureChunk => {
   const terrainSamples = new Map<number, Map<number, OverworldTerrainSample>>()
-  const sampleTerrain = (wx: number, wz: number): OverworldTerrainSample =>
+  const sampleTerrain = (wx: BlockAxis, wz: BlockAxis): OverworldTerrainSample =>
     structureTerrainSampleAt(context, terrainSamples, wx, wz)
   const plans = naturalStructurePlansForChunk(context.seed, 'overworld', context.coord, {
     overworld: sampleTerrain,

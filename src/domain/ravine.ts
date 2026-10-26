@@ -197,12 +197,11 @@
 import { BLOCK, type BiomeType } from './biome.js'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { channelSeedValue, valueNoise2D } from './noise-compatibility.js'
-import { columnIndex, readBlock } from './chunk.js'
+import { columnIndexForKnownLocalRange, readBlock } from './chunk.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { PLANT_IDS } from './vegetation.js'
-import { localAxis } from './coordinate-compatibility.js'
 
 /** Frequency of the ravine field. `ravine-carver.ts:10`; a 250-block wavelength. */
 export const RAVINE_NOISE_SCALE = 0.004
@@ -427,7 +426,7 @@ const resolveRavineCutAt = (
   lz: number,
   depth: number,
 ): RavineCut | null => {
-  const column = columnIndex(localAxis(lx), localAxis(lz))
+  const column = columnIndexForKnownLocalRange(lx, lz)
   const recordedColumn = recordedColumnAt(surfaces, biomes, column)
   if (recordedColumn === null) {
     return null
