@@ -33,6 +33,7 @@ import {
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { chunkKeyOf, wasWritten } from '../src/domain/chunk-store-state'
+import { makeChunkStoreLru } from '../src/domain/chunk-store-lru'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import {
@@ -820,6 +821,34 @@ describe('chunk keys', () => {
       }
       expect(chunkKeyOf(chunkCoord(chunkAxis(-0), -0))).toBe('0,0')
     }),
+  )
+})
+
+describe('chunk-store LRU', () => {
+  it('moves a duplicate add to newest without changing the entry count', () => {
+    const lru = makeChunkStoreLru()
+    const first = chunkKeyOf(chunkCoord(chunkAxis(0), 0))
+    const second = chunkKeyOf(chunkCoord(chunkAxis(1), 0))
+
+    lru.add(first)
+    lru.add(second)
+    lru.add(first)
+
+    expect(lru.size()).toBe(2)
+    expect(lru.oldest()).toBe(second)
+  })
+})
+
+describe('coordinate-axis boundaries', () => {
+  it.effect('omits neighbours beyond the largest safe chunk coordinate', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const maximum = chunkCoord(chunkAxis(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+        yield* store.load(maximum)
+
+        expect(yield* store.neighbours(maximum)).toStrictEqual({})
+      }),
+    ),
   )
 })
 

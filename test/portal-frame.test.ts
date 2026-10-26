@@ -142,10 +142,10 @@ describe('detectNetherPortal', () => {
       const brokenFrame = X_FRAME.filter((cell) => key(cell) !== key(at(3, 21, 10)))
       expect(detectNetherPortal(blockAtWithObsidian(brokenFrame), at(4, 21, 10))).toBeUndefined()
 
-      const missingTopFrame = X_FRAME.filter((cell) => key(cell) !== key(at(4, 19, 10)))
+      const missingTopFrame = X_FRAME.filter((cell) => key(cell) !== key(at(5, 19, 10)))
       expect(detectNetherPortal(blockAtWithObsidian(missingTopFrame), at(4, 21, 10))).toBeUndefined()
 
-      const missingBottomFrame = X_FRAME.filter((cell) => key(cell) !== key(at(4, 23, 10)))
+      const missingBottomFrame = X_FRAME.filter((cell) => key(cell) !== key(at(5, 23, 10)))
       expect(detectNetherPortal(blockAtWithObsidian(missingBottomFrame), at(4, 21, 10))).toBeUndefined()
 
       const obstructedInterior = [...X_FRAME, at(5, 21, 10)]
