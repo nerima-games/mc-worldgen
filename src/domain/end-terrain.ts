@@ -8,6 +8,7 @@ import {
   applyEndFeaturePlansToChunk,
   endFeaturePlanForSeed,
 } from './end-features.js'
+import { Option, Result } from 'effect'
 import { applyEndChorusPlansToChunk, endChorusPlanForChunk } from './end-vegetation.js'
 import {
   applyNaturalStructurePlansToChunk,
@@ -15,9 +16,10 @@ import {
 } from './natural-structure.js'
 import { channelSeed, fbm2D } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
+import type { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
+import { validateNaturalStructureChunkCoordinates } from './natural-structure-chunk-planner.js'
 
 export const END_STONE_BLOCK_ID: BlockId = Option.getOrThrow(blockIdOf('end_stone'))
 export const END_BASE_Y = 64
@@ -151,22 +153,32 @@ export const generateEndTerrainChunk = (seed: NoiseSeed, coord: ChunkCoord): Chu
 }
 
 /** Generate End terrain, structures, pillars, and crystal markers for a chunk. */
-export const generateEndChunk = (seed: NoiseSeed, coord: ChunkCoord): EndFeatureChunk =>
-  applyEndFeaturePlansToChunk(
-    applyNaturalStructurePlansToChunk(
-      applyEndChorusPlansToChunk(generateEndTerrainChunk(seed, coord), [
-        endChorusPlanForChunk({
-          coord,
-          isOuterIsland: (candidateX, candidateZ) =>
-            Math.hypot(candidateX, candidateZ) >= END_OUTER_ISLAND_START,
-          seed,
-          surfaceHeightAt: endSurfaceHeightAt,
-        }),
-      ]),
-      naturalStructurePlansForChunk(seed, 'end', coord),
-    ),
+export const generateEndChunk = (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+): Result.Result<EndFeatureChunk, InvalidNaturalStructureCoordinate> => {
+  const coordinateValidation = validateNaturalStructureChunkCoordinates('end', coord)
+  if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
+  const naturalStructurePlans = naturalStructurePlansForChunk(seed, 'end', coord)
+  if (Result.isFailure(naturalStructurePlans)) {return Result.fail(naturalStructurePlans.failure)}
+  const chunkWithChorus = applyEndChorusPlansToChunk(generateEndTerrainChunk(seed, coord), [
+    endChorusPlanForChunk({
+      coord,
+      isOuterIsland: (candidateX, candidateZ) =>
+        Math.hypot(candidateX, candidateZ) >= END_OUTER_ISLAND_START,
+      seed,
+      surfaceHeightAt: endSurfaceHeightAt,
+    }),
+  ])
+  return Result.succeed(applyEndFeaturePlansToChunk(
+    applyNaturalStructurePlansToChunk(chunkWithChorus, naturalStructurePlans.success),
     [endFeaturePlanForSeed(seed)],
-  )
+  ))
+}
 
-export const generateEndChunkAt = (seed: NoiseSeed, cx: ChunkAxis, cz: ChunkAxis): EndFeatureChunk =>
+export const generateEndChunkAt = (
+  seed: NoiseSeed,
+  cx: ChunkAxis,
+  cz: ChunkAxis,
+): Result.Result<EndFeatureChunk, InvalidNaturalStructureCoordinate> =>
   generateEndChunk(seed, chunkCoord(cx, cz))

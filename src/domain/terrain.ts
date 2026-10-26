@@ -1,5 +1,5 @@
 /**
- * `generateChunk(seed, coords) → NaturalStructureChunk` — the public entry point (plan.md §3.7).
+ * `generateChunk(seed, coord) → Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>` — the public entry point (plan.md §3.7).
  *
  * This module implements the current deterministic terrain pipeline.
  *
@@ -80,6 +80,7 @@ import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
+import { Option, Result } from 'effect'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
@@ -90,14 +91,13 @@ import {
   plantSpecialVegetation,
   shouldPlaceGroundPlant,
 } from './vegetation.js'
-import {
-  fillWaterAtLevel,
-  shouldFreezeWaterSurface,
-} from './lake-generator.js'
-import { Option } from 'effect'
+import { fillWaterAtLevel, shouldFreezeWaterSurface } from './lake-generator.js'
+import type { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import type { OverworldTerrainSample } from './structure-siting.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
+import { validateNaturalStructureChunkCoordinates } from './natural-structure-chunk-planner.js'
 export {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -108,7 +108,6 @@ export { biomeFor, climateAt, surfaceBiomeAt, terrainColumnAt }
 export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 
 /** Single-block iteration step for the per-voxel/per-column loops below. */
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 const AXIS_STEP = 1
 /** Sentinel stored for columns whose terrain has no water surface. */
 const NO_WATER_LEVEL = -1
@@ -504,39 +503,54 @@ const structureTerrainSampleAt = (
 const writeStructures = (
   chunk: Chunk,
   context: ChunkGenerationContext,
-): NaturalStructureChunk => {
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
   const terrainSamples = new Map<number, Map<number, OverworldTerrainSample>>()
   const sampleTerrain = (wx: BlockAxis, wz: BlockAxis): OverworldTerrainSample =>
     structureTerrainSampleAt(context, terrainSamples, wx, wz)
-  const plans = naturalStructurePlansForChunk(context.seed, 'overworld', context.coord, {
+  const plansResult = naturalStructurePlansForChunk(context.seed, 'overworld', context.coord, {
     overworld: sampleTerrain,
   })
-  return applyNaturalStructurePlansToChunk(chunk, plans)
+  return Result.map(plansResult, (plans) => applyNaturalStructurePlansToChunk(chunk, plans))
 }
 
 /**
  * Generate a chunk. Total, pure, and a function of `(seed, coord)` alone.
  */
-export const generateChunk = (
-  seed: NoiseSeed,
-  coord: ChunkCoord,
-  options: GenerateOptions = {},
-): NaturalStructureChunk => {
-  const context = createChunkGenerationContext(seed, coord, options)
-
+const runTerrainPassesBeforeStructures = (
+  context: ChunkGenerationContext,
+  options: GenerateOptions,
+): void => {
   generateColumns(context)
-  carveCaves(context.blocks, seed, coord, options.carve ?? {})
+  carveCaves(context.blocks, context.seed, context.coord, options.carve ?? {})
 
   // Ore goes in AFTER carving, so that a cave wall can expose a vein, and it is
   // NOT behind `decorate` — ore is stone, not decoration. See `domain/ore.ts`.
-  placeOres(context.blocks, seed, coord)
+  placeOres(context.blocks, context.seed, context.coord)
 
   if (options.decorate !== false) {
     decorateChunk(context)
   }
 
   // Ravines LAST, after ore and after decoration, so their walls cut cleanly through both — the reference's ordering and its stated reason (`generator.ts:141-142`). See the module header for why this is outside the `decorate` block rather than at the end of it.
-  carveRavines({ biomes: context.biomes, blocks: context.blocks, coord, seed, surfaces: context.surfaces })
+  carveRavines({
+    biomes: context.biomes,
+    blocks: context.blocks,
+    coord: context.coord,
+    seed: context.seed,
+    surfaces: context.surfaces,
+  })
+}
+
+export const generateChunk = (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  options: GenerateOptions = {},
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
+  const coordinateValidation = validateNaturalStructureChunkCoordinates('overworld', coord)
+  if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
+  const context = createChunkGenerationContext(seed, coord, options)
+
+  runTerrainPassesBeforeStructures(context, options)
 
   return writeStructures({ biomes: context.biomes, blocks: context.blocks, coord }, context)
 }
@@ -547,7 +561,7 @@ export const generateChunkAt = (
   x: ChunkAxis,
   z: ChunkAxis,
   options: GenerateOptions = {},
-): NaturalStructureChunk =>
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> =>
   generateChunk(seed, { cx: x, cz: z }, options)
 
 /** Re-exported so callers need one import to read a generated chunk. */

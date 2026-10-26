@@ -153,11 +153,13 @@ export const chunkFor = (
     return cached
   }
 
-  const chunk = generateChunk(params.seed, chunkCoord(chunkAxis(chunkX), chunkAxis(chunkZ)), {
-    terrainLevels: params.levels,
-    carve: params.carve,
-    decorate: params.decorate,
-  })
+  const chunk = Result.getOrThrow(
+    generateChunk(params.seed, chunkCoord(chunkAxis(chunkX), chunkAxis(chunkZ)), {
+      terrainLevels: params.levels,
+      carve: params.carve,
+      decorate: params.decorate,
+    }),
+  )
 
   if (cache.entries.size >= MAX_CACHED_CHUNKS) {
     const oldest = cache.entries.keys().next()

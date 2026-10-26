@@ -299,7 +299,7 @@ const carvePool: ReadonlyArray<{ readonly coord: ChunkCoord; readonly blocks: Ui
   (_unused, index) => {
     const coord = coordFor(index)
     const blocks = emptyBlocks()
-    blocks.set(generateChunk(SEED, coord, { decorate: false }).blocks)
+    blocks.set(Result.getOrThrow(generateChunk(SEED, coord, { decorate: false })).blocks)
     return { coord, blocks }
   },
 )
@@ -384,7 +384,7 @@ const main = async (): Promise<number> => {
     {
       name: 'generateChunk/no-decorate',
       msPerUnit: measure(() => {
-        sink += generateChunk(SEED, nextCoord(), { decorate: false }).blocks[0] ?? 0
+        sink += Result.getOrThrow(generateChunk(SEED, nextCoord(), { decorate: false })).blocks[0] ?? 0
       }, options(40, 80)),
       unit: 'chunk',
       detail: 'height + biome + column fill + carve + ore + ravines + structures; vegetation is disabled by decorate:false',
@@ -398,7 +398,7 @@ const main = async (): Promise<number> => {
     {
       name: 'generateChunk/full',
       msPerUnit: measure(() => {
-        sink += generateChunk(SEED, nextCoord()).blocks[0] ?? 0
+        sink += Result.getOrThrow(generateChunk(SEED, nextCoord())).blocks[0] ?? 0
       }, options(30, 60)),
       unit: 'chunk',
       detail: 'height + biome + column fill + carve + ore + vegetation + ravines + structures',

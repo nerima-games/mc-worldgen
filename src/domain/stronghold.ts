@@ -227,7 +227,17 @@ const buildStrongholdFrames = (
   })
 
 /** Builds one complete plan before chunks select their slices; coordinate keys prevent duplicate writes. */
-export const generateStrongholdPlan = (seed: NoiseSeed, site: StrongholdSite, dimension: Dimension = 'overworld'): StrongholdPlan | undefined => {
+export function generateStrongholdPlan(seed: NoiseSeed, site: StrongholdSite): StrongholdPlan
+export function generateStrongholdPlan(
+  seed: NoiseSeed,
+  site: StrongholdSite,
+  dimension: Dimension,
+): StrongholdPlan | undefined
+export function generateStrongholdPlan(
+  seed: NoiseSeed,
+  site: StrongholdSite,
+  dimension: Dimension = 'overworld',
+): StrongholdPlan | undefined {
   if (dimension !== 'overworld') {return}
   const mutations = new Map<string, StrongholdMutation>()
   carveStrongholdRooms(mutations, site)

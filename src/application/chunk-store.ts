@@ -83,6 +83,7 @@ import {
 } from './chunk-persistence.js'
 import { type GenerateOptions, generateChunk } from '../domain/terrain.js'
 import type { Chunk } from '../domain/chunk.js'
+import type { InvalidNaturalStructureCoordinate } from '../domain/natural-structure-plan-builder.js'
 import type { StoragePort } from '@nerima-games/mc-save'
 import { generateEndChunk } from '../domain/end-terrain.js'
 import { generateNetherChunk } from '../domain/nether-terrain.js'
@@ -114,13 +115,16 @@ export const ChunkCapacity: Brand.Constructor<ChunkCapacity> = Brand.make<ChunkC
  * lifecycle. This Port remains the final fallback, so worker-pool generation
  * stays independent from the mc-save storage implementation.
  */
-export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk>
+export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate>
 
 /** The default source: this repository's own pure, deterministic generator. */
 export const generatedChunkSource =
   (seed: NoiseSeed, options: GenerateOptions = {}): ChunkSource =>
   (coord) =>
-    Effect.sync(() => generateChunk(seed, coord, options))
+    Effect.flatMap(
+      Effect.sync(() => generateChunk(seed, coord, options)),
+      (result) => Effect.fromResult(result),
+    )
 
 /** A deterministic source selected explicitly by dimension. */
 export const generatedDimensionChunkSource = (
@@ -129,8 +133,10 @@ export const generatedDimensionChunkSource = (
   options: GenerateOptions = {},
 ): ChunkSource => {
   if (dimension === 'overworld') {return generatedChunkSource(seed, options)}
-  if (dimension === 'nether') {return (coord) => Effect.sync(() => generateNetherChunk(seed, coord))}
-  return (coord) => Effect.sync(() => generateEndChunk(seed, coord))
+  if (dimension === 'nether') {
+    return (coord) => Effect.flatMap(Effect.sync(() => generateNetherChunk(seed, coord)), Effect.fromResult)
+  }
+  return (coord) => Effect.flatMap(Effect.sync(() => generateEndChunk(seed, coord)), Effect.fromResult)
 }
 
 /**
@@ -235,7 +241,7 @@ type DirtyChunkEvictionFailure = {
   readonly coord: ChunkCoord
 }
 
-export type ChunkStoreError = ChunkPersistenceError | DirtyChunkEvictionFailure
+export type ChunkStoreError = ChunkPersistenceError | DirtyChunkEvictionFailure | InvalidNaturalStructureCoordinate
 
 class DirtyChunkEvictionError extends taggedError('DirtyChunkEvictionError')<{
   readonly coord: ChunkCoord
@@ -285,7 +291,7 @@ const loadOrGenerate = (
   source: ChunkSource,
   persistence: ChunkPersistence | undefined,
   coord: ChunkCoord,
-): Effect.Effect<Chunk, ChunkPersistenceError> =>
+): Effect.Effect<Chunk, ChunkStoreError> =>
   Effect.gen(function* loadFromPersistenceOrSource() {
     if (!persistence) {
       return yield* source(coord)

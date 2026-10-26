@@ -1,12 +1,14 @@
 import {
   type Candidate,
   type CandidateChannelInput,
+  type InvalidNaturalStructureCoordinate,
   type MutablePlan,
   UNIT_STEP,
   addBlock,
   addMarker,
   candidateForRegion,
   finishPlan,
+  validateNaturalStructureRegion,
 } from './natural-structure-plan-builder.js'
 import { END_OUTER_ISLAND_START, endSurfaceHeightAt } from './end-terrain.js'
 import type {
@@ -14,7 +16,7 @@ import type {
   NaturalStructurePlan,
   NaturalStructureRegion,
 } from './natural-structure-types.js'
-import { Option, Predicate } from 'effect'
+import { Option, Predicate, Result } from 'effect'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { BlockId } from '@nerima-games/mc-kernel'
@@ -161,6 +163,31 @@ const placeEndCityDecorations = (mutable: MutablePlan, candidate: Candidate, bas
   })
 }
 
+type EndCityPlanRequest = {
+  readonly baseY: number
+  readonly candidate: Candidate
+  readonly region: NaturalStructureRegion
+  readonly seed: NoiseSeed
+  readonly ship: EndCityShipPosition
+}
+
+const finishEndCityPlan = ({ baseY, candidate, region, seed, ship }: EndCityPlanRequest): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  addEndTower(mutable, candidate.x, baseY, candidate.z)
+  addEndShip(mutable, ship.shipX, ship.shipY, candidate.z)
+  placeEndCityDecorations(mutable, candidate, baseY, ship)
+  return finishPlan(
+    {
+      dimension: 'end',
+      id: `end-city:${String(seed)}:${String(region.x)}:${String(region.z)}`,
+      kind: 'end-city',
+      origin: { x: candidate.x, y: baseY, z: candidate.z },
+      region,
+    },
+    mutable,
+  )
+}
+
 /** Plans an End city tower and its ship on a broad, level outer island. */
 export const planEndCityForRegion = (
   seed: NoiseSeed,
@@ -168,23 +195,13 @@ export const planEndCityForRegion = (
   regionZ: number,
   sampleTerrain: EndStructureTerrainSampler = (x, z) => endSurfaceHeightAt(seed, blockAxis(x), blockAxis(z)),
   presenceChannelSeed?: CandidateChannelInput,
-): Option.Option<NaturalStructurePlan> => {
-  const siteOption = endCitySiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain, presenceChannelSeed)
-  if (Option.isNone(siteOption)) {return Option.none()}
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const region = { x: regionX, z: regionZ }
+  const validation = validateNaturalStructureRegion('end-city', region)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  const siteOption = endCitySiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
+  if (Option.isNone(siteOption)) {return Result.succeed(Option.none())}
   const { candidate, baseY } = siteOption.value
-  const ship = endShipPositionFor(seed, { x: regionX, z: regionZ }, candidate, baseY)
-  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
-  addEndTower(mutable, candidate.x, baseY, candidate.z)
-  addEndShip(mutable, ship.shipX, ship.shipY, candidate.z)
-  placeEndCityDecorations(mutable, candidate, baseY, ship)
-  return Option.some(finishPlan(
-    {
-      dimension: 'end',
-      id: `end-city:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
-      kind: 'end-city',
-      origin: { x: candidate.x, y: baseY, z: candidate.z },
-      region: { x: regionX, z: regionZ },
-    },
-    mutable,
-  ))
+  const ship = endShipPositionFor(seed, region, candidate, baseY)
+  return Result.map(finishEndCityPlan({ baseY, candidate, region, seed, ship }), Option.some)
 }

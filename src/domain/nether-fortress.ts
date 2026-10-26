@@ -10,20 +10,21 @@ import {
   NETHER_FORTRESS_BLOCK,
   NETHER_FORTRESS_GRID,
 } from './nether-fortress-data.js'
+import {
+  type InvalidNaturalStructureCoordinate,
+  finishPlanFromValidatedPlacements,
+  validateNaturalStructureRegion,
+} from './natural-structure-plan-builder.js'
 import type {
-  NaturalStructureBlockPlacement,
   NaturalStructureBlockPlacementDraft,
-  NaturalStructureBounds,
-  NaturalStructureMarker,
   NaturalStructureMarkerDraft,
   NaturalStructurePlan,
-  NaturalStructurePosition,
   NaturalStructurePositionDraft,
   NaturalStructureRegion,
   NetherStructureTerrainSample,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
-import { Option, Predicate } from 'effect'
+import { Option, Predicate, Result } from 'effect'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { type BlockId } from '@nerima-games/mc-kernel'
@@ -84,46 +85,18 @@ const finishPlan = (
   region: NaturalStructureRegion,
   origin: FortressCandidate,
   mutable: MutableFortressPlan,
-): NaturalStructurePlan => {
-  const blocks = Object.freeze([...mutable.blocks.values()].map((block): NaturalStructureBlockPlacement => Object.freeze({
-    ...block,
-    x: blockAxis(block.x),
-    y: blockAxis(block.y),
-    z: blockAxis(block.z),
-  })))
-  const markers = Object.freeze(mutable.markers.map((marker): NaturalStructureMarker => Object.freeze({
-    ...marker,
-    x: blockAxis(marker.x),
-    y: blockAxis(marker.y),
-    z: blockAxis(marker.z),
-  })))
-  const positions: ReadonlyArray<NaturalStructurePosition> = [...blocks, ...markers]
-  const xs = positions.map((position) => position.x)
-  const ys = positions.map((position) => position.y)
-  const zs = positions.map((position) => position.z)
-  const bounds: NaturalStructureBounds = Object.freeze({
-    maxX: blockAxis(Math.max(...xs)),
-    maxY: blockAxis(Math.max(...ys)),
-    maxZ: blockAxis(Math.max(...zs)),
-    minX: blockAxis(Math.min(...xs)),
-    minY: blockAxis(Math.min(...ys)),
-    minZ: blockAxis(Math.min(...zs)),
-  })
-  return Object.freeze({
-    blocks,
-    bounds,
-    dimension: 'nether',
-    id: `nether-fortress:${String(seed)}:${String(region.x)}:${String(region.z)}`,
-    kind: 'nether-fortress',
-    markers,
-    origin: Object.freeze({
-      x: blockAxis(origin.x),
-      y: blockAxis(origin.y),
-      z: blockAxis(origin.z),
-    }),
-    region: Object.freeze(region),
-  })
-}
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> =>
+  finishPlanFromValidatedPlacements(
+    {
+      dimension: 'nether',
+      id: `nether-fortress:${String(seed)}:${String(region.x)}:${String(region.z)}`,
+      kind: 'nether-fortress',
+      origin,
+      region,
+    },
+    [...mutable.blocks.values()],
+    mutable.markers,
+  )
 
 const inXCorridor = (candidate: FortressCandidate, x: number, z: number): boolean =>
   Math.abs(x - candidate.x) <= FORTRESS_LAYOUT.corridorHalfLength &&
@@ -407,6 +380,18 @@ const fortressSiteForRegion = (
   return fortressSiteFromCandidate(candidateOption.value, sampleTerrain)
 }
 
+const finishFortressPlanAtSite = (
+  seed: NoiseSeed,
+  region: NaturalStructureRegion,
+  candidate: FortressCandidate,
+  floorY: number,
+): Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate> => {
+  const mutable: MutableFortressPlan = { blocks: new Map(), markers: [] }
+  writeFortressBlocks(mutable, candidate, floorY)
+  placeFortressDecorations(mutable, candidate, floorY)
+  return finishPlan(seed, region, candidate, mutable)
+}
+
 /** Plans one cross-shaped fortress and its host-owned mob/loot markers. */
 export const planNetherFortressForRegion = (
   seed: NoiseSeed,
@@ -414,14 +399,14 @@ export const planNetherFortressForRegion = (
   regionZ: number,
   sampleTerrain: NetherStructureTerrainSampler,
   presenceChannelSeed?: NoiseSeed,
-): Option.Option<NaturalStructurePlan> => {
-  const siteOption = fortressSiteForRegion(seed, { x: regionX, z: regionZ }, sampleTerrain, presenceChannelSeed)
-  if (Option.isNone(siteOption)) {return Option.none()}
+): Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+  const region = { x: regionX, z: regionZ }
+  const validation = validateNaturalStructureRegion('nether-fortress', region)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  const siteOption = fortressSiteForRegion(seed, region, sampleTerrain, presenceChannelSeed)
+  if (Option.isNone(siteOption)) {return Result.succeed(Option.none())}
   const { candidate, floorY } = siteOption.value
-  const mutable: MutableFortressPlan = { blocks: new Map(), markers: [] }
-  writeFortressBlocks(mutable, candidate, floorY)
-  placeFortressDecorations(mutable, candidate, floorY)
-  return Option.some(finishPlan(seed, { x: regionX, z: regionZ }, candidate, mutable))
+  return Result.map(finishFortressPlanAtSite(seed, region, candidate, floorY), Option.some)
 }
 
 const regionRange = (value: number, radius: number): readonly [number, number] => [

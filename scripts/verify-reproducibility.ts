@@ -44,7 +44,7 @@ const main = (): void => {
           chunkAxis(centerX + (index % 3) - 1),
           chunkAxis(centerZ + Math.floor(index / 3) - 1),
         ))
-        const chunks = coordinates.map((coord) => generators[dimension](seed, coord))
+        const chunks = coordinates.map((coord) => Result.getOrThrow(generators[dimension](seed, coord)))
         const loaded = new Map<string, (typeof chunks)[number]>()
 
         for (const [index, chunk] of chunks.entries()) {

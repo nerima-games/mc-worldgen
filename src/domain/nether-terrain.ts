@@ -9,12 +9,14 @@ import {
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForChunk,
 } from './natural-structure.js'
+import { Option, Result } from 'effect'
 import { channelSeed, fbm2D, latticeValue } from './noise-compatibility.js'
 import { worldX, worldZ } from './generator-coordinates.js'
+import type { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
 import type { NaturalStructurePositionDraft } from './natural-structure-types.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
+import { validateNaturalStructureChunkCoordinates } from './natural-structure-chunk-planner.js'
 
 /** Advances a loop counter, or steps to the adjacent lattice point, by one unit. */
 const UNIT_STEP = 1
@@ -214,12 +216,22 @@ export const generateNetherTerrainChunk = (seed: NoiseSeed, coord: ChunkCoord): 
 }
 
 /** Generates Nether terrain and applies every cross-boundary portal plan touching the chunk. */
-export const generateNetherChunk = (seed: NoiseSeed, coord: ChunkCoord): NaturalStructureChunk => {
+export const generateNetherChunk = (
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
+  const coordinateValidation = validateNaturalStructureChunkCoordinates('nether', coord)
+  if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
   const terrain = generateNetherTerrainChunk(seed, coord)
   const sampler = (x: number, z: number): NetherStructureTerrainSample | undefined =>
     netherStructureTerrainAt(seed, blockAxis(x), blockAxis(z))
-  return applyNaturalStructurePlansToChunk(terrain, naturalStructurePlansForChunk(seed, 'nether', coord, { nether: sampler }))
+  const plansResult = naturalStructurePlansForChunk(seed, 'nether', coord, { nether: sampler })
+  return Result.map(plansResult, (plans) => applyNaturalStructurePlansToChunk(terrain, plans))
 }
 
-export const generateNetherChunkAt = (seed: NoiseSeed, cx: ChunkAxis, cz: ChunkAxis): NaturalStructureChunk =>
+export const generateNetherChunkAt = (
+  seed: NoiseSeed,
+  cx: ChunkAxis,
+  cz: ChunkAxis,
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> =>
   generateNetherChunk(seed, chunkCoord(cx, cz))

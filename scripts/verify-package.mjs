@@ -92,9 +92,9 @@ try {
       throw new Error(`dist/index.js ${label} did not return natural structure arrays`)
     }
   }
-  expectChunk(runtime.generateChunk(seed, coord, { decorate: false }), 'generateChunk')
-  expectChunk(runtime.generateNetherChunk(seed, coord), 'generateNetherChunk')
-  expectChunk(runtime.generateEndChunk(seed, coord), 'generateEndChunk')
+  expectChunk(Result.getOrThrow(runtime.generateChunk(seed, coord, { decorate: false })), 'generateChunk')
+  expectChunk(Result.getOrThrow(runtime.generateNetherChunk(seed, coord)), 'generateNetherChunk')
+  expectChunk(Result.getOrThrow(runtime.generateEndChunk(seed, coord)), 'generateEndChunk')
 
   // --- Persistence format -------------------------------------------------------
   if (typeof runtime.CHUNK_FORMAT !== 'object' || runtime.CHUNK_FORMAT === null) {

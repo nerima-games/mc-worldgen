@@ -370,7 +370,7 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
 }
 
 export const generateGoldenChunk = (spec: GoldenSpec): Chunk =>
-  generateChunkAt(GOLDEN_SEED, chunkAxis(spec.cx), chunkAxis(spec.cz), { decorate: spec.decorate })
+  Result.getOrThrow(generateChunkAt(GOLDEN_SEED, chunkAxis(spec.cx), chunkAxis(spec.cz), { decorate: spec.decorate }))
 
 export const goldenEntry = (spec: GoldenSpec): GoldenEntry => {
   const chunk = generateGoldenChunk(spec)
