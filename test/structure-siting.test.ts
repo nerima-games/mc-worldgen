@@ -382,6 +382,14 @@ describe('the ranked list — locateStronghold', () => {
   )
 })
 
+describe('region coordinate bounds', () => {
+  it.effect('returns no site when an accepted region would exceed BlockAxis', () => Effect.sync(() => {
+    // GOLDEN_SEED accepts this region; its generated world x-coordinate is outside safe-integer range.
+    const regionX = Math.ceil(Number.MAX_SAFE_INTEGER / STRONGHOLD_REGION_SIZE)
+    expect(Option.isNone(strongholdSiteForRegion(GOLDEN_SEED, regionX, 0))).toBe(true)
+  }))
+})
+
 describe('the chunk query the block half would start from', () => {
   it.effect('reports a site exactly when it lies within the chunk plus its extent', () =>
     Effect.sync(() => {

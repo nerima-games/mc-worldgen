@@ -65,6 +65,17 @@ describe('detectCompletedEndPortal', () => {
   }))
 })
 
+describe('detectCompletedEndPortal coordinate bounds', () => {
+  it.effect('rejects a fully populated frame when its outer ring exceeds BlockAxis', () => Effect.sync(() => {
+    const edgeCenter = blockPosition(blockAxis(Number.MAX_SAFE_INTEGER), blockAxis(32), blockAxis(-200))
+    const edgeFrames: Map<string, EndPortalFrameState> = new Map(END_PORTAL_FRAME_OFFSETS.map(({ dx, dz, facing }) => [
+      key(edgeCenter.x + dx, edgeCenter.y, edgeCenter.z + dz),
+      { block: END_PORTAL_BLOCK.FRAME_FILLED, facing },
+    ]))
+    expect(Option.isNone(detectCompletedEndPortal(accessor(edgeFrames), 'overworld', edgeCenter))).toBe(true)
+  }))
+})
+
 describe('endArrivalDescriptor', () => {
   it.effect('builds a stable 5x5 platform, clears headroom, and spawns above its center', () => Effect.sync(() => {
     const descriptor = endArrivalDescriptor(blockPosition(blockAxis(-4), blockAxis(60), blockAxis(9)))

@@ -99,6 +99,20 @@ describe('water level invariant', () => {
     }),
   )
 
+  it.effect('rejects explicit null terrain levels instead of treating them as omitted', () =>
+    Effect.sync(() => {
+      // Keep the invalid runtime value unasserted against the valid options type.
+      expect(() =>
+        Reflect.apply(generateChunkAt, undefined, [
+          noiseSeed(1234),
+          chunkAxis(0),
+          chunkAxis(0),
+          { terrainLevels: null },
+        ]),
+      ).toThrow(TypeError)
+    }),
+  )
+
   it.effect('does put water somewhere, so the sweep above is not vacuously true', () =>
     Effect.sync(() => {
       const anyWater = [

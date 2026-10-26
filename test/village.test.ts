@@ -221,6 +221,22 @@ describe('village siting', () => {
   )
 })
 
+describe('village coordinate bounds', () => {
+  it.effect('rejects out-of-range candidate coordinates before sampling terrain', () => Effect.sync(() => {
+    // This fixed seed and region pass the presence roll, but all candidate x-coordinates exceed BlockAxis.
+    // eslint-disable-next-line no-magic-numbers -- The offset selects the fixed out-of-range presence hit.
+    const regionX = Math.ceil(Number.MAX_SAFE_INTEGER / VILLAGE_REGION_SIZE) + 4
+    let terrainSamples = 0
+    const countedTerrain: OverworldTerrainSampler = (x, z) => {
+      terrainSamples += 1
+      return flatPlains(x, z)
+    }
+
+    expect(Option.isNone(villageSiteForRegion(noiseSeed(SEED), regionX, 0, countedTerrain))).toBe(true)
+    expect(terrainSamples).toBe(0)
+  }))
+})
+
 describe('villages are findable on real terrain (worldgen-village-availability)', () => {
   it.effect(
     `every battery seed has a village within ${String(VILLAGE_AVAILABILITY_RING_LIMIT)} chunk rings of the origin`,

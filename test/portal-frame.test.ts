@@ -141,6 +141,47 @@ describe('detectNetherPortal', () => {
 
       const brokenFrame = X_FRAME.filter((cell) => key(cell) !== key(at(3, 21, 10)))
       expect(detectNetherPortal(blockAtWithObsidian(brokenFrame), at(4, 21, 10))).toBeUndefined()
+
+      const missingTopFrame = X_FRAME.filter((cell) => key(cell) !== key(at(4, 19, 10)))
+      expect(detectNetherPortal(blockAtWithObsidian(missingTopFrame), at(4, 21, 10))).toBeUndefined()
+
+      const missingBottomFrame = X_FRAME.filter((cell) => key(cell) !== key(at(4, 23, 10)))
+      expect(detectNetherPortal(blockAtWithObsidian(missingBottomFrame), at(4, 21, 10))).toBeUndefined()
+
+      const obstructedInterior = [...X_FRAME, at(5, 21, 10)]
+      expect(detectNetherPortal(blockAtWithObsidian(obstructedInterior), at(4, 21, 10))).toBeUndefined()
+    }),
+  )
+
+  it.effect('rejects a portal wider than the validated width range', () =>
+    Effect.sync(() => {
+      const oversizedPortal: BlockAt = (x, y, z) => {
+        const horizontalEdge = x === 3 || x === 26
+        const insideWidth = x >= 3 && x <= 26
+        const topOrBottom = (y === 19 || y === 23) && insideWidth
+        const side = horizontalEdge && y >= 20 && y <= 22
+        if (z === 10 && (topOrBottom || side)) {
+          return BLOCK.OBSIDIAN
+        }
+        return BLOCK.AIR
+      }
+
+      expect(detectNetherPortal(oversizedPortal, at(4, 21, 10))).toBeUndefined()
+    }),
+  )
+
+  it.effect('does not probe block coordinates outside BlockAxis bounds', () =>
+    Effect.sync(() => {
+      const unsafeProbes: Array<readonly [number, number, number]> = []
+      const airWithinBlockAxis: BlockAt = (x, y, z) => {
+        if (![x, y, z].every(Number.isSafeInteger)) {
+          unsafeProbes.push([x, y, z])
+        }
+        return BLOCK.AIR
+      }
+      expect(detectNetherPortal(airWithinBlockAxis, at(4, Number.MIN_SAFE_INTEGER, 10))).toBeUndefined()
+      expect(detectNetherPortal(airWithinBlockAxis, at(Number.MIN_SAFE_INTEGER, 20, 10))).toBeUndefined()
+      expect(unsafeProbes).toStrictEqual([])
     }),
   )
 })
