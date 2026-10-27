@@ -29,7 +29,6 @@ import {
   generatedDimensionChunkSource,
   type ChunkBlockEdit,
   type ChunkSource,
-  type ChunkStoreError,
   type ChunkWritePrepareError,
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
@@ -101,8 +100,8 @@ describe('ChunkCapacity', () => {
 })
 
 /** Run an Effect against a fresh store. Each test gets its own — no singleton. */
-const withStore = <A>(
-  body: (store: Effect.Success<typeof ChunkStore>) => Effect.Effect<A, ChunkStoreError>,
+const withStore = <A, E>(
+  body: (store: Effect.Success<typeof ChunkStore>) => Effect.Effect<A, E>,
 ) =>
   Effect.flatMap(ChunkStore, body).pipe(Effect.provide(flatWorld))
 
@@ -862,6 +861,7 @@ describe('copy-on-write block transactions', () => {
         const secondCoord = chunkCoord(chunkAxis(1), 0)
         const untouchedCoord = chunkCoord(chunkAxis(2), 0)
         const firstPosition = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
+        const secondPosition = blockPosition(blockAxis(17), FLAT_SURFACE_Y, 1)
         const unavailablePosition = blockPosition(blockAxis(512), FLAT_SURFACE_Y, 1)
         const outOfWorldPosition = blockPosition(blockAxis(1), CHUNK_HEIGHT + 5, 1)
         const first = yield* store.load(firstCoord)
@@ -901,6 +901,36 @@ describe('copy-on-write block transactions', () => {
               { position: outOfWorldPosition, block: BLOCK.GRAVEL },
             ],
             expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'out-of-world' },
+          },
+          {
+            name: 'non-finite coordinate after a valid edit',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              {
+                position: { ...firstPosition, x: Number.NaN } as unknown as typeof firstPosition,
+                block: BLOCK.GRAVEL,
+              },
+            ],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'invalid-position' },
+          },
+          {
+            name: 'malformed coordinate after a valid edit',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              {
+                position: { x: firstPosition.x, z: firstPosition.z } as unknown as typeof firstPosition,
+                block: BLOCK.GRAVEL,
+              },
+            ],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'invalid-position' },
+          },
+          {
+            name: 'invalid block id after a valid edit',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              { position: secondPosition, block: -1 as unknown as ChunkBlockEdit['block'] },
+            ],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'invalid-block-id' },
           },
           {
             name: 'unloaded chunk after a valid edit',
@@ -989,7 +1019,14 @@ describe('copy-on-write block transactions', () => {
         expect((yield* store.load(firstCoord))).toBe(firstPublished)
         expect((yield* store.load(firstCoord)).blocks).toBe(firstPublished?.blocks)
 
-        yield* store.publish(prepared)
+        const repeatedPublish = yield* Effect.match(store.publish(prepared), {
+          onFailure: (error) => ({ _tag: 'Failure' as const, error }),
+          onSuccess: () => ({ _tag: 'Success' as const }),
+        })
+        expect(repeatedPublish).toStrictEqual({
+          _tag: 'Failure',
+          error: { _tag: 'ChunkWriteTokenInvalid', reason: 'already_published' },
+        })
         expect(yield* store.peek(firstCoord)).toBe(firstPublished)
 
         const next = yield* Effect.orDie(store.prepare([{ position: firstPosition, block: BLOCK.DIRT }]))

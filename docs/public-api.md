@@ -2,10 +2,12 @@
 
 ## mc-worldgen public surface
 
-This document summarizes consumer-facing package APIs. It is not a complete inventory of package exports. Import public mc-worldgen APIs from the package root unless another entry point is shown. See the [migration guide](./migration-0.6.0.md) for input-validation examples.
+Import production mc-worldgen APIs from the package root. Testing utilities are at `@nerima-games/mc-worldgen/testing`. For seed and coordinate constructors and validation, see [validate world seeds](./migration-0.6.0.md#validate-world-seeds) and [validate raw coordinates](./migration-0.6.0.md#validate-coordinates-at-raw-input-boundaries).
+
+`Result.Result<A, E>` is an `effect` result with `Success(A)` or `Failure(E)`; `Option.Option<A>` is `Some(A)` or `None`. A typed error in an `Effect.Effect<A, E, R>` is reported through the Effect error channel.
 
 - Generation APIs accept mc-noise's `NoiseSeed`. The package root re-exports it. Validate external numbers with `NoiseSeed.result`; fractional values, `NaN`, infinities, and integers outside the safe-integer range fail. Valid integer seeds retain their generated output.
-- Coordinates use mc-kernel 0.9 brands. `ChunkCoord` contains `ChunkAxis` values, block positions use `BlockAxis`, and chunk-local horizontal positions use `LocalAxis`. The examples use the mc-kernel package root for constructors and types.
+- Coordinates use mc-kernel 0.9 brands. `ChunkCoord` contains `ChunkAxis` values, block positions use `BlockAxis`, and chunk-local horizontal positions use `LocalAxis`.
 - Every chunk-store factory and layer requires a positive safe-integer `ChunkCapacity`. A full store evicts its least recently used clean chunk. Dirty chunks are persisted before eviction; a failed save leaves the chunk resident and returns a typed error.
 - `ChunkStoreRegistry` provides an independent bounded `ChunkStoreApi` for each dimension. Its renderer-facing reads are `peek`, `neighbours`, `subscribeDirty`, and `getLight`.
 - The package root exports `Chunk`, `ReadonlyChunk`, `ReadonlyUint16Array`, `ChunkNeighbours`, `LightReading`, `CHUNK_HEIGHT`, and `chunkKeyOf`. The latter is re-exported from mc-kernel and returns its branded `ChunkKey`; import the `ChunkKey` type from mc-kernel.
@@ -16,7 +18,7 @@ This document summarizes consumer-facing package APIs. It is not a complete inve
 
 ## Natural-structure coordinate failures
 
-Region coordinates are plain numbers, not chunk coordinates. Planners validate that both region indices are safe integers and that the candidate footprint can be represented by safe block coordinates before branding or terrain sampling.
+Region coordinates are plain numbers, not chunk coordinates. Planners validate that both region indices are safe integers and that each candidate structure's derived block-coordinate bounds are representable as safe integers before branding coordinates or sampling terrain.
 
 `InvalidNaturalStructureCoordinate` is exported from the package root. Its failure value identifies the structure kind, region, coordinate axis, and invalid value:
 
@@ -34,7 +36,7 @@ The `*ForRegion` planners and `planNaturalStructureForRegion` return `Result<Opt
 
 `naturalStructurePlansForChunk` returns a `Result` containing the candidate plans. `generateChunk`, `generateNetherChunk`, `generateEndChunk`, and their `*At` forms propagate the same coordinate failure. Generated `ChunkSource` values carry it in the Effect error channel, and `ChunkStoreError` includes it when a generated source fails.
 
-The chunk-scoped queries return these results:
+The chunk-scoped queries return these results. The near queries search bounds extending from the requested chunk: villages use a fixed internal margin, while strongholds use a caller-supplied `halfExtent` margin in blocks.
 
 - `villageSitesNearChunk`: `Result.Result<ReadonlyArray<VillageSite>, InvalidNaturalStructureCoordinate>`.
 - `strongholdSitesNearChunk`: `Result.Result<ReadonlyArray<StrongholdSite>, InvalidNaturalStructureCoordinate>`.
@@ -44,16 +46,18 @@ The chunk-scoped queries return these results:
 
 `Failure(InvalidNaturalStructureCoordinate)` reports an invalid chunk coordinate or an unrepresentable derived coordinate. `Success([])` means the valid query found no sites or spawns.
 
-The End spike and gateway APIs use `EndFeaturePlan` and gateway-specific values. They are separate from natural-structure region planning.
+The End feature API is separate from natural-structure region planning. `endFeaturePlanForSeed` returns an `EndFeaturePlan` for spikes; `createEndGatewayPlacement`, `resolveEndGatewayExit`, and `knownEndGatewayExit` cover gateway placement and travel.
 
 ## Store services and persistence
 
 `ChunkCapacity` is required by `makeChunkStore(source, capacity)` and the store layers. The in-memory `ChunkStoreRegistryLayer(sourceForDimension, capacity)` creates one store per dimension.
 
-`PersistentChunkStoreRegistryLayer(sourceForDimension, worldId, capacity)` takes the world ID as a function argument and requires `StoragePort` in its Effect layer environment. Import `ChunkStoreRegistry` and the layer constructors from the mc-worldgen package root. The service key `@nerima-games/mc-worldgen/ChunkStoreRegistry` is an Effect service identifier, not a package subpath.
+`PersistentChunkStoreRegistryLayer(sourceForDimension, worldId, capacity)` takes the world ID as a function argument and requires `StoragePort` from `@nerima-games/mc-save` in its Effect layer environment. Import `ChunkStoreRegistry` and the layer constructors from the mc-worldgen package root. The service key `@nerima-games/mc-worldgen/ChunkStoreRegistry` is an Effect service identifier, not a package subpath. The [dimension-store migration example](./migration-0.6.0.md#select-a-store-by-dimension) shows how to provide the layer.
 
-`ChunkStoreApi.prepare(edits)` validates a nonempty batch with unique world positions, in-world Y values, and a resident chunk at every position. It fails with `ChunkWriteInvalidBatch` (`empty`, `duplicate-position`, or `out-of-world`) or `ChunkWriteChunkUnavailable`; a failure leaves the store unchanged. Its `PreparedChunkWrite.changes` contains only blocks that would actually change, each with its position and previous and next block IDs. A prepared value can be published once by its originating store; `publish` makes the batch visible together. `setBlock` remains available for single edits.
+`ChunkStoreApi.prepare(edits)` validates a nonempty array of edits, safe-integer world positions, valid block IDs, unique positions, in-world Y values, and a resident chunk at every position. It fails with `ChunkWriteInvalidBatch` or `ChunkWriteChunkUnavailable`; a failure leaves the store unchanged. `ChunkWriteInvalidBatch.reason` distinguishes `empty`, `not-array`, `invalid-edit`, `invalid-position`, `invalid-block-id`, `duplicate-position`, and `out-of-world`. Its `PreparedChunkWrite.changes` contains only blocks that would actually change, each with its position and previous and next block IDs.
 
-`load`, `peek`, and `neighbours` return live chunk references typed as `ReadonlyChunk`. They do not copy chunk buffers. Published writes copy each changed chunk's block buffer, so earlier read references retain their values. `snapshot` returns a detached `Chunk` copy.
+`ChunkStoreApi.prepare(edits)` records the store-local revision of each changed chunk. `ChunkStoreApi.publish(prepared)` compares every recorded revision with the current revision before applying any edit; it fails with `ChunkWriteStale` if any changed chunk differs or is no longer resident. A stale multi-chunk batch changes no chunks, light data, dirty notifications, or revisions. `ChunkWriteStale` includes the chunk `key`, `expectedRevision`, and `actualRevision`; `actualRevision` is `undefined` if the chunk is no longer resident. `ChunkWriteTokenInvalid` reports `foreign_store`, `already_published`, or `unknown_token`. These revisions guard one store; callers must coordinate transactions spanning multiple stores or dimensions. `setBlock` remains available for single edits.
+
+`load`, `peek`, and `neighbours` return live chunk references typed as `ReadonlyChunk`. `getBlockAt` and `biomeAt` accept this readonly view. Published writes copy each changed chunk's block buffer, so earlier read references retain their values. Readonly is a TypeScript guarantee only: JavaScript can still mutate a live chunk object or its `Uint16Array`, bypassing dirty notifications and light invalidation. Callers must treat these references as immutable. `snapshot` returns a detached `Chunk` copy.
 
 For complete call examples, see [Provide a chunk-store capacity](./migration-0.6.0.md#provide-a-chunk-store-capacity) and [Select a store by dimension](./migration-0.6.0.md#select-a-store-by-dimension).

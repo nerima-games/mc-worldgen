@@ -47,9 +47,9 @@ export const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_VOLUME)
  * (`packages/world/domain/terrain/ravine-carver.ts:46` among others); the
  * difference is that this version is total rather than merely unchecked.
  */
-export const readBlock = (blocks: Uint16Array, index: number): number => blocks[index] ?? AIR_BLOCK_ID
+export const readBlock = (blocks: ArrayLike<number>, index: number): number => blocks[index] ?? AIR_BLOCK_ID
 
-export const getBlockAt = (chunk: Chunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis): number =>
+export const getBlockAt = (chunk: ReadonlyChunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis): number =>
   readBlock(chunk.blocks, blockIndex(lx, y, lz))
 
 /**
@@ -101,5 +101,5 @@ export type ReadonlyUint16Array = Readonly<
 >
 
 export type ReadonlyChunk = Readonly<Omit<Chunk, 'blocks'> & { blocks: ReadonlyUint16Array }>
-export const biomeAt = (chunk: Chunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
+export const biomeAt = (chunk: ReadonlyChunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'

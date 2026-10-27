@@ -97,7 +97,10 @@ export type {
   ChunkBlockEdit,
   ChunkWriteChunkUnavailable,
   ChunkWriteInvalidBatch,
+  ChunkWritePublishError,
   ChunkWritePrepareError,
+  ChunkWriteStale,
+  ChunkWriteTokenInvalid,
   PreparedChunkWrite,
 } from '../domain/chunk-store-state.js'
 
@@ -177,8 +180,14 @@ export type ChunkStoreApi = {
   readonly prepare: (
     edits: ReadonlyArray<Store.ChunkBlockEdit>,
   ) => Effect.Effect<Store.PreparedChunkWrite, Store.ChunkWritePrepareError>
-  /** Publish a prepared write by replacing its changed chunks. */
-  readonly publish: (prepared: Store.PreparedChunkWrite) => Effect.Effect<void>
+  /**
+   * Publish a prepared write by replacing its changed chunks. A token can be
+   * published once, and only while every changed chunk still has its prepared
+   * revision.
+   */
+  readonly publish: (
+    prepared: Store.PreparedChunkWrite,
+  ) => Effect.Effect<void, Store.ChunkWritePublishError>
 
   /**
    * Make a chunk resident, generating it through `ChunkSource` if it is not.
@@ -362,6 +371,44 @@ type EvictionPlan = (latest: ChunkStoreRuntimeState) => readonly [EvictionAction
 type ChunkStoreStateRef = Ref.Ref<ChunkStoreRuntimeState>
 type ChunkStoreLru = ReturnType<typeof makeChunkStoreLru>
 
+type PreparedChunkWriteRecord = {
+  readonly owner: object
+  readonly candidate: Store.PreparedChunkWriteCandidate
+  consumed: boolean
+}
+
+type PreparedWriteRecordValidation =
+  | Readonly<{ readonly kind: 'invalid'; readonly error: Store.ChunkWriteTokenInvalid }>
+  | Readonly<{ readonly kind: 'valid'; readonly record: PreparedChunkWriteRecord }>
+
+type ChunkPublishAttempt =
+  | Readonly<{ readonly _tag: 'Published' }>
+  | Readonly<{ readonly _tag: 'Rejected'; readonly error: Store.ChunkWritePublishError }>
+
+const preparedChunkWriteRecords = new WeakMap<Store.PreparedChunkWrite, PreparedChunkWriteRecord>()
+
+const invalidPreparedToken = (reason: Store.ChunkWriteTokenInvalid['reason']): Store.ChunkWriteTokenInvalid => ({
+  _tag: 'ChunkWriteTokenInvalid',
+  reason,
+})
+
+const validatePreparedWriteRecord = (
+  prepared: Store.PreparedChunkWrite,
+  owner: object,
+): PreparedWriteRecordValidation => {
+  const record = preparedChunkWriteRecords.get(prepared)
+  if (!record) {
+    return { error: invalidPreparedToken('unknown_token'), kind: 'invalid' }
+  }
+  if (record.owner !== owner) {
+    return { error: invalidPreparedToken('foreign_store'), kind: 'invalid' }
+  }
+  if (record.consumed) {
+    return { error: invalidPreparedToken('already_published'), kind: 'invalid' }
+  }
+  return { kind: 'valid', record }
+}
+
 const makeEvictionPlanner = (
   lru: ChunkStoreLru,
   persistence?: ChunkPersistence,
@@ -490,7 +537,7 @@ const makeEvictionRuntime = (
 const makeBlockWriteApi = (
   state: ChunkStoreStateRef,
 ): Pick<ChunkStoreApi, 'prepare' | 'publish' | 'setBlock'> => {
-  const preparedWrites = new WeakMap<Store.PreparedChunkWrite, Store.PreparedChunkWriteCandidate>()
+  const storeIdentity = {}
   const publishCandidate = (
     current: ChunkStoreRuntimeState,
     candidate: Store.PreparedChunkWriteCandidate,
@@ -513,19 +560,42 @@ const makeBlockWriteApi = (
         return Effect.fail(result.error)
       }
 
-      preparedWrites.set(result.candidate.prepared, result.candidate)
+      preparedChunkWriteRecords.set(result.candidate.prepared, {
+        candidate: result.candidate,
+        consumed: false,
+        owner: storeIdentity,
+      })
       return Effect.succeed(result.candidate.prepared)
     })
-  const publish: ChunkStoreApi['publish'] = (prepared) =>
-    Ref.update(state, (current) => {
-      const candidate = preparedWrites.get(prepared)
-      if (!candidate) {
-        return current
-      }
+  const publishAttempt = (
+    current: ChunkStoreRuntimeState,
+    prepared: Store.PreparedChunkWrite,
+  ): readonly [ChunkPublishAttempt, ChunkStoreRuntimeState] => {
+    const validation = validatePreparedWriteRecord(prepared, storeIdentity)
+    if (validation.kind === 'invalid') {
+      return [{ _tag: 'Rejected', error: validation.error }, current]
+    }
 
-      preparedWrites.delete(prepared)
-      return publishCandidate(current, candidate)
-    })
+    const { record } = validation
+    const stale = Store.stalePreparedBlockWrite(current.chunks, record.candidate)
+    if (Option.isSome(stale)) {
+      return [{ _tag: 'Rejected', error: stale.value }, current]
+    }
+
+    const next = publishCandidate(current, record.candidate)
+    record.consumed = true
+    return [{ _tag: 'Published' }, next]
+  }
+  const publish: ChunkStoreApi['publish'] = (prepared) =>
+    Effect.flatMap(
+      Ref.modify(state, (current) => publishAttempt(current, prepared)),
+      (attempt) => {
+        if (attempt['_tag'] === 'Rejected') {
+          return Effect.fail(attempt.error)
+        }
+        return Effect.void
+      },
+    )
   const setBlock: ChunkStoreApi['setBlock'] = (position, block) =>
     Ref.modify(state, (current): readonly [Store.BlockWriteOutcome, ChunkStoreRuntimeState] => {
       const result = Store.prepareBlockWrite(current.chunks, position, block)

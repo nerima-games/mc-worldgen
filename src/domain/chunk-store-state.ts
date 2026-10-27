@@ -35,6 +35,7 @@
  * still holds for everything the `Ref` actually guards.
  */
 import {
+  BlockAxis,
   BlockId,
   type BlockPosition,
   ChunkAxis,
@@ -49,7 +50,6 @@ import {
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
-import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import { Option } from 'effect'
 import { chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
@@ -132,7 +132,14 @@ export type ChunkBlockChange = Readonly<{
 
 export type ChunkWriteInvalidBatch = Readonly<{
   readonly _tag: 'ChunkWriteInvalidBatch'
-  readonly reason: 'empty' | 'duplicate-position' | 'out-of-world'
+  readonly reason:
+    | 'empty'
+    | 'not-array'
+    | 'invalid-edit'
+    | 'invalid-position'
+    | 'invalid-block-id'
+    | 'duplicate-position'
+    | 'out-of-world'
 }>
 
 export type ChunkWriteChunkUnavailable = Readonly<{
@@ -141,6 +148,20 @@ export type ChunkWriteChunkUnavailable = Readonly<{
 }>
 
 export type ChunkWritePrepareError = ChunkWriteInvalidBatch | ChunkWriteChunkUnavailable
+
+export type ChunkWriteStale = Readonly<{
+  readonly _tag: 'ChunkWriteStale'
+  readonly key: ChunkKey
+  readonly expectedRevision: number
+  readonly actualRevision?: number
+}>
+
+export type ChunkWriteTokenInvalid = Readonly<{
+  readonly _tag: 'ChunkWriteTokenInvalid'
+  readonly reason: 'foreign_store' | 'already_published' | 'unknown_token'
+}>
+
+export type ChunkWritePublishError = ChunkWriteStale | ChunkWriteTokenInvalid
 
 const preparedChunkWriteBrand: unique symbol = Symbol('PreparedChunkWrite')
 
@@ -151,6 +172,7 @@ export type PreparedChunkWrite = Readonly<{
 
 export type PreparedChunkWriteCandidate = Readonly<{
   readonly prepared: PreparedChunkWrite
+  readonly baseRevisions: ReadonlyMap<ChunkKey, number>
   readonly chunks: ReadonlyMap<ChunkKey, Chunk>
   readonly changedBlocks: ReadonlyArray<Readonly<{
     readonly key: ChunkKey
@@ -277,6 +299,10 @@ export const EMPTY_DIRTY_BATCH: ChunkDirtyBatch = { changed: [], removed: [] }
 
 export type ChunkStoreState = {
   readonly loaded: ReadonlyMap<ChunkKey, Chunk>
+  /** Revisions for resident chunks only. */
+  readonly revisions: ReadonlyMap<ChunkKey, number>
+  /** Monotonic across writes, residency transitions, and reset. */
+  readonly revisionClock: number
   /**
    * Computed light, per resident chunk. ABSENT MEANS STALE, not dark.
    *
@@ -312,11 +338,47 @@ export type ChunkStoreState = {
   readonly nextSubscriberId: number
 }
 
+/** A chunk has no current revision before it becomes resident. */
+const INITIAL_CHUNK_REVISION = 0
+/** Every write or residency transition advances the store's revision clock once. */
+const CHUNK_REVISION_STEP = 1
+const NO_CHANGES = 0
+
 export const emptyChunkStoreState: ChunkStoreState = {
   lights: new Map(),
   loaded: new Map(),
   nextSubscriberId: 0,
+  revisionClock: INITIAL_CHUNK_REVISION,
+  revisions: new Map(),
   subscribers: new Map(),
+}
+
+const incrementChunkRevisions = (
+  state: ChunkStoreState,
+  keys: ReadonlyArray<ChunkKey>,
+): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: number }> => {
+  const { revisions: currentRevisions, revisionClock: currentRevisionClock } = state
+  if (keys.length === NO_CHANGES) {
+    return { revisionClock: currentRevisionClock, revisions: currentRevisions }
+  }
+
+  const revisions = new Map(currentRevisions)
+  let revisionClock = currentRevisionClock
+  for (const key of keys) {
+    revisionClock += CHUNK_REVISION_STEP
+    revisions.set(key, revisionClock)
+  }
+  return { revisionClock, revisions }
+}
+
+const removeChunkRevision = (
+  state: ChunkStoreState,
+  key: ChunkKey,
+): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: number }> => {
+  const { revisions: currentRevisions, revisionClock: currentRevisionClock } = state
+  const revisions = new Map(currentRevisions)
+  revisions.delete(key)
+  return { revisionClock: currentRevisionClock + CHUNK_REVISION_STEP, revisions }
 }
 
 /**
@@ -474,6 +536,7 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
     state.loaded,
     chunk.coord,
   )
+  const revisions = incrementChunkRevisions(state, [key])
 
   return {
     // A REPLACED chunk is a different world in the same place, so its cached
@@ -484,6 +547,7 @@ export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState
     lights: withoutLights(state.lights, lightKeysAround(chunk.coord)),
     loaded,
     nextSubscriberId: state.nextSubscriberId,
+    ...revisions,
     subscribers,
   }
 }
@@ -512,6 +576,7 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
     loaded,
     coord,
   )
+  const revisions = removeChunkRevision(state, key)
 
   return [
     true,
@@ -521,6 +586,7 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
       lights: withoutLights(state.lights, lightKeysAround(coord)),
       loaded,
       nextSubscriberId: state.nextSubscriberId,
+      ...revisions,
       subscribers,
     },
   ]
@@ -626,6 +692,7 @@ const applyBlockWrite = (
   }
 
   setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
+  const revisions = incrementChunkRevisions(state, [key])
 
   return [
     { _tag: 'Written', chunk: coord, previous },
@@ -633,6 +700,7 @@ const applyBlockWrite = (
       lights: relightAfterBlockChange(state, coord, local),
       loaded: state.loaded,
       nextSubscriberId: state.nextSubscriberId,
+      ...revisions,
       subscribers: noteChange(state.subscribers, key, coord, 'changed'),
     },
   ]
@@ -679,7 +747,6 @@ export const withBlockAt = (
  */
 /** The cache-hit or cache-miss tail of `lightAt`, once a resident chunk is known. */
 const ORIGIN_COORDINATE = 0
-const NO_CHANGES = 0
 
 const blockPositionKey = ({ x, y, z }: BlockPosition): string =>
   `${x + ORIGIN_COORDINATE},${y + ORIGIN_COORDINATE},${z + ORIGIN_COORDINATE}`
@@ -729,6 +796,7 @@ const appendChunkWrite = (builder: ChunkWriteCandidateBuilder, { edit, target }:
 }
 
 const preparedCandidateFor = (
+  state: ChunkStoreState,
   edits: ReadonlyArray<ValidatedChunkBlockEdit>,
 ): PreparedChunkWriteCandidate => {
   const builder: ChunkWriteCandidateBuilder = {
@@ -745,9 +813,16 @@ const preparedCandidateFor = (
     [preparedChunkWriteBrand]: true as const,
     changes: Object.freeze(builder.changes),
   })
+  const changedChunks = Object.freeze([...builder.changedChunks.values()])
+  const baseRevisions = new Map<ChunkKey, number>()
+  for (const changed of changedChunks) {
+    baseRevisions.set(changed.key, state.revisions.get(changed.key) ?? INITIAL_CHUNK_REVISION)
+  }
+
   return {
+    baseRevisions,
     changedBlocks: Object.freeze(builder.changedBlocks),
-    changedChunks: Object.freeze([...builder.changedChunks.values()]),
+    changedChunks,
     chunks: builder.chunks,
     prepared,
   }
@@ -756,6 +831,45 @@ const preparedCandidateFor = (
 type BlockEditValidation =
   | Readonly<{ readonly _tag: 'Valid' }>
   | Readonly<{ readonly _tag: 'Rejected'; readonly error: ChunkWritePrepareError }>
+
+const invalidBatch = (reason: ChunkWriteInvalidBatch['reason']): BlockEditValidation => ({
+  _tag: 'Rejected',
+  error: { _tag: 'ChunkWriteInvalidBatch', reason },
+})
+
+const isUnknownRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === 'object' && value !== null
+
+const isBlockPosition = (position: unknown): position is BlockPosition => {
+  if (!isUnknownRecord(position)) {
+    return false
+  }
+
+  return (
+    typeof position['x'] === 'number' &&
+    typeof position['y'] === 'number' &&
+    typeof position['z'] === 'number' &&
+    BlockAxis.is(position['x']) &&
+    BlockAxis.is(position['y']) &&
+    BlockAxis.is(position['z'])
+  )
+}
+
+const validateEditValues = (edits: ReadonlyArray<unknown>): BlockEditValidation => {
+  for (const value of edits) {
+    if (!isUnknownRecord(value)) {
+      return invalidBatch('invalid-edit')
+    }
+
+    if (!isBlockPosition(value['position'])) {
+      return invalidBatch('invalid-position')
+    }
+    if (typeof value['block'] !== 'number' || !BlockId.is(value['block'])) {
+      return invalidBatch('invalid-block-id')
+    }
+  }
+  return { _tag: 'Valid' }
+}
 
 const validateUniqueBlockPositions = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
   const positions = new Set<string>()
@@ -778,15 +892,26 @@ const validateWorldHeight = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditVal
   return { _tag: 'Valid' }
 }
 
-const validateBlockEditBatch = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
-  if (edits.length === NO_CHANGES) {
-    return { _tag: 'Rejected', error: { _tag: 'ChunkWriteInvalidBatch', reason: 'empty' } }
-  }
+const validateUniquePositionsAndWorldHeight = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
   const uniquePositions = validateUniqueBlockPositions(edits)
   if (uniquePositions['_tag'] === 'Rejected') {
     return uniquePositions
   }
   return validateWorldHeight(edits)
+}
+
+const validateBlockEditBatch = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
+  if (!Array.isArray(edits)) {
+    return invalidBatch('not-array')
+  }
+  if (edits.length === NO_CHANGES) {
+    return invalidBatch('empty')
+  }
+  const validEdits = validateEditValues(edits)
+  if (validEdits['_tag'] === 'Rejected') {
+    return validEdits
+  }
+  return validateUniquePositionsAndWorldHeight(edits)
 }
 
 type LoadedBlockEditValidation =
@@ -823,7 +948,7 @@ export const prepareBlockWrites = (
   if (loadedValidation['_tag'] === 'Rejected') {
     return loadedValidation
   }
-  return { _tag: 'Prepared', candidate: preparedCandidateFor(loadedValidation.edits) }
+  return { _tag: 'Prepared', candidate: preparedCandidateFor(state, loadedValidation.edits) }
 }
 
 const blockWriteOutcome = (
@@ -853,7 +978,7 @@ export const prepareBlockWrite = (
 
   const edit = { block, position }
   const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
-  const candidate = preparedCandidateFor([{ edit, target }])
+  const candidate = preparedCandidateFor(state, [{ edit, target }])
   const outcome: Extract<BlockWriteOutcome, { readonly _tag: 'Written' | 'Unchanged' }> =
     blockWriteOutcome(previous, block, target.coord)
 
@@ -897,7 +1022,36 @@ const publishChangedBlocks = (
   }
   const lights = changedLightsFor(state, loaded, changedBlocks)
   const subscribers = changedSubscribersFor(state, changedChunks)
-  return { ...state, lights, loaded, subscribers }
+  const revisions = incrementChunkRevisions(state, changedChunks.map(({ key }) => key))
+  return {
+    ...state,
+    lights,
+    loaded,
+    ...revisions,
+    subscribers,
+  }
+}
+
+export const stalePreparedBlockWrite = (
+  state: ChunkStoreState,
+  candidate: PreparedChunkWriteCandidate,
+): Option.Option<ChunkWriteStale> => {
+  for (const { key } of candidate.changedChunks) {
+    const expectedRevision = candidate.baseRevisions.get(key) ?? INITIAL_CHUNK_REVISION
+    const actualRevision = Option.fromNullishOr(state.revisions.get(key))
+    const revisionMatches = Option.match(actualRevision, {
+      onNone: () => false,
+      onSome: (revision) => revision === expectedRevision,
+    })
+    if (!revisionMatches) {
+      const stale = Option.match(actualRevision, {
+        onNone: () => ({ _tag: 'ChunkWriteStale' as const, expectedRevision, key }),
+        onSome: (revision) => ({ _tag: 'ChunkWriteStale' as const, actualRevision: revision, expectedRevision, key }),
+      })
+      return Option.some(stale)
+    }
+  }
+  return Option.none()
 }
 
 export const publishPreparedBlockWrite = (
@@ -930,6 +1084,8 @@ const lightReadingForTarget = (
       lights,
       loaded: state.loaded,
       nextSubscriberId: state.nextSubscriberId,
+      revisionClock: state.revisionClock,
+      revisions: state.revisions,
       subscribers: state.subscribers,
     },
   ]
@@ -976,6 +1132,8 @@ export const subscribed = (state: ChunkStoreState): readonly [SubscriberId, Chun
       lights: state.lights,
       loaded: state.loaded,
       nextSubscriberId: state.nextSubscriberId + SUBSCRIBER_ID_STEP,
+      revisionClock: state.revisionClock,
+      revisions: state.revisions,
       subscribers,
     },
   ]
@@ -990,7 +1148,14 @@ export const unsubscribed = (state: ChunkStoreState, id: SubscriberId): ChunkSto
   const subscribers = new Map(state.subscribers)
   subscribers.delete(id)
 
-  return { lights: state.lights, loaded: state.loaded, nextSubscriberId: state.nextSubscriberId, subscribers }
+  return {
+    lights: state.lights,
+    loaded: state.loaded,
+    nextSubscriberId: state.nextSubscriberId,
+    revisionClock: state.revisionClock,
+    revisions: state.revisions,
+    subscribers,
+  }
 }
 
 /**
@@ -1030,7 +1195,14 @@ export const drained = (
 
   return [
     batch,
-    { lights: state.lights, loaded: state.loaded, nextSubscriberId: state.nextSubscriberId, subscribers },
+    {
+      lights: state.lights,
+      loaded: state.loaded,
+      nextSubscriberId: state.nextSubscriberId,
+      revisionClock: state.revisionClock,
+      revisions: state.revisions,
+      subscribers,
+    },
   ]
 }
 

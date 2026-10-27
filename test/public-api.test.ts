@@ -91,6 +91,14 @@ const assertReadonlyChunkViews = (loaded: LoadChunkView, peeked: PeekChunkView):
 }
 void assertReadonlyChunkViews
 
+const assertReadonlyChunkReadHelpers = (loaded: LoadChunkView, peeked: PeekChunkView): void => {
+  worldgen.getBlockAt(loaded, localAxis(0), blockAxis(0), localAxis(0))
+  worldgen.getBlockAt(peeked, localAxis(0), blockAxis(0), localAxis(0))
+  worldgen.biomeAt(loaded, localAxis(0), localAxis(0))
+  worldgen.biomeAt(peeked, localAxis(0), localAxis(0))
+}
+void assertReadonlyChunkReadHelpers
+
 const expectNaturalStructureChunk = (chunk: worldgen.NaturalStructureChunk, coord: worldgen.ChunkCoord): void => {
   expect(chunk.coord).toBe(coord)
   expect(chunk.blocks).toHaveLength(worldgen.CHUNK_VOLUME)
