@@ -172,7 +172,6 @@ export type PreparedChunkWrite = Readonly<{
 
 export type PreparedChunkWriteCandidate = Readonly<{
   readonly prepared: PreparedChunkWrite
-  readonly baseRevisions: ReadonlyMap<ChunkKey, number>
   readonly chunks: ReadonlyMap<ChunkKey, Chunk>
   readonly changedBlocks: ReadonlyArray<Readonly<{
     readonly key: ChunkKey
@@ -182,6 +181,7 @@ export type PreparedChunkWriteCandidate = Readonly<{
   readonly changedChunks: ReadonlyArray<Readonly<{
     readonly key: ChunkKey
     readonly coord: ChunkCoord
+    readonly baseRevision: number
   }>>
 }>
 
@@ -809,14 +809,17 @@ const preparedCandidateFor = (
     [preparedChunkWriteBrand]: true as const,
     changes: Object.freeze(builder.changes),
   })
-  const changedChunks = Object.freeze([...builder.changedChunks.values()])
-  const baseRevisions = new Map<ChunkKey, number>()
-  for (const changed of changedChunks) {
-    baseRevisions.set(changed.key, state.revisions.get(changed.key) ?? INITIAL_CHUNK_REVISION)
-  }
+  // Every changed key refers to a resident chunk, and every resident chunk has a tracked revision.
+  const changedChunks = Object.freeze(
+    [...builder.changedChunks.values()].map((changed) =>
+      Object.freeze({
+        ...changed,
+        baseRevision: Option.getOrThrow(Option.fromNullishOr(state.revisions.get(changed.key))),
+      }),
+    ),
+  )
 
   return {
-    baseRevisions,
     changedBlocks: Object.freeze(builder.changedBlocks),
     changedChunks,
     chunks: builder.chunks,
@@ -1032,8 +1035,7 @@ export const stalePreparedBlockWrite = (
   state: ChunkStoreState,
   candidate: PreparedChunkWriteCandidate,
 ): Option.Option<ChunkWriteStale> => {
-  for (const { key } of candidate.changedChunks) {
-    const expectedRevision = candidate.baseRevisions.get(key) ?? INITIAL_CHUNK_REVISION
+  for (const { key, baseRevision: expectedRevision } of candidate.changedChunks) {
     const actualRevision = Option.fromNullishOr(state.revisions.get(key))
     const revisionMatches = Option.match(actualRevision, {
       onNone: () => false,
