@@ -34,7 +34,13 @@ import {
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
-import { chunkKeyOf, wasWritten } from '../src/domain/chunk-store-state'
+import {
+  chunkKeyOf,
+  emptyChunkStoreState,
+  wasWritten,
+  withBlockAt,
+  withChunk,
+} from '../src/domain/chunk-store-state'
 import { makeChunkStoreLru } from '../src/domain/chunk-store-lru'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
@@ -832,6 +838,23 @@ describe('aliasing is stated, not hidden', () => {
 
 
 describe('copy-on-write block transactions', () => {
+  it('keeps the exported value-level block writer total', () => {
+    const coord = chunkCoord(chunkAxis(0), 0)
+    const position = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
+    const chunk = flatChunk(coord, FLAT_SURFACE_Y)
+    const state = withChunk(emptyChunkStoreState, chunk)
+
+    expect(withBlockAt(state, blockPosition(blockAxis(1), CHUNK_HEIGHT + 5, 1), BLOCK.SAND)[0]._tag).toBe('OutOfWorld')
+    expect(withBlockAt(state, blockPosition(blockAxis(512), FLAT_SURFACE_Y, 1), BLOCK.SAND)[0]._tag).toBe('ChunkNotLoaded')
+
+    const [written, afterWrite] = withBlockAt(state, position, BLOCK.SAND)
+    expect(written._tag).toBe('Written')
+    expect(chunk.blocks[blockIndex(1, FLAT_SURFACE_Y, 1)]).toBe(BLOCK.SAND)
+
+    const [unchanged] = withBlockAt(afterWrite, position, BLOCK.SAND)
+    expect(unchanged._tag).toBe('Unchanged')
+  })
+
   it.effect('typed prepare failures leave resident chunks and residency unchanged', () =>
     withStore((store) =>
       Effect.gen(function* () {
@@ -918,6 +941,7 @@ describe('copy-on-write block transactions', () => {
         const untouchedCoord = chunkCoord(chunkAxis(2), 0)
         const firstPosition = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
         const secondPosition = blockPosition(blockAxis(17), FLAT_SURFACE_Y, 1)
+        const thirdPosition = blockPosition(blockAxis(2), FLAT_SURFACE_Y, 2)
         const unchangedPosition = blockPosition(blockAxis(3), FLAT_SURFACE_Y, 3)
         const first = yield* store.load(firstCoord)
         const second = yield* store.load(secondCoord)
@@ -926,16 +950,18 @@ describe('copy-on-write block transactions', () => {
         const secondIndex = blockIndex(1, FLAT_SURFACE_Y, 1)
         const edits: ReadonlyArray<ChunkBlockEdit> = [
           { position: firstPosition, block: BLOCK.SAND },
+          { position: thirdPosition, block: BLOCK.DIRT },
           { position: secondPosition, block: BLOCK.GRAVEL },
           { position: unchangedPosition, block: BLOCK.STONE },
         ]
 
         const prepared = yield* Effect.orDie(store.prepare(edits))
 
-        expect(prepared.changes).toHaveLength(2)
+        expect(prepared.changes).toHaveLength(3)
         expect(prepared.changes).toEqual(
           expect.arrayContaining([
             { position: firstPosition, previous: BLOCK.STONE, next: BLOCK.SAND },
+            { position: thirdPosition, previous: BLOCK.STONE, next: BLOCK.DIRT },
             { position: secondPosition, previous: BLOCK.STONE, next: BLOCK.GRAVEL },
           ]),
         )
@@ -958,6 +984,7 @@ describe('copy-on-write block transactions', () => {
         expect(first.blocks[firstIndex]).toBe(BLOCK.STONE)
         expect(second.blocks[secondIndex]).toBe(BLOCK.STONE)
         expect(firstPublished?.blocks[firstIndex]).toBe(BLOCK.SAND)
+        expect(firstPublished?.blocks[blockIndex(2, FLAT_SURFACE_Y, 2)]).toBe(BLOCK.DIRT)
         expect(secondPublished?.blocks[secondIndex]).toBe(BLOCK.GRAVEL)
         expect((yield* store.load(firstCoord))).toBe(firstPublished)
         expect((yield* store.load(firstCoord)).blocks).toBe(firstPublished?.blocks)
