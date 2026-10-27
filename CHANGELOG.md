@@ -1,5 +1,13 @@
 # @nerima-games/mc-worldgen
 
+## 0.7.0
+
+### Minor Changes
+
+- Add atomic copy-on-write `prepare`/`publish` writes with typed stale and invalid-token failures. Publishing copies changed block buffers so earlier read references retain their values. Block and biome helpers also accept readonly chunk views.
+  
+  Pin `@nerima-games/mc-kernel` to `0.11.0`.
+
 ## 0.6.0
 
 ### Minor Changes
