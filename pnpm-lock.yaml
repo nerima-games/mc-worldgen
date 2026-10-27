@@ -175,8 +175,8 @@ importers:
   .:
     dependencies:
       '@nerima-games/mc-kernel':
-        specifier: 0.9.0
-        version: 0.9.0
+        specifier: 0.11.0
+        version: 0.11.0
       '@nerima-games/mc-noise':
         specifier: 0.5.0
         version: 0.5.0
@@ -520,6 +520,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
+
+  '@nerima-games/mc-kernel@0.11.0':
+    resolution: {integrity: sha512-+oEf741ELbnk4H4hk91VtKei3JmbHBLEhBCx8uF0FyZ4cEsA1cbjGBxtLwqJ3kYeHHrQe1fKI8M+FL6rtQAc8A==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.11.0/d225a1924f55eb29f7e1f624a5a3f9ed1c85ba5f}
+    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@nerima-games/mc-kernel@0.9.0':
     resolution: {integrity: sha512-EITeP95xALpsfPxxx8IVtVjsPWT1F3drNAa0tEgqhVVmApE/IPbxBTr6glxxjQ5YVIw+OQI6baRVS67Aldy+Qg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.9.0/2701f9d52311348b6618556ae146dfa4a3a5cb7a}
@@ -1661,6 +1665,10 @@ snapshots:
       '@emnapi/runtime': 1.11.2
       '@tybys/wasm-util': 0.10.3
     optional: true
+
+  '@nerima-games/mc-kernel@0.11.0':
+    dependencies:
+      effect: 4.0.5
 
   '@nerima-games/mc-kernel@0.9.0':
     dependencies:
