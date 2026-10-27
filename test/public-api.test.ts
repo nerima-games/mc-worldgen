@@ -1,7 +1,7 @@
 import * as worldgen from '../src/index'
 import * as worldgenTesting from '../src/testing'
 import { describe, expect, it } from '@effect/vitest'
-import { Result } from 'effect'
+import { Effect, Result } from 'effect'
 import { PortalRegistry as DOMAIN_PORTAL_REGISTRY } from '../src/application/portal-registry'
 import { CHUNK_FORMAT as DOMAIN_CHUNK_FORMAT } from '../src/domain/chunk-format'
 import {
@@ -65,6 +65,39 @@ export type PublicRootExportsRendererReads = Assert<
   & Assert<'subscribeDirty' extends keyof worldgen.ChunkStoreApi ? true : false>
   & Assert<'getLight' extends keyof worldgen.ChunkStoreApi ? true : false>
   & Assert<'forDimension' extends keyof worldgen.ChunkStoreRegistry ? true : false>
+
+type LoadChunkView = Effect.Success<ReturnType<worldgen.ChunkStoreApi['load']>>
+type PeekChunkView = Exclude<Effect.Success<ReturnType<worldgen.ChunkStoreApi['peek']>>, undefined>
+export type PublicRootExportsReadonlyChunkViews = Assert<
+  LoadChunkView extends worldgen.ReadonlyChunk ? true : false
+> & Assert<PeekChunkView extends worldgen.ReadonlyChunk ? true : false>
+export type PublicRootReadonlyChunkViewsOmitAliasingCallbacks = Assert<
+  'forEach' extends keyof worldgen.ReadonlyUint16Array ? false : true
+> & Assert<'map' extends keyof worldgen.ReadonlyUint16Array ? false : true>
+  & Assert<'reduce' extends keyof worldgen.ReadonlyUint16Array ? false : true>
+export type PublicRootReadonlyChunkViewsHideBufferAliases = Assert<
+  'buffer' extends keyof worldgen.ReadonlyUint16Array ? false : true
+> & Assert<'subarray' extends keyof worldgen.ReadonlyUint16Array ? false : true>
+
+const assertReadonlyChunkViews = (loaded: LoadChunkView, peeked: PeekChunkView): void => {
+  // @ts-expect-error Published load views reject indexed writes.
+  loaded.blocks[0] = TEST_BLOCK
+  // @ts-expect-error Published peek views reject indexed writes.
+  peeked.blocks[0] = TEST_BLOCK
+  // @ts-expect-error The read-only view omits typed-array mutators.
+  loaded.blocks.fill(TEST_BLOCK)
+  // @ts-expect-error The read-only view omits typed-array mutators.
+  peeked.blocks.set(new Uint16Array(1))
+}
+void assertReadonlyChunkViews
+
+const assertReadonlyChunkReadHelpers = (loaded: LoadChunkView, peeked: PeekChunkView): void => {
+  worldgen.getBlockAt(loaded, localAxis(0), blockAxis(0), localAxis(0))
+  worldgen.getBlockAt(peeked, localAxis(0), blockAxis(0), localAxis(0))
+  worldgen.biomeAt(loaded, localAxis(0), localAxis(0))
+  worldgen.biomeAt(peeked, localAxis(0), localAxis(0))
+}
+void assertReadonlyChunkReadHelpers
 
 const expectNaturalStructureChunk = (chunk: worldgen.NaturalStructureChunk, coord: worldgen.ChunkCoord): void => {
   expect(chunk.coord).toBe(coord)

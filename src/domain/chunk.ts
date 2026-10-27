@@ -47,9 +47,9 @@ export const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_VOLUME)
  * (`packages/world/domain/terrain/ravine-carver.ts:46` among others); the
  * difference is that this version is total rather than merely unchecked.
  */
-export const readBlock = (blocks: Uint16Array, index: number): number => blocks[index] ?? AIR_BLOCK_ID
+export const readBlock = (blocks: ArrayLike<number>, index: number): number => blocks[index] ?? AIR_BLOCK_ID
 
-export const getBlockAt = (chunk: Chunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis): number =>
+export const getBlockAt = (chunk: ReadonlyChunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis): number =>
   readBlock(chunk.blocks, blockIndex(lx, y, lz))
 
 /**
@@ -74,5 +74,32 @@ export const columnIndex = (lx: LocalAxis, lz: LocalAxis): number => lz * CHUNK_
 /** The caller has already bounded both offsets to the local chunk range. */
 export const columnIndexForKnownLocalRange = (lx: number, lz: number): number => lz * CHUNK_SIZE_XZ + lx
 
-export const biomeAt = (chunk: Chunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
+/** A typed-array view without writes, callback aliases, or backing-buffer access. */
+export type ReadonlyUint16Array = Readonly<
+  Omit<
+    Uint16Array,
+    | 'buffer'
+    | 'copyWithin'
+    | 'every'
+    | 'fill'
+    | 'filter'
+    | 'find'
+    | 'findIndex'
+    | 'findLast'
+    | 'findLastIndex'
+    | 'forEach'
+    | 'map'
+    | 'reduce'
+    | 'reduceRight'
+    | 'reverse'
+    | 'set'
+    | 'some'
+    | 'sort'
+    | 'subarray'
+    | 'valueOf'
+  >
+>
+
+export type ReadonlyChunk = Readonly<Omit<Chunk, 'blocks'> & { blocks: ReadonlyUint16Array }>
+export const biomeAt = (chunk: ReadonlyChunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'
