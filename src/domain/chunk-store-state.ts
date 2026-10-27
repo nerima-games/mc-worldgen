@@ -358,10 +358,6 @@ const incrementChunkRevisions = (
   keys: ReadonlyArray<ChunkKey>,
 ): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: number }> => {
   const { revisions: currentRevisions, revisionClock: currentRevisionClock } = state
-  if (keys.length === NO_CHANGES) {
-    return { revisionClock: currentRevisionClock, revisions: currentRevisions }
-  }
-
   const revisions = new Map(currentRevisions)
   let revisionClock = currentRevisionClock
   for (const key of keys) {

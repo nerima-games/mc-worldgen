@@ -206,4 +206,43 @@ describe('ChunkStore.publish regression cases', () => {
       expect(dirtyAfterSecondPublish).toStrictEqual({ changed: [], removed: [] })
     }),
   )
+
+  it.effect('rejects an unknown token without changing the store', () =>
+    Effect.gen(function* () {
+      const store = yield* freshStore()
+      const coord = chunkCoord(0, 0)
+      const index = blockIndex(1, 64, 1)
+      const before = yield* store.load(coord)
+      const changes = yield* store.subscribeDirty
+      yield* changes.drain
+      const unknownToken = {} as Parameters<Effect.Success<typeof ChunkStore>['publish']>[0]
+
+      const outcome = yield* capturePublish(store, unknownToken)
+      const after = yield* store.peek(coord)
+      const dirty = yield* changes.drain
+
+      expectInvalidTokenFailure(outcome, 'unknown_token')
+      expect(after).toBe(before)
+      expect(after?.blocks[index]).toBe(BLOCK.AIR)
+      expect(dirty).toStrictEqual({ changed: [], removed: [] })
+    }),
+  )
+
+  it.effect('publishes an unchanged batch without changing residency or dirty state', () =>
+    Effect.gen(function* () {
+      const store = yield* freshStore()
+      const coord = chunkCoord(0, 0)
+      const position = blockPosition(1, 64, 1)
+      const before = yield* store.load(coord)
+      const changes = yield* store.subscribeDirty
+      yield* changes.drain
+      const prepared = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.AIR }]))
+
+      expect(prepared.changes).toEqual([])
+      yield* store.publish(prepared)
+
+      expect(yield* store.peek(coord)).toBe(before)
+      expect(yield* changes.drain).toStrictEqual({ changed: [], removed: [] })
+    }),
+  )
 })

@@ -925,6 +925,14 @@ describe('copy-on-write block transactions', () => {
             expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'invalid-position' },
           },
           {
+            name: 'non-object position after a valid edit',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              { position: null as unknown as typeof firstPosition, block: BLOCK.GRAVEL },
+            ],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'invalid-position' },
+          },
+          {
             name: 'invalid block id after a valid edit',
             edits: [
               { position: firstPosition, block: BLOCK.SAND },
