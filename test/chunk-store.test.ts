@@ -962,6 +962,9 @@ describe('copy-on-write block transactions', () => {
         expect((yield* store.load(firstCoord))).toBe(firstPublished)
         expect((yield* store.load(firstCoord)).blocks).toBe(firstPublished?.blocks)
 
+        yield* store.publish(prepared)
+        expect(yield* store.peek(firstCoord)).toBe(firstPublished)
+
         const next = yield* Effect.orDie(store.prepare([{ position: firstPosition, block: BLOCK.DIRT }]))
         yield* store.publish(next)
         const latest = yield* store.peek(firstCoord)
