@@ -75,6 +75,7 @@
 import * as Store from '../domain/chunk-store-state.js'
 import type { BlockId, BlockPosition, ChunkCoord, ChunkKey, Dimension } from '@nerima-games/mc-kernel'
 import { Brand, Context, Data, Effect, Layer, Option, Ref, Semaphore } from 'effect'
+import type { Chunk, ReadonlyChunk } from '../domain/chunk.js'
 import {
   type ChunkPersistence,
   type ChunkPersistenceContext,
@@ -82,7 +83,6 @@ import {
   makeChunkPersistence,
 } from './chunk-persistence.js'
 import { type GenerateOptions, generateChunk } from '../domain/terrain.js'
-import type { Chunk } from '../domain/chunk.js'
 import type { InvalidNaturalStructureCoordinate } from '../domain/natural-structure-plan-builder.js'
 import type { StoragePort } from '@nerima-games/mc-save'
 import { generateEndChunk } from '../domain/end-terrain.js'
@@ -92,6 +92,15 @@ import { makeChunkStoreLru } from '../domain/chunk-store-lru.js'
 const makeService = Context.Service
 const taggedError = Data.TaggedError
 const MIN_CHUNK_CAPACITY = 1
+export type {
+  ChunkBlockChange,
+  ChunkBlockEdit,
+  ChunkWriteChunkUnavailable,
+  ChunkWriteInvalidBatch,
+  ChunkWritePrepareError,
+  PreparedChunkWrite,
+} from '../domain/chunk-store-state.js'
+
 const CHUNK_STORE_PERMITS = 1
 
 export type ChunkCapacity = number & Brand.Brand<'ChunkCapacity'>
@@ -156,24 +165,39 @@ export type ChunkDirtySubscription = {
   readonly unsubscribe: Effect.Effect<void>
 }
 
+type ReadonlyChunkNeighbours = Readonly<{
+  [Key in keyof Store.ChunkNeighbours]: ReadonlyChunk
+}>
+
 export type ChunkStoreApi = {
   /**
-   * Make a chunk resident, generating it through `ChunkSource` if it is not.
-   * Resolves to the LIVE chunk — see `domain/chunk-store-state.ts` on aliasing.
+   * Prepare an atomic set of block edits without making them visible to readers.
+   * Only changed blocks appear in the prepared value's sparse diff.
    */
-  readonly load: (coord: ChunkCoord) => Effect.Effect<Chunk, ChunkStoreError>
-  /** Look without loading. `undefined` if not resident. Live view. */
-  readonly peek: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>
+  readonly prepare: (
+    edits: ReadonlyArray<Store.ChunkBlockEdit>,
+  ) => Effect.Effect<Store.PreparedChunkWrite, Store.ChunkWritePrepareError>
+  /** Publish a prepared write by replacing its changed chunks. */
+  readonly publish: (prepared: Store.PreparedChunkWrite) => Effect.Effect<void>
+
+  /**
+   * Make a chunk resident, generating it through `ChunkSource` if it is not.
+   * Resolves to a read-only type backed by the live chunk. Store writes keep
+   * references returned before publication unchanged.
+   */
+  readonly load: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk, ChunkStoreError>
+  /** Look without loading. `undefined` if not resident. Read-only live reference. */
+  readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
   /** A detached copy that will not change under the caller. */
   readonly snapshot: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>
   readonly isLoaded: (coord: ChunkCoord) => Effect.Effect<boolean>
   readonly loadedCoords: Effect.Effect<ReadonlyArray<ChunkCoord>>
   /**
-   * The four horizontal neighbours, shaped to satisfy mc-meshing's
-   * `ChunkNeighbours` structurally. Absent neighbours are absent, not
-   * `undefined`.
+   * The four optional horizontal neighbours in the directions mc-meshing
+   * expects. Present chunks are read-only live references; absent neighbours
+   * are omitted.
    */
-  readonly neighbours: (coord: ChunkCoord) => Effect.Effect<Store.ChunkNeighbours>
+  readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunkNeighbours>
   /** Drop a chunk. Resolves to whether anything was resident. */
   readonly unload: (coord: ChunkCoord) => Effect.Effect<boolean, ChunkPersistenceError>
 
@@ -181,8 +205,9 @@ export type ChunkStoreApi = {
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
   /**
    * Write one block. Total — no error channel, because `StageRegistration.run`
-   * has none either. Dirties the chunk only if the block actually changed, and
-   * invalidates that chunk's light when it did.
+   * has none either. Reuses the prepare/publish transitions in one `Ref.modify`
+   * so concurrent compatibility writes stay atomic. Dirties the chunk only if
+   * the block actually changed, and invalidates that chunk's light when it did.
    */
   readonly setBlock: (position: BlockPosition, block: BlockId) => Effect.Effect<Store.BlockWriteOutcome>
 
@@ -462,6 +487,57 @@ const makeEvictionRuntime = (
   return evictUntilRoom
 }
 
+const makeBlockWriteApi = (
+  state: ChunkStoreStateRef,
+): Pick<ChunkStoreApi, 'prepare' | 'publish' | 'setBlock'> => {
+  const preparedWrites = new WeakMap<Store.PreparedChunkWrite, Store.PreparedChunkWriteCandidate>()
+  const publishCandidate = (
+    current: ChunkStoreRuntimeState,
+    candidate: Store.PreparedChunkWriteCandidate,
+  ): ChunkStoreRuntimeState => {
+    const chunks = Store.publishPreparedBlockWrite(current.chunks, candidate)
+    if (chunks === current.chunks) {
+      return current
+    }
+
+    const dirty = new Set(current.dirty)
+    for (const changed of candidate.changedChunks) {
+      dirty.add(changed.key)
+    }
+    return { chunks, dirty }
+  }
+  const prepare: ChunkStoreApi['prepare'] = (edits) =>
+    Effect.flatMap(Ref.get(state), (current) => {
+      const result = Store.prepareBlockWrites(current.chunks, edits)
+      if (result['_tag'] === 'Rejected') {
+        return Effect.fail(result.error)
+      }
+
+      preparedWrites.set(result.candidate.prepared, result.candidate)
+      return Effect.succeed(result.candidate.prepared)
+    })
+  const publish: ChunkStoreApi['publish'] = (prepared) =>
+    Ref.update(state, (current) => {
+      const candidate = preparedWrites.get(prepared)
+      if (!candidate) {
+        return current
+      }
+
+      preparedWrites.delete(prepared)
+      return publishCandidate(current, candidate)
+    })
+  const setBlock: ChunkStoreApi['setBlock'] = (position, block) =>
+    Ref.modify(state, (current): readonly [Store.BlockWriteOutcome, ChunkStoreRuntimeState] => {
+      const result = Store.prepareBlockWrite(current.chunks, position, block)
+      if (result['_tag'] === 'Rejected') {
+        return [result.outcome, current]
+      }
+
+      return [result.outcome, publishCandidate(current, result.candidate)]
+    })
+  return { prepare, publish, setBlock }
+}
+
 const makeChunkStoreInternal = (
   source: ChunkSource,
   capacity: ChunkCapacity,
@@ -524,6 +600,7 @@ const makeChunkStoreInternal = (
       )
 
     return {
+      ...makeBlockWriteApi(state),
       getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current.chunks, position)),
 
       // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss
@@ -578,18 +655,6 @@ const makeChunkStoreInternal = (
           }
         },
       ),
-
-      setBlock: (position, block) =>
-        Ref.modify(state, (current): readonly [Store.BlockWriteOutcome, ChunkStoreRuntimeState] => {
-          const [outcome, chunks] = Store.withBlockAt(current.chunks, position, block)
-          if (!('chunk' in outcome)) {
-            return [outcome, current]
-          }
-
-          const dirty = new Set(current.dirty)
-          dirty.add(Store.chunkKeyOf(outcome.chunk))
-          return [outcome, { chunks, dirty }]
-        }),
 
       snapshot: (coord) =>
         Effect.map(Ref.get(state), (current) => {

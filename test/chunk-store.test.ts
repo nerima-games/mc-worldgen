@@ -27,8 +27,10 @@ import {
   PersistentGeneratedDimensionChunkStoreLayer,
   generatedChunkSource,
   generatedDimensionChunkSource,
+  type ChunkBlockEdit,
   type ChunkSource,
   type ChunkStoreError,
+  type ChunkWritePrepareError,
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
@@ -790,18 +792,25 @@ describe('re-entrancy', () => {
 })
 
 describe('aliasing is stated, not hidden', () => {
-  it.effect('a loaded chunk is a LIVE view', () =>
+  it.effect('load and peek reuse the same published chunk reference', () =>
     withStore((store) =>
       Effect.gen(function* () {
-        const chunk = yield* store.load(chunkCoord(chunkAxis(0), 0))
+        const coord = chunkCoord(chunkAxis(0), 0)
+        const chunk = yield* store.load(coord)
         const index = blockIndex(0, 10, 0)
 
         expect(chunk.blocks[index]).toBe(BLOCK.STONE)
+        expect(yield* store.peek(coord)).toBe(chunk)
+        expect(yield* store.load(coord)).toBe(chunk)
+        expect((yield* store.peek(coord))?.blocks).toBe(chunk.blocks)
+
         yield* store.setBlock(blockPosition(blockAxis(0), 10, 0), BLOCK.SAND)
-        // The write went into the buffer the caller is holding. This is the
-        // documented performance exception, and it is asserted so that nobody
-        // has to discover it from a bug.
-        expect(chunk.blocks[index]).toBe(BLOCK.SAND)
+        const published = yield* store.peek(coord)
+
+        expect(published).not.toBe(chunk)
+        expect(published?.blocks).not.toBe(chunk.blocks)
+        expect(chunk.blocks[index]).toBe(BLOCK.STONE)
+        expect(published?.blocks[index]).toBe(BLOCK.SAND)
       }),
     ),
   )
@@ -816,6 +825,151 @@ describe('aliasing is stated, not hidden', () => {
         yield* store.setBlock(blockPosition(blockAxis(0), 10, 0), BLOCK.SAND)
 
         expect(snapshot?.blocks[index]).toBe(BLOCK.STONE)
+      }),
+    ),
+  )
+})
+
+
+describe('copy-on-write block transactions', () => {
+  it.effect('typed prepare failures leave resident chunks and residency unchanged', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const firstCoord = chunkCoord(chunkAxis(0), 0)
+        const secondCoord = chunkCoord(chunkAxis(1), 0)
+        const untouchedCoord = chunkCoord(chunkAxis(2), 0)
+        const firstPosition = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
+        const unavailablePosition = blockPosition(blockAxis(512), FLAT_SURFACE_Y, 1)
+        const outOfWorldPosition = blockPosition(blockAxis(1), CHUNK_HEIGHT + 5, 1)
+        const first = yield* store.load(firstCoord)
+        const second = yield* store.load(secondCoord)
+        const untouched = yield* store.load(untouchedCoord)
+        const residents = [
+          { coord: firstCoord, chunk: first, blocks: Array.from(first.blocks) },
+          { coord: secondCoord, chunk: second, blocks: Array.from(second.blocks) },
+          { coord: untouchedCoord, chunk: untouched, blocks: Array.from(untouched.blocks) },
+        ]
+        const loadedBefore = yield* store.loadedCoords
+        const subscription = yield* store.subscribeDirty
+        yield* subscription.drain
+
+        const invalidBatches: ReadonlyArray<{
+          readonly name: string
+          readonly edits: ReadonlyArray<ChunkBlockEdit>
+          readonly expected: ChunkWritePrepareError
+        }> = [
+          {
+            name: 'empty batch',
+            edits: [],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'empty' },
+          },
+          {
+            name: 'duplicate position',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              { position: firstPosition, block: BLOCK.GRAVEL },
+            ],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'duplicate-position' },
+          },
+          {
+            name: 'out-of-world position after a valid edit',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              { position: outOfWorldPosition, block: BLOCK.GRAVEL },
+            ],
+            expected: { _tag: 'ChunkWriteInvalidBatch', reason: 'out-of-world' },
+          },
+          {
+            name: 'unloaded chunk after a valid edit',
+            edits: [
+              { position: firstPosition, block: BLOCK.SAND },
+              { position: unavailablePosition, block: BLOCK.GRAVEL },
+            ],
+            expected: { _tag: 'ChunkWriteChunkUnavailable', position: unavailablePosition },
+          },
+        ]
+
+        for (const invalidBatch of invalidBatches) {
+          const outcome = yield* Effect.match(store.prepare(invalidBatch.edits), {
+            onFailure: (error) => ({ _tag: 'Failure' as const, error }),
+            onSuccess: () => ({ _tag: 'Success' as const }),
+          })
+
+          expect(outcome, invalidBatch.name).toStrictEqual({ _tag: 'Failure', error: invalidBatch.expected })
+          expect(yield* store.loadedCoords, invalidBatch.name).toStrictEqual(loadedBefore)
+          expect(yield* subscription.drain, invalidBatch.name).toStrictEqual({ changed: [], removed: [] })
+          for (const resident of residents) {
+            const current = yield* store.peek(resident.coord)
+            expect(current, invalidBatch.name).toBe(resident.chunk)
+            if (current !== undefined) {
+              expect(Array.from(current.blocks), invalidBatch.name).toStrictEqual(resident.blocks)
+            }
+          }
+        }
+      }),
+    ),
+  )
+
+  it.effect('prepares sparse changes privately and publishes changed chunks by copy-on-write', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const firstCoord = chunkCoord(chunkAxis(0), 0)
+        const secondCoord = chunkCoord(chunkAxis(1), 0)
+        const untouchedCoord = chunkCoord(chunkAxis(2), 0)
+        const firstPosition = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
+        const secondPosition = blockPosition(blockAxis(17), FLAT_SURFACE_Y, 1)
+        const unchangedPosition = blockPosition(blockAxis(3), FLAT_SURFACE_Y, 3)
+        const first = yield* store.load(firstCoord)
+        const second = yield* store.load(secondCoord)
+        const untouched = yield* store.load(untouchedCoord)
+        const firstIndex = blockIndex(1, FLAT_SURFACE_Y, 1)
+        const secondIndex = blockIndex(1, FLAT_SURFACE_Y, 1)
+        const edits: ReadonlyArray<ChunkBlockEdit> = [
+          { position: firstPosition, block: BLOCK.SAND },
+          { position: secondPosition, block: BLOCK.GRAVEL },
+          { position: unchangedPosition, block: BLOCK.STONE },
+        ]
+
+        const prepared = yield* Effect.orDie(store.prepare(edits))
+
+        expect(prepared.changes).toHaveLength(2)
+        expect(prepared.changes).toEqual(
+          expect.arrayContaining([
+            { position: firstPosition, previous: BLOCK.STONE, next: BLOCK.SAND },
+            { position: secondPosition, previous: BLOCK.STONE, next: BLOCK.GRAVEL },
+          ]),
+        )
+        expect(yield* store.peek(firstCoord)).toBe(first)
+        expect(yield* store.peek(secondCoord)).toBe(second)
+        expect(yield* store.peek(untouchedCoord)).toBe(untouched)
+        expect(first.blocks[firstIndex]).toBe(BLOCK.STONE)
+        expect(second.blocks[secondIndex]).toBe(BLOCK.STONE)
+
+        yield* store.publish(prepared)
+
+        const firstPublished = yield* store.peek(firstCoord)
+        const secondPublished = yield* store.peek(secondCoord)
+        const untouchedPublished = yield* store.peek(untouchedCoord)
+        expect(firstPublished).not.toBe(first)
+        expect(firstPublished?.blocks).not.toBe(first.blocks)
+        expect(secondPublished).not.toBe(second)
+        expect(secondPublished?.blocks).not.toBe(second.blocks)
+        expect(untouchedPublished).toBe(untouched)
+        expect(first.blocks[firstIndex]).toBe(BLOCK.STONE)
+        expect(second.blocks[secondIndex]).toBe(BLOCK.STONE)
+        expect(firstPublished?.blocks[firstIndex]).toBe(BLOCK.SAND)
+        expect(secondPublished?.blocks[secondIndex]).toBe(BLOCK.GRAVEL)
+        expect((yield* store.load(firstCoord))).toBe(firstPublished)
+        expect((yield* store.load(firstCoord)).blocks).toBe(firstPublished?.blocks)
+
+        const next = yield* Effect.orDie(store.prepare([{ position: firstPosition, block: BLOCK.DIRT }]))
+        yield* store.publish(next)
+        const latest = yield* store.peek(firstCoord)
+
+        expect(first.blocks[firstIndex]).toBe(BLOCK.STONE)
+        expect(firstPublished?.blocks[firstIndex]).toBe(BLOCK.SAND)
+        expect(latest?.blocks[firstIndex]).toBe(BLOCK.DIRT)
+        expect((yield* store.peek(untouchedCoord))).toBe(untouched)
       }),
     ),
   )

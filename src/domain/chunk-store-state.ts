@@ -24,10 +24,11 @@
  * mutates in place for exactly this reason, and plan.md §5.2 sanctions this
  * class of measured exception.
  *
- * The consequence is stated rather than hidden: **a `Chunk` handed out by this
- * store is a live view, not a snapshot.** `chunkSnapshotOf` exists for callers
- * that need a value that will not change under them. `test/chunk-store.test.ts`
- * pins both behaviours, so nobody has to discover the aliasing from a bug.
+ * The store's public write path does not use that helper: transaction
+ * preparation copies each changed chunk and publication swaps the chunk map.
+ * A store write therefore does not change a chunk already returned by
+ * `load` or `peek`. `chunkSnapshotOf` still gives a detached copy to callers
+ * that need ownership of its buffer.
  *
  * What is NOT mutated in place is the bookkeeping: `loaded` and `subscribers`
  * are replaced wholesale on every transition, so the atomicity argument above
@@ -116,6 +117,66 @@ export type BlockWriteOutcome =
   | { readonly _tag: 'Unchanged'; readonly previous: BlockId }
   | { readonly _tag: 'ChunkNotLoaded' }
   | { readonly _tag: 'OutOfWorld' }
+
+
+export type ChunkBlockEdit = Readonly<{
+  readonly position: BlockPosition
+  readonly block: BlockId
+}>
+
+export type ChunkBlockChange = Readonly<{
+  readonly position: BlockPosition
+  readonly previous: BlockId
+  readonly next: BlockId
+}>
+
+export type ChunkWriteInvalidBatch = Readonly<{
+  readonly _tag: 'ChunkWriteInvalidBatch'
+  readonly reason: 'empty' | 'duplicate-position' | 'out-of-world'
+}>
+
+export type ChunkWriteChunkUnavailable = Readonly<{
+  readonly _tag: 'ChunkWriteChunkUnavailable'
+  readonly position: BlockPosition
+}>
+
+export type ChunkWritePrepareError = ChunkWriteInvalidBatch | ChunkWriteChunkUnavailable
+
+const preparedChunkWriteBrand: unique symbol = Symbol('PreparedChunkWrite')
+
+export type PreparedChunkWrite = Readonly<{
+  readonly [preparedChunkWriteBrand]: true
+  readonly changes: ReadonlyArray<ChunkBlockChange>
+}>
+
+export type PreparedChunkWriteCandidate = Readonly<{
+  readonly prepared: PreparedChunkWrite
+  readonly chunks: ReadonlyMap<ChunkKey, Chunk>
+  readonly changedBlocks: ReadonlyArray<Readonly<{
+    readonly key: ChunkKey
+    readonly coord: ChunkCoord
+    readonly local: LocalBlockCoord
+  }>>
+  readonly changedChunks: ReadonlyArray<Readonly<{
+    readonly key: ChunkKey
+    readonly coord: ChunkCoord
+  }>>
+}>
+
+export type ChunkWritePreparation =
+  | Readonly<{ readonly _tag: 'Prepared'; readonly candidate: PreparedChunkWriteCandidate }>
+  | Readonly<{ readonly _tag: 'Rejected'; readonly error: ChunkWritePrepareError }>
+
+export type SingleChunkWritePreparation =
+  | Readonly<{
+      readonly _tag: 'Prepared'
+      readonly candidate: PreparedChunkWriteCandidate
+      readonly outcome: Extract<BlockWriteOutcome, { readonly _tag: 'Written' | 'Unchanged' }>
+    }>
+  | Readonly<{
+      readonly _tag: 'Rejected'
+      readonly outcome: Extract<BlockWriteOutcome, { readonly _tag: 'ChunkNotLoaded' | 'OutOfWorld' }>
+    }>
 
 export const WRITE_CHUNK_NOT_LOADED: BlockWriteOutcome = { _tag: 'ChunkNotLoaded' }
 export const WRITE_OUT_OF_WORLD: BlockWriteOutcome = { _tag: 'OutOfWorld' }
@@ -617,6 +678,238 @@ export const withBlockAt = (
  * reference on the common path and `Ref.modify` writes the value it read.
  */
 /** The cache-hit or cache-miss tail of `lightAt`, once a resident chunk is known. */
+const ORIGIN_COORDINATE = 0
+const NO_CHANGES = 0
+
+const blockPositionKey = ({ x, y, z }: BlockPosition): string =>
+  `${x + ORIGIN_COORDINATE},${y + ORIGIN_COORDINATE},${z + ORIGIN_COORDINATE}`
+
+type ValidatedChunkBlockEdit = Readonly<{
+  readonly edit: ChunkBlockEdit
+  readonly target: LoadedChunkTarget
+}>
+
+type ChunkWriteCandidateBuilder = {
+  readonly chunks: Map<ChunkKey, Chunk>
+  readonly changes: ChunkBlockChange[]
+  readonly changedBlocks: Array<{
+    readonly key: ChunkKey
+    readonly coord: ChunkCoord
+    readonly local: LocalBlockCoord
+  }>
+  readonly changedChunks: Map<ChunkKey, Readonly<{ readonly key: ChunkKey; readonly coord: ChunkCoord }>>
+}
+
+const writableChunkFor = (chunks: Map<ChunkKey, Chunk>, target: LoadedChunkTarget): Chunk => {
+  const existing = chunks.get(target.key)
+  if (existing) {
+    return existing
+  }
+  const copy = { ...target.chunk, blocks: target.chunk.blocks.slice() }
+  chunks.set(target.key, copy)
+  return copy
+}
+
+const appendChunkWrite = (builder: ChunkWriteCandidateBuilder, { edit, target }: ValidatedChunkBlockEdit): void => {
+  const current = builder.chunks.get(target.key) ?? target.chunk
+  const previous = BlockId(getBlockAt(current, target.local.lx, target.local.ly, target.local.lz))
+  if (previous === edit.block) {
+    return
+  }
+
+  const next = writableChunkFor(builder.chunks, target)
+  setBlockAt(next.blocks, target.local.lx, target.local.ly, target.local.lz, edit.block)
+  builder.changes.push(Object.freeze({
+    next: edit.block,
+    position: Object.freeze({ ...edit.position }),
+    previous,
+  }))
+  builder.changedBlocks.push({ coord: target.coord, key: target.key, local: target.local })
+  builder.changedChunks.set(target.key, { coord: target.coord, key: target.key })
+}
+
+const preparedCandidateFor = (
+  edits: ReadonlyArray<ValidatedChunkBlockEdit>,
+): PreparedChunkWriteCandidate => {
+  const builder: ChunkWriteCandidateBuilder = {
+    changedBlocks: [],
+    changedChunks: new Map(),
+    changes: [],
+    chunks: new Map(),
+  }
+  for (const edit of edits) {
+    appendChunkWrite(builder, edit)
+  }
+
+  const prepared = Object.freeze({
+    [preparedChunkWriteBrand]: true as const,
+    changes: Object.freeze(builder.changes),
+  })
+  return {
+    changedBlocks: Object.freeze(builder.changedBlocks),
+    changedChunks: Object.freeze([...builder.changedChunks.values()]),
+    chunks: builder.chunks,
+    prepared,
+  }
+}
+
+type BlockEditValidation =
+  | Readonly<{ readonly _tag: 'Valid' }>
+  | Readonly<{ readonly _tag: 'Rejected'; readonly error: ChunkWritePrepareError }>
+
+const validateUniqueBlockPositions = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
+  const positions = new Set<string>()
+  for (const edit of edits) {
+    const key = blockPositionKey(edit.position)
+    if (positions.has(key)) {
+      return { _tag: 'Rejected', error: { _tag: 'ChunkWriteInvalidBatch', reason: 'duplicate-position' } }
+    }
+    positions.add(key)
+  }
+  return { _tag: 'Valid' }
+}
+
+const validateWorldHeight = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
+  for (const edit of edits) {
+    if (!isWorldY(edit.position.y)) {
+      return { _tag: 'Rejected', error: { _tag: 'ChunkWriteInvalidBatch', reason: 'out-of-world' } }
+    }
+  }
+  return { _tag: 'Valid' }
+}
+
+const validateBlockEditBatch = (edits: ReadonlyArray<ChunkBlockEdit>): BlockEditValidation => {
+  if (edits.length === NO_CHANGES) {
+    return { _tag: 'Rejected', error: { _tag: 'ChunkWriteInvalidBatch', reason: 'empty' } }
+  }
+  const uniquePositions = validateUniqueBlockPositions(edits)
+  if (uniquePositions['_tag'] === 'Rejected') {
+    return uniquePositions
+  }
+  return validateWorldHeight(edits)
+}
+
+type LoadedBlockEditValidation =
+  | Readonly<{ readonly _tag: 'Resolved'; readonly edits: ReadonlyArray<ValidatedChunkBlockEdit> }>
+  | Readonly<{ readonly _tag: 'Rejected'; readonly error: ChunkWritePrepareError }>
+
+const resolveLoadedBlockEdits = (
+  state: ChunkStoreState,
+  edits: ReadonlyArray<ChunkBlockEdit>,
+): LoadedBlockEditValidation => {
+  const validated: ValidatedChunkBlockEdit[] = []
+  for (const edit of edits) {
+    const target = resolveLoadedChunk(state, edit.position)
+    if (!target) {
+      return {
+        _tag: 'Rejected',
+        error: { _tag: 'ChunkWriteChunkUnavailable', position: edit.position },
+      }
+    }
+    validated.push({ edit, target })
+  }
+  return { _tag: 'Resolved', edits: validated }
+}
+
+export const prepareBlockWrites = (
+  state: ChunkStoreState,
+  edits: ReadonlyArray<ChunkBlockEdit>,
+): ChunkWritePreparation => {
+  const batchValidation = validateBlockEditBatch(edits)
+  if (batchValidation['_tag'] === 'Rejected') {
+    return batchValidation
+  }
+  const loadedValidation = resolveLoadedBlockEdits(state, edits)
+  if (loadedValidation['_tag'] === 'Rejected') {
+    return loadedValidation
+  }
+  return { _tag: 'Prepared', candidate: preparedCandidateFor(loadedValidation.edits) }
+}
+
+const blockWriteOutcome = (
+  previous: BlockId,
+  block: BlockId,
+  coord: ChunkCoord,
+): Extract<BlockWriteOutcome, { readonly _tag: 'Written' | 'Unchanged' }> => {
+  if (previous === block) {
+    return { _tag: 'Unchanged', previous }
+  }
+  return { _tag: 'Written', chunk: coord, previous }
+}
+
+export const prepareBlockWrite = (
+  state: ChunkStoreState,
+  position: BlockPosition,
+  block: BlockId,
+): SingleChunkWritePreparation => {
+  if (!isWorldY(position.y)) {
+    return { _tag: 'Rejected', outcome: WRITE_OUT_OF_WORLD }
+  }
+
+  const target = resolveLoadedChunk(state, position)
+  if (!target) {
+    return { _tag: 'Rejected', outcome: WRITE_CHUNK_NOT_LOADED }
+  }
+
+  const edit = { block, position }
+  const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
+  const candidate = preparedCandidateFor([{ edit, target }])
+  const outcome: Extract<BlockWriteOutcome, { readonly _tag: 'Written' | 'Unchanged' }> =
+    blockWriteOutcome(previous, block, target.coord)
+
+  return { _tag: 'Prepared', candidate, outcome }
+}
+
+const changedLightsFor = (
+  state: ChunkStoreState,
+  loaded: ChunkStoreState['loaded'],
+  changedBlocks: PreparedChunkWriteCandidate['changedBlocks'],
+): ChunkStoreState['lights'] => {
+  const { lights: initialLights } = state
+  let lights = initialLights
+  for (const changed of changedBlocks) {
+    lights = relightAfterBlockChange({ ...state, lights, loaded }, changed.coord, changed.local)
+  }
+  return lights
+}
+
+const changedSubscribersFor = (
+  state: ChunkStoreState,
+  changedChunks: PreparedChunkWriteCandidate['changedChunks'],
+): ChunkStoreState['subscribers'] => {
+  const { subscribers: initialSubscribers } = state
+  let subscribers = initialSubscribers
+  for (const changed of changedChunks) {
+    subscribers = noteChange(subscribers, changed.key, changed.coord, 'changed')
+  }
+  return subscribers
+}
+
+const publishChangedBlocks = (
+  state: ChunkStoreState,
+  candidate: PreparedChunkWriteCandidate,
+): ChunkStoreState => {
+  const { changedBlocks, changedChunks, chunks } = candidate
+  const { loaded: currentLoaded } = state
+  const loaded = new Map(currentLoaded)
+  for (const [key, chunk] of chunks) {
+    loaded.set(key, chunk)
+  }
+  const lights = changedLightsFor(state, loaded, changedBlocks)
+  const subscribers = changedSubscribersFor(state, changedChunks)
+  return { ...state, lights, loaded, subscribers }
+}
+
+export const publishPreparedBlockWrite = (
+  state: ChunkStoreState,
+  candidate: PreparedChunkWriteCandidate,
+): ChunkStoreState => {
+  if (candidate.changedChunks.length === NO_CHANGES) {
+    return state
+  }
+  return publishChangedBlocks(state, candidate)
+}
+
 const lightReadingForTarget = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,

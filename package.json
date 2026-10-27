@@ -52,6 +52,7 @@
   ],
   "scripts": {
     "bench": "tsx scripts/bench-terrain.ts",
+    "bench:chunk-store": "tsx scripts/bench-chunk-store.ts",
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.release.json --pretty false",
     "goldens:update": "tsx scripts/update-goldens.ts",
     "lint": "oxlint --deny-warnings src apps scripts test && ast-grep scan",

@@ -74,5 +74,32 @@ export const columnIndex = (lx: LocalAxis, lz: LocalAxis): number => lz * CHUNK_
 /** The caller has already bounded both offsets to the local chunk range. */
 export const columnIndexForKnownLocalRange = (lx: number, lz: number): number => lz * CHUNK_SIZE_XZ + lx
 
+/** A typed-array view without writes, callback aliases, or backing-buffer access. */
+export type ReadonlyUint16Array = Readonly<
+  Omit<
+    Uint16Array,
+    | 'buffer'
+    | 'copyWithin'
+    | 'every'
+    | 'fill'
+    | 'filter'
+    | 'find'
+    | 'findIndex'
+    | 'findLast'
+    | 'findLastIndex'
+    | 'forEach'
+    | 'map'
+    | 'reduce'
+    | 'reduceRight'
+    | 'reverse'
+    | 'set'
+    | 'some'
+    | 'sort'
+    | 'subarray'
+    | 'valueOf'
+  >
+>
+
+export type ReadonlyChunk = Readonly<Omit<Chunk, 'blocks'> & { blocks: ReadonlyUint16Array }>
 export const biomeAt = (chunk: Chunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'

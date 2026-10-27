@@ -1,14 +1,14 @@
 # Public API
 
-## mc-worldgen 0.6 public surface
+## mc-worldgen public surface
 
-This document summarizes the consumer-facing changes in 0.6. It is not a complete inventory of package exports. Import public mc-worldgen APIs from the package root unless another entry point is shown. See the [migration guide](./migration-0.6.0.md) for input-validation examples.
+This document summarizes consumer-facing package APIs. It is not a complete inventory of package exports. Import public mc-worldgen APIs from the package root unless another entry point is shown. See the [migration guide](./migration-0.6.0.md) for input-validation examples.
 
 - Generation APIs accept mc-noise's `NoiseSeed`. The package root re-exports it. Validate external numbers with `NoiseSeed.result`; fractional values, `NaN`, infinities, and integers outside the safe-integer range fail. Valid integer seeds retain their generated output.
 - Coordinates use mc-kernel 0.9 brands. `ChunkCoord` contains `ChunkAxis` values, block positions use `BlockAxis`, and chunk-local horizontal positions use `LocalAxis`. The examples use the mc-kernel package root for constructors and types.
 - Every chunk-store factory and layer requires a positive safe-integer `ChunkCapacity`. A full store evicts its least recently used clean chunk. Dirty chunks are persisted before eviction; a failed save leaves the chunk resident and returns a typed error.
 - `ChunkStoreRegistry` provides an independent bounded `ChunkStoreApi` for each dimension. Its renderer-facing reads are `peek`, `neighbours`, `subscribeDirty`, and `getLight`.
-- The package root exports `Chunk`, `ChunkNeighbours`, `LightReading`, `CHUNK_HEIGHT`, and `chunkKeyOf`. The latter is re-exported from mc-kernel and returns its branded `ChunkKey`; import the `ChunkKey` type from mc-kernel.
+- The package root exports `Chunk`, `ReadonlyChunk`, `ReadonlyUint16Array`, `ChunkNeighbours`, `LightReading`, `CHUNK_HEIGHT`, and `chunkKeyOf`. The latter is re-exported from mc-kernel and returns its branded `ChunkKey`; import the `ChunkKey` type from mc-kernel.
 - The package root exports `detectNetherPortal` and `generatePortalLayout`; shared portal types remain defined by mc-kernel.
 - `woodland-mansion-single-chunk` is a `CompactStructureKind` included in `NaturalStructureKind`. It keeps its blocks and markers in one chunk; the existing `woodland-mansion` kind may span chunks.
 - Natural-structure region planners return a typed `Result` containing an `Option`. Invalid regions or unrepresentable structure footprints return `InvalidNaturalStructureCoordinate`; a valid region with no candidate returns `Success(None)`.
@@ -51,5 +51,9 @@ The End spike and gateway APIs use `EndFeaturePlan` and gateway-specific values.
 `ChunkCapacity` is required by `makeChunkStore(source, capacity)` and the store layers. The in-memory `ChunkStoreRegistryLayer(sourceForDimension, capacity)` creates one store per dimension.
 
 `PersistentChunkStoreRegistryLayer(sourceForDimension, worldId, capacity)` takes the world ID as a function argument and requires `StoragePort` in its Effect layer environment. Import `ChunkStoreRegistry` and the layer constructors from the mc-worldgen package root. The service key `@nerima-games/mc-worldgen/ChunkStoreRegistry` is an Effect service identifier, not a package subpath.
+
+`ChunkStoreApi.prepare(edits)` validates a nonempty batch with unique world positions, in-world Y values, and a resident chunk at every position. It fails with `ChunkWriteInvalidBatch` (`empty`, `duplicate-position`, or `out-of-world`) or `ChunkWriteChunkUnavailable`; a failure leaves the store unchanged. Its `PreparedChunkWrite.changes` contains only blocks that would actually change, each with its position and previous and next block IDs. A prepared value can be published once by its originating store; `publish` makes the batch visible together. `setBlock` remains available for single edits.
+
+`load`, `peek`, and `neighbours` return live chunk references typed as `ReadonlyChunk`. They do not copy chunk buffers. Published writes copy each changed chunk's block buffer, so earlier read references retain their values. `snapshot` returns a detached `Chunk` copy.
 
 For complete call examples, see [Provide a chunk-store capacity](./migration-0.6.0.md#provide-a-chunk-store-capacity) and [Select a store by dimension](./migration-0.6.0.md#select-a-store-by-dimension).
