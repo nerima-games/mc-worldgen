@@ -71,7 +71,7 @@
     "@nerima-games/mc-kernel": "0.14.0",
     "@nerima-games/mc-noise": "0.6.0",
     "@nerima-games/mc-save": "0.7.0",
-    "effect": "4.0.5"
+    "effect": "4.0.7"
   },
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
