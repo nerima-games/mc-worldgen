@@ -10,6 +10,9 @@
  * write into "read the chunk" then "put it back" loses one of two concurrent
  * mining events, which is an item that never enters an inventory.
  *
+ * Fallible transitions return typed `Result` failures before publishing the
+ * next state.
+ *
  * The service that owns the `Ref` is `application/chunk-store.ts`.
  *
  * ---------------------------------------------------------------------------
@@ -49,8 +52,8 @@ import {
 } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
-import { type ChunkLight, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
-import { Option } from 'effect'
+import { type ChunkLight, type LightQueueUnderflowError, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
+import { Option, Result } from 'effect'
 import { chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
@@ -100,11 +103,14 @@ export const blockReading = (block: BlockId): BlockReading => ({ _tag: 'Block', 
 /**
  * The outcome of a block write.
  *
- * TOTAL — there is no error channel. `StageRegistration.run` has error channel
- * `never` (mc-kernel `domain/frame.ts`, settled as question 3 of that
- * repository's freeze checklist), so a rule that writes a block has nowhere to
- * put a failure and would have to swallow one. A swallowed failure in a mining
+ * `BlockWriteOutcome` covers expected domain outcomes and has no error variant.
+ * `StageRegistration.run` has error channel `never` (mc-kernel
+ * `domain/frame.ts`, settled as question 3 of that repository's freeze
+ * checklist), so a rule that consumes this outcome has nowhere to put a
+ * failure and would have to swallow one. A swallowed failure in a mining
  * handler is a block that visually disappears and comes back next frame.
+ * `withBlockAt` carries the relight queue invariant failure separately in its
+ * `Result` error channel.
  *
  * `Unchanged` is a distinct outcome from `Written` and does NOT dirty the
  * chunk. Re-placing the block that is already there is a legal thing for a rule
@@ -665,13 +671,29 @@ const relightAfterBlockChange = (
   state: ChunkStoreState,
   coord: ChunkCoord,
   local: LocalBlockCoord,
-): ReadonlyMap<ChunkKey, ChunkLight> => {
+): Result.Result<ReadonlyMap<ChunkKey, ChunkLight>, LightQueueUnderflowError> => {
   if (hasCompleteLightCache(state)) {
     return updateChunkLights(state.loaded, state.lights, [
       { coord, x: local.lx, y: local.ly, z: local.lz },
     ])
   }
-  return withoutLights(state.lights, affectedLightKeys(coord, local))
+  return Result.succeed(withoutLights(state.lights, affectedLightKeys(coord, local)))
+}
+
+const writeBlockAndRelight = (
+  state: ChunkStoreState,
+  target: LoadedChunkTarget,
+  block: BlockId,
+  previous: BlockId,
+): Result.Result<ChunkStoreState['lights'], LightQueueUnderflowError> => {
+  const { chunk, coord, local } = target
+  setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
+  const lights = relightAfterBlockChange(state, coord, local)
+  if (Result.isFailure(lights)) {
+    setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, previous)
+    return Result.fail(lights.failure)
+  }
+  return lights
 }
 
 /** The write itself, once `target` is known to be resident. */
@@ -679,27 +701,30 @@ const applyBlockWrite = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,
   block: BlockId,
-): readonly [BlockWriteOutcome, ChunkStoreState] => {
-  const { chunk, coord, key, local } = target
-  const previous = BlockId(getBlockAt(chunk, local.lx, local.ly, local.lz))
+): Result.Result<readonly [BlockWriteOutcome, ChunkStoreState], LightQueueUnderflowError> => {
+  const { coord, key } = target
+  const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
 
   if (previous === block) {
-    return [{ _tag: 'Unchanged', previous }, state]
+    return Result.succeed([{ _tag: 'Unchanged', previous }, state])
   }
 
-  setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
+  const lights = writeBlockAndRelight(state, target, block, previous)
+  if (Result.isFailure(lights)) {
+    return Result.fail(lights.failure)
+  }
   const revisions = incrementChunkRevisions(state, [key])
 
-  return [
+  return Result.succeed([
     { _tag: 'Written', chunk: coord, previous },
     {
-      lights: relightAfterBlockChange(state, coord, local),
+      lights: lights.success,
       loaded: state.loaded,
       nextSubscriberId: state.nextSubscriberId,
       ...revisions,
       subscribers: noteChange(state.subscribers, key, coord, 'changed'),
     },
-  ]
+  ])
 }
 
 /**
@@ -713,14 +738,14 @@ export const withBlockAt = (
   state: ChunkStoreState,
   position: BlockPosition,
   block: BlockId,
-): readonly [BlockWriteOutcome, ChunkStoreState] => {
+): Result.Result<readonly [BlockWriteOutcome, ChunkStoreState], LightQueueUnderflowError> => {
   if (!isWorldY(position.y)) {
-    return [WRITE_OUT_OF_WORLD, state]
+    return Result.succeed([WRITE_OUT_OF_WORLD, state])
   }
 
   const target = resolveLoadedChunk(state, position)
   if (!target) {
-    return [WRITE_CHUNK_NOT_LOADED, state]
+    return Result.succeed([WRITE_CHUNK_NOT_LOADED, state])
   }
 
   return applyBlockWrite(state, target, block)
@@ -988,13 +1013,17 @@ const changedLightsFor = (
   state: ChunkStoreState,
   loaded: ChunkStoreState['loaded'],
   changedBlocks: PreparedChunkWriteCandidate['changedBlocks'],
-): ChunkStoreState['lights'] => {
+): Result.Result<ChunkStoreState['lights'], LightQueueUnderflowError> => {
   const { lights: initialLights } = state
   let lights = initialLights
   for (const changed of changedBlocks) {
-    lights = relightAfterBlockChange({ ...state, lights, loaded }, changed.coord, changed.local)
+    const relit = relightAfterBlockChange({ ...state, lights, loaded }, changed.coord, changed.local)
+    if (Result.isFailure(relit)) {
+      return relit
+    }
+    lights = relit.success
   }
-  return lights
+  return Result.succeed(lights)
 }
 
 const changedSubscribersFor = (
@@ -1009,26 +1038,36 @@ const changedSubscribersFor = (
   return subscribers
 }
 
+const loadedWithCandidateChunks = (
+  currentLoaded: ChunkStoreState['loaded'],
+  candidateChunks: PreparedChunkWriteCandidate['chunks'],
+): ChunkStoreState['loaded'] => {
+  const loaded = new Map(currentLoaded)
+  for (const [key, chunk] of candidateChunks) {
+    loaded.set(key, chunk)
+  }
+  return loaded
+}
+
 const publishChangedBlocks = (
   state: ChunkStoreState,
   candidate: PreparedChunkWriteCandidate,
-): ChunkStoreState => {
-  const { changedBlocks, changedChunks, chunks } = candidate
-  const { loaded: currentLoaded } = state
-  const loaded = new Map(currentLoaded)
-  for (const [key, chunk] of chunks) {
-    loaded.set(key, chunk)
+): Result.Result<ChunkStoreState, LightQueueUnderflowError> => {
+  const { changedBlocks, changedChunks } = candidate
+  const loaded = loadedWithCandidateChunks(state.loaded, candidate.chunks)
+  const lightsResult = changedLightsFor(state, loaded, changedBlocks)
+  if (Result.isFailure(lightsResult)) {
+    return Result.fail(lightsResult.failure)
   }
-  const lights = changedLightsFor(state, loaded, changedBlocks)
   const subscribers = changedSubscribersFor(state, changedChunks)
   const revisions = incrementChunkRevisions(state, changedChunks.map(({ key }) => key))
-  return {
+  return Result.succeed({
     ...state,
-    lights,
+    lights: lightsResult.success,
     loaded,
     ...revisions,
     subscribers,
-  }
+  })
 }
 
 export const stalePreparedBlockWrite = (
@@ -1055,9 +1094,9 @@ export const stalePreparedBlockWrite = (
 export const publishPreparedBlockWrite = (
   state: ChunkStoreState,
   candidate: PreparedChunkWriteCandidate,
-): ChunkStoreState => {
+): Result.Result<ChunkStoreState, LightQueueUnderflowError> => {
   if (candidate.changedChunks.length === NO_CHANGES) {
-    return state
+    return Result.succeed(state)
   }
   return publishChangedBlocks(state, candidate)
 }
@@ -1065,18 +1104,22 @@ export const publishPreparedBlockWrite = (
 const lightReadingForTarget = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,
-): readonly [LightReading, ChunkStoreState] => {
+): Result.Result<readonly [LightReading, ChunkStoreState], LightQueueUnderflowError> => {
   const voxel = blockIndex(target.local.lx, target.local.ly, target.local.lz)
   const cached = state.lights.get(target.key)
 
   if (cached) {
-    return [lightReading(getLightAt(cached.sky, voxel), getLightAt(cached.block, voxel)), state]
+    return Result.succeed([lightReading(getLightAt(cached.sky, voxel), getLightAt(cached.block, voxel)), state])
   }
 
-  const lights = computeChunkLights(state.loaded)
+  const lightsResult = computeChunkLights(state.loaded)
+  if (Result.isFailure(lightsResult)) {
+    return Result.fail(lightsResult.failure)
+  }
+  const lights = lightsResult.success
   const computed = Option.getOrThrow(Option.fromNullishOr(lights.get(target.key)))
 
-  return [
+  return Result.succeed([
     lightReading(getLightAt(computed.sky, voxel), getLightAt(computed.block, voxel)),
     {
       lights,
@@ -1086,22 +1129,22 @@ const lightReadingForTarget = (
       revisions: state.revisions,
       subscribers: state.subscribers,
     },
-  ]
+  ])
 }
 
 export const lightAt = (
   state: ChunkStoreState,
   position: BlockPosition,
-): readonly [LightReading, ChunkStoreState] => {
+): Result.Result<readonly [LightReading, ChunkStoreState], LightQueueUnderflowError> => {
   if (!isWorldY(position.y)) {
-    return [LIGHT_OUT_OF_WORLD, state]
+    return Result.succeed([LIGHT_OUT_OF_WORLD, state])
   }
 
   const target = resolveLoadedChunk(state, position)
   if (!target) {
     // NOT "dark". See `LightReading`: a caller that cannot tell an unlit cell
     // From an unloaded one spawns hostiles at the edge of the loaded area.
-    return [LIGHT_CHUNK_NOT_LOADED, state]
+    return Result.succeed([LIGHT_CHUNK_NOT_LOADED, state])
   }
 
   return lightReadingForTarget(state, target)

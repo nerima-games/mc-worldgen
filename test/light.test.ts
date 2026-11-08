@@ -22,8 +22,8 @@ import { emptyBlocks, setBlockAt, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { blockTransmitsLight, lightEmissionAt } from '../src/domain/light-block-data'
 import {
-  computeChunkLight,
-  computeChunkLights,
+  computeChunkLight as computeChunkLightResult,
+  computeChunkLights as computeChunkLightsResult,
   emptyChunkLight,
   getLightAt,
   LIGHT_BYTE_LENGTH,
@@ -33,7 +33,9 @@ import {
   unpackX,
   unpackY,
   unpackZ,
-  updateChunkLights,
+  updateChunkLights as updateChunkLightsResult,
+  type ChunkLightChange,
+  type ChunkLight,
 } from '../src/domain/light'
 import { readQueueValue, sourceAt } from '../src/domain/light-propagation'
 import { BlockId, blockIdOf, type ChunkCoord } from '@nerima-games/mc-kernel'
@@ -90,6 +92,34 @@ const flatChunk = (coord: ChunkCoord, surfaceY: number): Chunk => {
 
 const SURFACE_Y = 63
 const TEST_CHUNK_CAPACITY = Result.getOrThrow(ChunkCapacity.result(64))
+
+const expectSuccess: <Success, Failure>(
+  result: Result.Result<Success, Failure>,
+) => asserts result is Result.Result<Success, Failure> & { readonly success: Success } = (result) => {
+  expect(Result.isSuccess(result)).toBe(true)
+}
+
+const computeChunkLight = (chunk: Chunk): ChunkLight => {
+  const result = computeChunkLightResult(chunk)
+  expectSuccess(result)
+  return result.success
+}
+
+const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): ReadonlyMap<Key, ChunkLight> => {
+  const result = computeChunkLightsResult(loaded)
+  expectSuccess(result)
+  return result.success
+}
+
+const updateChunkLights = <Key extends string>(
+  loaded: ReadonlyMap<Key, Chunk>,
+  current: ReadonlyMap<Key, ChunkLight>,
+  changes: ReadonlyArray<ChunkLightChange>,
+): ReadonlyMap<Key, ChunkLight> => {
+  const result = updateChunkLightsResult(loaded, current, changes)
+  expectSuccess(result)
+  return result.success
+}
 
 describe('cached kernel light attributes', () => {
   it.effect('preserves unregistered block defaults and rejects ids outside the BlockId range', () =>
@@ -213,17 +243,30 @@ describe('the 4-bit light grid', () => {
 
 describe('light propagation queue boundaries', () => {
   it('reports invalid queue and source indexes as typed errors', () => {
-    const capture = (operation: () => unknown): unknown => {
-      try {
-        operation()
-        return null
-      } catch (error) {
-        return error
-      }
+    const queueValue = readQueueValue([17], 0)
+    expect(Result.isSuccess(queueValue)).toBe(true)
+    if (Result.isSuccess(queueValue)) {
+      expect(queueValue.success).toBe(17)
     }
 
-    expect(capture(() => readQueueValue([], 0))).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
-    expect(capture(() => sourceAt([], 0))).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+    const source = { chunk: flatChunk(chunkCoord(chunkAxis(0), 0), SURFACE_Y), light: emptyChunkLight(), sourceIndex: 0 }
+    const sourceValue = sourceAt([source], 0)
+    expect(Result.isSuccess(sourceValue)).toBe(true)
+    if (Result.isSuccess(sourceValue)) {
+      expect(sourceValue.success).toBe(source)
+    }
+
+    const queueFailure = readQueueValue([], 0)
+    expect(Result.isFailure(queueFailure)).toBe(true)
+    if (Result.isFailure(queueFailure)) {
+      expect(queueFailure.failure).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+    }
+
+    const sourceFailure = sourceAt([], 0)
+    expect(Result.isFailure(sourceFailure)).toBe(true)
+    if (Result.isFailure(sourceFailure)) {
+      expect(sourceFailure.failure).toMatchObject({ _tag: 'LightQueueUnderflowError', index: 0 })
+    }
   })
 })
 

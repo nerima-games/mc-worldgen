@@ -322,7 +322,7 @@ describe('chunk persistence', () => {
           Effect.gen(function* () {
             putCount += 1
             if (putCount === 1 && cell.store) {
-              yield* cell.store.setBlock(position, BLOCK.STONE)
+              yield* Effect.orDie(cell.store.setBlock(position, BLOCK.STONE))
             }
             return yield* backing.put(key, envelope)
           }),
@@ -367,7 +367,7 @@ describe('chunk persistence', () => {
               // Races a write into the middle of the FIRST save attempt, so
               // that attempt's snapshot goes stale before its own
               // compare-and-remove runs.
-              yield* cell.store.setBlock(validated.validatedBlockPosition(0, 10, 0), BLOCK.SAND)
+              yield* Effect.orDie(cell.store.setBlock(validated.validatedBlockPosition(0, 10, 0), BLOCK.SAND))
             }
             return yield* backing.put(key, envelope)
           }),

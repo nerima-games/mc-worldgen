@@ -44,6 +44,7 @@ import { ChunkCapacity, ChunkStore, ChunkStoreLayer, type ChunkSource } from '..
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import type { ChunkDirtyBatch } from '../src/domain/chunk-store-state'
+import type { LightQueueUnderflowError } from '../src/domain/light'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   capabilityOfBlockId,
@@ -127,7 +128,7 @@ const slabSource: ChunkSource = () => Effect.sync(slabChunk)
 const fallingBlockTick = (
   store: Effect.Success<typeof ChunkStore>,
   batch: ChunkDirtyBatch,
-): Effect.Effect<number> =>
+): Effect.Effect<number, LightQueueUnderflowError> =>
   Effect.gen(function* () {
     let moved = 0
 

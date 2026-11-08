@@ -1,8 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, LAKE_LEVEL, SEA_LEVEL } from '../src/domain/constants'
 import { readBlock } from '../src/domain/chunk'
+import { InvalidTerrainLevels, generateChunkAt as generateChunkAtResult } from '../src/domain/terrain'
 import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
@@ -102,14 +103,18 @@ describe('water level invariant', () => {
   it.effect('rejects explicit null terrain levels instead of treating them as omitted', () =>
     Effect.sync(() => {
       // Keep the invalid runtime value unasserted against the valid options type.
-      expect(() =>
-        Reflect.apply(generateChunkAt, undefined, [
-          noiseSeed(1234),
-          chunkAxis(0),
-          chunkAxis(0),
-          { terrainLevels: null },
-        ]),
-      ).toThrow(TypeError)
+      const result = Reflect.apply(generateChunkAtResult, undefined, [
+        noiseSeed(1234),
+        chunkAxis(0),
+        chunkAxis(0),
+        { terrainLevels: null },
+      ])
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toBeInstanceOf(InvalidTerrainLevels)
+        expect(result.failure).toMatchObject({ _tag: 'InvalidTerrainLevels', field: 'terrainLevels' })
+      }
     }),
   )
 
