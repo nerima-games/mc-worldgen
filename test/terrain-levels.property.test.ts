@@ -134,6 +134,33 @@ describe('terrainLevels generation input', () => {
         expect(result).toMatchObject({ failure: { field } })
       }
 
+      const accessorOptions = Object.defineProperty({}, 'terrainLevels', {
+        configurable: true,
+        get: () => {
+          throw new Error('terrainLevels accessor must not run')
+        },
+      })
+      const accessorResult = generateWithOptions(accessorOptions)
+      expectTypedFailure(accessorResult)
+      expect(accessorResult).toMatchObject({ failure: { field: 'terrainLevels' } })
+
+      let descriptorReads = 0
+      const disappearingDescriptor = new Proxy({}, {
+        getOwnPropertyDescriptor: (_target, property) => {
+          if (property !== 'terrainLevels') {
+            return undefined
+          }
+          descriptorReads += 1
+          return descriptorReads === 1
+            ? { configurable: true, enumerable: true, value: undefined, writable: true }
+            : undefined
+        },
+      })
+      const missingDescriptorResult = generateWithOptions(disappearingDescriptor)
+      expectTypedFailure(missingDescriptorResult)
+      expect(missingDescriptorResult).toMatchObject({ failure: { field: 'terrainLevels' } })
+      expect(descriptorReads).toBe(2)
+
       const directGenerateFailure = generateChunkWithOptions({ terrainLevels: null })
       expectTypedFailure(directGenerateFailure)
       expect(directGenerateFailure).toMatchObject({ failure: { field: 'terrainLevels' } })
