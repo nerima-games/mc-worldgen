@@ -365,17 +365,52 @@ const defaultBlockIdCode = 0
 const invalidEncodedBlockStateCode = -1
 const blockStateValidationStep = 1
 
+const recordValidatedBlockStateCode = (
+  validatedCodesByBlockId: Map<number, Set<number>>,
+  blockIdValue: number,
+  stateCode: number,
+): void => {
+  const codes = validatedCodesByBlockId.get(blockIdValue) ?? new Set<number>()
+  codes.add(stateCode)
+  validatedCodesByBlockId.set(blockIdValue, codes)
+}
+
+const decodeEncodedBlockState = (blockIdValue: number, stateCode: number): Result.Result<true, BlockStateCodecFailure> => {
+  const blockId = BlockId.result(blockIdValue)
+  if (Result.isFailure(blockId)) {
+    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-block-id' })
+  }
+  const decoded = decodeBlockState(blockId.success, stateCode)
+  return Result.map(decoded, () => true)
+}
+
+const validateEncodedBlockState = (
+  validatedCodesByBlockId: Map<number, Set<number>>,
+  blockIdValue: number,
+  stateCode: number,
+): Result.Result<true, BlockStateCodecFailure> => {
+  const validatedCodes = validatedCodesByBlockId.get(blockIdValue)
+  if (validatedCodes?.has(stateCode)) {
+    return Result.succeed(true)
+  }
+  const decoded = decodeEncodedBlockState(blockIdValue, stateCode)
+  if (Result.isFailure(decoded)) {
+    return decoded
+  }
+  recordValidatedBlockStateCode(validatedCodesByBlockId, blockIdValue, stateCode)
+  return Result.succeed(true)
+}
+
 const validEncodedBlockStates = (
   chunk: ChunkWithBlockStates,
 ): Result.Result<true, BlockStateCodecFailure> => {
+  const validatedCodesByBlockId = new Map<number, Set<number>>()
   for (let index = 0; index < CHUNK_VOLUME; index += blockStateValidationStep) {
-    const blockId = BlockId.result(chunk.blocks[index] ?? defaultBlockIdCode)
-    if (Result.isFailure(blockId)) {
-      return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-block-id' })
-    }
-    const decoded = decodeBlockState(blockId.success, chunk.blockStates[index] ?? invalidEncodedBlockStateCode)
-    if (Result.isFailure(decoded)) {
-      return Result.fail(decoded.failure)
+    const blockIdValue = chunk.blocks[index] ?? defaultBlockIdCode
+    const stateCode = chunk.blockStates[index] ?? invalidEncodedBlockStateCode
+    const validation = validateEncodedBlockState(validatedCodesByBlockId, blockIdValue, stateCode)
+    if (Result.isFailure(validation)) {
+      return validation
     }
   }
   return Result.succeed(true)

@@ -141,12 +141,12 @@ import {
 import { CHUNK_BIOMES, type ChunkBiomeType } from './biome.js'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants.js'
 import { type Chunk, type ChunkWithBlockStates, defaultBlockStatesFor } from './chunk.js'
-import { Effect, Option, Result, Schema, SchemaGetter, SchemaIssue } from 'effect'
+import { Effect, Option, Result, Schema, SchemaAST, SchemaGetter, SchemaIssue } from 'effect'
 import {
   type EndFeatureChunk,
   type EndFeatureMarker,
 } from './end-features.js'
-import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
+import { FIRST_VERSION, type SaveDecodeError, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
 
 const literals = Schema.Literals
 
@@ -681,6 +681,230 @@ const unpackBlockStatesV3 = (bytes: Uint8Array): Uint32Array => {
   return blockStates.map((_unused, cellIndex) => view.getUint32(cellIndex * CHUNK_STATE_ELEMENT_BYTES, true))
 }
 
+export type ChunkIntegritySection = 'blocks' | 'blockStates' | 'biomes' | 'structureMarkers'
+
+export type ChunkIntegrityFailure = Readonly<{
+  readonly _tag: 'ChunkIntegrityFailure'
+  readonly actualByteLength: number
+  readonly actualChecksum: string
+  readonly expectedByteLength: number
+  readonly expectedChecksum: string
+  readonly reason: 'byte-length-mismatch' | 'checksum-mismatch'
+  readonly section: ChunkIntegritySection
+}>
+
+type ChunkSectionIntegrity = Readonly<{ readonly byteLength: number; readonly checksum: string }>
+type ChunkIntegrityMetadata = Readonly<{
+  readonly algorithm: 'fnv1a32'
+  readonly sections: Readonly<Record<ChunkIntegritySection, ChunkSectionIntegrity>>
+}>
+
+const ChunkSectionIntegritySchema = Schema.Struct({ byteLength: Schema.Number, checksum: Schema.String })
+const ChunkIntegritySchema: Schema.Codec<ChunkIntegrityMetadata, ChunkIntegrityMetadata> = Schema.Struct({
+  algorithm: Schema.Literal('fnv1a32'),
+  sections: Schema.Struct({
+    biomes: ChunkSectionIntegritySchema,
+    blockStates: ChunkSectionIntegritySchema,
+    blocks: ChunkSectionIntegritySchema,
+    structureMarkers: ChunkSectionIntegritySchema,
+  }),
+})
+
+const FNV1A32_OFFSET_BASIS = 0x811c9dc5
+const FNV1A32_PRIME = 0x01000193
+const HEX_RADIX = 16
+const HEX_WIDTH = 8
+const HEX_PADDING = '0'
+const CHARACTER_INDEX = 0
+const UTF16_HEX_WIDTH = 4
+const ORDER_BEFORE = -1
+const ORDER_EQUAL = 0
+const ORDER_AFTER = 1
+const ZERO = 0
+const ONE = 1
+const checksumOf = (bytes: Uint8Array): string => {
+  let hash = FNV1A32_OFFSET_BASIS
+  for (const byte of bytes) {
+    // oxlint-disable-next-line no-bitwise -- FNV-1a is defined over bytes.
+    hash = Math.imul(hash ^ byte, FNV1A32_PRIME) >>> ZERO
+  }
+  return hash.toString(HEX_RADIX).padStart(HEX_WIDTH, HEX_PADDING)
+}
+
+type CanonicalJsonScalar = null | string | number | boolean
+interface CanonicalJsonArray extends ReadonlyArray<CanonicalJsonValue> {}
+interface CanonicalJsonObject {
+  readonly [key: string]: CanonicalJsonValue
+}
+type CanonicalJsonValue = CanonicalJsonScalar | CanonicalJsonArray | CanonicalJsonObject
+
+const canonicalJsonString = (value: string): string =>
+  JSON.stringify(value).replace(/[\u007f-\uffff]/g, (character) =>
+    `\\u${character.charCodeAt(CHARACTER_INDEX).toString(HEX_RADIX).padStart(UTF16_HEX_WIDTH, HEX_PADDING)}`,
+  )
+
+const canonicalJsonObjectText = (
+  value: CanonicalJsonObject,
+  stringifyValue: (value: CanonicalJsonValue) => string,
+): string => {
+  const entries = Object.entries(value).sort(([left], [right]) => {
+    if (left < right) {
+      return ORDER_BEFORE
+    }
+    if (left > right) {
+      return ORDER_AFTER
+    }
+    return ORDER_EQUAL
+  })
+  return `{${entries.map(([key, entry]) => `${canonicalJsonString(key)}:${stringifyValue(entry)}`).join(',')}}`
+}
+
+const canonicalJsonScalarText = (value: CanonicalJsonScalar): string => {
+  if (typeof value === 'string') {
+    return canonicalJsonString(value)
+  }
+  if (value === null) {
+    return 'null'
+  }
+  if (typeof value === 'boolean') {
+    return value.toString()
+  }
+  if (Number.isFinite(value)) {
+    return String(value)
+  }
+  return 'null'
+}
+
+const isCanonicalJsonObject = (value: CanonicalJsonValue): value is CanonicalJsonObject =>
+  !Array.isArray(value) && typeof value === 'object' && value !== null
+const isCanonicalJsonArray = (value: CanonicalJsonValue): value is CanonicalJsonArray => Array.isArray(value)
+
+const canonicalJsonText = (value: CanonicalJsonValue): string => {
+  if (isCanonicalJsonArray(value)) {
+    return `[${value.map((entry) => canonicalJsonText(entry)).join(',')}]`
+  }
+  if (isCanonicalJsonObject(value)) {
+    return canonicalJsonObjectText(value, canonicalJsonText)
+  }
+  return canonicalJsonScalarText(value)
+}
+
+const canonicalJsonBytes = (value: CanonicalJsonValue): Uint8Array => {
+  const text = canonicalJsonText(value)
+  const bytes = new Uint8Array(text.length)
+  for (let index = ZERO; index < text.length; index += ONE) {
+    bytes[index] = text.charCodeAt(index)
+  }
+  return bytes
+}
+
+const sectionIntegrityFor = (bytes: Uint8Array): ChunkSectionIntegrity => ({
+  byteLength: bytes.length,
+  checksum: checksumOf(bytes),
+})
+
+export type ChunkIntegrityContent = Readonly<Pick<ChunkStructV3Type,
+  'biomes' | 'blockStates' | 'blocks' | 'endFeatureIds' | 'endFeatureMarkers' | 'naturalStructureIds' | 'naturalStructureMarkers'
+>>
+
+export const chunkIntegrityMetadataFor = (chunk: ChunkIntegrityContent): ChunkIntegrityMetadata => ({
+  algorithm: 'fnv1a32',
+  sections: {
+    biomes: sectionIntegrityFor(canonicalJsonBytes(chunk.biomes)),
+    blockStates: sectionIntegrityFor(packBlockStatesV3(chunk.blockStates)),
+    blocks: sectionIntegrityFor(packBlocksV2(chunk.blocks)),
+    structureMarkers: sectionIntegrityFor(canonicalJsonBytes([
+      chunk.endFeatureIds,
+      chunk.endFeatureMarkers,
+      chunk.naturalStructureIds,
+      chunk.naturalStructureMarkers,
+    ])),
+  },
+})
+
+const chunkIntegrityFailureFor = (
+  chunk: ChunkIntegrityContent & Readonly<{ readonly integrity: ChunkIntegrityMetadata }>,
+): Option.Option<ChunkIntegrityFailure> => {
+  const actual = chunkIntegrityMetadataFor(chunk).sections
+  for (const section of ['blocks', 'blockStates', 'biomes', 'structureMarkers'] as const) {
+    const expected = chunk.integrity.sections[section]
+    const received = actual[section]
+    if (expected.byteLength !== received.byteLength) {
+      return Option.some({
+        _tag: 'ChunkIntegrityFailure',
+        actualByteLength: received.byteLength,
+        actualChecksum: received.checksum,
+        expectedByteLength: expected.byteLength,
+        expectedChecksum: expected.checksum,
+        reason: 'byte-length-mismatch',
+        section,
+      })
+    }
+    if (expected.checksum !== received.checksum) {
+      return Option.some({
+        _tag: 'ChunkIntegrityFailure',
+        actualByteLength: received.byteLength,
+        actualChecksum: received.checksum,
+        expectedByteLength: expected.byteLength,
+        expectedChecksum: expected.checksum,
+        reason: 'checksum-mismatch',
+        section,
+      })
+    }
+  }
+  return Option.none()
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+const isChunkIntegrityFailure = (value: unknown): value is ChunkIntegrityFailure => {
+  if (!isRecord(value)) {
+    return false
+  }
+  return value['_tag'] === 'ChunkIntegrityFailure' &&
+    (value['section'] === 'blocks' || value['section'] === 'blockStates' || value['section'] === 'biomes' || value['section'] === 'structureMarkers') &&
+    (value['reason'] === 'byte-length-mismatch' || value['reason'] === 'checksum-mismatch') &&
+    typeof value['actualByteLength'] === 'number' &&
+    typeof value['actualChecksum'] === 'string' &&
+    typeof value['expectedByteLength'] === 'number' &&
+    typeof value['expectedChecksum'] === 'string'
+}
+
+const schemaIssueChildren = (issue: Record<string, unknown>): ReadonlyArray<unknown> => {
+  const children: Array<unknown> = []
+  if ('issue' in issue) {
+    children.push(issue['issue'])
+  }
+  if (Array.isArray(issue['issues'])) {
+    children.push(...issue['issues'])
+  }
+  return children
+}
+
+const chunkIntegrityFailureFromIssue = (issue: unknown): Option.Option<ChunkIntegrityFailure> => {
+  const pendingIssues: Array<unknown> = [issue]
+  while (pendingIssues.length > ZERO) {
+    const current = pendingIssues.pop()
+    if (isRecord(current)) {
+      if (isChunkIntegrityFailure(current['input'])) {
+        return Option.some(current['input'])
+      }
+      pendingIssues.push(...schemaIssueChildren(current))
+    }
+  }
+  return Option.none()
+}
+
+/** Extract a section-specific failure wrapped by mc-save's typed decode error. */
+export const chunkIntegrityFailureFromSaveDecodeError = (
+  error: SaveDecodeError,
+): Option.Option<ChunkIntegrityFailure> => {
+  if (!Schema.isSchemaError(error.cause)) {
+    return Option.none()
+  }
+  return chunkIntegrityFailureFromIssue(error.cause.issue)
+}
+
 const Uint32ArraySchema = Schema.declare(
   (value: unknown): value is Uint32Array => value instanceof Uint32Array,
 )
@@ -707,6 +931,7 @@ type ChunkStructV3Type = {
   readonly coord: Chunk['coord']
   readonly endFeatureIds: ReadonlyArray<string>
   readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+  readonly integrity: ChunkIntegrityMetadata
   readonly naturalStructureIds: ReadonlyArray<string>
   readonly naturalStructureMarkers: ReadonlyArray<AppliedNaturalStructureMarker>
 }
@@ -719,6 +944,7 @@ const CHUNK_STRUCT_V3_BASE: Schema.Codec<ChunkStructV3Type, {
   readonly coord: { readonly cx: number; readonly cz: number }
   readonly endFeatureIds?: ReadonlyArray<string> | undefined
   readonly endFeatureMarkers?: ReadonlyArray<EndFeatureMarkerEncoded> | undefined
+  readonly integrity: ChunkIntegrityMetadata
   readonly naturalStructureIds?: ReadonlyArray<string> | undefined
   readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarkerEncoded> | undefined
 }> = Schema.Struct({
@@ -729,6 +955,7 @@ const CHUNK_STRUCT_V3_BASE: Schema.Codec<ChunkStructV3Type, {
   coord: ChunkCoordSchema,
   endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  integrity: ChunkIntegritySchema,
   naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
@@ -747,10 +974,27 @@ const validateV3BlockStates = (chunk: ChunkStructV3Type): Schema.FilterOutput =>
   return true
 }
 
+const validateV3Integrity = (
+  chunk: ChunkStructV3Type,
+  _ast: SchemaAST.AST,
+  options: SchemaAST.ParseOptions,
+): Schema.FilterOutput => {
+  const failure = chunkIntegrityFailureFor(chunk)
+  if (Option.isNone(failure)) {
+    return true
+  }
+  return new SchemaIssue.InvalidValue(
+    { message: `chunk integrity ${failure.value.reason} in ${failure.value.section} section` },
+    failure.value,
+    { ...options, reportInput: true },
+  )
+}
+
 const CHUNK_STRUCT_V3: Schema.Codec<
   ChunkStructV3Type,
   Schema.Codec.Encoded<typeof CHUNK_STRUCT_V3_BASE>
 > = CHUNK_STRUCT_V3_BASE.pipe(
+  Schema.check(Schema.makeFilter(validateV3Integrity)),
   Schema.check(Schema.makeFilter(validateV3BlockStates)),
 )
 
@@ -810,7 +1054,7 @@ const ChunkSchemaV3 = CHUNK_STRUCT_V3.pipe(
           message: `cannot materialize default block states: ${defaultStates.failure.reason}`,
         }, chunk, options))
       }
-      return Effect.succeed({
+      const encodedChunk: Omit<ChunkStructV3Type, 'integrity'> = {
         biomes: chunk.biomes,
         blockStateCodecVersion: BLOCK_STATE_CODEC_VERSION,
         blockStates: defaultStates.success,
@@ -820,7 +1064,8 @@ const ChunkSchemaV3 = CHUNK_STRUCT_V3.pipe(
         endFeatureMarkers: chunk.endFeatureMarkers ?? [],
         naturalStructureIds: chunk.naturalStructureIds ?? [],
         naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
-      })
+      }
+      return Effect.succeed({ ...encodedChunk, integrity: chunkIntegrityMetadataFor(encodedChunk) })
     }),
   }),
 )

@@ -258,6 +258,34 @@ describe('chunk persistence', () => {
     }),
   )
 
+  it.effect('returns the section-specific integrity failure from a valid envelope with a damaged chunk region', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const coord = validated.validatedChunkCoord(2, 3)
+      const key = chunkSaveKey(context, coord)
+      const persistence = yield* makeChunkPersistence(context).pipe(
+        Effect.provideService(StoragePort, storage),
+      )
+      yield* persistence.save(generatedChunk(coord))
+
+      const stored = Option.getOrThrow(yield* storage.get(key))
+      const payload = stored.payload as Record<string, unknown>
+      if (typeof payload['blocks'] !== 'string') throw new Error('saved v3 chunk has no block byte region')
+      const blockBytes = Buffer.from(payload['blocks'], 'base64')
+      blockBytes[0] = (blockBytes[0] ?? 0) ^ 1
+      const resealed = Result.getOrThrow(sealSaveEnvelope(
+        saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT.version, {
+          ...payload,
+          blocks: blockBytes.toString('base64'),
+        }),
+      ))
+      yield* storage.put(key, resealed)
+
+      const failure = yield* Effect.flip(persistence.load(coord))
+      expect(failure).toMatchObject({ _tag: 'ChunkIntegrityFailure', section: 'blocks' })
+    }),
+  )
+
   it.effect('preserves an encoded block state through persistence and reload', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage

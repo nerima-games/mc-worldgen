@@ -53,10 +53,14 @@ import * as validated from './fixtures/validated-inputs'
 import { Effect, Option, Result, Schema } from 'effect'
 import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
+  chunkIntegrityFailureFromSaveDecodeError,
   CHUNK_BIOME_COUNT,
   CHUNK_FORMAT,
   CHUNK_FORMAT_NAME,
   CHUNK_SCHEMA,
+  chunkIntegrityMetadataFor,
+  type ChunkIntegrityFailure,
+  type ChunkIntegritySection,
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
@@ -96,6 +100,22 @@ const ENCODED: ChunkEncoded = Effect.runSync(
   Effect.map(encodeSave(CHUNK_FORMAT, FIXTURE), (envelope) => envelope.payload as ChunkEncoded),
 )
 
+const INTEGRITY_STRUCTURE_ID = 'integrity-0'
+const INTEGRITY_MARKER: NaturalStructureChunk['naturalStructureMarkers'][number] = {
+  structureId: INTEGRITY_STRUCTURE_ID,
+  structureKind: 'village',
+  kind: 'loot-chest',
+  lootTable: 'village',
+  ...validated.validatedBlockPosition(1, 64, 1),
+}
+const INTEGRITY_ENCODED: ChunkEncoded = Effect.runSync(
+  Effect.map(encodeSave(CHUNK_FORMAT, {
+    ...FIXTURE,
+    naturalStructureIds: [INTEGRITY_STRUCTURE_ID],
+    naturalStructureMarkers: [INTEGRITY_MARKER],
+  }), (envelope) => envelope.payload as ChunkEncoded),
+)
+
 /** An envelope carrying `ENCODED` with one field replaced. */
 const envelopeWith = (patch: Partial<ChunkEncoded>) =>
   saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, { ...ENCODED, ...patch })
@@ -121,6 +141,7 @@ type DecodeOutcome = {
   readonly detail: string
   /** The `ParseError` under a refusal, rendered. Empty for an acceptance. */
   readonly cause: string
+  readonly integrityFailure: Option.Option<ChunkIntegrityFailure>
 }
 
 const decodeOutcome = (envelope: SaveEnvelopeDraft): Effect.Effect<DecodeOutcome> =>
@@ -129,11 +150,13 @@ const decodeOutcome = (envelope: SaveEnvelopeDraft): Effect.Effect<DecodeOutcome
       _tag: 'Refused',
       detail: `${error._tag}: ${error.message}`,
       cause: String((error as { readonly cause?: unknown }).cause ?? ''),
+      integrityFailure: chunkIntegrityFailureFromSaveDecodeError(error),
     }),
     onSuccess: (chunk): DecodeOutcome => ({
       _tag: 'Accepted',
       detail: `${String(chunk.blocks.length)} blocks, ${String(chunk.biomes.length)} biomes`,
       cause: '',
+      integrityFailure: Option.none(),
     }),
   })
 
@@ -266,6 +289,19 @@ describe('the chunk format round-trips', () => {
     }),
   )
 
+  it.effect('CF-24: v3 refuses payloads without section integrity metadata', () =>
+    Effect.gen(function* () {
+      const payload: Record<string, unknown> = { ...ENCODED }
+      delete payload['integrity']
+      const envelope = saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, payload)
+      const outcome = yield* decodeOutcome(envelope)
+
+      expect(outcome._tag).toBe('Refused')
+      expect(outcome.detail).toContain('SaveDecodeError')
+      expect(outcome.cause).toContain('integrity')
+    }),
+  )
+
   it('CF-12: the fixture is not degenerate, so CF-1 is not vacuous', () => {
     // A chunk of one repeated byte round-trips under a format that has thrown
     // information away. docs/testing.md §6 「空虚な成功を防ぐ」.
@@ -300,6 +336,7 @@ describe('the chunk format round-trips', () => {
         biomes: ENCODED.biomes,
         blockStateCodecVersion: ENCODED.blockStateCodecVersion,
         blockStates: ENCODED.blockStates,
+        integrity: ENCODED.integrity,
       }
       const restored = yield* decodeSave(
         CHUNK_FORMAT,
@@ -549,9 +586,23 @@ describe('v3 block states are validated against each cell block id', () => {
       for (const invalidCode of [1, 0xffff_ffff]) {
         const stateBytes = Buffer.from(ENCODED.blockStates, 'base64')
         new DataView(stateBytes.buffer, stateBytes.byteOffset, stateBytes.byteLength).setUint32(0, invalidCode, true)
+        const blocks = Uint16Array.from(FIXTURE.blocks)
+        blocks[0] = AIR_BLOCK_ID
+        const blockStates = Uint32Array.from(FIXTURE.blockStates)
+        blockStates[0] = invalidCode
+        const integrity = chunkIntegrityMetadataFor({
+          biomes: FIXTURE.biomes,
+          blockStates,
+          blocks,
+          endFeatureIds: [],
+          endFeatureMarkers: [],
+          naturalStructureIds: [],
+          naturalStructureMarkers: [],
+        })
         const outcome = yield* decodeOutcome(envelopeWith({
           blocks: blockBytes.toString('base64'),
           blockStates: stateBytes.toString('base64'),
+          integrity,
         }))
 
         expect(outcome._tag).toBe('Refused')
@@ -572,6 +623,61 @@ describe('v3 block states are validated against each cell block id', () => {
       expect(outcome.cause).toContain('blockStateCodecVersion')
     }),
   )
+
+  it('CF-P2: corruption at arbitrary section positions returns a typed, section-specific failure without throwing', () => {
+    const arbitraryCorruption = fc.tuple(
+      fc.integer({ min: 0, max: CHUNK_VOLUME * 2 - 1 }),
+      fc.integer({ min: 0, max: CHUNK_VOLUME * 4 - 1 }),
+      fc.integer({ min: 0, max: CHUNK_BIOME_COUNT - 1 }),
+      fc.integer({ min: 0, max: INTEGRITY_STRUCTURE_ID.length - 1 }),
+    )
+
+    const corruptBytes = (value: string, index: number): string => {
+      const decoded = Schema.decodeUnknownResult(Schema.Uint8ArrayFromBase64)(value)
+      if (Result.isFailure(decoded)) return value
+      const bytes = Uint8Array.from(decoded.success)
+      bytes[index] = (bytes[index] ?? 0) ^ 1
+      return Result.getOrThrow(Schema.encodeUnknownResult(Schema.Uint8ArrayFromBase64)(bytes))
+    }
+
+    const hasIntegrityFailureFor = (section: ChunkIntegritySection, payload: ChunkEncoded): boolean => {
+      const outcome = Effect.runSync(decodeOutcome(envelopeWith(payload)))
+      return outcome._tag === 'Refused' &&
+        outcome.detail.includes('SaveDecodeError') &&
+        Option.isSome(outcome.integrityFailure) &&
+        outcome.integrityFailure.value._tag === 'ChunkIntegrityFailure' &&
+        outcome.integrityFailure.value.section === section
+    }
+
+    fc.assert(
+      fc.property(arbitraryCorruption, ([blockIndex, stateIndex, biomeIndex, markerIndex]) => {
+        const marker = INTEGRITY_ENCODED.naturalStructureMarkers?.[0]
+        if (!marker) {
+          return false
+        }
+        const biomes = [...INTEGRITY_ENCODED.biomes]
+        biomes[biomeIndex] = biomes[biomeIndex] === 'DESERT' ? 'PLAINS' : 'DESERT'
+        const structureId = `${marker.structureId.slice(0, markerIndex)}x${marker.structureId.slice(markerIndex + 1)}`
+        const corruptions = [
+          {
+            section: 'blocks' as const,
+            payload: { ...INTEGRITY_ENCODED, blocks: corruptBytes(INTEGRITY_ENCODED.blocks, blockIndex) },
+          },
+          {
+            section: 'blockStates' as const,
+            payload: { ...INTEGRITY_ENCODED, blockStates: corruptBytes(INTEGRITY_ENCODED.blockStates, stateIndex) },
+          },
+          { section: 'biomes' as const, payload: { ...INTEGRITY_ENCODED, biomes } },
+          {
+            section: 'structureMarkers' as const,
+            payload: { ...INTEGRITY_ENCODED, naturalStructureMarkers: [{ ...marker, structureId }] },
+          },
+        ]
+        return corruptions.every(({ section, payload }) => hasIntegrityFailureFor(section, payload))
+      }),
+      { numRuns: 8, seed: 0x6c57a },
+    )
+  })
 
   it('CF-P1: arbitrary block ids and state codes either refuse or round-trip through the exported schema without throwing', () => {
     fc.assert(
@@ -631,7 +737,8 @@ describe('the biome roster is a closed save format', () => {
     // anyone splits them.
     for (const name of CHUNK_BIOMES) {
       const biomes = Array.from({ length: CHUNK_BIOME_COUNT }, () => name)
-      const outcome = yield* decodeOutcome(envelopeWith({ biomes }))
+      const envelope = yield* encodeSave(CHUNK_FORMAT, { ...FIXTURE, biomes })
+      const outcome = yield* decodeOutcome(envelope)
       expect(outcome._tag, `${name} is missing from the chunk schema`).toBe('Accepted')
     }
     }),

@@ -2,6 +2,8 @@ import {
   CHUNK_FORMAT,
   CHUNK_FORMAT_V1,
   CHUNK_FORMAT_V2,
+  type ChunkIntegrityFailure,
+  chunkIntegrityFailureFromSaveDecodeError,
   migrateChunkV1ToV3,
   migrateChunkV2ToV3,
 } from '../domain/chunk-format.js'
@@ -22,7 +24,7 @@ import type { BlockStateCodecFailure } from '@nerima-games/mc-kernel/domain/bloc
 // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
 // Class from its public error surface; decode/migration failures are now
 // Reported as SaveDecodeError. This union tracks mc-save's actual exports.
-export type ChunkPersistenceError = StorageError | SaveDecodeError | BlockStateCodecFailure
+export type ChunkPersistenceError = StorageError | SaveDecodeError | BlockStateCodecFailure | ChunkIntegrityFailure
 
 export type ChunkPersistence = {
   readonly load: (coord: ChunkCoord) => Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError>
@@ -83,6 +85,10 @@ const loadChunk = (
   loadFrom(CHUNK_FORMAT, key).pipe(
     Effect.provideService(StoragePort, storage),
     Effect.catchTag('SaveDecodeError', (error) => {
+      const integrityFailure = chunkIntegrityFailureFromSaveDecodeError(error)
+      if (Option.isSome(integrityFailure)) {
+        return Effect.fail(integrityFailure.value)
+      }
       if (error.version === CHUNK_FORMAT_V2.version) {
         return loadV2Chunk(storage, key)
       }

@@ -3,7 +3,10 @@ import * as worldgenTesting from '../src/testing'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result } from 'effect'
 import { PortalRegistry as DOMAIN_PORTAL_REGISTRY } from '../src/application/portal-registry'
-import { CHUNK_FORMAT as DOMAIN_CHUNK_FORMAT } from '../src/domain/chunk-format'
+import {
+  CHUNK_FORMAT as DOMAIN_CHUNK_FORMAT,
+  chunkIntegrityFailureFromSaveDecodeError as DOMAIN_CHUNK_INTEGRITY_FAILURE_FROM_SAVE_DECODE_ERROR,
+} from '../src/domain/chunk-format'
 import {
   isNearFortressSite as DOMAIN_IS_NEAR_FORTRESS_SITE,
   planNetherFortressForRegion as DOMAIN_PLAN_NETHER_FORTRESS,
@@ -54,6 +57,8 @@ export type PublicRootExportsRendererTypes = [
   worldgen.ChunkDirtyBatch,
   worldgen.ChunkDirtyChunk,
   worldgen.ChunkLocalAabb,
+  worldgen.ChunkIntegrityFailure,
+  worldgen.ChunkIntegritySection,
   worldgen.ChunkNeighbours,
   worldgen.LightReading,
   worldgen.ChunkStoreRegistry,
@@ -119,6 +124,12 @@ export type PublicRootChunkDirtyBatchUsesAabbEntries = Assert<
 export type PublicRootChunkLocalAabbUsesThreeAxisTuples = Assert<
   worldgen.ChunkLocalAabb['min'] extends readonly [number, number, number] ? true : false
 > & Assert<worldgen.ChunkLocalAabb['max'] extends readonly [number, number, number] ? true : false>
+type ChunkPersistenceLoadError = ReturnType<worldgen.ChunkPersistence['load']> extends Effect.Effect<infer _A, infer E, infer _R>
+  ? E
+  : never
+export type PublicRootChunkIntegrityErrorReachesPersistence = Assert<
+  worldgen.ChunkIntegrityFailure extends ChunkPersistenceLoadError ? true : false
+>
 
 const assertReadonlyChunkViews = (loaded: LoadChunkView, peeked: PeekChunkView): void => {
   // @ts-expect-error Published load views reject indexed writes.
@@ -232,6 +243,7 @@ describe('public API surface', () => {
     expect(worldgen.chunkKeyOf).toBe(KERNEL_CHUNK_KEY_OF)
     expect(worldgen.chunkKeyOf(TEST_CHUNK_COORD)).toBe(kernelKey)
     expect(worldgen.ChunkStoreRegistry).toBeDefined()
+    expect(worldgen.chunkIntegrityFailureFromSaveDecodeError).toBe(DOMAIN_CHUNK_INTEGRITY_FAILURE_FROM_SAVE_DECODE_ERROR)
   })
 
   it('publishes the dimension type and nether travel resolver from the package root', () => {
