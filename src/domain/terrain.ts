@@ -1,5 +1,5 @@
 /**
- * `generateChunk(seed, coord) → Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate>` — the public entry point (plan.md §3.7).
+ * `generateChunk(seed, coord) → Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate | InvalidTerrainLevels>` — the public entry point (plan.md §3.7).
  *
  * This module implements the current deterministic terrain pipeline.
  *
@@ -60,7 +60,7 @@ import {
   blockIndex,
 } from './constants.js'
 import { BLOCK, type BiomeType } from './biome.js'
-import type { BlockAxis, ChunkAxis, ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
+import { BlockAxis, type ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
 import {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -75,19 +75,18 @@ import {
   emptyBlocks,
   readBlock,
 } from './chunk.js'
+import { Data, Option, Result, Schema } from 'effect'
 import {
   type NaturalStructureChunk,
   applyNaturalStructurePlansToChunk,
   naturalStructurePlansForValidatedChunk,
 } from './natural-structure.js'
-import { Option, Result } from 'effect'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
 import {
   type ValidatedNaturalStructureChunkCoordinates,
   validateNaturalStructureChunkCoordinates,
 } from './natural-structure-chunk-planner.js'
-import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import {
   canPlaceGroundPlantAt,
   groundPlantAt,
@@ -99,8 +98,10 @@ import { fillWaterAtLevel, shouldFreezeWaterSurface } from './lake-generator.js'
 import type { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
 import type { OverworldTerrainSample } from './structure-siting.js'
+import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { carveRavines } from './ravine.js'
 import { placeOres } from './ore.js'
+const taggedError = Data.TaggedError
 export {
   CONTINENTALNESS_CONTRAST,
   MAX_SURFACE_Y,
@@ -122,6 +123,22 @@ export type GenerateOptions = {
   readonly carve?: CarveOptions
   readonly decorate?: boolean
 }
+
+type InvalidTerrainLevelsFields = {
+  readonly field: 'options' | 'terrainLevels'
+}
+
+export const InvalidTerrainLevels: new (
+  args: InvalidTerrainLevelsFields,
+) => Error & { readonly _tag: 'InvalidTerrainLevels' } & Readonly<InvalidTerrainLevelsFields> =
+  taggedError('InvalidTerrainLevels')<InvalidTerrainLevelsFields>
+
+export type InvalidTerrainLevels = InstanceType<typeof InvalidTerrainLevels>
+
+const TERRAIN_LEVELS_SCHEMA = Schema.Struct({
+  lakeLevel: Schema.Number.pipe(Schema.fromBrand('BlockAxis', BlockAxis)),
+  seaLevel: Schema.Number.pipe(Schema.fromBrand('BlockAxis', BlockAxis)),
+})
 
 type ColumnFill = {
   readonly lx: number
@@ -275,35 +292,37 @@ type IndexedValues<Value> = {
 
 const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
 
-const terrainLevelsForGeneration = (options: GenerateOptions): TerrainLevels => {
+const invalidTerrainLevels = (field: InvalidTerrainLevelsFields['field']): Result.Result<never, InvalidTerrainLevels> =>
+  Result.fail(new InvalidTerrainLevels({ field }))
+
+const terrainLevelsForGeneration = (options: unknown): Result.Result<TerrainLevels, InvalidTerrainLevels> => {
+  if (typeof options !== 'object' || options === null || Array.isArray(options)) {
+    return invalidTerrainLevels('options')
+  }
   if (!Object.hasOwn(options, 'terrainLevels')) {
-    return DEFAULT_TERRAIN_LEVELS
+    return Result.succeed(DEFAULT_TERRAIN_LEVELS)
   }
-  const levels = options.terrainLevels
-  if (!levels || typeof levels !== 'object') {
-    throw new TypeError('terrainLevels must be an object when provided')
+  const descriptor = Object.getOwnPropertyDescriptor(options, 'terrainLevels')
+  if (!descriptor || !('value' in descriptor)) {
+    return invalidTerrainLevels('terrainLevels')
   }
-  blockAxis(levels.seaLevel)
-  blockAxis(levels.lakeLevel)
-  return levels
+  const decoded = Schema.decodeUnknownResult(TERRAIN_LEVELS_SCHEMA)(descriptor.value)
+  return Result.mapError(decoded, () => new InvalidTerrainLevels({ field: 'terrainLevels' }))
 }
 
 const createChunkGenerationContext = (
   seed: NoiseSeed,
   validatedChunk: ValidatedNaturalStructureChunkCoordinates,
-  options: GenerateOptions,
-): ChunkGenerationContext => {
-  const levels = terrainLevelsForGeneration(options)
-  return {
-    ...createChunkBuffers(),
-    coord: validatedChunk.coord,
-    levels,
-    minBlockX: validatedChunk.minBlockX,
-    minBlockZ: validatedChunk.minBlockZ,
-    seed,
-    validatedChunk,
-  }
-}
+  levels: TerrainLevels,
+): ChunkGenerationContext => ({
+  ...createChunkBuffers(),
+  coord: validatedChunk.coord,
+  levels,
+  minBlockX: validatedChunk.minBlockX,
+  minBlockZ: validatedChunk.minBlockZ,
+  seed,
+  validatedChunk,
+})
 
 /**
  * `context.surfaces`, `context.biomes`, and `context.waterLevels` are filled
@@ -544,10 +563,12 @@ export const generateChunk = (
   seed: NoiseSeed,
   coord: ChunkCoord,
   options: GenerateOptions = {},
-): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> => {
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate | InvalidTerrainLevels> => {
   const coordinateValidation = validateNaturalStructureChunkCoordinates('overworld', coord)
   if (Result.isFailure(coordinateValidation)) {return Result.fail(coordinateValidation.failure)}
-  const context = createChunkGenerationContext(seed, coordinateValidation.success, options)
+  const terrainLevels = terrainLevelsForGeneration(options)
+  if (Result.isFailure(terrainLevels)) {return Result.fail(terrainLevels.failure)}
+  const context = createChunkGenerationContext(seed, coordinateValidation.success, terrainLevels.success)
 
   runTerrainPassesBeforeStructures(context, options)
 
@@ -560,7 +581,7 @@ export const generateChunkAt = (
   x: ChunkAxis,
   z: ChunkAxis,
   options: GenerateOptions = {},
-): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate> =>
+): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate | InvalidTerrainLevels> =>
   generateChunk(seed, { cx: x, cz: z }, options)
 
 /** Re-exported so callers need one import to read a generated chunk. */

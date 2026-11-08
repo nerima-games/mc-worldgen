@@ -18,7 +18,7 @@ export {
 } from './light-grid.js'
 export type { ChunkLight } from './light-grid.js'
 
-export { computeChunkLight, computeChunkLights } from './light-propagation.js'
+export { computeChunkLight, computeChunkLights, LightQueueUnderflowError } from './light-propagation.js'
 
 export { updateChunkLights } from './light-update.js'
 export type { ChunkLightChange } from './light-update.js'

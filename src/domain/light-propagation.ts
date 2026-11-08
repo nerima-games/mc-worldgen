@@ -11,6 +11,7 @@ import {
   unpackY,
   unpackZ,
 } from './light-grid.js'
+import { Data, Result } from 'effect'
 import {
   LIGHT_DECAY_PER_HOP,
   MIN_CHUNK_COORD,
@@ -21,7 +22,6 @@ import {
 } from './light-common.js'
 import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN } from '@nerima-games/mc-kernel'
 import { blockTransmitsLight, lightEmissionAt } from './light-block-data.js'
-import { Data } from 'effect'
 
 type LightChunk = {
   readonly chunk: Chunk
@@ -38,27 +38,40 @@ type LightQueue = {
 
 type SourceTable = ReadonlyArray<LightChunk>
 
-// oxlint-disable-next-line new-cap -- Effect's tagged error factory is intentionally called as a superclass.
-class LightQueueUnderflowError extends Data.TaggedError('LightQueueUnderflowError')<{
+const taggedError = Data.TaggedError
+type LightQueueUnderflowErrorFields = {
   readonly index: number
-}> {}
+}
+
+export const LightQueueUnderflowError: new (
+  args: LightQueueUnderflowErrorFields,
+) => Error & { readonly _tag: 'LightQueueUnderflowError' } & Readonly<LightQueueUnderflowErrorFields> =
+  taggedError('LightQueueUnderflowError')<LightQueueUnderflowErrorFields>
+
+export type LightQueueUnderflowError = InstanceType<typeof LightQueueUnderflowError>
 
 const MAX_LIGHT_LEVEL = LIGHT_LEVEL_MAX
 
-export const readQueueValue = (queue: ReadonlyArray<number>, index: number): number => {
+export const readQueueValue = (
+  queue: ReadonlyArray<number>,
+  index: number,
+): Result.Result<number, LightQueueUnderflowError> => {
   const value = queue[index]
   if (typeof value !== 'number') {
-    throw new LightQueueUnderflowError({ index })
+    return Result.fail(new LightQueueUnderflowError({ index }))
   }
-  return value
+  return Result.succeed(value)
 }
 
-export const sourceAt = (sourceTable: SourceTable, index: number): LightChunk => {
+export const sourceAt = (
+  sourceTable: SourceTable,
+  index: number,
+): Result.Result<LightChunk, LightQueueUnderflowError> => {
   const source = sourceTable[index]
-  if (typeof source !== 'object') {
-    throw new LightQueueUnderflowError({ index })
+  if (typeof source !== 'object' || source === null) {
+    return Result.fail(new LightQueueUnderflowError({ index }))
   }
-  return source
+  return Result.succeed(source)
 }
 
 type PropagationContext = {
@@ -146,7 +159,11 @@ const LIGHT_Z_STRIDE = CHUNK_HEIGHT
 const LIGHT_X_STRIDE = CHUNK_HEIGHT * CHUNK_SIZE_XZ
 // The loop intentionally keeps scalar coordinates and no per-neighbour records.
 // oxlint-disable-next-line max-statements
-const popAndRelax = (context: PropagationContext, source: LightChunk, packed: number): void => {
+const popAndRelax = (
+  context: PropagationContext,
+  source: LightChunk,
+  packed: number,
+): Result.Result<void, LightQueueUnderflowError> => {
   const level = unpackLevel(packed)
   if (level > LOWEST_PROPAGATABLE_LEVEL) {
     const next = level - LIGHT_DECAY_PER_HOP
@@ -163,7 +180,11 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
         if (nx < MIN_CHUNK_COORD || nx >= CHUNK_SIZE_XZ || nz < MIN_CHUNK_COORD || nz >= CHUNK_SIZE_XZ) {
           const adjacentIndex = context.chunksByCoord.get(coordKey(source.chunk.coord.cx + axisCrossing(nx, CHUNK_SIZE_XZ), source.chunk.coord.cz + axisCrossing(nz, CHUNK_SIZE_XZ)))
           if (typeof adjacentIndex === 'number') {
-            target = sourceAt(context.sourceTable, adjacentIndex)
+            const adjacent = sourceAt(context.sourceTable, adjacentIndex)
+            if (Result.isFailure(adjacent)) {
+              return Result.fail(adjacent.failure)
+            }
+            target = adjacent.success
             targetX = (nx + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetZ = (nz + CHUNK_SIZE_XZ) % CHUNK_SIZE_XZ
             targetVoxel = blockIndex(targetX, ny, targetZ)
@@ -183,6 +204,26 @@ const popAndRelax = (context: PropagationContext, source: LightChunk, packed: nu
       }
     }
   }
+  return Result.void
+}
+
+const relaxQueueHead = (
+  context: PropagationContext,
+  index: number,
+): Result.Result<void, LightQueueUnderflowError> => {
+  const packedResult = readQueueValue(context.queue.packed, index)
+  if (Result.isFailure(packedResult)) {
+    return Result.fail(packedResult.failure)
+  }
+  const sourceIndexResult = readQueueValue(context.queue.source, index)
+  if (Result.isFailure(sourceIndexResult)) {
+    return Result.fail(sourceIndexResult.failure)
+  }
+  const sourceResult = sourceAt(context.sourceTable, sourceIndexResult.success)
+  if (Result.isFailure(sourceResult)) {
+    return Result.fail(sourceResult.failure)
+  }
+  return popAndRelax(context, sourceResult.success, packedResult.success)
 }
 
 const propagateAcrossChunks = (
@@ -191,16 +232,18 @@ const propagateAcrossChunks = (
   sourceTable: SourceTable,
   gridOf: (light: ChunkLight) => Uint8Array,
   seed: (chunk: Chunk, grid: Uint8Array) => Array<number>,
-): void => {
+): Result.Result<void, LightQueueUnderflowError> => {
   const queue = seedQueues(chunks, gridOf, seed)
   const context: PropagationContext = { chunksByCoord, gridOf, queue, sourceTable }
   while (queue.head < queue.tail) {
     const index = queue.head
-    const packed = readQueueValue(queue.packed, index)
-    const sourceIndex = readQueueValue(queue.source, index)
-    popAndRelax(context, sourceAt(sourceTable, sourceIndex), packed)
+    const relaxed = relaxQueueHead(context, index)
+    if (Result.isFailure(relaxed)) {
+      return relaxed
+    }
     queue.head = index + STEP
   }
+  return Result.void
 }
 
 type IndexedChunks<Key extends string> = {
@@ -237,24 +280,46 @@ const collectLights = <Key extends string>(
   return result
 }
 
+const propagateLightChannels = (
+  chunks: ReadonlyArray<LightChunk>,
+  chunksByCoord: ReadonlyMap<string, number>,
+  sourceTable: SourceTable,
+): Result.Result<void, LightQueueUnderflowError> => {
+  const sky = propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.sky, seedSkyLight)
+  if (Result.isFailure(sky)) {
+    return Result.fail(sky.failure)
+  }
+  const block = propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.block, seedBlockLight)
+  if (Result.isFailure(block)) {
+    return Result.fail(block.failure)
+  }
+  return Result.void
+}
+
 /** Compute mutually consistent sky and block grids for resident chunks. */
-export const computeChunkLights = <Key extends string>(loaded: ReadonlyMap<Key, Chunk>): ReadonlyMap<Key, ChunkLight> => {
+export const computeChunkLights = <Key extends string>(
+  loaded: ReadonlyMap<Key, Chunk>,
+): Result.Result<ReadonlyMap<Key, ChunkLight>, LightQueueUnderflowError> => {
   const { chunksByCoord, entries, sourceTable } = indexChunks(loaded)
-
   const chunks = entries.map(({ chunk }) => chunk)
-  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.sky, seedSkyLight)
-  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.block, seedBlockLight)
-
-  return collectLights(entries)
+  const propagated = propagateLightChannels(chunks, chunksByCoord, sourceTable)
+  if (Result.isFailure(propagated)) {
+    return Result.fail(propagated.failure)
+  }
+  return Result.succeed(collectLights(entries))
 }
 
 /** Single-chunk convenience wrapper with an isolated horizontal boundary. */
-export const computeChunkLight = (chunk: Chunk): ChunkLight => {
+export const computeChunkLight = (
+  chunk: Chunk,
+): Result.Result<ChunkLight, LightQueueUnderflowError> => {
   const entry: LightChunk = { chunk, light: emptyChunkLight(), sourceIndex: 0 }
   const chunks = [entry]
   const chunksByCoord = new Map([[coordKey(chunk.coord.cx, chunk.coord.cz), MIN_CHUNK_COORD]])
   const sourceTable: SourceTable = [entry]
-  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.sky, seedSkyLight)
-  propagateAcrossChunks(chunks, chunksByCoord, sourceTable, (light) => light.block, seedBlockLight)
-  return entry.light
+  const propagated = propagateLightChannels(chunks, chunksByCoord, sourceTable)
+  if (Result.isFailure(propagated)) {
+    return Result.fail(propagated.failure)
+  }
+  return Result.succeed(entry.light)
 }

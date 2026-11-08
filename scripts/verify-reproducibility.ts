@@ -55,7 +55,7 @@ const main = (): void => {
           generatedChunks++
         }
 
-        const lights = computeChunkLights(loaded)
+        const lights = Result.getOrThrow(computeChunkLights(loaded))
         for (const [key, light] of lights) {
           lightHash.update(key)
           lightHash.update(light.sky)

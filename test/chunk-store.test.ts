@@ -193,24 +193,40 @@ describe('generated chunk sources', () => {
     }),
   )
 
-  it('rejects persistence under another dimension namespace', () => {
-    expect(() =>
-      PersistentGeneratedDimensionChunkStoreLayer(
-        noiseSeed(42),
-        'nether',
-        { dimension: 'end', worldId: 'test-world' },
-        TEST_CAPACITY,
-      ),
-    ).toThrow(/does not match persistence dimension/u)
-    expect(() =>
-      PersistentGeneratedDimensionChunkStoreLayer(
-        noiseSeed(42),
-        'nether',
-        { dimension: 'nether', worldId: 'test-world' },
-        TEST_CAPACITY,
-      ),
-    ).not.toThrow()
-  })
+  it.effect('reports a persistence dimension mismatch as a typed layer failure', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const buildStore = (persistenceDimension: 'end' | 'nether') =>
+        Effect.provide(
+          ChunkStore,
+          PersistentGeneratedDimensionChunkStoreLayer(
+            noiseSeed(42),
+            'nether',
+            { dimension: persistenceDimension, worldId: 'test-world' },
+            TEST_CAPACITY,
+          ).pipe(Layer.provide(Layer.succeed(StoragePort, storage))),
+        )
+
+      const mismatch = yield* Effect.match(buildStore('end'), {
+        onFailure: (error) => ({ error, kind: 'failure' as const }),
+        onSuccess: () => ({ kind: 'success' as const }),
+      })
+      expect(mismatch).toMatchObject({
+        error: {
+          _tag: 'PersistentGeneratedDimensionMismatch',
+          generatedDimension: 'nether',
+          persistenceDimension: 'end',
+        },
+        kind: 'failure',
+      })
+
+      const matching = yield* Effect.match(buildStore('nether'), {
+        onFailure: (error) => ({ error, kind: 'failure' as const }),
+        onSuccess: () => ({ kind: 'success' as const }),
+      })
+      expect(matching).toStrictEqual({ kind: 'success' })
+    }),
+  )
 })
 
 describe('dimension registry', () => {
@@ -837,20 +853,24 @@ describe('aliasing is stated, not hidden', () => {
 
 
 describe('copy-on-write block transactions', () => {
-  it('keeps the exported value-level block writer total', () => {
+  it('keeps the exported value-level block writer in its typed result channel', () => {
     const coord = chunkCoord(chunkAxis(0), 0)
     const position = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
     const chunk = flatChunk(coord, FLAT_SURFACE_Y)
     const state = withChunk(emptyChunkStoreState, chunk)
 
-    expect(withBlockAt(state, blockPosition(blockAxis(1), CHUNK_HEIGHT + 5, 1), BLOCK.SAND)[0]._tag).toBe('OutOfWorld')
-    expect(withBlockAt(state, blockPosition(blockAxis(512), FLAT_SURFACE_Y, 1), BLOCK.SAND)[0]._tag).toBe('ChunkNotLoaded')
+    expect(Result.getOrThrow(withBlockAt(state, blockPosition(blockAxis(1), CHUNK_HEIGHT + 5, 1), BLOCK.SAND))[0]._tag).toBe(
+      'OutOfWorld',
+    )
+    expect(Result.getOrThrow(withBlockAt(state, blockPosition(blockAxis(512), FLAT_SURFACE_Y, 1), BLOCK.SAND))[0]._tag).toBe(
+      'ChunkNotLoaded',
+    )
 
-    const [written, afterWrite] = withBlockAt(state, position, BLOCK.SAND)
+    const [written, afterWrite] = Result.getOrThrow(withBlockAt(state, position, BLOCK.SAND))
     expect(written._tag).toBe('Written')
     expect(chunk.blocks[blockIndex(1, FLAT_SURFACE_Y, 1)]).toBe(BLOCK.SAND)
 
-    const [unchanged] = withBlockAt(afterWrite, position, BLOCK.SAND)
+    const [unchanged] = Result.getOrThrow(withBlockAt(afterWrite, position, BLOCK.SAND))
     expect(unchanged._tag).toBe('Unchanged')
   })
 

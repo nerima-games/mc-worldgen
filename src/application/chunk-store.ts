@@ -74,7 +74,7 @@
  */
 import * as Store from '../domain/chunk-store-state.js'
 import type { BlockId, BlockPosition, ChunkCoord, ChunkKey, Dimension } from '@nerima-games/mc-kernel'
-import { Brand, Context, Data, Effect, Layer, Option, Ref, Semaphore } from 'effect'
+import { Brand, Context, Data, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
 import type { Chunk, ReadonlyChunk } from '../domain/chunk.js'
 import {
   type ChunkPersistence,
@@ -82,8 +82,9 @@ import {
   type ChunkPersistenceError,
   makeChunkPersistence,
 } from './chunk-persistence.js'
-import { type GenerateOptions, generateChunk } from '../domain/terrain.js'
+import { type GenerateOptions, type InvalidTerrainLevels, generateChunk } from '../domain/terrain.js'
 import type { InvalidNaturalStructureCoordinate } from '../domain/natural-structure-plan-builder.js'
+import type { LightQueueUnderflowError } from '../domain/light.js'
 import type { StoragePort } from '@nerima-games/mc-save'
 import { generateEndChunk } from '../domain/end-terrain.js'
 import { generateNetherChunk } from '../domain/nether-terrain.js'
@@ -127,7 +128,9 @@ export const ChunkCapacity: Brand.Constructor<ChunkCapacity> = Brand.make<ChunkC
  * lifecycle. This Port remains the final fallback, so worker-pool generation
  * stays independent from the mc-save storage implementation.
  */
-export type ChunkSource = (coord: ChunkCoord) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate>
+export type ChunkSource = (
+  coord: ChunkCoord,
+) => Effect.Effect<Chunk, InvalidNaturalStructureCoordinate | InvalidTerrainLevels>
 
 /** The default source: this repository's own pure, deterministic generator. */
 export const generatedChunkSource =
@@ -187,7 +190,7 @@ export type ChunkStoreApi = {
    */
   readonly publish: (
     prepared: Store.PreparedChunkWrite,
-  ) => Effect.Effect<void, Store.ChunkWritePublishError>
+  ) => Effect.Effect<void, Store.ChunkWritePublishError | LightQueueUnderflowError>
 
   /**
    * Make a chunk resident, generating it through `ChunkSource` if it is not.
@@ -213,18 +216,23 @@ export type ChunkStoreApi = {
   /** Read one block. Total: distinguishes air from not-loaded from out-of-world. */
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
   /**
-   * Write one block. Total — no error channel, because `StageRegistration.run`
-   * has none either. Reuses the prepare/publish transitions in one `Ref.modify`
+   * Write one block. Reuses the prepare/publish transitions in one `Ref.modify`
    * so concurrent compatibility writes stay atomic. Dirties the chunk only if
    * the block actually changed, and invalidates that chunk's light when it did.
+   * A failed light-queue invariant is returned as `LightQueueUnderflowError`.
    */
-  readonly setBlock: (position: BlockPosition, block: BlockId) => Effect.Effect<Store.BlockWriteOutcome>
+  readonly setBlock: (
+    position: BlockPosition,
+    block: BlockId,
+  ) => Effect.Effect<Store.BlockWriteOutcome, LightQueueUnderflowError>
 
   /**
    * Read the sky and block light at one world position.
    *
-   * TOTAL and three-valued, exactly as `getBlock` is, and for a sharper version
-   * of the same reason: `ChunkNotLoaded` is not darkness. mx-gameplay's spawn
+   * On success, this is three-valued, exactly as `getBlock` is, and for a
+   * sharper version of the same reason: `ChunkNotLoaded` is not darkness.
+   * A failed light-queue invariant is returned as `LightQueueUnderflowError`.
+   * mx-gameplay's spawn
    * rule refuses a candidate whose light is unmeasurable precisely because
    * `NaN > 7` is `false`, so any collapsing of "I do not know" into a number
    * would spawn hostiles in a lit room at the edge of the loaded area.
@@ -241,7 +249,7 @@ export type ChunkStoreApi = {
    * in `src/domain/light-update.ts`; a cold or partial cache uses the same resident-set
    * oracle lazily.
    */
-  readonly getLight: (position: BlockPosition) => Effect.Effect<Store.LightReading>
+  readonly getLight: (position: BlockPosition) => Effect.Effect<Store.LightReading, LightQueueUnderflowError>
 
   /** Register an independent reader of "which chunks changed since I last looked". */
   readonly subscribeDirty: Effect.Effect<ChunkDirtySubscription>
@@ -275,11 +283,27 @@ type DirtyChunkEvictionFailure = {
   readonly coord: ChunkCoord
 }
 
-export type ChunkStoreError = ChunkPersistenceError | DirtyChunkEvictionFailure | InvalidNaturalStructureCoordinate
+export type ChunkStoreError =
+  | ChunkPersistenceError
+  | DirtyChunkEvictionFailure
+  | InvalidNaturalStructureCoordinate
+  | InvalidTerrainLevels
 
 class DirtyChunkEvictionError extends taggedError('DirtyChunkEvictionError')<{
   readonly coord: ChunkCoord
 }> {}
+
+type PersistentGeneratedDimensionMismatchFields = {
+  readonly generatedDimension: Dimension
+  readonly persistenceDimension: Dimension
+}
+
+export const PersistentGeneratedDimensionMismatch: new (
+  args: PersistentGeneratedDimensionMismatchFields,
+) => Error & { readonly _tag: 'PersistentGeneratedDimensionMismatch' } & Readonly<PersistentGeneratedDimensionMismatchFields> =
+  taggedError('PersistentGeneratedDimensionMismatch')<PersistentGeneratedDimensionMismatchFields>
+
+export type PersistentGeneratedDimensionMismatch = InstanceType<typeof PersistentGeneratedDimensionMismatch>
 
 /** The independent ChunkStore selected for one Minecraft dimension. */
 export type ChunkStoreRegistry = {
@@ -383,7 +407,10 @@ type PreparedWriteRecordValidation =
 
 type ChunkPublishAttempt =
   | Readonly<{ readonly _tag: 'Published' }>
-  | Readonly<{ readonly _tag: 'Rejected'; readonly error: Store.ChunkWritePublishError }>
+  | Readonly<{
+      readonly _tag: 'Rejected'
+      readonly error: Store.ChunkWritePublishError | LightQueueUnderflowError
+    }>
 
 const preparedChunkWriteRecords = new WeakMap<Store.PreparedChunkWrite, PreparedChunkWriteRecord>()
 
@@ -541,17 +568,21 @@ const makeBlockWriteApi = (
   const publishCandidate = (
     current: ChunkStoreRuntimeState,
     candidate: Store.PreparedChunkWriteCandidate,
-  ): ChunkStoreRuntimeState => {
-    const chunks = Store.publishPreparedBlockWrite(current.chunks, candidate)
+  ): Result.Result<ChunkStoreRuntimeState, LightQueueUnderflowError> => {
+    const published = Store.publishPreparedBlockWrite(current.chunks, candidate)
+    if (Result.isFailure(published)) {
+      return Result.fail(published.failure)
+    }
+    const chunks = published.success
     if (chunks === current.chunks) {
-      return current
+      return Result.succeed(current)
     }
 
     const dirty = new Set(current.dirty)
     for (const changed of candidate.changedChunks) {
       dirty.add(changed.key)
     }
-    return { chunks, dirty }
+    return Result.succeed({ chunks, dirty })
   }
   const prepare: ChunkStoreApi['prepare'] = (edits) =>
     Effect.flatMap(Ref.get(state), (current) => {
@@ -567,6 +598,22 @@ const makeBlockWriteApi = (
       })
       return Effect.succeed(result.candidate.prepared)
     })
+  const publishValidatedRecord = (
+    current: ChunkStoreRuntimeState,
+    record: PreparedChunkWriteRecord,
+  ): readonly [ChunkPublishAttempt, ChunkStoreRuntimeState] => {
+    const stale = Store.stalePreparedBlockWrite(current.chunks, record.candidate)
+    if (Option.isSome(stale)) {
+      return [{ _tag: 'Rejected', error: stale.value }, current]
+    }
+
+    const next = publishCandidate(current, record.candidate)
+    if (Result.isFailure(next)) {
+      return [{ _tag: 'Rejected', error: next.failure }, current]
+    }
+    record.consumed = true
+    return [{ _tag: 'Published' }, next.success]
+  }
   const publishAttempt = (
     current: ChunkStoreRuntimeState,
     prepared: Store.PreparedChunkWrite,
@@ -575,16 +622,23 @@ const makeBlockWriteApi = (
     if (validation.kind === 'invalid') {
       return [{ _tag: 'Rejected', error: validation.error }, current]
     }
-
-    const { record } = validation
-    const stale = Store.stalePreparedBlockWrite(current.chunks, record.candidate)
-    if (Option.isSome(stale)) {
-      return [{ _tag: 'Rejected', error: stale.value }, current]
+    return publishValidatedRecord(current, validation.record)
+  }
+  const setBlockTransition = (
+    current: ChunkStoreRuntimeState,
+    position: BlockPosition,
+    block: BlockId,
+  ): readonly [Result.Result<Store.BlockWriteOutcome, LightQueueUnderflowError>, ChunkStoreRuntimeState] => {
+    const result = Store.prepareBlockWrite(current.chunks, position, block)
+    if (result['_tag'] === 'Rejected') {
+      return [Result.succeed(result.outcome), current]
     }
 
-    const next = publishCandidate(current, record.candidate)
-    record.consumed = true
-    return [{ _tag: 'Published' }, next]
+    const published = publishCandidate(current, result.candidate)
+    if (Result.isFailure(published)) {
+      return [Result.fail(published.failure), current]
+    }
+    return [Result.succeed(result.outcome), published.success]
   }
   const publish: ChunkStoreApi['publish'] = (prepared) =>
     Effect.flatMap(
@@ -597,14 +651,10 @@ const makeBlockWriteApi = (
       },
     )
   const setBlock: ChunkStoreApi['setBlock'] = (position, block) =>
-    Ref.modify(state, (current): readonly [Store.BlockWriteOutcome, ChunkStoreRuntimeState] => {
-      const result = Store.prepareBlockWrite(current.chunks, position, block)
-      if (result['_tag'] === 'Rejected') {
-        return [result.outcome, current]
-      }
-
-      return [result.outcome, publishCandidate(current, result.candidate)]
-    })
+    Effect.flatMap(
+      Ref.modify(state, (current) => setBlockTransition(current, position, block)),
+      Effect.fromResult,
+    )
   return { prepare, publish, setBlock }
 }
 
@@ -680,10 +730,22 @@ const makeChunkStoreInternal = (
       // When the entry was already there, so the hot path writes back what it
       // Read.
       getLight: (position) =>
-        Ref.modify(state, (current) => {
-          const [reading, chunks] = Store.lightAt(current.chunks, position)
-          return [reading, { ...current, chunks }]
-        }),
+        Effect.flatMap(
+          Ref.modify(
+            state,
+            (
+              current,
+            ): readonly [Result.Result<Store.LightReading, LightQueueUnderflowError>, ChunkStoreRuntimeState] => {
+              const light = Store.lightAt(current.chunks, position)
+              if (Result.isFailure(light)) {
+                return [Result.fail(light.failure), current]
+              }
+              const [reading, chunks] = light.success
+              return [Result.succeed(reading), { ...current, chunks }]
+            },
+          ),
+          Effect.fromResult,
+        ),
 
       isLoaded: (coord) => Effect.map(Ref.get(state), (current) => Boolean(Store.residentChunk(current.chunks, coord))),
 
@@ -841,10 +903,14 @@ export const PersistentGeneratedDimensionChunkStoreLayer = (
   context: ChunkPersistenceContext,
   capacity: ChunkCapacity,
   options: GenerateOptions = {},
-): Layer.Layer<ChunkStore, never, StoragePort> => {
+): Layer.Layer<ChunkStore, PersistentGeneratedDimensionMismatch, StoragePort> => {
   if (dimension !== context.dimension) {
-    throw new RangeError(
-      `Generated dimension "${dimension}" does not match persistence dimension "${context.dimension}"`,
+    return Layer.effect(
+      ChunkStore,
+      Effect.fail(new PersistentGeneratedDimensionMismatch({
+        generatedDimension: dimension,
+        persistenceDimension: context.dimension,
+      })),
     )
   }
   return PersistentChunkStoreLayer(generatedDimensionChunkSource(seed, dimension, options), context, capacity)

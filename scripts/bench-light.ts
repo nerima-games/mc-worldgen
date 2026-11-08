@@ -6,7 +6,7 @@
  * a sealed room and observes its neighbour after every edit.
  */
 import { performance } from 'node:perf_hooks'
-import { Option } from 'effect'
+import { Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
@@ -45,7 +45,7 @@ const makeState = (): ChunkStoreState => {
   for (const coord of [createChunkCoord(chunkAxis(0), chunkAxis(0)), createChunkCoord(chunkAxis(1), chunkAxis(0)), createChunkCoord(chunkAxis(0), chunkAxis(1)), createChunkCoord(chunkAxis(1), chunkAxis(1))]) {
     state = withChunk(state, roofedChunk(coord))
   }
-  return lightAt(state, createBlockPosition(blockAxis(4), blockAxis(ROOM_Y), blockAxis(4)))[1]
+  return Result.getOrThrow(lightAt(state, createBlockPosition(blockAxis(4), blockAxis(ROOM_Y), blockAxis(4))))[1]
 }
 
 let sink = 0
@@ -56,8 +56,8 @@ const workload = (): number => {
   const started = performance.now()
 
   for (let edit = 0; edit < EDITS; edit += 1) {
-    state = withBlockAt(state, source, edit % 2 === 0 ? TORCH : BLOCK.AIR)[1]
-    const [reading, next] = lightAt(state, target)
+    state = Result.getOrThrow(withBlockAt(state, source, edit % 2 === 0 ? TORCH : BLOCK.AIR))[1]
+    const [reading, next] = Result.getOrThrow(lightAt(state, target))
     state = next
     if (reading._tag === 'Light') sink += reading.block
   }

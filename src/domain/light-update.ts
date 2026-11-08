@@ -10,9 +10,9 @@ import {
   axisCrossing,
   coordKey,
 } from './light-common.js'
+import { type LightQueueUnderflowError, computeChunkLights } from './light-propagation.js'
+import { Option, Result } from 'effect'
 import { blockTransmitsLight, lightEmissionAt } from './light-block-data.js'
-import { Option } from 'effect'
-import { computeChunkLights } from './light-propagation.js'
 
 /** One block mutation whose cached light neighbourhood must reach a new fixed point. */
 export type ChunkLightChange = {
@@ -367,16 +367,16 @@ export const updateChunkLights = <Key extends string>(
   loaded: ReadonlyMap<Key, Chunk>,
   current: ReadonlyMap<Key, ChunkLight>,
   changes: ReadonlyArray<ChunkLightChange>,
-): ReadonlyMap<Key, ChunkLight> => {
+): Result.Result<ReadonlyMap<Key, ChunkLight>, LightQueueUnderflowError> => {
   const context = resolvedUpdateContext(loaded, current)
   if (context === null) {
     return computeChunkLights(loaded)
   }
   if (changes.length === MIN_CHUNK_COORD) {
-    return current
+    return Result.succeed(current)
   }
 
   runChannel(context, changes, 'sky')
   runChannel(context, changes, 'block')
-  return finalizeUpdate(context, current)
+  return Result.succeed(finalizeUpdate(context, current))
 }
