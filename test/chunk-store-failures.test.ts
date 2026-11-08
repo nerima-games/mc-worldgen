@@ -79,6 +79,7 @@ describe('ChunkStore typed lighting failures', () => {
 
       const after = await Effect.runPromise(store.snapshot(COORD))
       expect(after?.blocks).toEqual(before?.blocks)
+      expect(after?.blockStates).toEqual(before?.blockStates)
       expect(after?.biomes).toEqual(before?.biomes)
       expect(after?.coord).toEqual(before?.coord)
     }),

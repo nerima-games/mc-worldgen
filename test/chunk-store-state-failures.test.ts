@@ -1,9 +1,10 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Result } from 'effect'
 import { BlockId, chunkKeyOf } from '@nerima-games/mc-kernel'
+import { encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { vi } from 'vitest'
 import { BLOCK } from '../src/domain/biome'
-import { emptyBlocks, readBlock, type Chunk } from '../src/domain/chunk'
+import { emptyBlockStates, emptyBlocks, readBlock, type ChunkWithBlockStates } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { blockAxis, validatedBlockPosition as blockPosition, validatedChunkCoord as chunkCoord } from './fixtures/validated-inputs'
 
@@ -34,9 +35,10 @@ import {
 
 const COORD = chunkCoord(0, 0)
 const POSITION = blockPosition(1, blockAxis(10), 1)
-const CHUNK: Chunk = {
+const CHUNK: ChunkWithBlockStates = {
   coord: COORD,
   blocks: emptyBlocks(),
+  blockStates: emptyBlockStates(),
   biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const),
 }
 const FAILURE = new LightQueueUnderflowError({ index: 0 })
@@ -54,6 +56,7 @@ describe('ChunkStoreState typed light failures', () => {
     vi.mocked(updateChunkLights).mockReturnValue(Result.fail(FAILURE))
     const state = stateWithCompleteLightCache()
     const originalBlocks = state.loaded.get(chunkKeyOf(COORD))?.blocks
+    const originalBlockStates = state.loaded.get(chunkKeyOf(COORD))?.blockStates
 
     const result = withBlockAt(state, POSITION, Result.getOrThrow(BlockId.result(BLOCK.STONE)))
 
@@ -66,6 +69,7 @@ describe('ChunkStoreState typed light failures', () => {
       expect(readBlock(originalBlocks, blockIndex(POSITION.x, POSITION.y, POSITION.z))).toBe(BLOCK.AIR)
     }
     expect(state.loaded.get(chunkKeyOf(COORD))?.blocks).toBe(originalBlocks)
+    expect(state.loaded.get(chunkKeyOf(COORD))?.blockStates).toBe(originalBlockStates)
   })
 
   it('returns a failed prepared publish without exposing the candidate chunk', () => {
@@ -79,6 +83,7 @@ describe('ChunkStoreState typed light failures', () => {
 
     const originalLoaded = state.loaded
     const originalBlocks = state.loaded.get(chunkKeyOf(COORD))?.blocks
+    const originalBlockStates = state.loaded.get(chunkKeyOf(COORD))?.blockStates
     const result = publishPreparedBlockWrite(state, prepared.candidate)
 
     expect(Result.isFailure(result)).toBe(true)
@@ -87,6 +92,7 @@ describe('ChunkStoreState typed light failures', () => {
     }
     expect(state.loaded).toBe(originalLoaded)
     expect(state.loaded.get(chunkKeyOf(COORD))?.blocks).toBe(originalBlocks)
+    expect(state.loaded.get(chunkKeyOf(COORD))?.blockStates).toBe(originalBlockStates)
     expect(originalBlocks?.[blockIndex(POSITION.x, POSITION.y, POSITION.z)]).toBe(BLOCK.AIR)
   })
 
@@ -102,5 +108,33 @@ describe('ChunkStoreState typed light failures', () => {
     }
     expect(state.lights.size).toBe(0)
     expect(state.loaded.get(chunkKeyOf(COORD))).toBe(CHUNK)
+    expect(state.loaded.get(chunkKeyOf(COORD))?.blockStates).toBe(CHUNK.blockStates)
+  })
+
+  it('does not recompute lights for a block-state-only write', () => {
+    const index = blockIndex(POSITION.x, POSITION.y, POSITION.z)
+    const blocks = emptyBlocks()
+    blocks[index] = BLOCK.LOG
+    const blockStates = emptyBlockStates()
+    blockStates[index] = Result.getOrThrow(encodeBlockState(BLOCK.LOG, { axis: 'x' }))
+    const chunk = { ...CHUNK, blocks, blockStates }
+    const resident = withChunk(emptyChunkStoreState, chunk)
+    const state: ChunkStoreState = {
+      ...resident,
+      lights: new Map([[chunkKeyOf(COORD), emptyChunkLight()]]),
+    }
+    vi.mocked(updateChunkLights).mockClear()
+
+    const result = withBlockAt(state, POSITION, BLOCK.LOG, { axis: 'z' })
+
+    expect(Result.isSuccess(result)).toBe(true)
+    if (Result.isSuccess(result)) {
+      expect(result.success[0]).toStrictEqual({ _tag: 'Written', previous: BLOCK.LOG, chunk: COORD })
+      expect(result.success[1].lights).toBe(state.lights)
+      expect(result.success[1].loaded.get(chunkKeyOf(COORD))?.blockStates[index]).toBe(
+        Result.getOrThrow(encodeBlockState(BLOCK.LOG, { axis: 'z' })),
+      )
+    }
+    expect(updateChunkLights).not.toHaveBeenCalled()
   })
 })

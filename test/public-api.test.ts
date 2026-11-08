@@ -48,11 +48,32 @@ export type PublicRootExcludesTestHelpers = Assert<
 export type PublicRootExcludesSubscriberId = worldgen.SubscriberId
 export type PublicRootExportsRendererTypes = [
   worldgen.Chunk,
+  worldgen.ChunkWithBlockStates,
+  worldgen.ReadonlyChunkWithBlockStates,
+  worldgen.ReadonlyUint32Array,
+  worldgen.ChunkDirtyBatch,
+  worldgen.ChunkDirtyChunk,
+  worldgen.ChunkLocalAabb,
   worldgen.ChunkNeighbours,
   worldgen.LightReading,
   worldgen.ChunkStoreRegistry,
   worldgen.ChunkCapacity,
 ]
+type SetBlockStateArgument = Parameters<worldgen.ChunkStoreApi['setBlock']>[2]
+type SetBlockError = ReturnType<worldgen.ChunkStoreApi['setBlock']> extends Effect.Effect<infer _A, infer E, infer _R>
+  ? E
+  : never
+export type PublicRootExportsBlockStateStoreTypes = Assert<
+  worldgen.BlockStateValues extends Exclude<SetBlockStateArgument, undefined> ? true : false
+> & Assert<worldgen.BlockStateCodecFailure extends SetBlockError ? true : false>
+type WithBlockAtStateArgument = Parameters<typeof worldgen.withBlockAt>[3]
+type WithBlockAtError = ReturnType<typeof worldgen.withBlockAt> extends Result.Result<infer _A, infer E>
+  ? E
+  : never
+export type PublicRootExportsBlockStateTransitionTypes = Assert<
+  worldgen.BlockStateValues extends Exclude<WithBlockAtStateArgument, undefined> ? true : false
+> & Assert<worldgen.BlockStateCodecFailure extends WithBlockAtError ? true : false>
+  & Assert<worldgen.LightQueueUnderflowError extends WithBlockAtError ? true : false>
 export type PublicRootExportsRegistry = Assert<
   worldgen.ChunkStoreRegistry['forDimension'] extends (
     dimension: worldgen.Dimension,
@@ -69,8 +90,8 @@ export type PublicRootExportsRendererReads = Assert<
 type LoadChunkView = Effect.Success<ReturnType<worldgen.ChunkStoreApi['load']>>
 type PeekChunkView = Exclude<Effect.Success<ReturnType<worldgen.ChunkStoreApi['peek']>>, undefined>
 export type PublicRootExportsReadonlyChunkViews = Assert<
-  LoadChunkView extends worldgen.ReadonlyChunk ? true : false
-> & Assert<PeekChunkView extends worldgen.ReadonlyChunk ? true : false>
+  LoadChunkView extends worldgen.ReadonlyChunkWithBlockStates ? true : false
+> & Assert<PeekChunkView extends worldgen.ReadonlyChunkWithBlockStates ? true : false>
 export type PublicRootReadonlyChunkViewsOmitAliasingCallbacks = Assert<
   'forEach' extends keyof worldgen.ReadonlyUint16Array ? false : true
 > & Assert<'map' extends keyof worldgen.ReadonlyUint16Array ? false : true>
@@ -78,6 +99,26 @@ export type PublicRootReadonlyChunkViewsOmitAliasingCallbacks = Assert<
 export type PublicRootReadonlyChunkViewsHideBufferAliases = Assert<
   'buffer' extends keyof worldgen.ReadonlyUint16Array ? false : true
 > & Assert<'subarray' extends keyof worldgen.ReadonlyUint16Array ? false : true>
+
+export type PublicRootReadonlyBlockStateChunkViews = Assert<
+  worldgen.ReadonlyChunkWithBlockStates['blockStates'] extends worldgen.ReadonlyUint32Array ? true : false
+> & Assert<worldgen.ReadonlyChunkWithBlockStates extends worldgen.ReadonlyChunk ? true : false>
+export type PublicRootReadonlyUint32ArrayHidesMutationAndAliases = Assert<
+  'fill' extends keyof worldgen.ReadonlyUint32Array ? false : true
+> & Assert<'set' extends keyof worldgen.ReadonlyUint32Array ? false : true>
+  & Assert<'buffer' extends keyof worldgen.ReadonlyUint32Array ? false : true>
+  & Assert<'subarray' extends keyof worldgen.ReadonlyUint32Array ? false : true>
+
+export type PublicRootChunkDirtyChunkContainsLocalAabb = Assert<
+  worldgen.ChunkDirtyChunk extends worldgen.ChunkCoord & worldgen.ChunkLocalAabb ? true : false
+> & Assert<'min' extends keyof worldgen.ChunkLocalAabb ? true : false>
+  & Assert<'max' extends keyof worldgen.ChunkLocalAabb ? true : false>
+export type PublicRootChunkDirtyBatchUsesAabbEntries = Assert<
+  worldgen.ChunkDirtyBatch['changed'][number] extends worldgen.ChunkDirtyChunk ? true : false
+>
+export type PublicRootChunkLocalAabbUsesThreeAxisTuples = Assert<
+  worldgen.ChunkLocalAabb['min'] extends readonly [number, number, number] ? true : false
+> & Assert<worldgen.ChunkLocalAabb['max'] extends readonly [number, number, number] ? true : false>
 
 const assertReadonlyChunkViews = (loaded: LoadChunkView, peeked: PeekChunkView): void => {
   // @ts-expect-error Published load views reject indexed writes.
@@ -90,6 +131,16 @@ const assertReadonlyChunkViews = (loaded: LoadChunkView, peeked: PeekChunkView):
   peeked.blocks.set(new Uint16Array(1))
 }
 void assertReadonlyChunkViews
+
+const assertReadonlyBlockStateViews = (chunk: worldgen.ReadonlyChunkWithBlockStates): ArrayBufferLike => {
+  // @ts-expect-error Published state views reject indexed writes.
+  chunk.blockStates[0] = 0
+  // @ts-expect-error The read-only state view omits typed-array mutators.
+  chunk.blockStates.fill(0)
+  // @ts-expect-error The read-only state view hides backing-buffer aliases.
+  return chunk.blockStates.buffer
+}
+void assertReadonlyBlockStateViews
 
 const assertReadonlyChunkReadHelpers = (loaded: LoadChunkView, peeked: PeekChunkView): void => {
   worldgen.getBlockAt(loaded, localAxis(0), blockAxis(0), localAxis(0))
@@ -111,6 +162,35 @@ describe('public API surface', () => {
   it('publishes the chunk persistence format from the package root', () => {
     expect(worldgen.CHUNK_FORMAT).toBe(DOMAIN_CHUNK_FORMAT)
   })
+
+  it.effect('publishes stateful read views and half-open dirty bounds from the package root', () =>
+    Effect.gen(function* () {
+      const source: worldgen.ChunkSource = (coord) =>
+        Effect.succeed({
+          coord,
+          blocks: new Uint16Array(worldgen.CHUNK_VOLUME),
+          blockStates: new Uint32Array(worldgen.CHUNK_VOLUME),
+          biomes: Array.from(
+            { length: worldgen.CHUNK_SIZE_XZ * worldgen.CHUNK_SIZE_XZ },
+            () => 'PLAINS' as const,
+          ),
+        })
+      const capacity = Result.getOrThrow(worldgen.ChunkCapacity.result(1))
+      const store = yield* Effect.provide(worldgen.ChunkStore, worldgen.ChunkStoreLayer(source, capacity))
+      const subscription = yield* store.subscribeDirty
+      const loaded: worldgen.ReadonlyChunkWithBlockStates = yield* store.load(TEST_CHUNK_COORD)
+
+      expect(loaded.blockStates).toBeInstanceOf(Uint32Array)
+      expect(loaded.blockStates).toHaveLength(worldgen.CHUNK_VOLUME)
+      expect((yield* subscription.drain).changed).toStrictEqual([
+        {
+          ...TEST_CHUNK_COORD,
+          min: [0, 0, 0],
+          max: [worldgen.CHUNK_SIZE_XZ, worldgen.CHUNK_HEIGHT, worldgen.CHUNK_SIZE_XZ],
+        },
+      ])
+    }),
+  )
 
   it('exports test helpers only from the testing entry', () => {
     const blocks = worldgenTesting.emptyBlocks()

@@ -9,6 +9,7 @@ import {
   type StorageService,
 } from '@nerima-games/mc-save'
 import { Deferred, Effect, Fiber, Layer, Option, Result } from 'effect'
+import { decodeBlockState, encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import {
   ChunkCapacity,
@@ -114,6 +115,69 @@ describe('chunk persistence', () => {
     }),
   )
 
+  it.effect('limits cold storage reads to four and waits the fifth load', () =>
+    Effect.gen(function* (): Effect.gen.Return<void, unknown, import('effect').Scope.Scope> {
+      const backing = yield* makeInMemoryStorage
+      const enteredFourReads = yield* Deferred.make<void>()
+      const startedFiveRequests = yield* Deferred.make<void>()
+      const releaseReads = yield* Deferred.make<void>()
+      let activeReads = 0
+      let maxActiveReads = 0
+      let readCalls = 0
+      let startedRequests = 0
+
+      const boundedStorage: StorageService = {
+        ...backing,
+        get: (key) =>
+          Effect.acquireUseRelease(
+            Effect.gen(function* () {
+              activeReads += 1
+              readCalls += 1
+              maxActiveReads = Math.max(maxActiveReads, activeReads)
+              if (activeReads === 4) yield* Deferred.succeed(enteredFourReads, undefined)
+            }),
+            () =>
+              Effect.gen(function* () {
+                yield* Deferred.await(releaseReads)
+                return yield* backing.get(key)
+              }),
+            () =>
+              Effect.sync(() => {
+                activeReads -= 1
+              }),
+          ),
+      }
+
+      const store = yield* makeStoreWith(boundedStorage, TEST_CAPACITY)
+      const coords = Array.from({ length: 5 }, (_, index) => validated.validatedChunkCoord(index, 0))
+      const loads = Effect.forEach(
+        coords,
+        (coord) =>
+          Effect.gen(function* () {
+            startedRequests += 1
+            if (startedRequests === 5) yield* Deferred.succeed(startedFiveRequests, undefined)
+            return yield* store.load(coord)
+          }),
+        { concurrency: 'unbounded' },
+      )
+      const fiber = yield* loads.pipe(Effect.forkChild)
+
+      yield* Deferred.await(enteredFourReads)
+      yield* Deferred.await(startedFiveRequests)
+      yield* Effect.yieldNow
+
+      expect(readCalls).toBe(4)
+      expect(maxActiveReads).toBe(4)
+
+      yield* Deferred.succeed(releaseReads, undefined)
+      yield* Fiber.join(fiber)
+
+      expect(readCalls).toBe(5)
+      expect(maxActiveReads).toBe(4)
+      expect(activeReads).toBe(0)
+    }).pipe(Effect.scoped),
+  )
+
   it.effect('retains a resident chunk when saving during unload fails', () =>
     Effect.gen(function* () {
       const backing = yield* makeInMemoryStorage
@@ -194,7 +258,32 @@ describe('chunk persistence', () => {
     }),
   )
 
-  it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v2 on the next save', () =>
+  it.effect('preserves an encoded block state through persistence and reload', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
+      const coord = validated.validatedChunkCoord(0, 0)
+      const position = validated.validatedBlockPosition(5, 20, 6)
+      const index = blockIndex(5, 20, 6)
+      const encoded = encodeBlockState(BLOCK.LOG, { axis: 'x' })
+      if (Result.isFailure(encoded)) throw new Error(`oak log state was rejected: ${encoded.failure._tag}`)
+
+      yield* store.load(coord)
+      const write = yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+      expect(write._tag).toBe('Written')
+      yield* store.unload(coord)
+
+      const restored = yield* store.load(coord)
+      const decoded = decodeBlockState(BLOCK.LOG, restored.blockStates[index])
+
+      expect(restored.blocks[index]).toBe(BLOCK.LOG)
+      expect(restored.blockStates[index]).toBe(encoded.success)
+      expect(Result.isSuccess(decoded)).toBe(true)
+      if (Result.isSuccess(decoded)) expect(decoded.success.axis).toBe('x')
+    }),
+  )
+
+  it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v3 on the next save', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
       const coord = validated.validatedChunkCoord(5, -9)
@@ -204,7 +293,7 @@ describe('chunk persistence', () => {
       // version rather than the current one.
       const legacyBlocks = new Uint8Array(CHUNK_VOLUME)
       legacyBlocks[blockIndex(0, 10, 0)] = BLOCK.STONE
-      legacyBlocks[blockIndex(1, 10, 0)] = 255 // the v1 ceiling itself
+      legacyBlocks[blockIndex(1, 10, 0)] = BLOCK.OBSIDIAN
 
       yield* storage.put(
         chunkSaveKey(context, coord),
@@ -227,8 +316,11 @@ describe('chunk persistence', () => {
       expect(Option.isSome(loaded)).toBe(true)
       const chunk = Option.getOrThrow(loaded)
       expect(chunk.blocks).toBeInstanceOf(Uint16Array)
+      expect(chunk.blockStates).toHaveLength(CHUNK_VOLUME)
       expect(chunk.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.STONE)
-      expect(chunk.blocks[blockIndex(1, 10, 0)]).toBe(255)
+      expect(chunk.blocks[blockIndex(1, 10, 0)]).toBe(BLOCK.OBSIDIAN)
+      expect(chunk.blockStates[blockIndex(0, 10, 0)]).toBe(Result.getOrThrow(encodeBlockState(BLOCK.STONE, {})))
+      expect(chunk.blockStates[blockIndex(1, 10, 0)]).toBe(Result.getOrThrow(encodeBlockState(BLOCK.OBSIDIAN, {})))
 
       // Saving the migrated chunk writes the CURRENT format, not v1 again —
       // the store never re-writes the retired shape.
@@ -345,10 +437,12 @@ describe('chunk persistence', () => {
     }),
   )
 
-  it.effect('retries the save when a write races the unload, and persists the newer content', () =>
+  it.effect('retries the save when a state-only write races the unload and persists the newer state', () =>
     Effect.gen(function* () {
       const backing = yield* makeInMemoryStorage
       const coord = validated.validatedChunkCoord(0, 0)
+      const position = validated.validatedBlockPosition(0, 10, 0)
+      const index = blockIndex(0, 10, 0)
       let putCount = 0
 
       // A mutable property rather than a reassigned variable, so
@@ -367,7 +461,7 @@ describe('chunk persistence', () => {
               // Races a write into the middle of the FIRST save attempt, so
               // that attempt's snapshot goes stale before its own
               // compare-and-remove runs.
-              yield* Effect.orDie(cell.store.setBlock(validated.validatedBlockPosition(0, 10, 0), BLOCK.SAND))
+              yield* Effect.orDie(cell.store.setBlock(position, BLOCK.LOG, { axis: 'z' }))
             }
             return yield* backing.put(key, envelope)
           }),
@@ -376,6 +470,7 @@ describe('chunk persistence', () => {
       const store = yield* makeStoreWith(racyDuringSave, TEST_CAPACITY)
       cell.store = store
       yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
 
       const removed = yield* store.unload(coord)
 
@@ -389,7 +484,10 @@ describe('chunk persistence', () => {
       // stale pre-race snapshot: reload from storage through a fresh store.
       const reloaded = yield* makeStoreWith(backing, TEST_CAPACITY)
       const restored = yield* reloaded.load(coord)
-      expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+      expect(restored.blocks[index]).toBe(BLOCK.LOG)
+      const decoded = decodeBlockState(BLOCK.LOG, restored.blockStates[index])
+      expect(Result.isSuccess(decoded)).toBe(true)
+      if (Result.isSuccess(decoded)) expect(decoded.success.axis).toBe('z')
     }),
   )
 })

@@ -9,9 +9,10 @@
  * schema — so it is exercised directly here rather than only through a comment.
  */
 import { describe, expect, it } from '@effect/vitest'
+import { Result } from 'effect'
 import { AIR_BLOCK_ID, BLOCK_ID_MAX, BlockId, chunkCoord } from '@nerima-games/mc-kernel'
 import { BLOCK } from '../src/domain/biome'
-import { biomeAt, emptyBlocks, readBlock, setBlockAt, type Chunk } from '../src/domain/chunk'
+import { biomeAt, emptyBlocks, readBlock, setBlockAt, withDefaultBlockStates, type Chunk } from '../src/domain/chunk'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from '../src/domain/constants'
 import { blockAxis, localAxis } from '../src/domain/coordinate-compatibility'
 import { chunkAxis } from './fixtures/validated-inputs'
@@ -58,6 +59,27 @@ describe('the widened block-id ceiling', () => {
     setBlockAt(blocks, localAxis(0), blockAxis(0), localAxis(0), BlockId(BLOCK_ID_MAX))
 
     expect(readBlock(blocks, index)).toBe(BLOCK_ID_MAX)
+  })
+})
+
+describe('default block-state materialization', () => {
+  it('fails on null or a non-Uint32Array state buffer instead of replacing it with defaults', () => {
+    const base = {
+      biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const),
+      blocks: emptyBlocks(),
+      coord: chunkCoord(chunkAxis(0), chunkAxis(0)),
+    }
+    const invalidBuffers: ReadonlyArray<unknown> = [null, new Uint16Array(CHUNK_VOLUME)]
+
+    for (const blockStates of invalidBuffers) {
+      const chunk = { ...base, blockStates } as unknown as Chunk
+      const result = withDefaultBlockStates(chunk)
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toStrictEqual({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
+      }
+    }
   })
 })
 

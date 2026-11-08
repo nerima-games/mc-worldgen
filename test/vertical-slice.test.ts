@@ -51,6 +51,7 @@ import {
   type BlockId,
   type BlockPosition,
 } from '@nerima-games/mc-kernel'
+import type { BlockStateCodecFailure } from '@nerima-games/mc-kernel/domain/block-state'
 import {
   blockAxis,
   chunkAxis,
@@ -128,7 +129,7 @@ const slabSource: ChunkSource = () => Effect.sync(slabChunk)
 const fallingBlockTick = (
   store: Effect.Success<typeof ChunkStore>,
   batch: ChunkDirtyBatch,
-): Effect.Effect<number, LightQueueUnderflowError> =>
+): Effect.Effect<number, LightQueueUnderflowError | BlockStateCodecFailure> =>
   Effect.gen(function* () {
     let moved = 0
 
@@ -204,7 +205,9 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
 
       // ---- 3. the chunk is reported dirty ------------------------------------
       const gameplayBatch = yield* gameplay.drain
-      expect(gameplayBatch.changed).toStrictEqual([chunkCoord(chunkAxis(0), chunkAxis(0))])
+      expect(gameplayBatch.changed).toStrictEqual([
+        { ...chunkCoord(chunkAxis(0), chunkAxis(0)), min: [2, SUPPORT_Y, 3], max: [3, SUPPORT_Y + 1, 4] },
+      ])
       expect(gameplayBatch.removed).toStrictEqual([])
 
       // ---- 4. a falling-block rule observes it -------------------------------
@@ -218,7 +221,9 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       // Three writes happened (the break, and the sand's two-step move). The
       // renderer meshes the chunk once.
       const rendererBatch = yield* renderer.drain
-      expect(rendererBatch.changed).toStrictEqual([chunkCoord(chunkAxis(0), chunkAxis(0))])
+      expect(rendererBatch.changed).toStrictEqual([
+        { ...chunkCoord(chunkAxis(0), chunkAxis(0)), min: [2, SUPPORT_Y, 3], max: [3, SAND_Y + 1, 4] },
+      ])
 
       // ---- 6. and then the world goes quiet ON ITS OWN -----------------------
       // The rule's own writes dirtied the chunk again, which is correct: the
@@ -226,8 +231,21 @@ describe('the slice: break a block, it falls, and the renderer hears about it', 
       // what `settled` does in mx-gameplay's queue. One more tick finds the
       // sand resting on stone, moves nothing, and dirties nothing — so the
       // loop terminates without anyone deciding it should.
-      expect((yield* gameplay.drain).changed).toStrictEqual([chunkCoord(chunkAxis(0), chunkAxis(0))])
-      expect(yield* fallingBlockTick(store, { changed: [chunkCoord(chunkAxis(0), chunkAxis(0))], removed: [] })).toBe(0)
+      expect((yield* gameplay.drain).changed).toStrictEqual([
+        { ...chunkCoord(chunkAxis(0), chunkAxis(0)), min: [2, SUPPORT_Y, 3], max: [3, SAND_Y + 1, 4] },
+      ])
+      expect(
+        yield* fallingBlockTick(store, {
+          changed: [
+            {
+              ...chunkCoord(chunkAxis(0), chunkAxis(0)),
+              min: [blockAxis(2), blockAxis(SUPPORT_Y), blockAxis(3)],
+              max: [blockAxis(3), blockAxis(SAND_Y + 1), blockAxis(4)],
+            },
+          ],
+          removed: [],
+        }),
+      ).toBe(0)
 
       expect(yield* gameplay.drain).toStrictEqual({ changed: [], removed: [] })
       expect(yield* renderer.drain).toStrictEqual({ changed: [], removed: [] })

@@ -1,5 +1,5 @@
 /**
- * Advisory one-process sample for ChunkStore batch writes and live reads.
+ * Advisory one-process sample for ChunkStore cold loads, batch writes, and live reads.
  *
  * Run with `pnpm bench:chunk-store -- --arm=legacy` or
  * `pnpm bench:chunk-store -- --arm=transaction`. Pass `--source-root=/path/to/checkout`
@@ -9,13 +9,15 @@
  * then measures 50,000 load/peek pairs. Run fresh processes for each sample and
  * alternate the arms. JSON includes a 32-bit FNV-1a-style hash of selected
  * block IDs, expected to match across arms, and a read-reference check.
+ * `--arm=load-concurrency` issues 32 cold loads against a source delayed by 25ms,
+ * then reports the maximum number of active source calls and total elapsed time.
  * The transaction arm reports unavailable when the selected source has no API.
  * Timing is advisory and is not a verification gate.
  */
 import { performance } from 'node:perf_hooks'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Effect, Result } from 'effect'
+import { Duration, Effect, Result } from 'effect'
 import {
   blockPosition as createBlockPosition,
   chunkCoord as createChunkCoord,
@@ -24,7 +26,7 @@ import {
   type ChunkCoord,
 } from '@nerima-games/mc-kernel'
 
-type Arm = 'legacy' | 'transaction'
+type Arm = 'legacy' | 'transaction' | 'load-concurrency'
 type ChunkStoreModules = Readonly<{
   application: typeof import('../src/application/chunk-store')
   biome: typeof import('../src/domain/biome')
@@ -46,6 +48,13 @@ type ReadMeasurement = Readonly<{ readMsPerPair: number; readReferenceStable: bo
 type BenchResult = Readonly<{
   status: 'ok' | 'unavailable' | 'incorrect'
   arm: Arm
+  coldLoads?: number
+  inputSignature?: string
+  sourceDelayMs?: number
+  maxConcurrentLoads?: number
+  loadLimitTarget?: number
+  loadLimitSatisfied?: boolean
+  loadsPerSecond?: number
   warmupBatches?: number
   measuredBatches?: number
   editsPerBatch?: number
@@ -62,6 +71,9 @@ const CHUNK_COUNT = 4
 const WARMUP_BATCHES = 3
 const MEASURED_BATCHES = 40
 const READ_PAIRS = 50_000
+const COLD_LOAD_COUNT = 32
+const COLD_LOAD_SOURCE_DELAY_MS = 25
+const COLD_LOAD_LIMIT = 4
 const SURFACE_Y = 63
 const now = (): number => performance.now() // mc-kernel-allow-time-source: benchmark harness
 
@@ -90,8 +102,57 @@ const flatChunk = (coord: ChunkCoord, modules: ChunkStoreModules) => {
   return {
     coord,
     blocks,
+    blockStates: new Uint32Array(modules.constants.CHUNK_VOLUME),
     biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'PLAINS' as const),
   }
+}
+
+const benchmarkLoadConcurrency = (modules: ChunkStoreModules): Effect.Effect<BenchResult, unknown> => {
+  const { application, coordinates } = modules
+  let activeLoads = 0
+  let maxConcurrentLoads = 0
+  const source = (coord: ChunkCoord) =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        activeLoads += 1
+        maxConcurrentLoads = Math.max(maxConcurrentLoads, activeLoads)
+      }),
+      () =>
+        Effect.sleep(Duration.millis(COLD_LOAD_SOURCE_DELAY_MS)).pipe(
+          Effect.map(() => flatChunk(coord, modules)),
+        ),
+      () =>
+        Effect.sync(() => {
+          activeLoads -= 1
+        }),
+    )
+  const capacity = Result.getOrThrow(application.ChunkCapacity.result(COLD_LOAD_COUNT))
+  const world = application.ChunkStoreLayer(source, capacity)
+  const coords = Array.from({ length: COLD_LOAD_COUNT }, (_, index) =>
+    createChunkCoord(coordinates.chunkAxis(index), coordinates.chunkAxis(0)),
+  )
+
+  return Effect.gen(function* runConcurrentLoads() {
+    const store = yield* application.ChunkStore
+    const started = now()
+    const loaded = yield* Effect.forEach(coords, (coord) => store.load(coord), { concurrency: 'unbounded' })
+    const elapsedMs = now() - started
+    const allLoadsCompleted = loaded.length === COLD_LOAD_COUNT && loaded.every((chunk) => chunk !== undefined)
+    const loadLimitSatisfied = maxConcurrentLoads <= COLD_LOAD_LIMIT
+
+    return {
+      status: allLoadsCompleted ? 'ok' as const : 'incorrect' as const,
+      arm: 'load-concurrency' as const,
+      coldLoads: COLD_LOAD_COUNT,
+      inputSignature: coords.map(({ cx, cz }) => `${cx},${cz}`).join('|'),
+      sourceDelayMs: COLD_LOAD_SOURCE_DELAY_MS,
+      maxConcurrentLoads,
+      loadLimitTarget: COLD_LOAD_LIMIT,
+      loadLimitSatisfied,
+      elapsedMs,
+      loadsPerSecond: (COLD_LOAD_COUNT * 1000) / elapsedMs,
+    }
+  }).pipe(Effect.provide(world))
 }
 
 const editsFor = (
@@ -288,8 +349,8 @@ const benchmark = (arm: Arm, modules: ChunkStoreModules): Effect.Effect<BenchRes
 
 const main = Effect.gen(function* main() {
   const armValue = process.argv.find((argument) => argument.startsWith('--arm='))?.slice('--arm='.length)
-  if (armValue !== 'legacy' && armValue !== 'transaction') {
-    process.stderr.write('Choose one benchmark arm: --arm=legacy or --arm=transaction\n')
+  if (armValue !== 'legacy' && armValue !== 'transaction' && armValue !== 'load-concurrency') {
+    process.stderr.write('Choose one benchmark arm: --arm=legacy, --arm=transaction, or --arm=load-concurrency\n')
     process.exitCode = 2
     return
   }
@@ -297,7 +358,9 @@ const main = Effect.gen(function* main() {
   const sourceRootValue = process.argv.find((argument) => argument.startsWith('--source-root='))
     ?.slice('--source-root='.length)
   const modules = yield* loadSourceModules(resolve(sourceRootValue ?? process.cwd()))
-  const result = yield* benchmark(armValue, modules)
+  const result = armValue === 'load-concurrency'
+    ? yield* benchmarkLoadConcurrency(modules)
+    : yield* benchmark(armValue, modules)
   console.log(JSON.stringify(result))
   if (result.status !== 'ok') process.exitCode = result.status === 'unavailable' ? 2 : 1
 })

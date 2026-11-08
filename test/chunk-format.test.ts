@@ -48,18 +48,27 @@
  * worldgen-chunk-format-wire-shape.
  */
 import { describe, expect, it } from '@effect/vitest'
+import * as fc from 'fast-check'
 import * as validated from './fixtures/validated-inputs'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result, Schema } from 'effect'
 import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
   CHUNK_BIOME_COUNT,
   CHUNK_FORMAT,
   CHUNK_FORMAT_NAME,
+  CHUNK_SCHEMA,
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
 import { endSurfaceHeightAt, generateEndChunk } from './helpers/unwrapped-worldgen'
-import { BLOCK_ID_MAX } from '@nerima-games/mc-kernel'
+import { AIR_BLOCK_ID, BLOCK_IDS, BLOCK_ID_MAX, blockTypeOfId } from '@nerima-games/mc-kernel'
+import {
+  BLOCK_STATE_CODEC_VERSION,
+  decodeBlockState,
+  defaultBlockState,
+  encodeBlockState,
+} from '@nerima-games/mc-kernel/domain/block-state'
+import { withDefaultBlockStates } from '../src/domain/chunk'
 import { planEndCityForRegion, type NaturalStructureChunk } from './helpers/unwrapped-worldgen'
 import {
   decodeSave,
@@ -80,7 +89,7 @@ const SEED = validated.noiseSeed(20260728)
  *
  * Memoised because a chunk is 64KB and docs/testing.md §6 says so.
  */
-const FIXTURE = generateChunk(SEED, validated.validatedChunkCoord(3, -5))
+const FIXTURE = Result.getOrThrow(withDefaultBlockStates(generateChunk(SEED, validated.validatedChunkCoord(3, -5))))
 
 /** The encoded payload of `FIXTURE`, built once and treated as read-only. */
 const ENCODED: ChunkEncoded = Effect.runSync(
@@ -118,7 +127,7 @@ const decodeOutcome = (envelope: SaveEnvelopeDraft): Effect.Effect<DecodeOutcome
   Effect.match(decodeSave(CHUNK_FORMAT, envelope), {
     onFailure: (error): DecodeOutcome => ({
       _tag: 'Refused',
-      detail: error.message,
+      detail: `${error._tag}: ${error.message}`,
       cause: String((error as { readonly cause?: unknown }).cause ?? ''),
     }),
     onSuccess: (chunk): DecodeOutcome => ({
@@ -141,6 +150,7 @@ describe('the chunk format round-trips', () => {
       expect(restored.blocks.length).toBe(FIXTURE.blocks.length)
       const differing = [...FIXTURE.blocks].findIndex((value, index) => restored.blocks[index] !== value)
       expect(differing).toBe(-1)
+      expect(restored.blockStates).toStrictEqual(FIXTURE.blockStates)
     }),
   )
 
@@ -153,10 +163,12 @@ describe('the chunk format round-trips', () => {
       // This is the whole of `domain/chunk-format.ts`'s DN-6 decision, asserted.
       expect(typeof payload.blocks).toBe('string')
       expect(payload.blocks).toMatch(/^[A-Za-z0-9+/]*={0,2}$/u)
-      // ceil(131072 / 3) * 4 — 131,072 = CHUNK_VOLUME * BYTES_PER_ELEMENT (2),
-      // the v2 widened wire width. See `domain/chunk-format.ts`'s "VERSION 2"
-      // section.
+      // The v2 widened block buffer stays two bytes per cell.
       expect(payload.blocks.length).toBe(174_764)
+      expect(typeof payload.blockStates).toBe('string')
+      expect(payload.blockStates).toMatch(/^[A-Za-z0-9+/]*={0,2}$/u)
+      expect(payload.blockStates.length).toBe(349_528)
+      expect(payload.blockStateCodecVersion).toBe(BLOCK_STATE_CODEC_VERSION)
 
       // Biome NAMES, so reordering `BIOMES` cannot corrupt a save.
       expect(payload.biomes.every((biome) => (BIOMES as ReadonlyArray<string>).includes(biome))).toBe(true)
@@ -166,6 +178,66 @@ describe('the chunk format round-trips', () => {
       expect(payload.coord).toStrictEqual({ cx: 3, cz: -5 })
     }),
   )
+
+  it.effect('CF-2a: a non-default kernel state round-trips in four little-endian bytes', () =>
+    Effect.gen(function* () {
+      const stairsId = BLOCK_IDS.find((blockId) => {
+        const blockType = blockTypeOfId(blockId)
+        return Result.isSuccess(blockType) && blockType.success === 'oak_stairs'
+      })
+      expect(stairsId).toBeDefined()
+      if (stairsId === undefined) {
+        return
+      }
+
+      const defaultState = defaultBlockState(stairsId)
+      expect(Result.isSuccess(defaultState)).toBe(true)
+      if (Result.isFailure(defaultState)) {
+        return
+      }
+      const encodedState = encodeBlockState(stairsId, { ...defaultState.success, facing: 'south' })
+      expect(Result.isSuccess(encodedState)).toBe(true)
+      if (Result.isFailure(encodedState)) {
+        return
+      }
+
+      const blocks = Uint16Array.from(FIXTURE.blocks)
+      blocks[0] = stairsId
+      const blockStates = Uint32Array.from(FIXTURE.blockStates)
+      blockStates[0] = encodedState.success
+      const chunk = { ...FIXTURE, blocks, blockStates }
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const payload = envelope.payload as ChunkEncoded
+      const wireBytes = Buffer.from(payload.blockStates, 'base64')
+
+      expect(encodedState.success).toBeGreaterThan(0)
+      expect([...wireBytes.subarray(0, 4)]).toStrictEqual([
+        encodedState.success & 0xff,
+        (encodedState.success >>> 8) & 0xff,
+        (encodedState.success >>> 16) & 0xff,
+        (encodedState.success >>> 24) & 0xff,
+      ])
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+      expect(restored.blockStates[0]).toBe(encodedState.success)
+    }),
+  )
+
+  it('CF-2b: encoding a generated chunk materializes omitted default states', () => {
+    const generated = generateChunk(SEED, validated.validatedChunkCoord(6, -2))
+    const encoded = Schema.encodeUnknownResult(CHUNK_SCHEMA)(generated)
+    expect(Result.isSuccess(encoded)).toBe(true)
+    if (Result.isFailure(encoded)) {
+      return
+    }
+
+    const restored = Schema.decodeUnknownResult(CHUNK_SCHEMA)(encoded.success)
+    expect(Result.isSuccess(restored)).toBe(true)
+    if (Result.isFailure(restored)) {
+      return
+    }
+    expect(restored.success.blockStates.length).toBe(CHUNK_VOLUME)
+    expect([...restored.success.blockStates]).toStrictEqual(new Array(CHUNK_VOLUME).fill(0))
+  })
 
   it.effect('CF-3: the payload survives JSON and still decodes', () =>
     Effect.gen(function* () {
@@ -181,6 +253,7 @@ describe('the chunk format round-trips', () => {
       expect(restored.coord).toStrictEqual(FIXTURE.coord)
       const differing = [...FIXTURE.blocks].findIndex((value, index) => restored.blocks[index] !== value)
       expect(differing).toBe(-1)
+      expect(restored.blockStates).toStrictEqual(FIXTURE.blockStates)
     }),
   )
 
@@ -189,7 +262,7 @@ describe('the chunk format round-trips', () => {
       const envelope = yield* encodeSave(CHUNK_FORMAT, FIXTURE)
 
       expect(envelope.format).toBe('@nerima-games/mc-worldgen/chunk')
-      expect(envelope.version).toBe(2)
+      expect(envelope.version).toBe(3)
     }),
   )
 
@@ -202,27 +275,18 @@ describe('the chunk format round-trips', () => {
     expect(FIXTURE.biomes.length).toBe(CHUNK_BIOME_COUNT)
   })
 
-  it.effect('CF-21: a block id above the retired Uint8Array ceiling of 255 survives encode then decode', () =>
-    Effect.gen(function* () {
-      // The regression this widening exists to fix, made concrete: under the
-      // retired one-byte-per-block format a `Uint8Array` element wraps
-      // modulo 256, so a real id of 300 could only ever have been stored as
-      // 44 (300 - 256). This is impossible to pass with that storage; it
-      // passes here because `domain/chunk.ts`'s `Chunk.blocks` is now a
-      // `Uint16Array` and `domain/chunk-format.ts`'s wire format is two bytes
-      // per block.
-      const wideBlocks = new Uint16Array(FIXTURE.blocks)
-      wideBlocks[0] = 300
-      wideBlocks[1] = BLOCK_ID_MAX
-      const wideChunk = { ...FIXTURE, blocks: wideBlocks }
+  it('CF-21: every registered block has a default state code of zero', () => {
+    const defaultsEncodeToZero = BLOCK_IDS.every((blockId) => {
+      const defaultState = defaultBlockState(blockId)
+      if (Result.isFailure(defaultState)) {
+        return false
+      }
+      const encoded = encodeBlockState(blockId, defaultState.success)
+      return Result.isSuccess(encoded) && encoded.success === 0
+    })
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, wideChunk)
-      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
-
-      expect(restored.blocks[0]).toBe(300)
-      expect(restored.blocks[1]).toBe(BLOCK_ID_MAX)
-    }),
-  )
+    expect(defaultsEncodeToZero).toBe(true)
+  })
 
   it.effect('CF-17: a minimal current-format payload without structure metadata decodes with empty arrays', () =>
     Effect.gen(function* () {
@@ -234,6 +298,8 @@ describe('the chunk format round-trips', () => {
         coord: ENCODED.coord,
         blocks: ENCODED.blocks,
         biomes: ENCODED.biomes,
+        blockStateCodecVersion: ENCODED.blockStateCodecVersion,
+        blockStates: ENCODED.blockStates,
       }
       const restored = yield* decodeSave(
         CHUNK_FORMAT,
@@ -257,14 +323,15 @@ describe('the chunk format round-trips', () => {
         seed,
         validated.validatedChunkCoord(Math.floor(marker.x / 16), Math.floor(marker.z / 16)),
       )
+      const chunkWithStates = Result.getOrThrow(withDefaultBlockStates(chunk))
 
       expect(chunk.naturalStructureIds).toContain(plan.id)
       expect(chunk.naturalStructureMarkers.length).toBeGreaterThan(0)
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunkWithStates)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
 
-      expect(restored).toStrictEqual(chunk)
+      expect(restored).toStrictEqual(chunkWithStates)
     }),
   )
 
@@ -285,11 +352,12 @@ describe('the chunk format round-trips', () => {
         naturalStructureIds: [structureId],
         naturalStructureMarkers: [marker],
       }
+      const chunkWithStates = Result.getOrThrow(withDefaultBlockStates(chunk))
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunkWithStates)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
 
-      expect(restored).toStrictEqual(chunk)
+      expect(restored).toStrictEqual(chunkWithStates)
     }),
   )
 
@@ -405,11 +473,12 @@ describe('the chunk format round-trips', () => {
         naturalStructureIds: [structureId, junglePyramidStructureId, mineshaftStructureId, oceanMonumentStructureId, bastionRemnantStructureId, strongholdStructureId, oceanStructureId, outpostStructureId, shipwreckStructureId],
         naturalStructureMarkers: markers,
       }
+      const chunkWithStates = Result.getOrThrow(withDefaultBlockStates(chunk))
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunkWithStates)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
 
-      expect(restored).toStrictEqual(chunk)
+      expect(restored).toStrictEqual(chunkWithStates)
     }),
   )
 })
@@ -425,7 +494,7 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
 
       expect(outcome._tag).toBe('Refused')
       expect(outcome.detail).toContain('@nerima-games/mc-worldgen/chunk')
-      expect(outcome.detail).toContain('v2')
+      expect(outcome.detail).toContain('v3')
       // The two lengths ride in the ParseError carried as `cause`, which is
       // what makes this actionable rather than merely a refusal. 131,072 =
       // CHUNK_VOLUME * BYTES_PER_ELEMENT (2), the v2 wire width; 300 is
@@ -460,6 +529,82 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
       expect(outcome.cause).toContain('received 12')
     }),
   )
+
+  it.effect('CF-7a: a wrong-sized block-state region fails', () =>
+    Effect.gen(function* () {
+      const outcome = yield* decodeOutcome(envelopeWith({ blockStates: ENCODED.blockStates.slice(0, 8) }))
+
+      expect(outcome._tag).toBe('Refused')
+      expect(outcome.cause).toContain(`expected ${String(CHUNK_VOLUME * 4)} block-state bytes`)
+    }),
+  )
+})
+
+describe('v3 block states are validated against each cell block id', () => {
+  it.effect('CF-22: reserved state codes at and beyond the first invalid code fail with a typed save error', () =>
+    Effect.gen(function* () {
+      const blockBytes = Buffer.from(ENCODED.blocks, 'base64')
+      new DataView(blockBytes.buffer, blockBytes.byteOffset, blockBytes.byteLength).setUint16(0, AIR_BLOCK_ID, true)
+
+      for (const invalidCode of [1, 0xffff_ffff]) {
+        const stateBytes = Buffer.from(ENCODED.blockStates, 'base64')
+        new DataView(stateBytes.buffer, stateBytes.byteOffset, stateBytes.byteLength).setUint32(0, invalidCode, true)
+        const outcome = yield* decodeOutcome(envelopeWith({
+          blocks: blockBytes.toString('base64'),
+          blockStates: stateBytes.toString('base64'),
+        }))
+
+        expect(outcome._tag).toBe('Refused')
+        expect(outcome.detail).toContain('SaveDecodeError')
+        expect(outcome.cause).toContain('reserved-code')
+      }
+    }),
+  )
+
+  it.effect('CF-23: a codec version other than the kernel codec is refused', () =>
+    Effect.gen(function* () {
+      const outcome = yield* decodeOutcome(envelopeWith({
+        blockStateCodecVersion: 2 as unknown as ChunkEncoded['blockStateCodecVersion'],
+      }))
+
+      expect(outcome._tag).toBe('Refused')
+      expect(outcome.detail).toContain('SaveDecodeError')
+      expect(outcome.cause).toContain('blockStateCodecVersion')
+    }),
+  )
+
+  it('CF-P1: arbitrary block ids and state codes either refuse or round-trip through the exported schema without throwing', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...BLOCK_IDS),
+        fc.oneof(
+          fc.constant(0),
+          fc.integer({ min: 0, max: 0xff }),
+          fc.integer({ min: 0, max: 0xffff_ffff }),
+        ),
+        (blockId, code) => {
+          const decodedState = decodeBlockState(blockId, code)
+          const blocks = new Uint16Array(CHUNK_VOLUME)
+          blocks.fill(AIR_BLOCK_ID)
+          blocks[0] = blockId
+          const blockStates = new Uint32Array(CHUNK_VOLUME)
+          blockStates[0] = code
+          const candidate = { ...FIXTURE, blocks, blockStates }
+          const encoded = Schema.encodeUnknownResult(CHUNK_SCHEMA)(candidate)
+
+          if (Result.isFailure(decodedState)) {
+            return Result.isFailure(encoded)
+          }
+          if (Result.isFailure(encoded)) {
+            return false
+          }
+          const restored = Schema.decodeUnknownResult(CHUNK_SCHEMA)(encoded.success)
+          return Result.isSuccess(restored) && restored.success.blockStates[0] === code
+        },
+      ),
+      { numRuns: 20 },
+    )
+  })
 })
 
 describe('the biome roster is a closed save format', () => {
@@ -522,8 +667,8 @@ describe('the format is well-formed as a definition', () => {
   // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the migration-chain feature
   // (SaveFormat.migrations and validateMigrationChain no longer exist), so
   // CF-13 no longer has a chain to assert against; only the version survives.
-  it('CF-13: version 2 (the widened block buffer) has no problems', () => {
-    expect(CHUNK_FORMAT.version).toBe(2)
+  it('CF-13: version 3 (the block-state format) has no problems', () => {
+    expect(CHUNK_FORMAT.version).toBe(3)
   })
 
   it('CF-14: the format name is the permanent identity and is spelled like the tag', () => {

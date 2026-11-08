@@ -3,7 +3,7 @@ import * as fc from 'fast-check'
 import { Result } from 'effect'
 import { BlockId } from '@nerima-games/mc-kernel'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { emptyBlockStates, emptyBlocks, type Chunk, type ChunkWithBlockStates } from '../src/domain/chunk'
 import {
   BLOCK,
   computeChunkLight,
@@ -61,13 +61,13 @@ const arbitraryChunkShape = fc.record({
   ),
 })
 
-const makeChunk = (cx: number, cz: number, shape: ChunkShape): Chunk => {
+const makeChunk = (cx: number, cz: number, shape: ChunkShape): ChunkWithBlockStates => {
   const blocks = emptyBlocks()
   blocks.fill(shape.base)
   for (const edit of shape.edits) {
     blocks[blockIndex(edit.x, edit.y, edit.z)] = edit.block
   }
-  return { coord: chunkCoord(chunkAxis(cx), chunkAxis(cz)), blocks, biomes: BIOMES }
+  return { coord: chunkCoord(chunkAxis(cx), chunkAxis(cz)), blockStates: emptyBlockStates(), blocks, biomes: BIOMES }
 }
 
 const positionInChunk = (cx: number, cz: number, x: number, y: number, z: number) =>
@@ -302,6 +302,7 @@ describe('light propagation Result properties', () => {
 
         const stateWithLight = lightResult.success[1]
         const lightsBefore = stateWithLight.lights
+        const blockStatesBefore = Array.from(stateWithLight.loaded.values())[0]?.blockStates.slice()
         const lightSnapshots = Array.from(lightsBefore.values(), (light) => ({
           sky: light.sky.slice(),
           block: light.block.slice(),
@@ -309,10 +310,14 @@ describe('light propagation Result properties', () => {
         const writeResult = withBlockAt(stateWithLight, position, block)
 
         if (Result.isFailure(writeResult)) {
+          if (writeResult.failure._tag !== 'LightQueueUnderflowError') {
+            throw new Error(`Unexpected block-state codec failure: ${writeResult.failure.reason}`)
+          }
           expectUnderflow(writeResult.failure)
           expect(stateWithLight.loaded).toBe(state.loaded)
           expect(stateWithLight.lights).toBe(lightsBefore)
           expect(Array.from(chunk.blocks)).toStrictEqual(Array.from(blocksBefore))
+          expect(Array.from(stateWithLight.loaded.values())[0]?.blockStates).toStrictEqual(blockStatesBefore)
           for (const [index, light] of Array.from(lightsBefore.values()).entries()) {
             const snapshot = lightSnapshots[index]
             expect(snapshot).toBeDefined()

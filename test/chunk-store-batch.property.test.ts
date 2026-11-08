@@ -103,6 +103,7 @@ const blockIndexInModel = (target: Cell): number =>
 interface ResidentSnapshot {
   readonly key: string
   readonly blocks: Uint16Array
+  readonly blockStates: Uint32Array
   readonly biomes: ReadonlyArray<string>
 }
 
@@ -115,6 +116,7 @@ const readResidentState = async (store: Store) => {
       return {
         key: `${coord.cx},${coord.cz}`,
         blocks: new Uint16Array(snapshot.blocks),
+        blockStates: new Uint32Array(snapshot.blockStates),
         biomes: [...snapshot.biomes],
       }
     }),
@@ -142,6 +144,18 @@ const blockBuffersEqual = (left: ArrayLike<number>, right: ArrayLike<number>): b
   )
 }
 
+const blockStateBuffersEqual = (left: ArrayLike<number>, right: ArrayLike<number>): boolean => {
+  const leftCopy = Uint32Array.from(left)
+  const rightCopy = Uint32Array.from(right)
+
+  return (
+    Buffer.compare(
+      Buffer.from(leftCopy.buffer, leftCopy.byteOffset, leftCopy.byteLength),
+      Buffer.from(rightCopy.buffer, rightCopy.byteOffset, rightCopy.byteLength),
+    ) === 0
+  )
+}
+
 const expectResidentStateUnchanged = async (
   store: Store,
   before: Awaited<ReturnType<typeof readResidentState>>,
@@ -160,6 +174,7 @@ const expectResidentStateUnchanged = async (
   for (const { previous, chunk } of residents) {
     if (chunk === undefined) throw new Error(`loaded chunk ${previous.key} is no longer resident`)
     expect(blockBuffersEqual(chunk.blocks, previous.blocks)).toBe(true)
+    expect(blockStateBuffersEqual(chunk.blockStates, previous.blockStates)).toBe(true)
     expect(chunk.biomes).toStrictEqual(previous.biomes)
   }
 }
@@ -374,9 +389,10 @@ describe('ChunkStore batch public API properties', () => {
 
             if (testCase.expected !== 'Either') expect(outcome._tag, testCase.name).toBe(testCase.expected)
             if (outcome._tag === 'Failure') {
-              expect(['ChunkWriteInvalidBatch', 'ChunkWriteChunkUnavailable'], testCase.name).toContain(
-                outcome.error._tag,
-              )
+              expect(
+                ['BlockStateCodecFailure', 'ChunkWriteInvalidBatch', 'ChunkWriteChunkUnavailable'],
+                testCase.name,
+              ).toContain(outcome.error._tag)
             }
 
             // oxlint-disable-next-line no-await-in-loop -- Verify the current prepare before starting the next one.

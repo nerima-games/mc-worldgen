@@ -73,9 +73,10 @@
  * refs and deadlocked. Every read-modify-write is one `Ref.modify`.
  */
 import * as Store from '../domain/chunk-store-state.js'
-import type { BlockId, BlockPosition, ChunkCoord, ChunkKey, Dimension } from '@nerima-games/mc-kernel'
+import { BlockId, type BlockPosition, type ChunkCoord, type ChunkKey, type Dimension } from '@nerima-games/mc-kernel'
+import { type BlockStateCodecFailure, type BlockStateValues, decodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { Brand, Context, Data, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
-import type { Chunk, ReadonlyChunk } from '../domain/chunk.js'
+import { type Chunk, type ChunkWithBlockStates, type ReadonlyChunkWithBlockStates, withDefaultBlockStates } from '../domain/chunk.js'
 import {
   type ChunkPersistence,
   type ChunkPersistenceContext,
@@ -83,8 +84,10 @@ import {
   makeChunkPersistence,
 } from './chunk-persistence.js'
 import { type GenerateOptions, type InvalidTerrainLevels, generateChunk } from '../domain/terrain.js'
-import type { InvalidNaturalStructureCoordinate } from '../domain/natural-structure-plan-builder.js'
-import type { LightQueueUnderflowError } from '../domain/light.js'
+import { CHUNK_VOLUME } from '../domain/constants.js'
+import { type InvalidNaturalStructureCoordinate } from '../domain/natural-structure-plan-builder.js'
+import { type LightQueueUnderflowError } from '../domain/light.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 import type { StoragePort } from '@nerima-games/mc-save'
 import { generateEndChunk } from '../domain/end-terrain.js'
 import { generateNetherChunk } from '../domain/nether-terrain.js'
@@ -106,6 +109,7 @@ export type {
 } from '../domain/chunk-store-state.js'
 
 const CHUNK_STORE_PERMITS = 1
+const CHUNK_STORE_LOAD_PERMITS = 4
 
 export type ChunkCapacity = number & Brand.Brand<'ChunkCapacity'>
 
@@ -162,7 +166,6 @@ export const generatedDimensionChunkSource = (
  * is mc-render's business. A handle that the holder drains is a lifetime the
  * holder already controls.
  */
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 export type ChunkDirtySubscription = {
   readonly id: Store.SubscriberId
   /** Everything that changed since the previous drain. Clears the pending set. */
@@ -172,7 +175,7 @@ export type ChunkDirtySubscription = {
 }
 
 type ReadonlyChunkNeighbours = Readonly<{
-  [Key in keyof Store.ChunkNeighbours]: ReadonlyChunk
+  [Key in keyof Store.ChunkNeighbours]: ReadonlyChunkWithBlockStates
 }>
 
 export type ChunkStoreApi = {
@@ -197,11 +200,11 @@ export type ChunkStoreApi = {
    * Resolves to a read-only type backed by the live chunk. Store writes keep
    * references returned before publication unchanged.
    */
-  readonly load: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk, ChunkStoreError>
+  readonly load: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunkWithBlockStates, ChunkStoreError>
   /** Look without loading. `undefined` if not resident. Read-only live reference. */
-  readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
+  readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunkWithBlockStates | undefined>
   /** A detached copy that will not change under the caller. */
-  readonly snapshot: (coord: ChunkCoord) => Effect.Effect<Chunk | undefined>
+  readonly snapshot: (coord: ChunkCoord) => Effect.Effect<ChunkWithBlockStates | undefined>
   readonly isLoaded: (coord: ChunkCoord) => Effect.Effect<boolean>
   readonly loadedCoords: Effect.Effect<ReadonlyArray<ChunkCoord>>
   /**
@@ -217,14 +220,15 @@ export type ChunkStoreApi = {
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
   /**
    * Write one block. Reuses the prepare/publish transitions in one `Ref.modify`
-   * so concurrent compatibility writes stay atomic. Dirties the chunk only if
-   * the block actually changed, and invalidates that chunk's light when it did.
-   * A failed light-queue invariant is returned as `LightQueueUnderflowError`.
+   * so concurrent compatibility writes stay atomic. A block-state change dirties
+   * the chunk even when its block id is unchanged; light updates run only when
+   * the block id changes. Codec and light failures are returned in the error channel.
    */
   readonly setBlock: (
     position: BlockPosition,
     block: BlockId,
-  ) => Effect.Effect<Store.BlockWriteOutcome, LightQueueUnderflowError>
+    state?: BlockStateValues,
+  ) => Effect.Effect<Store.BlockWriteOutcome, LightQueueUnderflowError | BlockStateCodecFailure>
 
   /**
    * Read the sky and block light at one world position.
@@ -285,6 +289,7 @@ type DirtyChunkEvictionFailure = {
 
 export type ChunkStoreError =
   | ChunkPersistenceError
+  | BlockStateCodecFailure
   | DirtyChunkEvictionFailure
   | InvalidNaturalStructureCoordinate
   | InvalidTerrainLevels
@@ -340,6 +345,59 @@ const ChunkStoreBase: Context.ServiceClass<
 
 export class ChunkStore extends ChunkStoreBase {}
 
+const loadStoredOrGeneratedChunk = (
+  source: ChunkSource,
+  persistence: ChunkPersistence | undefined,
+  coord: ChunkCoord,
+): Effect.Effect<Chunk, ChunkStoreError> => {
+  if (!persistence) {
+    return source(coord)
+  }
+  return Effect.flatMap(persistence.load(coord), (stored) =>
+    Option.match(stored, {
+      onNone: () => source(coord),
+      onSome: (chunk) => Effect.succeed(chunk),
+    }),
+  )
+}
+
+const defaultBlockIdCode = 0
+const invalidEncodedBlockStateCode = -1
+const blockStateValidationStep = 1
+
+const validEncodedBlockStates = (
+  chunk: ChunkWithBlockStates,
+): Result.Result<true, BlockStateCodecFailure> => {
+  for (let index = 0; index < CHUNK_VOLUME; index += blockStateValidationStep) {
+    const blockId = BlockId.result(chunk.blocks[index] ?? defaultBlockIdCode)
+    if (Result.isFailure(blockId)) {
+      return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-block-id' })
+    }
+    const decoded = decodeBlockState(blockId.success, chunk.blockStates[index] ?? invalidEncodedBlockStateCode)
+    if (Result.isFailure(decoded)) {
+      return Result.fail(decoded.failure)
+    }
+  }
+  return Result.succeed(true)
+}
+
+const materializeChunkStates = (chunk: Chunk): Result.Result<ChunkWithBlockStates, BlockStateCodecFailure> => {
+  const materialized = withDefaultBlockStates(chunk)
+  if (Result.isFailure(materialized)) {
+    return materialized
+  }
+
+  const stateful = materialized.success
+  if (stateful.blocks.length !== CHUNK_VOLUME || stateful.blockStates.length !== CHUNK_VOLUME) {
+    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
+  }
+  if (Option.isNone(Option.fromNullishOr(chunk.blockStates))) {
+    return Result.succeed(stateful)
+  }
+  const validStates = validEncodedBlockStates(stateful)
+  return Result.map(validStates, () => stateful)
+}
+
 /**
  * The chunk at `coord`: from storage if `persistence` has it, generated
  * through `source` otherwise. `persistence` itself is optional — the
@@ -349,27 +407,21 @@ const loadOrGenerate = (
   source: ChunkSource,
   persistence: ChunkPersistence | undefined,
   coord: ChunkCoord,
-): Effect.Effect<Chunk, ChunkStoreError> =>
+): Effect.Effect<ChunkWithBlockStates, ChunkStoreError> =>
   Effect.gen(function* loadFromPersistenceOrSource() {
-    if (!persistence) {
-      return yield* source(coord)
-    }
-
-    const stored = yield* persistence.load(coord)
-    if (Option.isSome(stored)) {
-      return stored.value
-    }
-
-    return yield* source(coord)
+    const chunk = yield* loadStoredOrGeneratedChunk(source, persistence, coord)
+    return yield* Effect.fromResult(materializeChunkStates(chunk))
   })
 
-const chunksEqual = (left: Chunk, right: Chunk): boolean =>
+const chunksEqual = (left: ChunkWithBlockStates, right: ChunkWithBlockStates): boolean =>
   left.coord.cx === right.coord.cx &&
   left.coord.cz === right.coord.cz &&
   left.biomes.length === right.biomes.length &&
   left.biomes.every((biome, index) => biome === right.biomes[index]) &&
   left.blocks.length === right.blocks.length &&
-  left.blocks.every((block, index) => block === right.blocks[index])
+  left.blocks.every((block, index) => block === right.blocks[index]) &&
+  left.blockStates.length === right.blockStates.length &&
+  left.blockStates.every((state, index) => state === right.blockStates[index])
 
 type ChunkStoreRuntimeState = {
   readonly chunks: Store.ChunkStoreState
@@ -384,7 +436,7 @@ type EvictionAction =
       readonly key: ChunkKey
       readonly kind: 'persist'
       readonly persistence: ChunkPersistence
-      readonly snapshot: Chunk
+      readonly snapshot: ChunkWithBlockStates
     }
 
 type EvictionAttempt =
@@ -443,7 +495,7 @@ const makeEvictionPlanner = (
   const evictDirtyChunk = (
     latest: ChunkStoreRuntimeState,
     key: ChunkKey,
-    chunk: Chunk,
+    chunk: ChunkWithBlockStates,
   ): readonly [EvictionAction, ChunkStoreRuntimeState] => {
     if (!persistence) {
       return [{ error: new DirtyChunkEvictionError({ coord: chunk.coord }), kind: 'fail' }, latest]
@@ -464,7 +516,7 @@ const makeEvictionPlanner = (
   const evictCleanChunk = (
     latest: ChunkStoreRuntimeState,
     key: ChunkKey,
-    chunk: Chunk,
+    chunk: ChunkWithBlockStates,
   ): readonly [EvictionAction, ChunkStoreRuntimeState] => {
     const [, chunks] = Store.withoutChunk(latest.chunks, chunk.coord)
     lru.delete(key)
@@ -628,8 +680,12 @@ const makeBlockWriteApi = (
     current: ChunkStoreRuntimeState,
     position: BlockPosition,
     block: BlockId,
-  ): readonly [Result.Result<Store.BlockWriteOutcome, LightQueueUnderflowError>, ChunkStoreRuntimeState] => {
-    const result = Store.prepareBlockWrite(current.chunks, position, block)
+    stateValues?: BlockStateValues,
+  ): readonly [Result.Result<Store.BlockWriteOutcome, LightQueueUnderflowError | BlockStateCodecFailure>, ChunkStoreRuntimeState] => {
+    const result = Store.prepareBlockWrite(current.chunks, position, block, stateValues)
+    if (result['_tag'] === 'Failed') {
+      return [Result.fail(result.error), current]
+    }
     if (result['_tag'] === 'Rejected') {
       return [Result.succeed(result.outcome), current]
     }
@@ -650,9 +706,9 @@ const makeBlockWriteApi = (
         return Effect.void
       },
     )
-  const setBlock: ChunkStoreApi['setBlock'] = (position, block) =>
+  const setBlock: ChunkStoreApi['setBlock'] = (position, block, stateValues) =>
     Effect.flatMap(
-      Ref.modify(state, (current) => setBlockTransition(current, position, block)),
+      Ref.modify(state, (current) => setBlockTransition(current, position, block, stateValues)),
       Effect.fromResult,
     )
   return { prepare, publish, setBlock }
@@ -669,7 +725,10 @@ const makeChunkStoreInternal = (
       dirty: new Set<ChunkKey>(),
     })
     const lru = makeChunkStoreLru()
-    const evictionLock = yield* Semaphore.make(CHUNK_STORE_PERMITS)
+    const [evictionLock, coldLoadPermits] = yield* Effect.all([
+      Semaphore.make(CHUNK_STORE_PERMITS),
+      Semaphore.make(CHUNK_STORE_LOAD_PERMITS),
+    ])
     const evictUntilRoom = makeEvictionRuntime(state, lru, capacity, persistence)
 
     const drainFor = (id: Store.SubscriberId): Effect.Effect<Store.ChunkDirtyBatch> =>
@@ -692,7 +751,7 @@ const makeChunkStoreInternal = (
       (id) => ({ drain: drainFor(id), id, unsubscribe: unsubscribeFor(id) }),
     )
 
-    const loadOrTouch = (coord: ChunkCoord): Effect.Effect<Chunk | undefined> =>
+    const loadOrTouch = (coord: ChunkCoord): Effect.Effect<ChunkWithBlockStates | undefined> =>
       Ref.modify(state, (current) => {
         const chunk = Store.residentChunk(current.chunks, coord)
         if (chunk) {
@@ -701,7 +760,7 @@ const makeChunkStoreInternal = (
         return [chunk, current]
       })
 
-    const insertAfterEviction = (chunk: Chunk): Effect.Effect<Chunk, ChunkStoreError> =>
+    const insertAfterEviction = (chunk: ChunkWithBlockStates): Effect.Effect<ChunkWithBlockStates, ChunkStoreError> =>
       evictionLock.withPermit(
         Effect.gen(function* insert() {
           const raced = yield* loadOrTouch(chunk.coord)
@@ -756,8 +815,16 @@ const makeChunkStoreInternal = (
             return resident
           }
 
-          const generated = yield* loadOrGenerate(source, persistence, coord)
-          return yield* insertAfterEviction(generated)
+          return yield* coldLoadPermits.withPermit(
+            Effect.gen(function* coldLoad() {
+              const raced = yield* loadOrTouch(coord)
+              if (raced) {
+                return raced
+              }
+              const generated = yield* loadOrGenerate(source, persistence, coord)
+              return yield* insertAfterEviction(generated)
+            }),
+          )
         }),
 
       loadedCoords: Effect.map(Ref.get(state), (current) => Store.residentCoords(current.chunks)),

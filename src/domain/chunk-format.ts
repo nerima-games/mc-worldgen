@@ -76,10 +76,10 @@
  * Holding onto it is what `CHUNK_FORMAT` below does, and invariance is the
  * reason its two type parameters are handled in OPPOSITE directions:
  *
- *   `PersistableChunk` (the A side) is PINNED by annotation. It is `Chunk`
- *       plus the optional natural-structure metadata accepted by generation.
- *       Decoding materialises both metadata arrays, while encoding still
- *       accepts terrain-only chunks produced by `generateChunk`.
+ *   `PersistableChunkV3` (the A side) is PINNED by annotation. It is a
+ *       `ChunkWithBlockStates` plus the optional structure metadata accepted
+ *       by generation. Callers materialize omitted generated states through
+ *       `withDefaultBlockStates` before encoding.
  *
  *   `ChunkEncoded` (the I side) is DERIVED with `Schema.Schema.Encoded`. Hand
  *       writing it would be a transcription of the schema sitting beside it,
@@ -125,6 +125,12 @@ import {
   type NaturalStructureChunk,
 } from './natural-structure.js'
 import {
+  BLOCK_STATE_CODEC_VERSION,
+  BLOCK_STATE_ENCODING_BITS,
+  type BlockStateCodecFailure,
+  decodeBlockState,
+} from '@nerima-games/mc-kernel/domain/block-state'
+import {
   BYTES_PER_ELEMENT,
   BlockAxis,
   BlockId,
@@ -134,13 +140,13 @@ import {
 } from '@nerima-games/mc-kernel'
 import { CHUNK_BIOMES, type ChunkBiomeType } from './biome.js'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME } from './constants.js'
-import { Effect, Result, Schema, SchemaGetter } from 'effect'
+import { type Chunk, type ChunkWithBlockStates, defaultBlockStatesFor } from './chunk.js'
+import { Effect, Option, Result, Schema, SchemaGetter, SchemaIssue } from 'effect'
 import {
   type EndFeatureChunk,
   type EndFeatureMarker,
 } from './end-features.js'
 import { FIRST_VERSION, type SaveFormat, defineFormat } from '@nerima-games/mc-save'
-import { type Chunk } from './chunk.js'
 
 const literals = Schema.Literals
 
@@ -318,7 +324,7 @@ const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
  *
  * The direction that is NOT safe is removal. Adding a biome leaves every
  * existing save decodable; deleting or renaming one makes saves containing it
- * fail this schema, and THAT is the trigger for a v2 with a migration step
+ * fail this schema, and THAT is the trigger for a new format version with a migration step
  * mapping the retired name onto its replacement. `Migration` in
  * `mc-save` exists for exactly this and runs on the raw payload
  * before any schema sees it.
@@ -454,7 +460,7 @@ const EndFeatureMarkerSchema: Schema.Codec<EndFeatureMarker, EndFeatureMarkerEnc
  * (`storage-idb-model.ts:27-28`), had no way to notice either. Two integers per
  * save buys a check that the block buffer cannot perform on itself.
  */
-const CHUNK_STRUCT: Schema.Codec<
+const CHUNK_STRUCT_V2: Schema.Codec<
   {
     readonly biomes: ReadonlyArray<ChunkBiomeType>
     readonly blocks: Uint16Array
@@ -484,7 +490,7 @@ const CHUNK_STRUCT: Schema.Codec<
 })
 
 /**
- * The v1 struct: identical to `CHUNK_STRUCT` in every field except `blocks`,
+ * The v1 struct: identical to `CHUNK_STRUCT_V2` in every field except `blocks`,
  * which decodes through `ChunkBlocksV1Schema` into the pre-widening
  * `Uint8Array` domain shape. Decode-only — see the section header above
  * `ChunkBlocksV1Schema` for why no encoder ever targets this again — and used
@@ -523,20 +529,22 @@ const CHUNK_STRUCT_V1: Schema.Codec<
 
 /**
  * Encoding also accepts terrain-only chunks. Decoding always materialises all
- * metadata arrays through `CHUNK_STRUCT`'s defaults.
+ * metadata arrays through `CHUNK_STRUCT_V2`'s defaults.
  */
 type PersistableChunk = Chunk &
   Partial<Pick<EndFeatureChunk, 'endFeatureIds' | 'endFeatureMarkers'>> &
   Partial<Pick<NaturalStructureChunk, 'naturalStructureIds' | 'naturalStructureMarkers'>>
 
+type PersistableChunkV2 = Omit<PersistableChunk, 'blockStates'>
+
 const PersistableChunkSchema = Schema.declare(
-  (value: unknown): value is PersistableChunk => typeof value === 'object' && value !== null,
+  (value: unknown): value is PersistableChunkV2 => typeof value === 'object' && value !== null,
 )
 
-const ChunkSchema = CHUNK_STRUCT.pipe(
+const ChunkSchemaV2 = CHUNK_STRUCT_V2.pipe(
   Schema.decodeTo(PersistableChunkSchema, {
-    decode: SchemaGetter.transform<PersistableChunk, Schema.Schema.Type<typeof CHUNK_STRUCT>>((chunk) => chunk),
-    encode: SchemaGetter.transform<Schema.Schema.Type<typeof CHUNK_STRUCT>, PersistableChunk>((chunk) => ({
+    decode: SchemaGetter.transform<PersistableChunkV2, Schema.Schema.Type<typeof CHUNK_STRUCT_V2>>((chunk) => chunk),
+    encode: SchemaGetter.transform<Schema.Schema.Type<typeof CHUNK_STRUCT_V2>, PersistableChunkV2>((chunk) => ({
       biomes: chunk.biomes,
       blocks: chunk.blocks,
       coord: chunk.coord,
@@ -552,20 +560,20 @@ const ChunkSchema = CHUNK_STRUCT.pipe(
  * The wire shape, DERIVED from the struct rather than transcribed beside it.
  * See this file's header on why only the decoded side is annotated.
  */
-export type ChunkEncoded = Schema.Codec.Encoded<typeof CHUNK_STRUCT>
+export type ChunkEncodedV2 = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V2>
 
 /**
- * The annotation pins the accepted decoded domain to `PersistableChunk`.
+ * The annotation pins the accepted decoded domain to `PersistableChunkV2`.
  *
- * `ChunkEncoded` is read off `CHUNK_STRUCT` above, so naming it here asserts
+ * `ChunkEncodedV2` is read off `CHUNK_STRUCT_V2` above, so naming it here asserts
  * nothing about the encoded side and cannot fail for a spelling reason. What it
  * does assert is the half with an independent definition: every value remains
  * a `Chunk`, with natural-structure metadata accepted when present.
  */
-export const CHUNK_SCHEMA: Schema.Codec<PersistableChunk, ChunkEncoded> = ChunkSchema
+export const CHUNK_SCHEMA_V2: Schema.Codec<PersistableChunkV2, ChunkEncodedV2> = ChunkSchemaV2
 
 /**
- * Version 2, the widened block buffer. `defineFormat` (`@nerima-games/mc-save`
+ * Version 2, the widened block buffer without block states. `defineFormat` (`@nerima-games/mc-save`
  * `format-definition.ts`) validates only `name` and `version` at
  * module-evaluation time today — it has carried no `migrations` field, and
  * mc-save has shipped no automatic upgrade path, since mc-save 0.3.0 (this
@@ -581,25 +589,21 @@ export const CHUNK_SCHEMA: Schema.Codec<PersistableChunk, ChunkEncoded> = ChunkS
  * truth that can disagree with the first.
  */
 /**
- * The widened format's version: one past `FIRST_VERSION` (1), which
- * `CHUNK_FORMAT_V1` below still owns. Written as a literal rather than
- * `FIRST_VERSION + 1` because a save format's version is a fixed identity,
- * not a computed value — the day a v3 exists, this becomes its own literal
- * `3`, not an expression chained off `FIRST_VERSION`.
+ * The v2 format's version is a fixed wire identity, not a computed value.
  */
-const CHUNK_FORMAT_VERSION = 2
+const CHUNK_FORMAT_V2_VERSION = 2
 
-export const CHUNK_FORMAT: SaveFormat<PersistableChunk, ChunkEncoded> = Result.getOrThrow(defineFormat({
+export const CHUNK_FORMAT_V2: SaveFormat<PersistableChunkV2, ChunkEncodedV2> = Result.getOrThrow(defineFormat({
   name: CHUNK_FORMAT_NAME,
-  schema: CHUNK_SCHEMA,
-  version: CHUNK_FORMAT_VERSION,
+  schema: CHUNK_SCHEMA_V2,
+  version: CHUNK_FORMAT_V2_VERSION,
 }))
 
 /**
  * The pre-widening domain shape: `PersistableChunk` with `blocks` narrowed
  * back to the `Uint8Array` a v1 save actually decodes to.
  */
-type PersistableChunkV1 = Omit<PersistableChunk, 'blocks'> & { readonly blocks: Uint8Array }
+type PersistableChunkV1 = Omit<PersistableChunk, 'blocks' | 'blockStates'> & { readonly blocks: Uint8Array }
 
 const PersistableChunkV1Schema = Schema.declare(
   (value: unknown): value is PersistableChunkV1 => typeof value === 'object' && value !== null,
@@ -620,7 +624,7 @@ const ChunkSchemaV1 = CHUNK_STRUCT_V1.pipe(
   }),
 )
 
-type ChunkEncodedV1 = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V1>
+export type ChunkEncodedV1 = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V1>
 
 const CHUNK_SCHEMA_V1: Schema.Codec<PersistableChunkV1, ChunkEncodedV1> = ChunkSchemaV1
 
@@ -630,7 +634,7 @@ const CHUNK_SCHEMA_V1: Schema.Codec<PersistableChunkV1, ChunkEncodedV1> = ChunkS
  * Never used with `encodeSave`/`saveTo` — nothing in this package writes a v1
  * envelope again. `application/chunk-persistence.ts` hands this to mc-save's
  * `loadFrom` only when a stored envelope's own `version` field names 1, then
- * widens the result with `migrateChunkV1ToV2` before handing it to a caller
+ * materializes the result with `migrateChunkV1ToV3` before handing it to a caller
  * that only ever sees the current `Chunk` shape.
  */
 export const CHUNK_FORMAT_V1: SaveFormat<PersistableChunkV1, ChunkEncodedV1> = Result.getOrThrow(defineFormat({
@@ -645,9 +649,195 @@ export const CHUNK_FORMAT_V1: SaveFormat<PersistableChunkV1, ChunkEncodedV1> = R
  * `decodeSave` refusing every non-current version unconditionally and states
  * the upgrade is the consumer's to assemble). A v1 block id is a byte,
  * 0-255 — already inside `[0, BLOCK_ID_MAX]` — so widening the container
- * loses nothing: every legacy id is representable as itself in the v2 range.
+ * loses nothing: every legacy id is representable as itself in the v3 range.
  */
-export const migrateChunkV1ToV2 = (chunk: PersistableChunkV1): PersistableChunk => ({
-  ...chunk,
-  blocks: Uint16Array.from(chunk.blocks),
+export const migrateChunkV1ToV3 = (
+  chunk: PersistableChunkV1,
+): Result.Result<PersistableChunkV3, BlockStateCodecFailure> => {
+  const blocks = Uint16Array.from(chunk.blocks)
+  return Result.map(defaultBlockStatesFor(blocks), (blockStates) => ({
+    ...chunk,
+    blockStates,
+    blocks,
+  }))
+}
+
+const BITS_PER_BYTE = 8
+const CHUNK_STATE_ELEMENT_BYTES = BLOCK_STATE_ENCODING_BITS / BITS_PER_BYTE
+
+/** Pack kernel state codes explicitly so the wire byte order is host-independent. */
+export const packBlockStatesV3 = (blockStates: Uint32Array): Uint8Array => {
+  const bytes = new Uint8Array(blockStates.length * CHUNK_STATE_ELEMENT_BYTES)
+  const view = new DataView(bytes.buffer)
+  for (const [index, code] of blockStates.entries()) {
+    view.setUint32(index * CHUNK_STATE_ELEMENT_BYTES, code, true)
+  }
+  return bytes
+}
+
+const unpackBlockStatesV3 = (bytes: Uint8Array): Uint32Array => {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const blockStates = new Uint32Array(bytes.length / CHUNK_STATE_ELEMENT_BYTES)
+  return blockStates.map((_unused, cellIndex) => view.getUint32(cellIndex * CHUNK_STATE_ELEMENT_BYTES, true))
+}
+
+const Uint32ArraySchema = Schema.declare(
+  (value: unknown): value is Uint32Array => value instanceof Uint32Array,
+)
+
+const ChunkBlockStatesSchema = Schema.Uint8ArrayFromBase64.pipe(
+  Schema.check(Schema.makeFilter((bytes: Uint8Array) => {
+    const expected = CHUNK_VOLUME * CHUNK_STATE_ELEMENT_BYTES
+    if (bytes.length === expected) {
+      return
+    }
+    return `expected ${String(expected)} block-state bytes, received ${String(bytes.length)}`
+  })),
+  Schema.decodeTo(Uint32ArraySchema, {
+    decode: SchemaGetter.transform<Uint32Array, Uint8Array>(unpackBlockStatesV3),
+    encode: SchemaGetter.transform<Uint8Array, Uint32Array>(packBlockStatesV3),
+  }),
+)
+
+type ChunkStructV3Type = {
+  readonly biomes: ReadonlyArray<ChunkBiomeType>
+  readonly blockStateCodecVersion: typeof BLOCK_STATE_CODEC_VERSION
+  readonly blockStates: Uint32Array
+  readonly blocks: Uint16Array
+  readonly coord: Chunk['coord']
+  readonly endFeatureIds: ReadonlyArray<string>
+  readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+  readonly naturalStructureIds: ReadonlyArray<string>
+  readonly naturalStructureMarkers: ReadonlyArray<AppliedNaturalStructureMarker>
+}
+
+const CHUNK_STRUCT_V3_BASE: Schema.Codec<ChunkStructV3Type, {
+  readonly biomes: ReadonlyArray<ChunkBiomeType>
+  readonly blockStateCodecVersion: typeof BLOCK_STATE_CODEC_VERSION
+  readonly blockStates: string
+  readonly blocks: string
+  readonly coord: { readonly cx: number; readonly cz: number }
+  readonly endFeatureIds?: ReadonlyArray<string> | undefined
+  readonly endFeatureMarkers?: ReadonlyArray<EndFeatureMarkerEncoded> | undefined
+  readonly naturalStructureIds?: ReadonlyArray<string> | undefined
+  readonly naturalStructureMarkers?: ReadonlyArray<AppliedNaturalStructureMarkerEncoded> | undefined
+}> = Schema.Struct({
+  biomes: ChunkBiomesSchema,
+  blockStateCodecVersion: Schema.Literal(BLOCK_STATE_CODEC_VERSION),
+  blockStates: ChunkBlockStatesSchema,
+  blocks: ChunkBlocksSchema,
+  coord: ChunkCoordSchema,
+  endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
+
+const validateV3BlockStates = (chunk: ChunkStructV3Type): Schema.FilterOutput => {
+  for (const [cellIndex, blockIdValue] of chunk.blocks.entries()) {
+    const blockId = BlockId.result(blockIdValue)
+    if (Result.isFailure(blockId)) {
+      return `invalid block id at cell ${String(cellIndex)}: invalid-block-id`
+    }
+    const decoded = decodeBlockState(blockId.success, chunk.blockStates[cellIndex])
+    if (Result.isFailure(decoded)) {
+      return `invalid block state at cell ${String(cellIndex)}: ${decoded.failure.reason}`
+    }
+  }
+  return true
+}
+
+const CHUNK_STRUCT_V3: Schema.Codec<
+  ChunkStructV3Type,
+  Schema.Codec.Encoded<typeof CHUNK_STRUCT_V3_BASE>
+> = CHUNK_STRUCT_V3_BASE.pipe(
+  Schema.check(Schema.makeFilter(validateV3BlockStates)),
+)
+
+type PersistableChunkV3 = ChunkWithBlockStates &
+  Partial<Pick<EndFeatureChunk, 'endFeatureIds' | 'endFeatureMarkers'>> &
+  Partial<Pick<NaturalStructureChunk, 'naturalStructureIds' | 'naturalStructureMarkers'>>
+
+// The decode direction always has states; the encode transform below also
+// Accepts a raw generated chunk and materializes omitted defaults.
+const PersistableChunkV3Schema = Schema.declare(
+  (value: unknown): value is PersistableChunkV3 => {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !('blocks' in value) ||
+      !(value.blocks instanceof Uint16Array)
+    ) {
+      return false
+    }
+    if (!('blockStates' in value)) {
+      return true
+    }
+    if (value.blockStates === null) {
+      return false
+    }
+    return Option.match(Option.fromNullishOr(value.blockStates), {
+      onNone: () => true,
+      onSome: (states) => states instanceof Uint32Array,
+    })
+  },
+)
+
+const blockStatesForEncoding = (
+  chunk: PersistableChunkV3,
+): Result.Result<Uint32Array, BlockStateCodecFailure> =>
+  Option.match(Option.fromNullishOr(chunk.blockStates), {
+    onNone: () => defaultBlockStatesFor(chunk.blocks),
+    onSome: (blockStates) => Result.succeed(blockStates),
+  })
+
+const ChunkSchemaV3 = CHUNK_STRUCT_V3.pipe(
+  Schema.decodeTo(PersistableChunkV3Schema, {
+    decode: SchemaGetter.transform<PersistableChunkV3, ChunkStructV3Type>((chunk) => ({
+      biomes: chunk.biomes,
+      blockStates: chunk.blockStates,
+      blocks: chunk.blocks,
+      coord: chunk.coord,
+      endFeatureIds: chunk.endFeatureIds,
+      endFeatureMarkers: chunk.endFeatureMarkers,
+      naturalStructureIds: chunk.naturalStructureIds,
+      naturalStructureMarkers: chunk.naturalStructureMarkers,
+    })),
+    encode: SchemaGetter.transformEffect<ChunkStructV3Type, PersistableChunkV3>((chunk, options) => {
+      const defaultStates = blockStatesForEncoding(chunk)
+      if (Result.isFailure(defaultStates)) {
+        return Effect.fail(new SchemaIssue.InvalidValue({
+          message: `cannot materialize default block states: ${defaultStates.failure.reason}`,
+        }, chunk, options))
+      }
+      return Effect.succeed({
+        biomes: chunk.biomes,
+        blockStateCodecVersion: BLOCK_STATE_CODEC_VERSION,
+        blockStates: defaultStates.success,
+        blocks: chunk.blocks,
+        coord: chunk.coord,
+        endFeatureIds: chunk.endFeatureIds ?? [],
+        endFeatureMarkers: chunk.endFeatureMarkers ?? [],
+        naturalStructureIds: chunk.naturalStructureIds ?? [],
+        naturalStructureMarkers: chunk.naturalStructureMarkers ?? [],
+      })
+    }),
+  }),
+)
+
+/** The v3 wire shape, including the kernel codec version and little-endian state codes. */
+export type ChunkEncoded = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V3>
+
+export const CHUNK_SCHEMA: Schema.Codec<PersistableChunkV3, ChunkEncoded> = ChunkSchemaV3
+
+export const CHUNK_FORMAT: SaveFormat<PersistableChunkV3, ChunkEncoded> = Result.getOrThrow(defineFormat({
+  name: CHUNK_FORMAT_NAME,
+  schema: CHUNK_SCHEMA,
+  version: 3,
+}))
+
+/** V2 had no state array, so migration derives each block's kernel default. */
+export const migrateChunkV2ToV3 = (
+  chunk: PersistableChunkV2,
+): Result.Result<PersistableChunkV3, BlockStateCodecFailure> =>
+  Result.map(defaultBlockStatesFor(chunk.blocks), (blockStates) => ({ ...chunk, blockStates }))

@@ -12,9 +12,15 @@
  * `{cx, cz}` coordinate vocabulary. A chunk coordinate therefore cannot be
  * confused with a block coordinate through the old `{x, z}` spelling.
  */
-import { AIR_BLOCK_ID, type BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { AIR_BLOCK_ID, BlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import type { BlockAxis, LocalAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import {
+  type BlockStateCodecFailure,
+  defaultBlockState,
+  encodeBlockState,
+} from '@nerima-games/mc-kernel/domain/block-state'
 import { CHUNK_SIZE_XZ, CHUNK_VOLUME, blockIndex } from './constants.js'
+import { Option, Result } from 'effect'
 import { type ChunkBiomeType } from './biome.js'
 
 export type Chunk = {
@@ -32,11 +38,90 @@ export type Chunk = {
    * writes did not.
    */
   readonly blocks: Uint16Array
+  /**
+   * One kernel block-state code per block, indexed with `blockIndex`.
+   * Omitted on newly generated terrain until defaults are materialized.
+   */
+  readonly blockStates?: Uint32Array | undefined
   /** One biome per column, indexed `lz * CHUNK_SIZE_XZ + lx`. */
   readonly biomes: ReadonlyArray<ChunkBiomeType>
 }
 
+/** A chunk whose optional generated-terrain states have been materialized. */
+export type ChunkWithBlockStates = Chunk & { readonly blockStates: Uint32Array }
+
 export const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_VOLUME)
+export const emptyBlockStates = (): Uint32Array => new Uint32Array(CHUNK_VOLUME)
+
+/**
+ * Build the encoded default state for each block id in a chunk buffer. The map
+ * avoids repeating kernel codec work for the same block id.
+ */
+const encodedDefaultStateFor = (blockIdValue: number): Result.Result<number, BlockStateCodecFailure> => {
+  // Uint16Array constrains every value to BlockId's representable range.
+  const blockId = BlockId.result(blockIdValue)
+  if (Result.isFailure(blockId)) {
+    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-block-id' })
+  }
+  const defaultState = defaultBlockState(blockId.success)
+  if (Result.isFailure(defaultState)) {
+    return Result.fail(defaultState.failure)
+  }
+  return encodeBlockState(blockId.success, defaultState.success)
+}
+
+const encodedDefaultStateFromCache = (
+  encodedDefaults: ReadonlyMap<number, number>,
+  blockIdValue: number,
+): Option.Option<number> => Option.fromNullishOr(encodedDefaults.get(blockIdValue))
+
+const blockStateCodeFor = (
+  encodedDefaults: Map<number, number>,
+  blockIdValue: number,
+): Result.Result<number, BlockStateCodecFailure> => {
+  const cached = encodedDefaultStateFromCache(encodedDefaults, blockIdValue)
+  if (Option.isSome(cached)) {
+    return Result.succeed(cached.value)
+  }
+  const encoded = encodedDefaultStateFor(blockIdValue)
+  if (Result.isFailure(encoded)) {
+    return encoded
+  }
+  encodedDefaults.set(blockIdValue, encoded.success)
+  return encoded
+}
+
+export const defaultBlockStatesFor = (
+  blocks: Uint16Array,
+): Result.Result<Uint32Array, BlockStateCodecFailure> => {
+  const encodedDefaults = new Map<number, number>()
+  const blockStates = new Uint32Array(blocks.length)
+  for (const [index, blockIdValue] of blocks.entries()) {
+    const encoded = blockStateCodeFor(encodedDefaults, blockIdValue)
+    if (Result.isFailure(encoded)) {
+      return Result.fail(encoded.failure)
+    }
+    blockStates[index] = encoded.success
+  }
+  return Result.succeed(blockStates)
+}
+
+/** Materialize omitted generated-terrain states using each block's kernel default. */
+const hasBlockStates = <ChunkValue extends Chunk>(
+  chunk: ChunkValue,
+): chunk is ChunkValue & { readonly blockStates: Uint32Array } => chunk.blockStates instanceof Uint32Array
+
+export const withDefaultBlockStates = <ChunkValue extends Chunk>(
+  chunk: ChunkValue,
+): Result.Result<ChunkValue & { readonly blockStates: Uint32Array }, BlockStateCodecFailure> => {
+  if (hasBlockStates(chunk)) {
+    return Result.succeed(chunk)
+  }
+  if (chunk.blockStates === null || Option.isSome(Option.fromNullishOr(chunk.blockStates))) {
+    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
+  }
+  return Result.map(defaultBlockStatesFor(chunk.blocks), (blockStates) => ({ ...chunk, blockStates }))
+}
 
 /**
  * Read a block, treating out-of-range as air.
@@ -100,6 +185,40 @@ export type ReadonlyUint16Array = Readonly<
   >
 >
 
-export type ReadonlyChunk = Readonly<Omit<Chunk, 'blocks'> & { blocks: ReadonlyUint16Array }>
+export type ReadonlyUint32Array = Readonly<
+  Omit<
+    Uint32Array,
+    | 'buffer'
+    | 'copyWithin'
+    | 'every'
+    | 'fill'
+    | 'filter'
+    | 'find'
+    | 'findIndex'
+    | 'findLast'
+    | 'findLastIndex'
+    | 'forEach'
+    | 'map'
+    | 'reduce'
+    | 'reduceRight'
+    | 'reverse'
+    | 'set'
+    | 'some'
+    | 'sort'
+    | 'subarray'
+    | 'valueOf'
+  >
+>
+
+export type ReadonlyChunk = Readonly<Omit<Chunk, 'blocks' | 'blockStates'> & {
+  blocks: ReadonlyUint16Array
+  blockStates?: ReadonlyUint32Array | undefined
+}>
+
+export type ReadonlyChunkWithBlockStates = Readonly<Omit<ChunkWithBlockStates, 'blocks' | 'blockStates'> & {
+  blocks: ReadonlyUint16Array
+  blockStates: ReadonlyUint32Array
+}>
+
 export const biomeAt = (chunk: ReadonlyChunk, lx: LocalAxis, lz: LocalAxis): ChunkBiomeType =>
   chunk.biomes[columnIndex(lx, lz)] ?? 'PLAINS'

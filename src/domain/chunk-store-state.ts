@@ -16,16 +16,15 @@
  * The service that owns the `Ref` is `application/chunk-store.ts`.
  *
  * ---------------------------------------------------------------------------
- * ONE deliberate impurity: the block buffer is mutated in place
+ * ONE deliberate impurity: the block and state buffers are mutated in place
  * ---------------------------------------------------------------------------
  *
- * `withBlockAt` writes into the existing `Uint16Array` rather than producing a
- * copy. A chunk buffer is 16 × 16 × 256 = 65,536 elements (131,072 bytes); a
- * copy per block write would mean 4 MB of allocation and copying for one tick
- * of the falling-block budget (`FALLING_BLOCK_MOVES_PER_TICK = 32` in
- * mx-gameplay), for a mutation of one element. The reference implementation
- * mutates in place for exactly this reason, and plan.md §5.2 sanctions this
- * class of measured exception.
+ * `withBlockAt` writes into the existing `Uint16Array` and `Uint32Array` rather
+ * than producing copies. A chunk buffer is 65,536 elements; a copy per block
+ * write would mean several megabytes of allocation and copying for one tick of
+ * the falling-block budget (`FALLING_BLOCK_MOVES_PER_TICK = 32` in mx-gameplay).
+ * The reference implementation mutates in place for exactly this reason, and
+ * plan.md §5.2 sanctions this class of measured exception.
  *
  * The store's public write path does not use that helper: transaction
  * preparation copies each changed chunk and publication swaps the chunk map.
@@ -50,11 +49,17 @@ import {
   chunkKeyOf,
   localCoordOfBlock,
 } from '@nerima-games/mc-kernel'
+import {
+  type BlockStateCodecFailure,
+  type BlockStateValues,
+  defaultBlockState,
+  encodeBlockState,
+} from '@nerima-games/mc-kernel/domain/block-state'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
-import { type Chunk, getBlockAt, setBlockAt } from './chunk.js'
 import { type ChunkLight, type LightQueueUnderflowError, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
+import { type ChunkWithBlockStates, getBlockAt, setBlockAt } from './chunk.js'
 import { Option, Result } from 'effect'
-import { chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
+import { blockAxisFromKnownSafeInteger, chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
 
@@ -128,6 +133,7 @@ export type BlockWriteOutcome =
 export type ChunkBlockEdit = Readonly<{
   readonly position: BlockPosition
   readonly block: BlockId
+  readonly state?: BlockStateValues
 }>
 
 export type ChunkBlockChange = Readonly<{
@@ -153,7 +159,7 @@ export type ChunkWriteChunkUnavailable = Readonly<{
   readonly position: BlockPosition
 }>
 
-export type ChunkWritePrepareError = ChunkWriteInvalidBatch | ChunkWriteChunkUnavailable
+export type ChunkWritePrepareError = ChunkWriteInvalidBatch | ChunkWriteChunkUnavailable | BlockStateCodecFailure
 
 export type ChunkWriteStale = Readonly<{
   readonly _tag: 'ChunkWriteStale'
@@ -178,8 +184,13 @@ export type PreparedChunkWrite = Readonly<{
 
 export type PreparedChunkWriteCandidate = Readonly<{
   readonly prepared: PreparedChunkWrite
-  readonly chunks: ReadonlyMap<ChunkKey, Chunk>
+  readonly chunks: ReadonlyMap<ChunkKey, ChunkWithBlockStates>
   readonly changedBlocks: ReadonlyArray<Readonly<{
+    readonly key: ChunkKey
+    readonly coord: ChunkCoord
+    readonly local: LocalBlockCoord
+  }>>
+  readonly changedLightBlocks: ReadonlyArray<Readonly<{
     readonly key: ChunkKey
     readonly coord: ChunkCoord
     readonly local: LocalBlockCoord
@@ -205,6 +216,7 @@ export type SingleChunkWritePreparation =
       readonly _tag: 'Rejected'
       readonly outcome: Extract<BlockWriteOutcome, { readonly _tag: 'ChunkNotLoaded' | 'OutOfWorld' }>
     }>
+  | Readonly<{ readonly _tag: 'Failed'; readonly error: BlockStateCodecFailure }>
 
 export const WRITE_CHUNK_NOT_LOADED: BlockWriteOutcome = { _tag: 'ChunkNotLoaded' }
 export const WRITE_OUT_OF_WORLD: BlockWriteOutcome = { _tag: 'OutOfWorld' }
@@ -285,17 +297,90 @@ export type SubscriberId = number
  * enforce that, so a subscriber never has to reconcile a contradiction.
  */
 export type DirtySubscriberState = {
-  readonly changed: ReadonlyMap<ChunkKey, ChunkCoord>
+  readonly changed: ReadonlyMap<ChunkKey, ChunkDirtyChunk>
   readonly removed: ReadonlyMap<ChunkKey, ChunkCoord>
 }
 
 const EMPTY_SUBSCRIBER: DirtySubscriberState = { changed: new Map(), removed: new Map() }
 
+const AABB_X_AXIS = 0
+const AABB_Y_AXIS = 1
+const AABB_Z_AXIS = 2
+const LOCAL_AABB_UNIT_STEP = 1
+const LOCAL_AABB_ORIGIN = 0
+
+const FULL_CHUNK_LOCAL_AABB: ChunkLocalAabb = {
+  max: [
+    blockAxisFromKnownSafeInteger(CHUNK_SIZE_XZ),
+    blockAxisFromKnownSafeInteger(CHUNK_HEIGHT),
+    blockAxisFromKnownSafeInteger(CHUNK_SIZE_XZ),
+  ],
+  min: [
+    blockAxisFromKnownSafeInteger(LOCAL_AABB_ORIGIN),
+    blockAxisFromKnownSafeInteger(LOCAL_AABB_ORIGIN),
+    blockAxisFromKnownSafeInteger(LOCAL_AABB_ORIGIN),
+  ],
+}
+
+const fullChunkDirtyValue = (coord: ChunkCoord): ChunkDirtyChunk => ({
+  ...coord,
+  ...FULL_CHUNK_LOCAL_AABB,
+})
+
+const localBlockAabb = (local: LocalBlockCoord): ChunkLocalAabb => ({
+  max: [
+    blockAxisFromKnownSafeInteger(local.lx + LOCAL_AABB_UNIT_STEP),
+    blockAxisFromKnownSafeInteger(local.ly + LOCAL_AABB_UNIT_STEP),
+    blockAxisFromKnownSafeInteger(local.lz + LOCAL_AABB_UNIT_STEP),
+  ],
+  min: [
+    blockAxisFromKnownSafeInteger(local.lx),
+    blockAxisFromKnownSafeInteger(local.ly),
+    blockAxisFromKnownSafeInteger(local.lz),
+  ],
+})
+
+const unionDirtyAabbs = (left: ChunkLocalAabb, right: ChunkLocalAabb): ChunkLocalAabb => ({
+  max: [
+    blockAxisFromKnownSafeInteger(Math.max(left.max[AABB_X_AXIS], right.max[AABB_X_AXIS])),
+    blockAxisFromKnownSafeInteger(Math.max(left.max[AABB_Y_AXIS], right.max[AABB_Y_AXIS])),
+    blockAxisFromKnownSafeInteger(Math.max(left.max[AABB_Z_AXIS], right.max[AABB_Z_AXIS])),
+  ],
+  min: [
+    blockAxisFromKnownSafeInteger(Math.min(left.min[AABB_X_AXIS], right.min[AABB_X_AXIS])),
+    blockAxisFromKnownSafeInteger(Math.min(left.min[AABB_Y_AXIS], right.min[AABB_Y_AXIS])),
+    blockAxisFromKnownSafeInteger(Math.min(left.min[AABB_Z_AXIS], right.min[AABB_Z_AXIS])),
+  ],
+})
+
+const recordChangedChunk = (
+  changed: Map<ChunkKey, ChunkDirtyChunk>,
+  key: ChunkKey,
+  coord: ChunkCoord,
+  localAabb?: ChunkLocalAabb,
+): void => {
+  const existing = changed.get(key)
+  if (existing) {
+    changed.set(key, { ...coord, ...unionDirtyAabbs(existing, localAabb ?? FULL_CHUNK_LOCAL_AABB) })
+  } else if (localAabb) {
+    changed.set(key, { ...coord, ...localAabb })
+  } else {
+    changed.set(key, fullChunkDirtyValue(coord))
+  }
+}
+
 /** One drain's worth of news, in coordinates the caller can use directly. */
 export type ChunkDirtyBatch = {
-  readonly changed: ReadonlyArray<ChunkCoord>
+  readonly changed: ReadonlyArray<ChunkDirtyChunk>
   readonly removed: ReadonlyArray<ChunkCoord>
 }
+
+export type ChunkLocalAabb = Readonly<{
+  readonly max: readonly [BlockAxis, BlockAxis, BlockAxis]
+  readonly min: readonly [BlockAxis, BlockAxis, BlockAxis]
+}>
+
+export type ChunkDirtyChunk = ChunkCoord & ChunkLocalAabb
 
 export const EMPTY_DIRTY_BATCH: ChunkDirtyBatch = { changed: [], removed: [] }
 
@@ -304,7 +389,7 @@ export const EMPTY_DIRTY_BATCH: ChunkDirtyBatch = { changed: [], removed: [] }
 // ---------------------------------------------------------------------------
 
 export type ChunkStoreState = {
-  readonly loaded: ReadonlyMap<ChunkKey, Chunk>
+  readonly loaded: ReadonlyMap<ChunkKey, ChunkWithBlockStates>
   /** Revisions for resident chunks only. */
   readonly revisions: ReadonlyMap<ChunkKey, number>
   /** Monotonic across writes, residency transitions, and reset. */
@@ -327,8 +412,8 @@ export type ChunkStoreState = {
    *     stale light level is indistinguishable from a fresh one. Keeping the
    *     grids behind the `Ref` means every read goes through `lightAt`, which is
    *     the one place staleness can be noticed and resolved.
-   *  2. **`chunkSnapshotOf` stays cheap.** A snapshot copies the block buffer;
-   *     with light on the chunk it would copy 64 KB more, for a caller (a save
+   *  2. **`chunkSnapshotOf` stays cheap.** A snapshot copies the block and state
+   *     buffers; with light on the chunk it would copy 64 KB more, for a caller (a save
    *     writer, a worker message, a test assertion) that does not want it. The
    *     reference does not persist light at all — it recomputes on load,
    *     `chunk-manager-ops-storage.ts:61` — so the save path is exactly the
@@ -421,6 +506,7 @@ const nextDirtySubscriberState = (
   key: ChunkKey,
   coord: ChunkCoord,
   kind: 'changed' | 'removed',
+  localAabb?: ChunkLocalAabb,
 ): DirtySubscriberState => {
   const changed = new Map(state.changed)
   const removed = new Map(state.removed)
@@ -429,7 +515,7 @@ const nextDirtySubscriberState = (
     // A chunk that comes back after being unloaded is a change, not a
     // Removal — and it must not be reported as both.
     removed.delete(key)
-    changed.set(key, coord)
+    recordChangedChunk(changed, key, coord, localAabb)
   } else {
     changed.delete(key)
     removed.set(key, coord)
@@ -443,11 +529,12 @@ const noteChange = (
   key: ChunkKey,
   coord: ChunkCoord,
   kind: 'changed' | 'removed',
+  localAabb?: ChunkLocalAabb,
 ): ReadonlyMap<SubscriberId, DirtySubscriberState> => {
   const next = new Map<SubscriberId, DirtySubscriberState>()
 
   for (const [id, state] of subscribers) {
-    next.set(id, nextDirtySubscriberState(state, key, coord, kind))
+    next.set(id, nextDirtySubscriberState(state, key, coord, kind, localAabb))
   }
 
   return next
@@ -503,7 +590,7 @@ const hasCompleteLightCache = (state: ChunkStoreState): boolean => {
 /** Mark resident neighbours whose exposed boundary faces changed. */
 const noteLoadedNeighbours = (
   subscribers: ReadonlyMap<SubscriberId, DirtySubscriberState>,
-  loaded: ReadonlyMap<ChunkKey, Chunk>,
+  loaded: ReadonlyMap<ChunkKey, ChunkWithBlockStates>,
   coord: ChunkCoord,
 ): ReadonlyMap<SubscriberId, DirtySubscriberState> => {
   let next = subscribers
@@ -529,7 +616,7 @@ const noteLoadedNeighbours = (
  * storage. Both the replacement and a first load count as a change, since a
  * subscriber cannot tell the difference and both require a remesh.
  */
-export const withChunk = (state: ChunkStoreState, chunk: Chunk): ChunkStoreState => {
+export const withChunk = (state: ChunkStoreState, chunk: ChunkWithBlockStates): ChunkStoreState => {
   const key = chunkKeyOf(chunk.coord)
   const loaded = new Map(state.loaded)
   loaded.set(key, chunk)
@@ -596,7 +683,7 @@ export const withoutChunk = (state: ChunkStoreState, coord: ChunkCoord): readonl
 
 /** One block position resolved to its resident chunk, or absent when nothing is loaded there. */
 type LoadedChunkTarget = {
-  readonly chunk: Chunk
+  readonly chunk: ChunkWithBlockStates
   readonly coord: ChunkCoord
   readonly key: ChunkKey
   readonly local: LocalBlockCoord
@@ -680,20 +767,94 @@ const relightAfterBlockChange = (
   return Result.succeed(withoutLights(state.lights, affectedLightKeys(coord, local)))
 }
 
+const EMPTY_ENCODED_BLOCK_STATE = 0
+
+const encodedStateFor = (
+  block: BlockId,
+  state?: BlockStateValues,
+): Result.Result<number, BlockStateCodecFailure> => {
+  const values = Option.match(Option.fromNullishOr(state), {
+    onNone: () => defaultBlockState(block),
+    onSome: (presentState) => Result.succeed(presentState),
+  })
+  if (Result.isFailure(values)) {
+    return Result.fail(values.failure)
+  }
+  return encodeBlockState(block, values.success)
+}
+
+type BlockWriteValues = Readonly<{
+  block: BlockId
+  blockChanged: boolean
+  index: number
+  nextState: number
+  previous: BlockId
+  previousState: number
+  stateChanged: boolean
+}>
+
+const blockWriteValuesFor = (target: LoadedChunkTarget, block: BlockId, nextState: number): BlockWriteValues => {
+  const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
+  const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
+  const previousState = target.chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+  return {
+    block,
+    blockChanged: previous !== block,
+    index,
+    nextState,
+    previous,
+    previousState,
+    stateChanged: previousState !== nextState,
+  }
+}
+
 const writeBlockAndRelight = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,
-  block: BlockId,
-  previous: BlockId,
+  change: BlockWriteValues,
 ): Result.Result<ChunkStoreState['lights'], LightQueueUnderflowError> => {
   const { chunk, coord, local } = target
-  setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, block)
+  setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, change.block)
+  chunk.blockStates[change.index] = change.nextState
   const lights = relightAfterBlockChange(state, coord, local)
   if (Result.isFailure(lights)) {
-    setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, previous)
+    setBlockAt(chunk.blocks, local.lx, local.ly, local.lz, change.previous)
+    chunk.blockStates[change.index] = change.previousState
     return Result.fail(lights.failure)
   }
   return lights
+}
+
+const lightsAfterBlockWrite = (
+  state: ChunkStoreState,
+  target: LoadedChunkTarget,
+  change: BlockWriteValues,
+): Result.Result<ChunkStoreState['lights'], LightQueueUnderflowError> => {
+  if (change.blockChanged) {
+    return writeBlockAndRelight(state, target, change)
+  }
+  target.chunk.blockStates[change.index] = change.nextState
+  return Result.succeed(state.lights)
+}
+
+const completedBlockWrite = (
+  state: ChunkStoreState,
+  target: LoadedChunkTarget,
+  change: BlockWriteValues,
+  lights: ChunkStoreState['lights'],
+): readonly [BlockWriteOutcome, ChunkStoreState] => {
+  const { coord, key, local } = target
+  const revisions = incrementChunkRevisions(state, [key])
+  return [
+    { _tag: 'Written', chunk: coord, previous: change.previous },
+    {
+      lights,
+      loaded: state.loaded,
+      nextSubscriberId: state.nextSubscriberId,
+      ...revisions,
+      subscribers: noteChange(state.subscribers, key, coord, 'changed', localBlockAabb(local)),
+    },
+  ]
 }
 
 /** The write itself, once `target` is known to be resident. */
@@ -701,30 +862,18 @@ const applyBlockWrite = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,
   block: BlockId,
+  nextState: number,
 ): Result.Result<readonly [BlockWriteOutcome, ChunkStoreState], LightQueueUnderflowError> => {
-  const { coord, key } = target
-  const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
-
-  if (previous === block) {
-    return Result.succeed([{ _tag: 'Unchanged', previous }, state])
+  const change = blockWriteValuesFor(target, block, nextState)
+  if (!change.blockChanged && !change.stateChanged) {
+    return Result.succeed([{ _tag: 'Unchanged', previous: change.previous }, state])
   }
 
-  const lights = writeBlockAndRelight(state, target, block, previous)
+  const lights = lightsAfterBlockWrite(state, target, change)
   if (Result.isFailure(lights)) {
     return Result.fail(lights.failure)
   }
-  const revisions = incrementChunkRevisions(state, [key])
-
-  return Result.succeed([
-    { _tag: 'Written', chunk: coord, previous },
-    {
-      lights: lights.success,
-      loaded: state.loaded,
-      nextSubscriberId: state.nextSubscriberId,
-      ...revisions,
-      subscribers: noteChange(state.subscribers, key, coord, 'changed'),
-    },
-  ])
+  return Result.succeed(completedBlockWrite(state, target, change, lights.success))
 }
 
 /**
@@ -738,7 +887,12 @@ export const withBlockAt = (
   state: ChunkStoreState,
   position: BlockPosition,
   block: BlockId,
-): Result.Result<readonly [BlockWriteOutcome, ChunkStoreState], LightQueueUnderflowError> => {
+  stateValues?: BlockStateValues,
+): Result.Result<readonly [BlockWriteOutcome, ChunkStoreState], LightQueueUnderflowError | BlockStateCodecFailure> => {
+  const encodedState = encodedStateFor(block, stateValues)
+  if (Result.isFailure(encodedState)) {
+    return Result.fail(encodedState.failure)
+  }
   if (!isWorldY(position.y)) {
     return Result.succeed([WRITE_OUT_OF_WORLD, state])
   }
@@ -748,7 +902,7 @@ export const withBlockAt = (
     return Result.succeed([WRITE_CHUNK_NOT_LOADED, state])
   }
 
-  return applyBlockWrite(state, target, block)
+  return applyBlockWrite(state, target, block, encodedState.success)
 }
 
 /**
@@ -774,46 +928,90 @@ const blockPositionKey = ({ x, y, z }: BlockPosition): string =>
 
 type ValidatedChunkBlockEdit = Readonly<{
   readonly edit: ChunkBlockEdit
+  readonly encodedState: number
   readonly target: LoadedChunkTarget
 }>
 
 type ChunkWriteCandidateBuilder = {
-  readonly chunks: Map<ChunkKey, Chunk>
-  readonly changes: ChunkBlockChange[]
   readonly changedBlocks: Array<{
-    readonly key: ChunkKey
     readonly coord: ChunkCoord
+    readonly key: ChunkKey
     readonly local: LocalBlockCoord
   }>
-  readonly changedChunks: Map<ChunkKey, Readonly<{ readonly key: ChunkKey; readonly coord: ChunkCoord }>>
+  readonly changedChunks: Map<ChunkKey, Readonly<{ readonly coord: ChunkCoord; readonly key: ChunkKey }>>
+  readonly changedLightBlocks: Array<{
+    readonly coord: ChunkCoord
+    readonly key: ChunkKey
+    readonly local: LocalBlockCoord
+  }>
+  readonly changes: ChunkBlockChange[]
+  readonly chunks: Map<ChunkKey, ChunkWithBlockStates>
 }
 
-const writableChunkFor = (chunks: Map<ChunkKey, Chunk>, target: LoadedChunkTarget): Chunk => {
+const writableChunkFor = (chunks: Map<ChunkKey, ChunkWithBlockStates>, target: LoadedChunkTarget): ChunkWithBlockStates => {
   const existing = chunks.get(target.key)
   if (existing) {
     return existing
   }
-  const copy = { ...target.chunk, blocks: target.chunk.blocks.slice() }
+  const copy = {
+    ...target.chunk,
+    blockStates: target.chunk.blockStates.slice(),
+    blocks: target.chunk.blocks.slice(),
+  }
   chunks.set(target.key, copy)
   return copy
 }
 
-const appendChunkWrite = (builder: ChunkWriteCandidateBuilder, { edit, target }: ValidatedChunkBlockEdit): void => {
-  const current = builder.chunks.get(target.key) ?? target.chunk
-  const previous = BlockId(getBlockAt(current, target.local.lx, target.local.ly, target.local.lz))
-  if (previous === edit.block) {
-    return
-  }
-
-  const next = writableChunkFor(builder.chunks, target)
-  setBlockAt(next.blocks, target.local.lx, target.local.ly, target.local.lz, edit.block)
+const recordChunkWrite = (
+  builder: ChunkWriteCandidateBuilder,
+  edit: ChunkBlockEdit,
+  target: LoadedChunkTarget,
+  previous: BlockId,
+  blockChanged: boolean,
+): void => {
   builder.changes.push(Object.freeze({
     next: edit.block,
     position: Object.freeze({ ...edit.position }),
     previous,
   }))
   builder.changedBlocks.push({ coord: target.coord, key: target.key, local: target.local })
+  if (blockChanged) {
+    builder.changedLightBlocks.push({ coord: target.coord, key: target.key, local: target.local })
+  }
   builder.changedChunks.set(target.key, { coord: target.coord, key: target.key })
+}
+
+type CurrentChunkWrite = Readonly<{
+  blockChanged: boolean
+  index: number
+  previous: BlockId
+  previousState: number
+}>
+
+const currentChunkWriteFor = (
+  builder: ChunkWriteCandidateBuilder,
+  target: LoadedChunkTarget,
+  edit: ChunkBlockEdit,
+): CurrentChunkWrite => {
+  const current = builder.chunks.get(target.key) ?? target.chunk
+  const previous = BlockId(getBlockAt(current, target.local.lx, target.local.ly, target.local.lz))
+  const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
+  const previousState = current.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+  return { blockChanged: previous !== edit.block, index, previous, previousState }
+}
+
+const appendChunkWrite = (builder: ChunkWriteCandidateBuilder, { edit, encodedState, target }: ValidatedChunkBlockEdit): void => {
+  const current = currentChunkWriteFor(builder, target, edit)
+  if (!current.blockChanged && current.previousState === encodedState) {
+    return
+  }
+
+  const next = writableChunkFor(builder.chunks, target)
+  if (current.blockChanged) {
+    setBlockAt(next.blocks, target.local.lx, target.local.ly, target.local.lz, edit.block)
+  }
+  next.blockStates[current.index] = encodedState
+  recordChunkWrite(builder, edit, target, current.previous, current.blockChanged)
 }
 
 const preparedCandidateFor = (
@@ -823,6 +1021,7 @@ const preparedCandidateFor = (
   const builder: ChunkWriteCandidateBuilder = {
     changedBlocks: [],
     changedChunks: new Map(),
+    changedLightBlocks: [],
     changes: [],
     chunks: new Map(),
   }
@@ -847,6 +1046,7 @@ const preparedCandidateFor = (
   return {
     changedBlocks: Object.freeze(builder.changedBlocks),
     changedChunks,
+    changedLightBlocks: Object.freeze(builder.changedLightBlocks),
     chunks: builder.chunks,
     prepared,
   }
@@ -955,7 +1155,11 @@ const resolveLoadedBlockEdits = (
         error: { _tag: 'ChunkWriteChunkUnavailable', position: edit.position },
       }
     }
-    validated.push({ edit, target })
+    const encodedState = encodedStateFor(edit.block, edit.state)
+    if (Result.isFailure(encodedState)) {
+      return { _tag: 'Rejected', error: encodedState.failure }
+    }
+    validated.push({ edit, encodedState: encodedState.success, target })
   }
   return { _tag: 'Resolved', edits: validated }
 }
@@ -977,20 +1181,46 @@ export const prepareBlockWrites = (
 
 const blockWriteOutcome = (
   previous: BlockId,
+  previousState: number,
   block: BlockId,
+  nextState: number,
   coord: ChunkCoord,
 ): Extract<BlockWriteOutcome, { readonly _tag: 'Written' | 'Unchanged' }> => {
-  if (previous === block) {
+  if (previous === block && previousState === nextState) {
     return { _tag: 'Unchanged', previous }
   }
   return { _tag: 'Written', chunk: coord, previous }
+}
+
+const prepareResolvedBlockWrite = (
+  state: ChunkStoreState,
+  target: LoadedChunkTarget,
+  edit: ChunkBlockEdit,
+  encodedState: number,
+): SingleChunkWritePreparation => {
+  const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
+  const candidate = preparedCandidateFor(state, [{ edit, encodedState, target }])
+  const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
+  const outcome = blockWriteOutcome(
+    previous,
+    target.chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE,
+    edit.block,
+    encodedState,
+    target.coord,
+  )
+  return { _tag: 'Prepared', candidate, outcome }
 }
 
 export const prepareBlockWrite = (
   state: ChunkStoreState,
   position: BlockPosition,
   block: BlockId,
+  stateValues?: BlockStateValues,
 ): SingleChunkWritePreparation => {
+  const encodedState = encodedStateFor(block, stateValues)
+  if (Result.isFailure(encodedState)) {
+    return { _tag: 'Failed', error: encodedState.failure }
+  }
   if (!isWorldY(position.y)) {
     return { _tag: 'Rejected', outcome: WRITE_OUT_OF_WORLD }
   }
@@ -1000,19 +1230,17 @@ export const prepareBlockWrite = (
     return { _tag: 'Rejected', outcome: WRITE_CHUNK_NOT_LOADED }
   }
 
-  const edit = { block, position }
-  const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
-  const candidate = preparedCandidateFor(state, [{ edit, target }])
-  const outcome: Extract<BlockWriteOutcome, { readonly _tag: 'Written' | 'Unchanged' }> =
-    blockWriteOutcome(previous, block, target.coord)
-
-  return { _tag: 'Prepared', candidate, outcome }
+  const edit = Option.match(Option.fromNullishOr(stateValues), {
+    onNone: () => ({ block, position }),
+    onSome: (values) => ({ block, position, state: values }),
+  })
+  return prepareResolvedBlockWrite(state, target, edit, encodedState.success)
 }
 
 const changedLightsFor = (
   state: ChunkStoreState,
   loaded: ChunkStoreState['loaded'],
-  changedBlocks: PreparedChunkWriteCandidate['changedBlocks'],
+  changedBlocks: PreparedChunkWriteCandidate['changedLightBlocks'],
 ): Result.Result<ChunkStoreState['lights'], LightQueueUnderflowError> => {
   const { lights: initialLights } = state
   let lights = initialLights
@@ -1028,12 +1256,12 @@ const changedLightsFor = (
 
 const changedSubscribersFor = (
   state: ChunkStoreState,
-  changedChunks: PreparedChunkWriteCandidate['changedChunks'],
+  changedBlocks: PreparedChunkWriteCandidate['changedBlocks'],
 ): ChunkStoreState['subscribers'] => {
   const { subscribers: initialSubscribers } = state
   let subscribers = initialSubscribers
-  for (const changed of changedChunks) {
-    subscribers = noteChange(subscribers, changed.key, changed.coord, 'changed')
+  for (const changed of changedBlocks) {
+    subscribers = noteChange(subscribers, changed.key, changed.coord, 'changed', localBlockAabb(changed.local))
   }
   return subscribers
 }
@@ -1053,13 +1281,13 @@ const publishChangedBlocks = (
   state: ChunkStoreState,
   candidate: PreparedChunkWriteCandidate,
 ): Result.Result<ChunkStoreState, LightQueueUnderflowError> => {
-  const { changedBlocks, changedChunks } = candidate
+  const { changedBlocks, changedChunks, changedLightBlocks } = candidate
   const loaded = loadedWithCandidateChunks(state.loaded, candidate.chunks)
-  const lightsResult = changedLightsFor(state, loaded, changedBlocks)
+  const lightsResult = changedLightsFor(state, loaded, changedLightBlocks)
   if (Result.isFailure(lightsResult)) {
     return Result.fail(lightsResult.failure)
   }
-  const subscribers = changedSubscribersFor(state, changedChunks)
+  const subscribers = changedSubscribersFor(state, changedBlocks)
   const revisions = incrementChunkRevisions(state, changedChunks.map(({ key }) => key))
   return Result.succeed({
     ...state,
@@ -1248,7 +1476,7 @@ export const drained = (
 }
 
 /** Look without loading. The returned chunk is a LIVE view — see the header. */
-export const residentChunk = (state: ChunkStoreState, coord: ChunkCoord): Chunk | undefined =>
+export const residentChunk = (state: ChunkStoreState, coord: ChunkCoord): ChunkWithBlockStates | undefined =>
   state.loaded.get(chunkKeyOf(coord))
 
 export const residentCoords = (state: ChunkStoreState): ReadonlyArray<ChunkCoord> =>
@@ -1258,8 +1486,9 @@ export const residentCoords = (state: ChunkStoreState): ReadonlyArray<ChunkCoord
  * A detached copy, for a caller that needs a chunk that will not change under
  * it — a save writer, a worker message, an assertion in a test.
  */
-export const chunkSnapshotOf = (chunk: Chunk): Chunk => ({
+export const chunkSnapshotOf = (chunk: ChunkWithBlockStates): ChunkWithBlockStates => ({
   biomes: [...chunk.biomes],
+  blockStates: chunk.blockStates.slice(),
   blocks: chunk.blocks.slice(),
   coord: chunk.coord,
 })
@@ -1283,17 +1512,17 @@ export const chunkSnapshotOf = (chunk: Chunk): Chunk => ({
  * `exactOptionalPropertyTypes` makes those different types.
  */
 export type ChunkNeighbours = {
-  readonly xPos?: Chunk
-  readonly xNeg?: Chunk
-  readonly zPos?: Chunk
-  readonly zNeg?: Chunk
+  readonly xPos?: ChunkWithBlockStates
+  readonly xNeg?: ChunkWithBlockStates
+  readonly zPos?: ChunkWithBlockStates
+  readonly zNeg?: ChunkWithBlockStates
 }
 
 /** Adds one optional neighbour to an accumulator only when it is resident, never as an explicit `undefined`. */
 const withDefinedNeighbour = (
   neighbours: ChunkNeighbours,
   key: keyof ChunkNeighbours,
-  chunk: Chunk | undefined,
+  chunk: ChunkWithBlockStates | undefined,
 ): ChunkNeighbours => {
   if (!chunk) {
     return neighbours
@@ -1302,7 +1531,7 @@ const withDefinedNeighbour = (
 }
 
 export const neighboursOf = (state: ChunkStoreState, coord: ChunkCoord): ChunkNeighbours => {
-  const chunkAtOffset = (dcx: number, dcz: number): Chunk | undefined => {
+  const chunkAtOffset = (dcx: number, dcz: number): ChunkWithBlockStates | undefined => {
     const adjacent = chunkCoordAtOffset(coord, dcx, dcz)
     if (!adjacent) {
       return
@@ -1314,7 +1543,7 @@ export const neighboursOf = (state: ChunkStoreState, coord: ChunkCoord): ChunkNe
   const zPos = chunkAtOffset(NEIGHBOUR_OFFSET_NONE, NEIGHBOUR_OFFSET_STEP)
   const zNeg = chunkAtOffset(NEIGHBOUR_OFFSET_NONE, -NEIGHBOUR_OFFSET_STEP)
 
-  const candidates: ReadonlyArray<readonly [keyof ChunkNeighbours, Chunk | undefined]> = [
+  const candidates: ReadonlyArray<readonly [keyof ChunkNeighbours, ChunkWithBlockStates | undefined]> = [
     ['xPos', xPos],
     ['xNeg', xNeg],
     ['zPos', zPos],

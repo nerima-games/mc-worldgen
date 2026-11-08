@@ -1,14 +1,13 @@
 /**
- * `CHUNK_FORMAT_V1` and `migrateChunkV1ToV2` — `domain/chunk-format.ts`'s read
- * path for a world saved before the block buffer widened from one byte per
- * block to two.
+ * `CHUNK_FORMAT_V1` and `migrateChunkV1ToV3` — the read path for a world saved
+ * before the block buffer widened and block states were added.
  *
  * ---------------------------------------------------------------------------
  * Why this is a SEPARATE fixture from `chunk-format.test.ts`'s `ENCODED`
  * ---------------------------------------------------------------------------
  *
  * `ENCODED` there is built by `encodeSave(CHUNK_FORMAT, FIXTURE)` — it is
- * ALREADY a v2 payload, and nothing in this package encodes a v1 payload
+ * ALREADY a v3 payload, and nothing in this package encodes a v1 payload
  * again (`CHUNK_FORMAT_V1`'s own doc comment says so). A v1 fixture has to be
  * hand-authored in its wire shape instead, exactly as mc-save's own
  * `test/migration.test.ts` does for its toy chunk format: "Nothing here
@@ -21,29 +20,29 @@
  *
  * mc-save's `decodeSave` refuses any envelope whose version is not the
  * format's own — unconditionally, including older ones. CF-V1-1 below pins
- * that `CHUNK_FORMAT` (v2) refuses this v1 envelope directly; CF-V1-2 through
+ * that `CHUNK_FORMAT` (v3) refuses this v1 envelope directly; CF-V1-2 through
  * CF-V1-4 build and check the consumer-side path
  * `application/chunk-persistence.ts` actually uses: decode under
- * `CHUNK_FORMAT_V1`, widen with `migrateChunkV1ToV2`, then treat the result as
+ * `CHUNK_FORMAT_V1`, materialize defaults with `migrateChunkV1ToV3`, then treat the result as
  * an ordinary current-format `Chunk`.
  */
 import { describe, expect, it } from '@effect/vitest'
 import * as validated from './fixtures/validated-inputs'
 import { Effect } from 'effect'
-import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_NAME, CHUNK_FORMAT_V1, migrateChunkV1ToV2 } from '../src/domain/chunk-format'
+import { BLOCK_IDS } from '@nerima-games/mc-kernel'
+import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_NAME, CHUNK_FORMAT_V1, migrateChunkV1ToV3 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
 import { decodeSave, encodeSave, saveEnvelope } from '@nerima-games/mc-save'
 
 /**
  * A v1 block buffer as an earlier build actually wrote one: one byte per
- * block, base64 on the wire. Not degenerate (docs/testing.md §6) and pinned
- * at the v1 ceiling (255) at a known index, so migration is checked against a
- * value the widened container can also hold, not just against zeros.
+ * block, base64 on the wire. It contains three registered ids so migration
+ * checks real defaults rather than an all-air buffer.
  */
 const legacyBlocks = new Uint8Array(CHUNK_VOLUME)
-legacyBlocks[0] = 1
-legacyBlocks[1] = 255
-legacyBlocks[2] = 44
+legacyBlocks[0] = BLOCK_IDS[2] ?? 0
+legacyBlocks[1] = BLOCK_IDS[3] ?? 0
+legacyBlocks[2] = BLOCK_IDS[4] ?? 0
 
 const legacyPayload = {
   biomes: Array.from({ length: CHUNK_BIOME_COUNT }, () => 'PLAINS' as const),
@@ -76,9 +75,9 @@ describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
 
       expect(legacy.blocks).toBeInstanceOf(Uint8Array)
       expect(legacy.blocks.length).toBe(CHUNK_VOLUME)
-      expect(legacy.blocks[0]).toBe(1)
-      expect(legacy.blocks[1]).toBe(255)
-      expect(legacy.blocks[2]).toBe(44)
+      expect(legacy.blocks[0]).toBe(BLOCK_IDS[2])
+      expect(legacy.blocks[1]).toBe(BLOCK_IDS[3])
+      expect(legacy.blocks[2]).toBe(BLOCK_IDS[4])
       expect(legacy.coord).toStrictEqual(validated.validatedChunkCoord(2, -3))
       // Absent in `legacyPayload`, so `CHUNK_STRUCT_V1`'s defaults fill in —
       // the same optional-field behaviour CF-17 pins for the current struct.
@@ -87,14 +86,17 @@ describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
     }),
   )
 
-  it.effect('CF-V1-3: migrateChunkV1ToV2 widens every legacy id into the current Uint16Array shape, losing nothing', () =>
+  it.effect('CF-V1-3: migrateChunkV1ToV3 widens ids and materializes each kernel default state', () =>
     Effect.gen(function* () {
       const legacy = yield* decodeSave(CHUNK_FORMAT_V1, legacyEnvelope)
-      const migrated = migrateChunkV1ToV2(legacy)
+      const migrated = yield* Effect.fromResult(migrateChunkV1ToV3(legacy))
 
       expect(migrated.blocks).toBeInstanceOf(Uint16Array)
       expect(migrated.blocks.length).toBe(legacy.blocks.length)
       expect([...migrated.blocks]).toStrictEqual([...legacy.blocks])
+      expect(migrated.blockStates).toBeInstanceOf(Uint32Array)
+      expect(migrated.blockStates.length).toBe(CHUNK_VOLUME)
+      expect([...migrated.blockStates]).toStrictEqual(new Array(CHUNK_VOLUME).fill(0))
       expect(migrated.coord).toStrictEqual(legacy.coord)
       expect(migrated.biomes).toStrictEqual(legacy.biomes)
     }),
@@ -103,14 +105,16 @@ describe('CHUNK_FORMAT_V1: the pre-widening format, read-only', () => {
   it.effect('CF-V1-4: the migrated chunk round-trips through the CURRENT format, stamped with its version', () =>
     Effect.gen(function* () {
       const legacy = yield* decodeSave(CHUNK_FORMAT_V1, legacyEnvelope)
-      const migrated = migrateChunkV1ToV2(legacy)
+      const migrated = yield* Effect.fromResult(migrateChunkV1ToV3(legacy))
 
       const envelope = yield* encodeSave(CHUNK_FORMAT, migrated)
       expect(envelope.version).toBe(CHUNK_FORMAT.version)
       expect(envelope.version).not.toBe(CHUNK_FORMAT_V1.version)
+      expect(CHUNK_FORMAT.version).toBe(3)
 
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
       expect([...restored.blocks]).toStrictEqual([...migrated.blocks])
+      expect([...restored.blockStates]).toStrictEqual([...migrated.blockStates])
       expect(restored.coord).toStrictEqual(migrated.coord)
     }),
   )
