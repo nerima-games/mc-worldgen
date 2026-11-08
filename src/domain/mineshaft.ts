@@ -4,10 +4,16 @@ import type {
   NaturalStructureMarkerDraft,
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type MineshaftCandidate = { readonly x: number; readonly z: number }
@@ -53,6 +59,20 @@ const terrainProbesFor = (
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
+}
+
+const terrainProbesForResult = (
+  candidate: MineshaftCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> => {
+  const probeExtent = MINESHAFT_LAYOUT.branchHalfExtent
+  return sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - probeExtent) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + probeExtent) },
+  ])
 }
 
 const baseYForProbes = (probes: ReadonlyArray<OverworldTerrainSample>): Option.Option<number> => {
@@ -241,4 +261,25 @@ export const planMineshaftForCandidate = (
     markers,
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
+}
+
+export const planMineshaftForCandidateWithResultSampler = (
+  candidate: MineshaftCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<MineshaftDraft>, OverworldTerrainSamplingFailure> => {
+  const probes = terrainProbesForResult(candidate, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  const baseYOption = baseYForProbes(probes.success)
+  if (Option.isNone(baseYOption)) {return Result.succeed(Option.none())}
+  const blocks = Object.freeze(mineshaftRelativePlan.blocks.map((placement) =>
+    translateBlock(placement, candidate, baseYOption.value),
+  ))
+  const markers = Object.freeze(mineshaftRelativePlan.markers.map((marker) =>
+    translateMarker(marker, candidate, baseYOption.value),
+  ))
+  return Result.succeed(Option.some(Object.freeze({
+    blocks,
+    markers,
+    origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
+  })))
 }

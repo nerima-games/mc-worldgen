@@ -21,15 +21,17 @@ import {
   planRuinedNetherPortalForRegion,
   planVillageForRegion,
 } from './helpers/unwrapped-worldgen'
-import { VILLAGE_HALF_EXTENT, type OverworldTerrainSampler } from '../src/domain/structure-siting'
+import { VILLAGE_HALF_EXTENT, type OverworldTerrainResultSampler, type OverworldTerrainSampler } from '../src/domain/structure-siting'
 import { generateChunk } from './helpers/unwrapped-worldgen'
 import { generateChunk as generateChunkRaw } from '../src/domain/terrain'
+import { TerrainDensityFailure } from '../src/domain/density-function'
 import {
   InvalidNaturalStructureCoordinate,
   naturalStructurePlansForChunk as naturalStructurePlansForChunkRaw,
   planCompactStructureForRegion as planCompactStructureForRegionRaw,
   planNaturalStructureForRegion as planNaturalStructureForRegionRaw,
   planVillageForRegion as planVillageForRegionRaw,
+  planVillageForRegionWithResultSampler,
 } from '../src/domain/natural-structure'
 import {
   naturalStructurePlansForValidatedChunk as naturalStructurePlansForValidatedChunkWithPlanner,
@@ -607,7 +609,7 @@ describe('natural structure plans', () => {
     const coord = chunkCoord(chunkAxis(Math.floor(plan.origin.x / CHUNK_SIZE_XZ)), chunkAxis(Math.floor(plan.origin.z / CHUNK_SIZE_XZ)))
     const plans = naturalStructurePlansForChunk(noiseSeed(666), 'nether', coord, { nether: FLAT_NETHER })
     const terrain = {
-      biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'NETHER' as const),
+      biomes: Array.from({ length: CHUNK_SIZE_XZ * CHUNK_SIZE_XZ }, () => 'nether_wastes' as const),
       blocks: emptyBlocks(),
       coord,
     }
@@ -627,13 +629,11 @@ describe('natural structure plans', () => {
   })
 
   it('applies Overworld village plans through generateChunk', () => {
-    // Region (-29, -25) is the known real-terrain accepted fixture under
-    // VILLAGE_REGION_SPAWN_PERMILLE=500 / VILLAGE_SITE_ATTEMPTS=64 — see
-    // structure-siting.ts for why. The plan id is keyed by region, not site,
-    // so it does not move with the seeded (x, z) draw inside the region.
-    const generated = generateChunk(noiseSeed(20260726), chunkCoord(chunkAxis(-288), chunkAxis(-244)))
-    const markerChunk = generateChunk(noiseSeed(20260726), chunkCoord(chunkAxis(-289), chunkAxis(-244)))
-    const villageId = 'village:20260726:-29:-25'
+    // Region (-4, 9) is accepted by the generated density and terrain-column samplers.
+    const seed = noiseSeed(1)
+    const generated = generateChunk(seed, chunkCoord(chunkAxis(-37), chunkAxis(92)))
+    const markerChunk = generateChunk(seed, chunkCoord(chunkAxis(-38), chunkAxis(92)))
+    const villageId = 'village:1:-4:9'
 
     expect(generated.naturalStructureIds).toContain(villageId)
     expect(markerChunk.naturalStructureMarkers.some((marker) => marker.structureId === villageId)).toBe(true)
@@ -653,6 +653,57 @@ describe('natural structure plans', () => {
     expect(slice.markers.every(({ x, z }) =>
       Math.floor(x / CHUNK_SIZE_XZ) === coord.cx && Math.floor(z / CHUNK_SIZE_XZ) === coord.cz)).toBe(true)
     expect(matched.markers).toContainEqual(expect.objectContaining({ kind: 'loot-chest', lootTable: 'desert-pyramid' }))
+  })
+
+  it('uses one global result sampler for village probes and building terrain in generated chunks', () => {
+    const seed = 0x7123
+    const village = findVillage(seed)
+    const coord = chunkCoord(chunkAxis(Math.floor(village.origin.x / CHUNK_SIZE_XZ)), chunkAxis(Math.floor(village.origin.z / CHUNK_SIZE_XZ)))
+    const sampled: Array<readonly [number, number]> = []
+    const sampleTerrain: OverworldTerrainResultSampler = (x, z) => {
+      sampled.push([x, z])
+      return Result.succeed({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
+    }
+    const plans = naturalStructurePlansForChunkRaw(noiseSeed(seed), 'overworld', coord, { overworldResult: sampleTerrain })
+
+    expect(Result.isSuccess(plans)).toBe(true)
+    if (Result.isFailure(plans)) {throw plans.failure}
+    expect(plans.success.some((plan) => plan.id === village.id)).toBe(true)
+
+    const houseTerrainPoints = ([-14, 14] as const).flatMap((houseX, houseIndex) => {
+      const houseZ = houseIndex === 0 ? -10 : 10
+      return Array.from({ length: 9 * 7 }, (_, index) => [
+        village.origin.x + houseX + index % 9 - 4,
+        village.origin.z + houseZ + Math.floor(index / 9) - 3,
+      ] as const)
+    })
+    const chunkMinX = Number(coord.cx) * CHUNK_SIZE_XZ
+    const chunkMinZ = Number(coord.cz) * CHUNK_SIZE_XZ
+    const outsideHousePoints = houseTerrainPoints.filter(([x, z]) =>
+      x < chunkMinX || x >= chunkMinX + CHUNK_SIZE_XZ || z < chunkMinZ || z >= chunkMinZ + CHUNK_SIZE_XZ,
+    )
+    expect(outsideHousePoints.length).toBeGreaterThan(0)
+    expect(outsideHousePoints.every((point) => sampled.some((sample) => sample[0] === point[0] && sample[1] === point[1]))).toBe(true)
+  })
+
+  it('propagates typed result-sampler failures through village and chunk planning', () => {
+    const seed = 0x7123
+    const village = findVillage(seed)
+    const failure = new TerrainDensityFailure({ stage: 'evaluation', message: 'result sampler failed' })
+    const sampleTerrain: OverworldTerrainResultSampler = () => Result.fail(failure)
+    const villageResult = planVillageForRegionWithResultSampler(
+      noiseSeed(seed),
+      village.region.x,
+      village.region.z,
+      sampleTerrain,
+    )
+    const coord = chunkCoord(chunkAxis(Math.floor(village.origin.x / CHUNK_SIZE_XZ)), chunkAxis(Math.floor(village.origin.z / CHUNK_SIZE_XZ)))
+    const chunkResult = naturalStructurePlansForChunkRaw(noiseSeed(seed), 'overworld', coord, { overworldResult: sampleTerrain })
+
+    expect(Result.isFailure(villageResult)).toBe(true)
+    if (Result.isFailure(villageResult)) {expect(villageResult.failure).toBe(failure)}
+    expect(Result.isFailure(chunkResult)).toBe(true)
+    if (Result.isFailure(chunkResult)) {expect(chunkResult.failure).toBe(failure)}
   })
 
   it('does not record a plan id when its declared bounds overlap but placements miss the chunk', () => {

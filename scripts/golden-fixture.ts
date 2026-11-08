@@ -46,47 +46,27 @@
  *      file, each naming the digest field it backs.
  *
  * ---------------------------------------------------------------------------
- * How the thirteen coordinates were chosen
+ * Legacy sample coordinates
  * ---------------------------------------------------------------------------
  *
- * One chunk per biome: for each member of `BIOMES`, the chunk NEAREST THE
- * ORIGIN (Chebyshev rings, so the answer is a function of the seed rather than
- * of scan order) all 256 of whose columns classify as that biome.
+ * The first thirteen coordinates came from the previous coarse-biome matrix.
+ * That selection no longer describes generated columns after the 3D density
+ * change.
  *
- * The rule matters more than the coordinates. A hand-picked matrix around the
- * origin is what docs/testing.md §4-b F-5 warns about from the other direction:
- * the first biome measurement in this repository looked at 384 x 384 blocks,
- * saw no DESERT and no SNOW, and concluded they were unreachable. Both are
- * real, and both live far enough out that a 3 x 3 matrix at the origin cannot
- * contain them — DESERT's nearest solid chunk is (11, 3) and SNOW's is
- * (0, 0), against a world where they are 0.1% and 0.8% of columns. A golden
- * set that omits them cannot notice the day they stop generating.
+ * Actual coarse-biome reachability is checked across a fixed multi-seed grid
+ * in test/biome-distribution.test.ts. The goldens pin blocks and concrete
+ * kernel IDs at the retained coordinates.
  *
- * The fourteenth entry re-generates the FOREST chunk with `decorate: false`. Without
- * it every digest here is taken through the decoration pass, and the tree
- * placer could be deleted outright while a decorated-only matrix still
- * disagreed in exactly the way it would for any other change. With it the two
- * FOREST rows differ ONLY by vegetation, so the diff localises.
+ * The fourteenth entry repeats one coordinate with decorate=false to pin the
+ * undecorated generation path separately.
  *
- * The fifteenth was added because the first fourteen made an invariant VACUOUS — see
- * its own comment below. That is the more useful half of this file's history:
- * the matrix was chosen by a rule, the rule was reasonable, and it still
- * produced a set on which "the carver's water-floor guard works" was true by
- * there being nothing for the guard to do.
- *
- * THE SIXTEENTH WAS ADDED FOR THE SAME REASON, ONE FEATURE LATER, which is what
- * makes the pattern worth naming rather than treating as bad luck twice. The
- * ravine carver landed and every digest here was byte-identical, because a
- * ravine is a thin curve at a 250-block wavelength and no chunk chosen by
- * "nearest all-X" happens to sit on one. A selection rule that never mentions a
- * feature cannot be expected to cover it, and the miss is silent in both
- * directions: the suite passes whether the pass works or does nothing at all.
+ * The final two entries exercise the water-floor guard and ravine features.
  */
 import { createHash } from 'node:crypto'
 import { Result } from 'effect'
 import { NoiseSeed, type NoiseSeed as NoiseSeedValue } from '@nerima-games/mc-noise'
 import path from 'node:path'
-import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
+import { KERNEL_BIOMES, BLOCK, type ChunkBiomeType } from '../src/domain/biome'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y } from '../src/domain/carver'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
 import { chunkAxis, localAxis } from '../src/domain/coordinate-compatibility'
@@ -107,81 +87,43 @@ import { PLANT } from '../src/domain/vegetation'
 export const GOLDEN_SEED: NoiseSeedValue = Result.getOrThrow(NoiseSeed.result(20260726))
 
 export type GoldenSpec = {
-  /** The biome all 256 columns of this chunk classify as. Documentation, and asserted. */
-  readonly biome: BiomeType
   readonly cx: number
   readonly cz: number
   /** False generates without the vegetation pass. Only the fourteenth row sets it. */
   readonly decorate: boolean
-  /** Why this row is in the matrix. A golden nobody can justify is a golden nobody dares change. */
-  readonly why: string
 }
 
 /**
- * The matrix. Derived by the rule in the header; committed as literals because
- * a golden whose coordinates are searched for at test time is a golden that
- * moves when the terrain moves, which is the one thing it exists to detect.
- *
- * `test/chunk-golden.test.ts` re-checks the "all 256 columns" half of the rule
- * on every run, so a shaper change that makes one of these chunks mixed fails
- * loudly here rather than silently weakening the matrix.
+ * Fixed coordinates keep the golden matrix stable while terrain changes.
+ * Biome category coverage is measured independently by
+ * test/biome-distribution.test.ts.
  */
 export const GOLDEN_SPECS: ReadonlyArray<GoldenSpec> = [
-  { biome: 'OCEAN', cx: 5, cz: 7, decorate: true, why: 'nearest all-OCEAN chunk' },
-  { biome: 'BEACH', cx: 3, cz: 5, decorate: true, why: 'nearest all-BEACH chunk' },
-  { biome: 'DESERT', cx: 11, cz: 3, decorate: true, why: 'nearest all-DESERT chunk' },
-  { biome: 'SAVANNA', cx: 11, cz: -1, decorate: true, why: 'nearest all-SAVANNA chunk' },
-  // Was (-6, -6) until worldgen-village-availability raised village density
-  // (structure-siting.ts's VILLAGE_REGION_SPAWN_PERMILLE): that chunk is
-  // still all-PLAINS but now has a village (village:20260726:-1:-1) whose
-  // construction legitimately overwrites part of a tree there (see
-  // terrain.ts's `writeStructures` — "structures run last... override
-  // carving and vegetation"), which is real and correct but not what this
-  // fixture is for. (5, -6) is the next-nearest all-PLAINS chunk with no
-  // structure inside it.
-  { biome: 'PLAINS', cx: 5, cz: -6, decorate: true, why: 'nearest all-PLAINS chunk with no structure' },
-  { biome: 'FOREST', cx: -8, cz: 8, decorate: true, why: 'nearest all-FOREST chunk' },
+  { cx: 5, cz: 7, decorate: true },
+  { cx: 3, cz: 5, decorate: true },
+  { cx: 11, cz: 3, decorate: true },
+  { cx: 11, cz: -1, decorate: true },
+  { cx: 5, cz: -6, decorate: true },
+  { cx: -8, cz: 8, decorate: true },
+  { cx: -9, cz: 0, decorate: true },
+  { cx: 0, cz: 0, decorate: true },
+  { cx: 4, cz: -16, decorate: true },
+  { cx: -4, cz: -1, decorate: true },
+  { cx: -28, cz: -52, decorate: true },
+  { cx: -10, cz: 8, decorate: true },
+  { cx: -14, cz: -1, decorate: true },
+  { cx: -8, cz: 8, decorate: false },
   {
-    biome: 'TAIGA',
-    cx: -9,
-    cz: 0,
-    decorate: true,
-    why: 'nearest all-TAIGA chunk outside the ravine fixture band',
-  },
-  { biome: 'SNOW', cx: 0, cz: 0, decorate: true, why: 'nearest all-SNOW chunk' },
-  { biome: 'FLOWER_FOREST', cx: 4, cz: -16, decorate: true, why: 'nearest all-FLOWER_FOREST chunk' },
-  { biome: 'MOUNTAINS', cx: -4, cz: -1, decorate: true, why: 'nearest all-MOUNTAINS chunk' },
-  { biome: 'SWAMP', cx: -28, cz: -52, decorate: true, why: 'all-SWAMP chunk outside the ravine fixture' },
-  { biome: 'JUNGLE', cx: -10, cz: 8, decorate: true, why: 'nearest all-JUNGLE chunk' },
-  { biome: 'RIVER', cx: -14, cz: -1, decorate: true, why: 'nearest all-RIVER chunk' },
-  { biome: 'FOREST', cx: -8, cz: 8, decorate: false, why: 'the FOREST chunk without the vegetation pass' },
-  {
-    biome: 'OCEAN',
     cx: 4,
     cz: 9,
     decorate: true,
-    // ADDED AFTER A VACUOUS PASS, and the vacancy is documented behaviour rather
-    // than bad luck: docs/testing.md §4-b F-4 records that at this seed, near
-    // the origin, `--no-guard` changes nothing at all, because no cave comes
-    // within three blocks of a lake bed. The first thirteen rows were all like
-    // that, so I-4 ("the shell under water is solid") held by there being
-    // nothing to carve — it scored a perfect result on a generator with the
-    // guard deleted, which is exactly what deleting the guard was tried and
-    // confirmed to do.
-    //
-    // (4, 9) is the strongest counterexample inside 40 chunks of the origin:
-    // `test/chunk-golden.test.ts` asserts both guarded and unguarded outcomes.
-    why: 'the water-floor guard actually bites here: 229 columns break without it',
+    // The water-floor guard changes generated blocks at this fixed coordinate.
   },
   {
-    biome: 'JUNGLE',
     cx: 21,
     cz: 12,
     decorate: true,
-    // This is the dedicated ravine fixture. It is single-biome and stays
-    // separate from the nearest-biome matrix so the feature cannot disappear
-    // without changing a committed digest.
-    why: 'the only golden chunk a ravine reaches: 166 band columns and 127 below sea',
+    // Dedicated ravine fixture: the feature must change its committed digest.
   },
 ]
 
@@ -211,7 +153,7 @@ export const BLOCK_NAMES: ReadonlyArray<readonly [string, number]> = [
 export type GoldenSummary = {
   /** Every id in `BLOCK_NAMES` — terrain, ore and plant — including the zeroes, which is how the unreachable `GRAVEL` of docs/design-notes.md DN-11 was found. */
   readonly blockCounts: Readonly<Record<string, number>>
-  /** Every one of the thirteen biomes, including the zeroes. */
+  /** Every concrete kernel biome id, including the zeroes. */
   readonly biomeCounts: Readonly<Record<string, number>>
   /** Y of the topmost water block, min and max over water columns. Null when the chunk is dry. */
   readonly waterSurfaceY: { readonly min: number; readonly max: number } | null
@@ -244,22 +186,22 @@ export type GoldenSummary = {
    *
    * It is an exact signature rather than a proxy, and the argument is short
    * enough to check: `domain/terrain.ts` fills water from `surfaceY + 1` to
-   * `seaLevel`, so any column with `surfaceY < SEA_LEVEL` has water — which is
-   * non-AIR — at `SEA_LEVEL`. A dry column therefore has its top at
+   * `seaLevel`, so any column with `surfaceY < SEA_LEVEL` has water or ice —
+   * which is non-AIR — at `SEA_LEVEL`. A dry column therefore has its top at
    * `SEA_LEVEL` or above, and `carveCaves` cannot lower it because
    * `CAVE_CEILING_Y` is 58. Only a ravine can put the top of a column below
-   * sea level. It reads 0 on all fifteen pre-ravine rows and 127 on the sixteenth.
+   * sea level. It reads 0 on the non-ravine samples and a positive value on
+   * the dedicated ravine sample.
    *
    * It UNDERCOUNTS, deliberately and by a knowable amount: a shallow cut on
    * high ground can leave the floor above sea level, so this is the number of
-   * columns cut BELOW SEA LEVEL and not the number of ravine-band columns (166 for
-   * that chunk). A drift detector does not need to be a census.
+   * columns cut BELOW SEA LEVEL and not the number of ravine-band columns. A
+   * drift detector does not need to be a census.
    */
   readonly ravineCutColumns: number
 }
 
 export type GoldenEntry = {
-  readonly biome: BiomeType
   readonly cx: number
   readonly cz: number
   readonly decorate: boolean
@@ -286,15 +228,11 @@ export const GOLDEN_FILE_PATH: string = path.join('test', 'golden', 'chunk-golde
 const sha256 = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex')
 
 /**
- * The biome digest is taken over NAMES, not over indices into `BIOMES`.
- *
- * `BiomeType` is a closed literal union, so its member set IS the type, and
- * reordering `BIOMES` is a no-op for every consumer. Hashing positions would
- * turn that no-op into a terrain-changed alarm, and — worse — would let a
- * rename slip through unchanged. Names make the digest track the thing callers
- * actually observe.
+ * The stored biome digest is taken over concrete kernel id names, not over
+ * indices into the registry. Names make the digest track the values callers
+ * observe, and a rename changes the digest.
  */
-const biomesDigest = (biomes: ReadonlyArray<BiomeType>): string => sha256(biomes.join('\n'))
+const biomesDigest = (biomes: ReadonlyArray<ChunkBiomeType>): string => sha256(biomes.join('\n'))
 
 export const summarise = (chunk: Chunk): GoldenSummary => {
   const blockCounts: Record<string, number> = {}
@@ -302,7 +240,7 @@ export const summarise = (chunk: Chunk): GoldenSummary => {
     blockCounts[name] = 0
   }
   const biomeCounts: Record<string, number> = {}
-  for (const biome of BIOMES) {
+  for (const biome of KERNEL_BIOMES) {
     biomeCounts[biome] = 0
   }
 
@@ -375,12 +313,11 @@ export const generateGoldenChunk = (spec: GoldenSpec): Chunk =>
 export const goldenEntry = (spec: GoldenSpec): GoldenEntry => {
   const chunk = generateGoldenChunk(spec)
   return {
-    biome: spec.biome,
     cx: spec.cx,
     cz: spec.cz,
     decorate: spec.decorate,
     blocksSha256: sha256(packBlocksV2(chunk.blocks)),
-    biomesSha256: biomesDigest(chunk.biomes as ReadonlyArray<BiomeType>),
+    biomesSha256: biomesDigest(chunk.biomes),
     summary: summarise(chunk),
   }
 }

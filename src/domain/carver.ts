@@ -60,23 +60,24 @@
  * asserting that today's code does what today's code does.
  */
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
-import { channelSeed, valueNoise2D } from './noise-compatibility.js'
+import { type NoiseFn3D, type NoiseSeed, createNoiseField } from '@nerima-games/mc-noise'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
 import { Option } from 'effect'
+import { channelSeed } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
 export const CAVE_FLOOR_Y = 6
 export const CAVE_CEILING_Y = 58
 
-/** Above this noise value a column is carved. Higher = fewer caves. */
+/** Above this noise value a voxel is carved. Higher = fewer caves. */
 export const CAVE_THRESHOLD = 0.62
 
 /** Sentinel meaning "this column holds no water" — see `computeWaterFloorYs`. */
 const NO_WATER_FLOOR = -1
+const NO_SURFACE_Y = -1
 
 /** Single-block iteration step for the per-voxel scans below. */
 const AXIS_STEP = 1
@@ -96,14 +97,18 @@ type IndexedValues<Value> = {
 
 const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
 
-/** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
-const CAVE_NOISE_WAVELENGTH_BLOCKS = 24
+/** Horizontal cave wavelength in blocks. */
+const CAVE_NOISE_XZ_WAVELENGTH_BLOCKS = 40
 
-/** A single noise cycle, used to turn the wavelength above into the frequency `valueNoise2D` expects. */
-const NOISE_FREQUENCY_NUMERATOR = 1
+/** Vertical cave wavelength in blocks. */
+const CAVE_NOISE_Y_WAVELENGTH_BLOCKS = 20
 
-/** Scales how much a cave's half-height grows per unit the density exceeds `CAVE_THRESHOLD` by. */
-const CAVE_HEIGHT_DENSITY_SCALE = 40
+/** Keep three exposed solid blocks above dry caves to limit surface openings. */
+const CAVE_SURFACE_MARGIN_BLOCKS = 3
+
+const CAVE_NOISE_FREQUENCY_NUMERATOR = 1
+const CAVE_NOISE_XZ_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_XZ_WAVELENGTH_BLOCKS
+const CAVE_NOISE_Y_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_Y_WAVELENGTH_BLOCKS
 
 export type CarveOptions = {
   /**
@@ -158,29 +163,37 @@ const carveVoxelIfClearable = (blocks: Uint16Array, index: number): void => {
 type CarveContext = {
   readonly blocks: Uint16Array
   readonly margin: number
-  readonly caveSeed: NoiseSeed
+  readonly caveNoise: NoiseFn3D
   readonly coord: ChunkCoord
+  readonly surfaceYs: Int16Array
 }
 
-type CaveBand = {
-  readonly from: number
-  readonly to: number
-}
+/** Highest non-air, non-water block in each column. */
+const computeSurfaceYs = (blocks: Uint16Array): Int16Array => {
+  const surfaces = new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(NO_SURFACE_Y)
+  const scanTop = CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET
 
-/** The vertical [from, to] band a cave occupies at this density. Taller where the field is stronger. */
-const caveBandForDensity = (density: number): CaveBand => {
-  const halfHeight = Math.floor((density - CAVE_THRESHOLD) * CAVE_HEIGHT_DENSITY_SCALE)
-  const centre = Math.floor(CAVE_FLOOR_Y + (CAVE_CEILING_Y - CAVE_FLOOR_Y) * density)
-
-  return {
-    from: Math.max(CAVE_FLOOR_Y, centre - halfHeight),
-    to: Math.min(CAVE_CEILING_Y, centre + halfHeight),
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
+      for (let y = scanTop; y > CAVE_FLOOR_Y; y -= AXIS_STEP) {
+        const block = readBlock(blocks, blockIndex(lx, y, lz))
+        if (block !== BLOCK.AIR && block !== BLOCK.WATER) {
+          surfaces[lz * CHUNK_SIZE_XZ + lx] = y
+          break
+        }
+      }
+    }
   }
+
+  return surfaces
 }
+
+/** Whether `y` is within the exposed solid shell above a dry cave. */
+const isWithinSurfaceShell = (y: number, surfaceY: number): boolean =>
+  surfaceY !== NO_SURFACE_Y && y > surfaceY - CAVE_SURFACE_MARGIN_BLOCKS
 
 /**
- * Carve one column, from its noise-derived cave band down to the
- * water-floor-shell guard on each voxel.
+ * Carve the 3D noise pocket in one column, respecting water and surface shells.
  *
  * ────────────────────────────────────────────────────────────────
  * THE GUARD. Leave a solid shell under any water body, or the bed
@@ -190,23 +203,23 @@ const caveBandForDensity = (density: number): CaveBand => {
  * ────────────────────────────────────────────────────────────────
  */
 const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz: number): void => {
-  const { blocks, margin, caveSeed, coord } = context
-  const density = valueNoise2D(
-    caveSeed,
-    worldX(coord, lx),
-    worldZ(coord, lz),
-    NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_WAVELENGTH_BLOCKS,
-  )
+  const { blocks, margin, caveNoise, coord, surfaceYs } = context
+  const surfaceY = readRequired(surfaceYs, lz * CHUNK_SIZE_XZ + lx)
+  const protectsSurface = waterFloorY === NO_WATER_FLOOR
+  const sampleX = worldX(coord, lx) * CAVE_NOISE_XZ_FREQUENCY
+  const sampleZ = worldZ(coord, lz) * CAVE_NOISE_XZ_FREQUENCY
 
-  if (density <= CAVE_THRESHOLD) {
-    return
-  }
-
-  const { from, to } = caveBandForDensity(density)
-
-  for (let y = from; y <= to; y += AXIS_STEP) {
-    if (!isWithinWaterFloorShell(y, waterFloorY, margin)) {
-      carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
+  for (let y = CAVE_FLOOR_Y; y <= CAVE_CEILING_Y; y += AXIS_STEP) {
+    if (
+      !(
+        (protectsSurface && isWithinSurfaceShell(y, surfaceY)) ||
+        isWithinWaterFloorShell(y, waterFloorY, margin)
+      )
+    ) {
+      const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
+      if (density > CAVE_THRESHOLD) {
+        carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
+      }
     }
   }
 }
@@ -229,8 +242,9 @@ export const carveCaves = (
 ): void => {
   const margin = options.waterFloorMargin ?? WATER_FLOOR_MARGIN
   const waterFloors = computeWaterFloorYs(blocks, margin)
-  const caveSeed = channelSeed(seed, 'caves')
-  const context: CarveContext = { blocks, caveSeed, coord, margin }
+  const surfaceYs = computeSurfaceYs(blocks)
+  const caveNoise = createNoiseField(channelSeed(seed, 'caves')).noise3d
+  const context: CarveContext = { blocks, caveNoise, coord, margin, surfaceYs }
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {

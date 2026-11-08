@@ -4,10 +4,16 @@ import type {
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
 import { OCEAN_MONUMENT_BLOCK, OCEAN_MONUMENT_LAYOUT } from './ocean-monument-data.js'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type OceanMonumentCandidate = { readonly x: number; readonly z: number }
@@ -50,6 +56,20 @@ const terrainProbesFor = (
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
+}
+
+const terrainProbesForResult = (
+  candidate: OceanMonumentCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> => {
+  const probeExtent = OCEAN_MONUMENT_LAYOUT.halfExtent
+  return sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - probeExtent) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + probeExtent) },
+  ])
 }
 
 const probesAreSuitable = (probes: ReadonlyArray<OverworldTerrainSample>): boolean =>
@@ -186,4 +206,19 @@ export const planOceanMonumentForCandidate = (
   const baseYOption = terrainFits(candidate, sampleTerrain)
   if (Option.isNone(baseYOption)) {return Option.none()}
   return Option.some(buildOceanMonumentDraft(candidate, baseYOption.value))
+}
+
+// eslint-disable-next-line max-statements -- The result path checks all terrain before constructing the unchanged draft.
+export const planOceanMonumentForCandidateWithResultSampler = (
+  candidate: OceanMonumentCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<OceanMonumentDraft>, OverworldTerrainSamplingFailure> => {
+  const probes = terrainProbesForResult(candidate, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  if (!probesAreSuitable(probes.success)) {return Result.succeed(Option.none())}
+  const { minimum: minimumSurfaceY, maximum: maximumSurfaceY } = surfaceBoundsFor(probes.success)
+  if (maximumSurfaceY - minimumSurfaceY > OCEAN_MONUMENT_LAYOUT.maxSurfaceVariation) {return Result.succeed(Option.none())}
+  const baseY = maximumSurfaceY + UNIT_STEP
+  if (!structureYFits(baseY, probes.success)) {return Result.succeed(Option.none())}
+  return Result.succeed(Option.some(buildOceanMonumentDraft(candidate, baseY)))
 }

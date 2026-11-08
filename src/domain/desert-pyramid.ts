@@ -3,11 +3,17 @@ import type {
   NaturalStructureMarkerDraft,
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import { type BlockId } from '@nerima-games/mc-kernel'
 import { DESERT_PYRAMID_LAYOUT } from './desert-pyramid-data.js'
 import { NATURAL_STRUCTURE_BLOCK } from './natural-structure-data.js'
-import { Option } from 'effect'
-import type { OverworldTerrainSampler } from './structure-siting.js'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type DesertPyramidCandidate = { readonly x: number; readonly z: number }
@@ -38,17 +44,7 @@ const addMarker = (markers: Array<NaturalStructureMarkerDraft>, marker: NaturalS
   markers.push(Object.freeze(marker))
 }
 
-const terrainFits = (
-  candidate: DesertPyramidCandidate,
-  sampleTerrain: OverworldTerrainSampler,
-): Option.Option<number> => {
-  const probes = [
-    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
-    sampleTerrain(blockAxis(candidate.x - PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
-    sampleTerrain(blockAxis(candidate.x + PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
-    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - PYRAMID_GROUND_PROBE_OFFSET)),
-    sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + PYRAMID_GROUND_PROBE_OFFSET)),
-  ]
+const terrainFitsForProbes = (probes: ReadonlyArray<OverworldTerrainSample>): Option.Option<number> => {
   if (probes.some((probe) => probe.biome !== 'DESERT' || probe.surfaceY <= probe.seaLevel + DESERT_PYRAMID_LAYOUT.minDryClearance)) {
     return Option.none()
   }
@@ -59,6 +55,33 @@ const terrainFits = (
     return Option.none()
   }
   return Option.some(maximumSurfaceY + DESERT_PYRAMID_LAYOUT.baseYClearance)
+}
+
+const terrainFits = (
+  candidate: DesertPyramidCandidate,
+  sampleTerrain: OverworldTerrainSampler,
+): Option.Option<number> => terrainFitsForProbes([
+  sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z)),
+  sampleTerrain(blockAxis(candidate.x - PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
+  sampleTerrain(blockAxis(candidate.x + PYRAMID_GROUND_PROBE_OFFSET), blockAxis(candidate.z)),
+  sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - PYRAMID_GROUND_PROBE_OFFSET)),
+  sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + PYRAMID_GROUND_PROBE_OFFSET)),
+])
+
+const terrainFitsForResultSampler = (
+  candidate: DesertPyramidCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<number>, OverworldTerrainSamplingFailure> => {
+  const probeExtent = PYRAMID_GROUND_PROBE_OFFSET
+  const probes = sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - probeExtent) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + probeExtent) },
+  ])
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  return Result.succeed(terrainFitsForProbes(probes.success))
 }
 
 const isPyramidBoundary = (x: number, z: number, halfExtent: number): boolean =>
@@ -157,4 +180,22 @@ export const planDesertPyramidForCandidate = (
     markers: Object.freeze(markers),
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
+}
+
+export const planDesertPyramidForCandidateWithResultSampler = (
+  candidate: DesertPyramidCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<DesertPyramidDraft>, OverworldTerrainSamplingFailure> => {
+  const baseY = terrainFitsForResultSampler(candidate, sampleTerrain)
+  if (Result.isFailure(baseY)) {return Result.fail(baseY.failure)}
+  if (Option.isNone(baseY.success)) {return Result.succeed(Option.none())}
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  const markers: Array<NaturalStructureMarkerDraft> = []
+  addPyramid(blocks, candidate, baseY.success.value)
+  addChamber(blocks, markers, candidate, baseY.success.value)
+  return Result.succeed(Option.some(Object.freeze({
+    blocks: Object.freeze([...blocks.values()]),
+    markers: Object.freeze(markers),
+    origin: Object.freeze({ x: candidate.x, y: baseY.success.value, z: candidate.z }),
+  })))
 }

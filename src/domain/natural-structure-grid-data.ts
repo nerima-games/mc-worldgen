@@ -4,6 +4,7 @@ import {
   STRONGHOLD_REGION_SPAWN_PERMILLE,
   STRONGHOLD_SITE_MARGIN,
   VILLAGE_REGION_SIZE,
+  VILLAGE_REGION_SPAWN_PERMILLE,
   VILLAGE_SITE_MARGIN,
 } from './structure-siting.js'
 import { BASTION_REMNANT_GRID } from './bastion-remnant-data.js'
@@ -46,7 +47,7 @@ export const NATURAL_STRUCTURE_GRID: Readonly<Record<NaturalStructureKind, Natur
   village: Object.freeze({
     separation: VILLAGE_SITE_MARGIN * VILLAGE_SEPARATION_MULTIPLIER,
     spacing: VILLAGE_REGION_SIZE,
-    spawnPermille: 120,
+    spawnPermille: VILLAGE_REGION_SPAWN_PERMILLE,
   }),
 })
 

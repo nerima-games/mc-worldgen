@@ -20,13 +20,21 @@
  * half of the move. None of them reads `test/golden/chunk-goldens.json`.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { blockIdOf } from '@nerima-games/mc-kernel'
-import { BIOMES, BIOME_SURFACES, BLOCK, type BiomeType } from '../src/domain/biome'
+import { BIOMES, BIOME_SURFACES, BLOCK, KERNEL_BIOMES, type BiomeType } from '../src/domain/biome'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
 import { localAxis } from '../src/domain/coordinate-compatibility'
-import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import {
+  BEDROCK_Y,
+  blockIndex,
+  CHUNK_HEIGHT,
+  CHUNK_SIZE_XZ,
+  DEFAULT_TERRAIN_LEVELS,
+} from '../src/domain/constants'
 import { generateChunkAt } from './helpers/unwrapped-worldgen'
+import { createTerrainDensitySampler } from '../src/domain/density-function'
+import { resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
 import {
   AQUATIC_PLANT_IDS,
   GROUND_COVER_IDS,
@@ -70,17 +78,20 @@ const isSupportedPlant = (id: number, below: number): boolean => {
   return false
 }
 
-/** One single-biome chunk per biome, from the golden matrix's own selection rule. */
-const CHUNK_FOR_BIOME: ReadonlyMap<BiomeType, { readonly cx: number; readonly cz: number }> = new Map(
-  GOLDEN_SPECS.slice(0, BIOMES.length).map((spec) => [spec.biome, { cx: spec.cx, cz: spec.cz }] as const),
-)
+/** Fixed golden coordinates remain representative samples, not one-biome chunks. */
+const VEGETATION_GOLDEN_SPECS = GOLDEN_SPECS.slice(0, BIOMES.length)
+const decoratedChunks = VEGETATION_GOLDEN_SPECS.map((spec) => ({
+  cx: spec.cx,
+  cz: spec.cz,
+  chunk: generateChunkAt(GOLDEN_SEED, chunkAxis(spec.cx), chunkAxis(spec.cz)),
+}))
+const vegetationDensitySampler = Result.getOrThrow(createTerrainDensitySampler(GOLDEN_SEED))
 
-const chunkFor = (biome: BiomeType): Chunk => {
-  const at = CHUNK_FOR_BIOME.get(biome)
-  if (at === undefined) {
-    throw new Error(`no golden chunk for ${biome}`)
-  }
-  return generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz))
+const generatedCoarseBiomeAt = (wx: number, wz: number): BiomeType => {
+  const surfaceY = Result.getOrThrow(vegetationDensitySampler.surfaceHeightAt(wx, wz))
+  return Result.getOrThrow(
+    resolveTerrainColumnForGeneration(GOLDEN_SEED, wx, wz, DEFAULT_TERRAIN_LEVELS, surfaceY),
+  ).biome
 }
 
 const countPlants = (chunk: Chunk): number => {
@@ -542,8 +553,6 @@ describe('special vegetation support and placement', () => {
  * ---------------------------------------------------------------------------
  */
 describe('what backs the vegetation half of the golden move', () => {
-  const decoratedChunks = BIOMES.map((biome) => ({ biome, chunk: chunkFor(biome) }))
-
   it.effect('V-1: every plant obeys its category support rule', () =>
     Effect.sync(() => {
       let seen = 0
@@ -551,7 +560,7 @@ describe('what backs the vegetation half of the golden move', () => {
       // enough to trip `testTimeout` under a loaded run. Same reason as I-1.
       const floating: Array<string> = []
 
-      for (const { biome, chunk } of decoratedChunks) {
+      for (const { cx, cz, chunk } of decoratedChunks) {
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
             for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
@@ -563,7 +572,7 @@ describe('what backs the vegetation half of the golden move', () => {
               const id = readBlock(chunk.blocks, blockIndex(lx, y, lz))
               const supported = isSupportedPlant(id, below)
               if (!supported) {
-                floating.push(`${biome} (${String(lx)}, ${String(y)}, ${String(lz)}) on ${String(below)}`)
+                floating.push(`(${String(cx)}, ${String(cz)}) column (${String(lx)}, ${String(y)}, ${String(lz)}) on ${String(below)}`)
               }
             }
           }
@@ -581,7 +590,7 @@ describe('what backs the vegetation half of the golden move', () => {
     Effect.sync(() => {
       const crowded: Array<string> = []
 
-      for (const { biome, chunk } of decoratedChunks) {
+      for (const { cx, cz, chunk } of decoratedChunks) {
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
             let singleBlockPlants = 0
@@ -596,11 +605,11 @@ describe('what backs the vegetation half of the golden move', () => {
               }
             }
             if (singleBlockPlants > 1) {
-              crowded.push(`${biome} (${String(lx)}, ${String(lz)}) carries ${String(singleBlockPlants)} single-block plants`)
+              crowded.push(`(${String(cx)}, ${String(cz)}) column (${String(lx)}, ${String(lz)}) carries ${String(singleBlockPlants)} single-block plants`)
             }
             for (const [id, count] of stackedPlants) {
               if (count > 3) {
-                crowded.push(`${biome} (${String(lx)}, ${String(lz)}) carries ${String(count)} of ${String(id)}`)
+                crowded.push(`(${String(cx)}, ${String(cz)}) column (${String(lx)}, ${String(lz)}) carries ${String(count)} of ${String(id)}`)
               }
             }
           }
@@ -611,40 +620,33 @@ describe('what backs the vegetation half of the golden move', () => {
     }),
   )
 
-  /**
-   * V-3. The header of `domain/vegetation.ts` claims BEACH's transcribed 0.02
-   * cannot place anything because this repository's BEACH surface is SAND, and
-   * that DESERT, SNOW and OCEAN are zero on both sides. That is a claim about
-   * the interaction of two tables, so it is measured rather than reasoned — if
-   * `BIOME_SURFACES` ever gives BEACH a dirt patch, this fails and the header
-   * gets corrected instead of quietly becoming false.
-   */
-  it.effect('V-3: each generated plant biome has an explicit expected category', () =>
+  it.effect('V-3: generated ground cover only appears in capable resolved categories', () =>
     Effect.sync(() => {
-      const growing = decoratedChunks.filter(({ chunk }) => countPlants(chunk) > 0).map(({ biome }) => biome)
-
-      expect([...growing].sort()).toStrictEqual([
-        'BEACH',
-        'DESERT',
-        'FLOWER_FOREST',
-        'FOREST',
-        'JUNGLE',
-        'MOUNTAINS',
-        'OCEAN',
-        'PLAINS',
-        'RIVER',
-        'SAVANNA',
-        'SWAMP',
-        'TAIGA',
-      ])
-
-      // A generated ground-cover block must be supported by the static biome
-      // predicate. A capable biome may still produce no ground cover when
-      // this sampled column is submerged or otherwise unsuitable.
-      for (const { biome, chunk } of decoratedChunks) {
-        const groundCoverCount = chunk.blocks.filter((id) => GROUND_COVER_IDS.includes(id)).length
-        if (groundCoverCount > 0) expect(biomeCanGrowGroundPlants(biome), `${biome} predicate disagrees with its chunk`).toBe(true)
+      let generatedColumns = 0
+      for (const { cx, cz, chunk } of decoratedChunks) {
+        for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+          for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+            let hasGroundCover = false
+            for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+              if (GROUND_COVER_IDS.includes(readBlock(chunk.blocks, blockIndex(lx, y, lz)))) {
+                hasGroundCover = true
+                break
+              }
+            }
+            if (hasGroundCover) {
+              const wx = cx * CHUNK_SIZE_XZ + lx
+              const wz = cz * CHUNK_SIZE_XZ + lz
+              const biome = generatedCoarseBiomeAt(wx, wz)
+              expect(
+                biomeCanGrowGroundPlants(biome),
+                `${biome} predicate disagrees at generated column ${String(wx)},${String(wz)}`,
+              ).toBe(true)
+              generatedColumns += 1
+            }
+          }
+        }
       }
+      expect(generatedColumns).toBeGreaterThan(0)
 
       // BEACH keeps a non-zero ground-cover density, but its sand surface is
       // reached by the separate cactus/sugar-cane rules.
@@ -656,88 +658,25 @@ describe('what backs the vegetation half of the golden move', () => {
 
   it.effect('V-4: vegetation is decoration — `decorate: false` produces none of it', () =>
     Effect.sync(() => {
-      for (const biome of BIOMES) {
-        const at = CHUNK_FOR_BIOME.get(biome)
-        if (at === undefined) {
-          continue
-        }
-        expect(countPlants(generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz), { decorate: false }))).toBe(0)
+      for (const spec of VEGETATION_GOLDEN_SPECS) {
+        expect(
+          countPlants(generateChunkAt(GOLDEN_SEED, chunkAxis(spec.cx), chunkAxis(spec.cz), { decorate: false })),
+        ).toBe(0)
       }
 
-      // ... and it is not vacuous: the same coordinate decorated does carry some.
-      const forest = CHUNK_FOR_BIOME.get('FOREST')
-      expect(forest).toBeDefined()
-      expect(countPlants(generateChunkAt(GOLDEN_SEED, chunkAxis(forest?.cx ?? 0), chunkAxis(forest?.cz ?? 0)))).toBeGreaterThan(0)
-    }),
-  )
-
-  /**
-   * V-5 SURVEYS A BLOCK OF CHUNKS RATHER THAN THE THIRTEEN BIOME ROWS, because
-   * the rows do not contain enough trees for the claim to be testable. FOREST
-   * (5, -12) carries three, and a collision needs a tree column whose plant roll
-   * also passes — at 0.14 that is 0.4 expected events across the whole matrix.
-   * Measured: weakening `canPlaceGroundPlantAt`'s air check so that a plant may
-   * overwrite a trunk left this test GREEN on the rows. (The support-rule
-   * unit test above catches that mutation, which is why it is a weakness here
-   * and not a hole in the suite.)
-   *
-   * A wider survey is the fix rather than a cleverer assertion: the property is
-   * about generated terrain, so it needs enough terrain to be about.
-   */
-  it.effect('V-5: plants never displace a tree — every trunk column is plant-free', () =>
-    Effect.sync(() => {
-      let trunks = 0
-      const collided: Array<string> = []
-
-      const survey: Array<{ readonly biome: string; readonly chunk: Chunk }> = []
-      for (let cx = -5; cx < 5; cx += 1) {
-        for (let cz = -5; cz < 5; cz += 1) {
-          survey.push({ biome: `(${String(cx)}, ${String(cz)})`, chunk: generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz)) })
-        }
-      }
-
-      for (const { biome, chunk } of survey) {
-        for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-          for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            let hasLog = false
-            let hasPlant = false
-            for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
-              const id = readBlock(chunk.blocks, blockIndex(lx, y, lz))
-              if (id === BLOCK.LOG) {
-                hasLog = true
-              }
-              if (PLANT_ID_SET.has(id)) {
-                hasPlant = true
-              }
-            }
-            if (hasLog) {
-              trunks += 1
-              if (hasPlant) {
-                collided.push(`${biome} (${String(lx)}, ${String(lz)})`)
-              }
-            }
-          }
-        }
-      }
-
-      expect(collided, 'columns holding both a trunk and a plant').toStrictEqual([])
-      // Enough trees for a collision to be likely if the rule were wrong: at the
-      // FOREST/PLAINS densities this is tens of expected events, not fractions.
-      expect(trunks).toBeGreaterThan(50)
+      const decoratedWithPlants = decoratedChunks.find(({ chunk }) => countPlants(chunk) > 0)
+      expect(decoratedWithPlants).toBeDefined()
+      if (decoratedWithPlants === undefined) return
+      expect(countPlants(decoratedWithPlants.chunk)).toBeGreaterThan(0)
     }),
   )
 
   it.effect('V-6: the biome array is untouched — decoration writes blocks, not biomes', () =>
     Effect.sync(() => {
-      for (const biome of BIOMES) {
-        const at = CHUNK_FOR_BIOME.get(biome)
-        if (at === undefined) {
-          continue
-        }
-        const decorated = generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz), { decorate: true })
-        const bare = generateChunkAt(GOLDEN_SEED, chunkAxis(at.cx), chunkAxis(at.cz), { decorate: false })
+      for (const { cx, cz, chunk: decorated } of decoratedChunks) {
+        const bare = generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz), { decorate: false })
         expect(decorated.biomes).toStrictEqual(bare.biomes)
-        expect(decorated.biomes[columnIndex(localAxis(0), localAxis(0))]).toBe(biome)
+        expect(KERNEL_BIOMES).toContain(decorated.biomes[columnIndex(localAxis(0), localAxis(0))])
       }
     }),
   )

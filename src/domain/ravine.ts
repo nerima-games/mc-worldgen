@@ -175,10 +175,9 @@
  * thing resting on nothing. The reference has it too. It is split here, and the
  * split is by whether fixing it needs a MECHANISM:
  *
- *   GROUND COVER — FIXED. A plant is one block in one column with no coupling
- *   to its neighbours, so the flower standing at `surfaceY + 1` over a fresh
- *   canyon is removed by reading one cell and writing AIR. `clearGroundCover`
- *   below, `test/ravine.test.ts` R-7.
+ *   PLANTS — FIXED. A plant stack is confined to one column, so consecutive
+ *   plant blocks above `surfaceY` are removed when a ravine cuts the ground
+ *   beneath them. `clearGroundCover` below, `test/ravine.test.ts` R-7.
  *
  *   TREES — RECORDED, NOT FIXED, and the reason is that both available fixes are
  *   new mechanisms rather than three lines. `./terrain.ts`'s `plantTree` writes a
@@ -187,13 +186,13 @@
  *   copy of a shape, which is what `TREE_CROWN_RADIUS` exists to stop) or gating
  *   `shouldPlaceTree` on the ravine field (a placement rule, which moves the
  *   pass order this file just argued for). Choosing between them is a design
- *   call and not a port. Measured cost of leaving it, taken in the WORST place
- *   — the 7 x 7 chunks around the densest ravine region within 40 chunks of the
- *   origin: 14 of 580 LOG cells stand on air, 2.4%, about 3 trees of 116. The
- *   same window at the origin, which no ravine reaches, has none.
+ *   call and not a port. Its measured cost is pinned in the 7 x 7 chunks around
+ *   the densest ravine region within 40 chunks of the origin. A matching window
+ *   at the origin, which no ravine reaches, provides the comparison.
  *   `test/ravine.test.ts` R-8 pins that so it cannot grow silently, and
  *   `../docs/design-notes.md` DN-8 carries the owed row.
  */
+import { AQUATIC_PLANT_IDS, PLANT_IDS } from './vegetation.js'
 import { BLOCK, type BiomeType } from './biome.js'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { channelSeedValue, valueNoise2D } from './noise-compatibility.js'
@@ -201,7 +200,6 @@ import { columnIndexForKnownLocalRange, readBlock } from './chunk.js'
 import { worldX, worldZ } from './generator-coordinates.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { PLANT_IDS } from './vegetation.js'
 
 /** Frequency of the ravine field. `ravine-carver.ts:10`; a 250-block wavelength. */
 export const RAVINE_NOISE_SCALE = 0.004
@@ -325,6 +323,9 @@ export type RavineWaterGuardInput = {
   readonly surfaceY: number
 }
 
+const isWaterSurfaceBlock = (block: number): boolean =>
+  block === BLOCK.WATER || block === BLOCK.ICE || AQUATIC_PLANT_IDS.includes(block)
+
 export const ravineWaterGuardLayer = ({
   biome,
   blocks,
@@ -348,37 +349,30 @@ export const ravineWaterGuardLayer = ({
   }
 
   // Layer 2, `ravine-carver.ts:46`, and the one that is actually load-bearing.
-  // A lake in a PLAINS basin is submerged and is not an OCEAN, so only a probe
-  // Of the real blocks can see it.
+  // Aquatic plants and ice can occupy the first block above the surface.
   const above = surfaceY + ABOVE_SURFACE_OFFSET
-  if (above < CHUNK_HEIGHT && readBlock(blocks, blockIndex(lx, above, lz)) === BLOCK.WATER) {
+  if (above < CHUNK_HEIGHT && isWaterSurfaceBlock(readBlock(blocks, blockIndex(lx, above, lz)))) {
     return 'blocks'
   }
 
   return null
 }
 
-/**
- * Remove the single-block plant standing on a column whose ground has just gone.
- *
- * Returns whether anything was cleared. Scoped to `PLANT_IDS` on purpose: those
- * are the ids `./vegetation.ts` writes one per column with no dependency on a
- * neighbour, so this is exact. Logs and leaves are NOT in the set — see the
- * module header on why a trunk cannot be removed without a mechanism.
- */
+/** Remove the plant stack standing on a column whose ground has just gone. */
 export const clearGroundCover = (blocks: Uint16Array, lx: number, surfaceY: number, lz: number): boolean => {
-  const above = surfaceY + ABOVE_SURFACE_OFFSET
-  if (above >= CHUNK_HEIGHT) {
+  let y = surfaceY + ABOVE_SURFACE_OFFSET
+  if (y >= CHUNK_HEIGHT) {
     return false
   }
 
-  const index = blockIndex(lx, above, lz)
-  if (!PLANT_IDS.includes(readBlock(blocks, index))) {
-    return false
+  let cleared = false
+  while (y < CHUNK_HEIGHT && PLANT_IDS.includes(readBlock(blocks, blockIndex(lx, y, lz)))) {
+    blocks[blockIndex(lx, y, lz)] = BLOCK.AIR
+    cleared = true
+    y += ABOVE_SURFACE_OFFSET
   }
 
-  blocks[index] = BLOCK.AIR
-  return true
+  return cleared
 }
 
 /** Everything `resolveRavineCut` needs about the chunk being carved. */

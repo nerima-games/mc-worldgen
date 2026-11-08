@@ -16,6 +16,7 @@ import type {
   NaturalStructureGrid,
   NaturalStructureKind,
   NaturalStructurePlan,
+  NaturalStructurePlanFailure,
   NaturalStructureRegion,
   NaturalStructureSamplers,
 } from './natural-structure-types.js'
@@ -233,7 +234,7 @@ const appendPlanForRegion = (
   context: StructurePlanContext,
   regionX: ValidatedNaturalStructureRegionAxis,
   regionZ: ValidatedNaturalStructureRegionAxis,
-): InvalidNaturalStructureCoordinate | null => {
+): NaturalStructurePlanFailure | null => {
   const result = context.planForRegion(context, regionX, regionZ)
   if (Result.isFailure(result)) {return result.failure}
   if (Option.isSome(result.success)) {
@@ -261,7 +262,7 @@ const appendPlansInSpan = (
   kind: NaturalStructureKind,
   candidatePresenceChannelSeed: NoiseSeed,
   span: ValidatedNaturalStructureRegionSpan,
-): InvalidNaturalStructureCoordinate | null => {
+): NaturalStructurePlanFailure | null => {
   const { minRegionX, maxRegionX, minRegionZ, maxRegionZ } = span
   let structureContext: StructurePlanContext | typeof NO_STRUCTURE_PLAN_CONTEXT = NO_STRUCTURE_PLAN_CONTEXT
   for (let regionX = minRegionX; regionX <= maxRegionX; regionX += UNIT_STEP) {
@@ -286,7 +287,7 @@ const appendPlansForKind = (
   plans: Array<NaturalStructurePlan>,
   context: ChunkPlanContext,
   kind: NaturalStructureKind,
-): InvalidNaturalStructureCoordinate | null => {
+): NaturalStructurePlanFailure | null => {
   const span = regionSpanForChunk(context.validatedChunk, NATURAL_STRUCTURE_GRID[kind])
   const validatedSpan = validateNaturalStructureRegionSpan(
     kind,
@@ -303,7 +304,7 @@ export type NaturalStructureRegionPlanner = (
   context: NaturalStructurePlanContext,
   regionX: ValidatedNaturalStructureRegionAxis,
   regionZ: ValidatedNaturalStructureRegionAxis,
-) => Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
+) => Result.Result<Option.Option<NaturalStructurePlan>, NaturalStructurePlanFailure>
 
 /**
  * Enumerates only candidate regions that can overlap a chunk. The bounds are
@@ -316,7 +317,7 @@ export const naturalStructurePlansForValidatedChunk = (
   validatedChunk: ValidatedNaturalStructureChunkCoordinates,
   samplers: NaturalStructureSamplers,
   planForRegion: NaturalStructureRegionPlanner,
-): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure> => {
   const plans: Array<NaturalStructurePlan> = []
   const context: ChunkPlanContext = { dimension, planForRegion, samplers, seed, validatedChunk }
 

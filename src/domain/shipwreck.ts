@@ -3,11 +3,17 @@ import type {
   NaturalStructureMarkerDraft,
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import { SHIPWRECK_BLOCK, SHIPWRECK_LAYOUT } from './shipwreck-data.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type ShipwreckCandidate = { readonly x: number; readonly z: number }
@@ -53,6 +59,20 @@ const terrainProbesFor = (
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
+}
+
+const terrainProbesForResult = (
+  candidate: ShipwreckCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> => {
+  const probeExtent = SHIPWRECK_LAYOUT.halfLength
+  return sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - probeExtent) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + probeExtent) },
+  ])
 }
 
 const terrainMatchesOcean = (probes: ReadonlyArray<OverworldTerrainSample>): boolean =>
@@ -235,4 +255,21 @@ export const planShipwreckForCandidate = (
     markers: Object.freeze(markers),
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
+}
+
+export const planShipwreckForCandidateWithResultSampler = (
+  candidate: ShipwreckCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<ShipwreckDraft>, OverworldTerrainSamplingFailure> => {
+  const probes = terrainProbesForResult(candidate, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  if (!terrainMatchesOcean(probes.success)) {return Result.succeed(Option.none())}
+  const baseYOption = baseYForTerrainProbes(probes.success)
+  if (Option.isNone(baseYOption)) {return Result.succeed(Option.none())}
+  const { blocks, markers } = buildShipwreckPlan(candidate, baseYOption.value)
+  return Result.succeed(Option.some(Object.freeze({
+    blocks: Object.freeze([...blocks.values()]),
+    markers: Object.freeze(markers),
+    origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
+  })))
 }

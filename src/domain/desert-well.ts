@@ -3,10 +3,16 @@ import type {
   NaturalStructureBlockPlacementDraft,
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type DesertWellCandidate = { readonly x: number; readonly z: number }
@@ -45,6 +51,20 @@ const terrainProbesFor = (
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
+}
+
+const terrainProbesForResult = (
+  candidate: DesertWellCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> => {
+  const probeExtent = DESERT_WELL_LAYOUT.baseHalfExtent
+  return sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - probeExtent) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + probeExtent) },
+  ])
 }
 
 const probesAreSuitable = (probes: ReadonlyArray<OverworldTerrainSample>): boolean =>
@@ -164,4 +184,23 @@ export const planDesertWellForCandidate = (
     markers: Object.freeze([] as const),
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
+}
+
+// eslint-disable-next-line max-statements -- The result path checks all terrain before constructing the unchanged draft.
+export const planDesertWellForCandidateWithResultSampler = (
+  candidate: DesertWellCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<DesertWellDraft>, OverworldTerrainSamplingFailure> => {
+  const probes = terrainProbesForResult(candidate, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  if (!probesAreSuitable(probes.success)) {return Result.succeed(Option.none())}
+  const baseYOption = baseYForProbes(probes.success)
+  if (Option.isNone(baseYOption)) {return Result.succeed(Option.none())}
+  const blocks = new Map<string, NaturalStructureBlockPlacementDraft>()
+  buildWell(blocks, candidate, baseYOption.value)
+  return Result.succeed(Option.some(Object.freeze({
+    blocks: Object.freeze([...blocks.values()]),
+    markers: Object.freeze([] as const),
+    origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
+  })))
 }

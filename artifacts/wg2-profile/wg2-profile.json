@@ -1,0 +1,137 @@
+{
+  "biomeDistribution": {
+    "before": {
+      "biomeCounts": {
+        "BEACH": 14858,
+        "DESERT": 8297,
+        "FOREST": 4666,
+        "JUNGLE": 2382,
+        "MOUNTAINS": 8115,
+        "OCEAN": 43303,
+        "PLAINS": 1873,
+        "RIVER": 675,
+        "SAVANNA": 5128,
+        "SNOW": 6129,
+        "SWAMP": 163,
+        "TAIGA": 6811
+      },
+      "chunkCount": 400,
+      "columnCount": 102400,
+      "surfaceHeights": {
+        "max": 83,
+        "median": 62,
+        "min": 38,
+        "p95": 76
+      }
+    },
+    "after": {
+      "biomeCounts": {
+        "beach": 11676,
+        "cold_ocean": 4753,
+        "dark_forest": 975,
+        "desert": 8124,
+        "forest": 3690,
+        "ice_spikes": 4207,
+        "jungle": 1361,
+        "lukewarm_ocean": 15486,
+        "meadow": 4439,
+        "ocean": 16071,
+        "old_growth_pine_taiga": 1706,
+        "old_growth_spruce_taiga": 4560,
+        "plains": 2045,
+        "river": 1488,
+        "savanna": 3235,
+        "snowy_beach": 696,
+        "snowy_plains": 4859,
+        "snowy_taiga": 925,
+        "sparse_jungle": 3439,
+        "sunflower_plains": 541,
+        "swamp": 367,
+        "taiga": 2873,
+        "warm_ocean": 4884
+      },
+      "chunkCount": 400,
+      "columnCount": 102400,
+      "surfaceHeights": {
+        "max": 107,
+        "median": 65,
+        "min": 32,
+        "p95": 93
+      }
+    }
+  },
+  "profileInputs": {
+    "chunkCoordinates": [
+      {
+        "cx": -2,
+        "cz": -2
+      },
+      {
+        "cx": -1,
+        "cz": -2
+      },
+      {
+        "cx": -2,
+        "cz": -1
+      },
+      {
+        "cx": -1,
+        "cz": -1
+      }
+    ],
+    "seedBase": 20260726,
+    "seedCount": 100,
+    "seedStep": 104729,
+    "columnsPerChunk": 256,
+    "surfaceHeightMethod": "highest generated non-water terrain block; excludes ice, logs, leaves, bedrock"
+  },
+  "timing": {
+    "armOutputHashesStable": true,
+    "batch": [
+      {
+        "seed": 20260726,
+        "cx": -2,
+        "cz": -2
+      },
+      {
+        "seed": 20260726,
+        "cx": -1,
+        "cz": -2
+      },
+      {
+        "seed": 20365455,
+        "cx": -2,
+        "cz": -1
+      },
+      {
+        "seed": 20365455,
+        "cx": -1,
+        "cz": -1
+      }
+    ],
+    "forceGcBeforeEveryArm": true,
+    "noiseFloor": {
+      "medianAbsoluteDifferenceMs": 1.6173330000019632,
+      "p95AbsoluteDifferenceMs": 4.221999999994296,
+      "secondArmWins": 10
+    },
+    "paired": {
+      "afterWins": 0,
+      "medianAfterMinusBeforeMs": 302.73650099999213,
+      "medianBeforeBatchMs": 24.985999999997148,
+      "medianAfterBatchMs": 327.62716699999874,
+      "medianBeforePerChunkMs": 6.246499999999287,
+      "medianAfterPerChunkMs": 81.90679174999968,
+      "measuredPairs": 15
+    },
+    "protocol": {
+      "aaMeasuredPairs": 15,
+      "aaWarmupPairsExcluded": 2,
+      "abMeasuredPairs": 15,
+      "abOrder": "alternating before/after, after/before",
+      "abWarmupPairsExcluded": 2,
+      "measuredDifference": "after minus before, paired median; afterWins counts faster after arms",
+      "timedOperation": "four generateChunk calls with decorate=true; block and biome hashing is outside the timed interval"
+    }
+  }
+}

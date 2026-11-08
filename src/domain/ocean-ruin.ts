@@ -4,10 +4,16 @@ import type {
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
 import { OCEAN_RUIN_BLOCK, OCEAN_RUIN_LAYOUT } from './ocean-ruin-data.js'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type OceanRuinCandidate = { readonly x: number; readonly z: number }
@@ -54,6 +60,20 @@ const terrainProbesFor = (
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - probeExtent)),
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + probeExtent)),
   ]
+}
+
+const terrainProbesForResult = (
+  candidate: OceanRuinCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> => {
+  const probeExtent = OCEAN_RUIN_LAYOUT.halfExtent
+  return sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + probeExtent), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - probeExtent) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + probeExtent) },
+  ])
 }
 
 const probesAreSuitable = (probes: ReadonlyArray<OverworldTerrainSample>): boolean =>
@@ -221,4 +241,27 @@ export const planOceanRuinForCandidate = (
     markers,
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
+}
+
+// eslint-disable-next-line max-statements -- The result path checks all terrain before constructing the unchanged draft.
+export const planOceanRuinForCandidateWithResultSampler = (
+  candidate: OceanRuinCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<OceanRuinDraft>, OverworldTerrainSamplingFailure> => {
+  const probes = terrainProbesForResult(candidate, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  if (!probesAreSuitable(probes.success)) {return Result.succeed(Option.none())}
+  const baseYOption = baseYForProbes(probes.success)
+  if (Option.isNone(baseYOption)) {return Result.succeed(Option.none())}
+  const blocks = Object.freeze(oceanRuinRelativePlan.blocks.map((placement) =>
+    translateBlock(placement, candidate, baseYOption.value),
+  ))
+  const markers = Object.freeze(oceanRuinRelativePlan.markers.map((marker) =>
+    translateMarker(marker, candidate, baseYOption.value),
+  ))
+  return Result.succeed(Option.some(Object.freeze({
+    blocks,
+    markers,
+    origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
+  })))
 }

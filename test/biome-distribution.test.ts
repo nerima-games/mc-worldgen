@@ -1,177 +1,142 @@
-/**
- * ---------------------------------------------------------------------------
- * The biome mix of the world, measured — docs/testing.md §4-b F-5, 完了条件 7.
- * ---------------------------------------------------------------------------
- *
- * This is `test/terrain-distribution.test.ts` applied to the other output of a
- * column. That file exists because a constant was justified by a measurement
- * over too narrow a window; this one exists because the SAME MISTAKE WAS MADE A
- * SECOND TIME IN THIS REPOSITORY, about biomes, and was written up as a finding
- * before anyone noticed it was the same shape as the first.
- *
- * The second occurrence, verbatim from docs/testing.md §4-b F-5: measured over
- * 384 x 384 blocks, the biome report showed FLOWER_FOREST 0.0% and SWAMP 0.0%
- * while the 13-biome roster was not fully visible. A plausible cause was even
- * written down — that
- * `climateAt` applies no `stretch`, so the extremes are never reached. Widening
- * widening the window is required to measure the full roster. The
- * first result was a description of the handful of lattice points that happened
- * to be in frame.
- *
- * ---------------------------------------------------------------------------
- * The window has to be measured against the RIGHT wavelength
- * ---------------------------------------------------------------------------
- *
- * `test/terrain-distribution.test.ts` asserts its survey is at least 40
- * continentalness features wide, 1/180 being the frequency of the field it
- * measures. Reusing that number here would be the F-1 error in miniature: a
- * threshold carried over from a measurement of a different population.
- *
- * Biome selection reads THREE fields with three different frequencies:
- *
- *     temperature      1/320   `climateAt`
- *     humidity         1/280   `climateAt`
- *     continentalness  1/180   `surfaceHeightAt`, via biomeFor's OCEAN/BEACH override
- *
- * The binding one is the LONGEST, 320: a window wide enough for temperature's
- * tails is automatically wide enough for the other two. So the methodological
- * assertion below is written against 320 and demands 25 features, which the
- * 8192-block survey supplies (8192/320 = 25.6). The elevation test's rule —
- * 40 continentalness features — would admit a span of 7200, and 7200 is only
- * 22.5 temperature features.
- *
- * MEASURED, so that "25" is not another recalled number. Sweeping the span over
- * the same five seeds, what degrades as the window narrows is not the PRESENCE
- * of the rare biomes but the STABILITY of their share — the seed-to-seed spread
- * of the rarest climate-derived biomes:
- *
- *     span    temp. features    SWAMP over 5 seeds         spread
- *      4096        12.8          0.14% .. 0.24%            1.7x
- *      8192        25.6          0.14% .. 0.20%            1.4x     <- used
- *
- * All 13 biomes are present in the committed wide survey at every seed. The
- * outright disappearance reproduced below is limited to the two least common
- * refined biomes in the 384-block window.
- *
- * 25 features is therefore chosen as the width at which the bands further down
- * are actually valid, rather than as a round number: at 8192 the wide survey
- * contains at least 25 features of the slowest climate field. A narrower survey
- * does not merely measure less precisely, it measures a different population.
- *
- * ---------------------------------------------------------------------------
- * Bands, not fractions
- * ---------------------------------------------------------------------------
- *
- * Every biome below is asserted to fall inside a BAND roughly a factor of two
- * either side of what five seeds actually produce, for the reason
- * `test/terrain-distribution.test.ts` gives about its own 1% threshold: the
- * number to gate on is the DEFECT, not today's noise. Pinning OCEAN at 0.351
- * would fail on a seed change, on a stride change, and on any deliberate
- * tuning — so it would be relaxed, and a test that gets relaxed on every
- * unrelated change stops being read.
- *
- * What the bands do catch is what actually goes wrong here: a biome falling to
- * zero (F-5's refined biomes), and a biome swallowing the map (the failure the
- * PLAINS fallback invites, since every unmatched climate lands there).
- *
- * MEASURED, seeds 20260726 / 1 / 4242 / 999983 / 77777, SURVEY geometry below,
- * via `pnpm preview --stats`:
- *
- *     OCEAN    33.5 .. 35.1 %        BEACH    15.0 .. 16.0 %
- *     PLAINS    7.9 ..  9.2 %        FOREST    6.6 ..  8.2 %
- *     DESERT    5.6 ..  6.3 %        SNOW      4.5 ..  6.1 %
- *     TAIGA     7.0 ..  8.2 %        SAVANNA   4.0 ..  5.2 %
- *     JUNGLE    3.8 ..  4.7 %        RIVER     2.4 ..  2.9 %
- *     MOUNTAINS 2.8 ..  3.7 %        FLOWER_FOREST 0.8 .. 1.3 %
- *     SWAMP     0.14 .. 0.21 %
- *
- * Regression names (docs/design-notes.md): worldgen-biome-distribution,
- * worldgen-biome-survey-width.
- */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { BIOMES, type BiomeType } from '../src/domain/biome'
-import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
-import { biomeFor, climateAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
-import { blockAxis, noiseSeed } from './fixtures/validated-inputs'
+import { Effect, Result } from 'effect'
+import { minecraftBiomeFor } from '@nerima-games/mc-noise'
+import { BIOMES, KERNEL_BIOMES, type BiomeType, type KernelBiomeType } from '../src/domain/biome'
+import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
+import { createTerrainDensitySampler } from '../src/domain/density-function'
+import { climateAt, resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
+import { generateChunkAt } from '../src/domain/terrain'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-/**
- * Wavelengths of the three fields biome selection reads, as written in
- * `climateAt` and `surfaceHeightAt`. The survey is judged against the longest.
- */
-const TEMPERATURE_WAVELENGTH = 320
-const HUMIDITY_WAVELENGTH = 280
-const CONTINENTALNESS_WAVELENGTH = 180
-const LONGEST_CLIMATE_WAVELENGTH = Math.max(
-  TEMPERATURE_WAVELENGTH,
-  HUMIDITY_WAVELENGTH,
-  CONTINENTALNESS_WAVELENGTH,
-)
-
-/** SURVEY geometry, identical to `pnpm preview --stats` and to the elevation test. */
+const SURVEY_CONFIGS = [
+  { seed: 20260726, stride: 128 },
+  { seed: 1, stride: 128 },
+  { seed: 4242, stride: 128 },
+  { seed: 999983, stride: 128 },
+  { seed: 77777, stride: 128 },
+] as const
 const SURVEY_SPAN = 8192
-const SURVEY_STRIDE = 16
+const SURVEY_SEEDS = SURVEY_CONFIGS.map(({ seed }) => seed)
+const TEMPERATURE_WAVELENGTH_BLOCKS = 320
+const HUMIDITY_WAVELENGTH_BLOCKS = 280
+const CONTINENTALNESS_WAVELENGTH_BLOCKS = 180
+const LONGEST_BIOME_WAVELENGTH_BLOCKS = Math.max(
+  TEMPERATURE_WAVELENGTH_BLOCKS,
+  HUMIDITY_WAVELENGTH_BLOCKS,
+  CONTINENTALNESS_WAVELENGTH_BLOCKS,
+)
+const SEA_LEVEL_MIN_SHARE = 0.33
+const SEA_LEVEL_MAX_SHARE = 0.5
 
-/** The window F-5 was measured in, kept so that the mistake stays runnable. */
-const NARROW_SPAN = 384
-const NARROW_STRIDE = 1
+const OCEAN_BIOMES: ReadonlySet<KernelBiomeType> = new Set([
+  'cold_ocean',
+  'deep_cold_ocean',
+  'deep_frozen_ocean',
+  'deep_ocean',
+  'lukewarm_ocean',
+  'ocean',
+  'warm_ocean',
+])
+const MOUNTAIN_BIOMES: ReadonlySet<KernelBiomeType> = new Set([
+  'cherry_grove',
+  'frozen_peaks',
+  'grove',
+  'jagged_peaks',
+  'meadow',
+  'snowy_slopes',
+  'stony_peaks',
+  'windswept_forest',
+  'windswept_gravelly_hills',
+  'windswept_hills',
+])
 
-const SEED = 20260726
+type GeneratedColumn = Readonly<{
+  readonly coarseBiome: BiomeType
+  readonly kernelBiome: KernelBiomeType
+  readonly surfaceY: number
+}>
 
-type BiomeSurvey = {
-  readonly total: number
-  readonly counts: ReadonlyMap<BiomeType, number>
-  /** Columns whose surface is under `seaLevel`, the quantity the elevation test reports as 42.9%. */
+type BiomeSurvey = Readonly<{
+  readonly seed: number
+  readonly stride: number
+  readonly columns: ReadonlyArray<GeneratedColumn>
+  readonly coarseCounts: ReadonlyMap<BiomeType, number>
+  readonly kernelCounts: ReadonlyMap<KernelBiomeType, number>
   readonly belowSea: number
-  /** Columns below sea level that classified as neither OCEAN nor BEACH. Must be 0. */
   readonly submergedButDry: number
-  /** Columns classified OCEAN whose surface is NOT below sea level. Must be 0. */
-  readonly oceanAboveSea: number
-}
+  readonly shorelineBand: number
+  readonly beach: number
+}>
 
-const survey = (seed: number, span: number, stride: number): BiomeSurvey => {
-  const half = Math.floor(span / 2)
-  const counts = new Map<BiomeType, number>()
-  let total = 0
+const surveySeed = (seedValue: number, stride: number): BiomeSurvey => {
+  const seed = noiseSeed(seedValue)
+  const sampler = Result.getOrThrow(createTerrainDensitySampler(seed))
+  const columns: Array<GeneratedColumn> = []
+  const coarseCounts = new Map<BiomeType, number>()
+  const kernelCounts = new Map<KernelBiomeType, number>()
+  const half = SURVEY_SPAN / 2
   let belowSea = 0
   let submergedButDry = 0
-  let oceanAboveSea = 0
+  let shorelineBand = 0
+  let beach = 0
 
-  for (let dz = 0; dz < span; dz += stride) {
-    for (let dx = 0; dx < span; dx += stride) {
+  for (let dz = 0; dz < SURVEY_SPAN; dz += stride) {
+    for (let dx = 0; dx < SURVEY_SPAN; dx += stride) {
       const wx = dx - half
       const wz = dz - half
-      const surfaceY = surfaceHeightAt(noiseSeed(seed), blockAxis(wx), blockAxis(wz))
-      const biome = biomeFor(noiseSeed(seed), blockAxis(wx), blockAxis(wz), surfaceY, DEFAULT_TERRAIN_LEVELS)
-      const submerged = surfaceY < DEFAULT_TERRAIN_LEVELS.seaLevel
+      const sample = sampler.surfaceHeightAt(wx, wz)
+      if (Result.isFailure(sample)) {
+        throw new Error(`surface sample failed for seed ${String(seedValue)} at ${String(wx)},${String(wz)}: ${sample.failure.message}`)
+      }
+      const surfaceY = sample.success
+      const column = Result.getOrThrow(
+        resolveTerrainColumnForGeneration(seed, wx, wz, DEFAULT_TERRAIN_LEVELS, surfaceY),
+      )
+      const generated = { coarseBiome: column.biome, kernelBiome: column.kernelBiome, surfaceY }
+      columns.push(generated)
+      coarseCounts.set(generated.coarseBiome, (coarseCounts.get(generated.coarseBiome) ?? 0) + 1)
+      kernelCounts.set(generated.kernelBiome, (kernelCounts.get(generated.kernelBiome) ?? 0) + 1)
 
-      total += 1
-      counts.set(biome, (counts.get(biome) ?? 0) + 1)
-      if (submerged) {
+      const belowWaterline = surfaceY < DEFAULT_TERRAIN_LEVELS.seaLevel
+      if (belowWaterline) {
         belowSea += 1
-        if (biome !== 'OCEAN' && biome !== 'BEACH') {
+        if (generated.coarseBiome !== 'OCEAN' && generated.coarseBiome !== 'BEACH') {
           submergedButDry += 1
         }
       }
-      if (biome === 'OCEAN' && !submerged) {
-        oceanAboveSea += 1
+      if (
+        surfaceY >= DEFAULT_TERRAIN_LEVELS.seaLevel - 2 &&
+        surfaceY <= DEFAULT_TERRAIN_LEVELS.seaLevel + 1
+      ) {
+        shorelineBand += 1
+      }
+      if (generated.coarseBiome === 'BEACH') {
+        beach += 1
       }
     }
   }
 
-  return { total, counts, belowSea, submergedButDry, oceanAboveSea }
+  return {
+    seed: seedValue,
+    stride,
+    columns,
+    coarseCounts,
+    kernelCounts,
+    belowSea,
+    submergedButDry,
+    shorelineBand,
+    beach,
+  }
 }
 
-const wide = survey(SEED, SURVEY_SPAN, SURVEY_STRIDE)
+const surveys = SURVEY_CONFIGS.map(({ seed, stride }) => surveySeed(seed, stride))
+const generatedColumns = surveys.flatMap(({ columns }) => columns)
+const countMatching = (predicate: (column: GeneratedColumn) => boolean): number =>
+  generatedColumns.filter(predicate).length
+const shareOf = (counts: ReadonlyMap<BiomeType, number>, total: number, biome: BiomeType): number =>
+  (counts.get(biome) ?? 0) / total
 
-const shareOf = (result: BiomeSurvey, biome: BiomeType): number =>
-  (result.counts.get(biome) ?? 0) / result.total
-
-/**
- * Lower and upper bound per biome. See the header for the measurements these
- * bracket; they are gates on "gone" and on "took over the map", not snapshots.
- */
-const BANDS: ReadonlyArray<readonly [BiomeType, number, number]> = [
+const COARSE_BIOME_SHARE_BOUNDS: ReadonlyArray<readonly [BiomeType, number, number]> = [
   ['OCEAN', 0.2, 0.5],
   ['BEACH', 0.07, 0.28],
   ['PLAINS', 0.04, 0.15],
@@ -187,222 +152,158 @@ const BANDS: ReadonlyArray<readonly [BiomeType, number, number]> = [
   ['SWAMP', 0.0005, 0.005],
 ]
 
-describe('the biome survey itself', () => {
-  /**
-   * First, for the same reason it is first in the elevation test: every number
-   * below is worthless if this fails. And note which wavelength it uses — the
-   * longest of the three fields biome selection reads, not continentalness's.
-   */
-  it.effect('is wide enough for the SLOWEST climate field, not merely for continentalness', () =>
+describe('generated biome distribution', () => {
+  it.effect('matches mc-noise biome queries while sharing one climate sample', () =>
     Effect.sync(() => {
-      expect(LONGEST_CLIMATE_WAVELENGTH).toBe(TEMPERATURE_WAVELENGTH)
-      expect(SURVEY_SPAN / LONGEST_CLIMATE_WAVELENGTH).toBeGreaterThanOrEqual(25)
-      expect(wide.total).toBe((SURVEY_SPAN / SURVEY_STRIDE) ** 2)
-      expect(wide.total).toBeGreaterThanOrEqual(250_000)
-    }),
-  )
-
-  /**
-   * REGRESSION — docs/testing.md §4-b F-5, reproduced rather than described.
-   *
-   * The `test/carver.test.ts` pattern: a regression test that only asserts the
-   * absence of the bug says that today's code equals today's code. This one
-   * re-runs the narrow measurement and asserts it REACHES THE WRONG CONCLUSION,
-   * so the claim "the window is what did it" is checked and not merely believed.
-   *
-   * 384 x 384 at the origin misses FLOWER_FOREST and SWAMP. The exact missing
-   * set is intentionally pinned because it is the current narrow-window
-   * observation, not a claim that those biomes are unreachable globally.
-   */
-  it.effect('and a narrow window is not: 384 blocks reports biomes that do not exist as missing', () =>
-    Effect.sync(() => {
-      const narrow = survey(SEED, NARROW_SPAN, NARROW_STRIDE)
-      const missing = BIOMES.filter((biome) => (narrow.counts.get(biome) ?? 0) === 0)
-
-      expect(missing.length).toBeGreaterThanOrEqual(2)
-      expect(missing).toStrictEqual(['FLOWER_FOREST', 'SWAMP'])
-      expect(NARROW_SPAN / LONGEST_CLIMATE_WAVELENGTH).toBeLessThan(2)
-    }),
-  )
-})
-
-describe('every biome in the roster is actually generated', () => {
-  /**
-   * The headline, and the direct answer to F-5. A closed literal union whose
-   * members are declared but unreachable is a roster that lies: `BIOME_SURFACES`
-   * and `BIOME_TREE_DENSITY` both have a row for DESERT, `test/biome-and-trees.test.ts`
-   * checks those rows are total over `BIOMES`, and none of that notices if no
-   * column in the world ever classifies as one.
-   */
-  it.effect('reaches all 13 declared biomes', () =>
-    Effect.sync(() => {
-      for (const biome of BIOMES) {
-        expect(wide.counts.get(biome) ?? 0, `${biome} was never generated`).toBeGreaterThan(0)
+      const seed = noiseSeed(51821)
+      const levels = {
+        lakeLevel: blockAxis(DEFAULT_TERRAIN_LEVELS.lakeLevel),
+        seaLevel: blockAxis(DEFAULT_TERRAIN_LEVELS.seaLevel),
       }
-      expect(wide.counts.size).toBe(BIOMES.length)
-    }),
-  )
+      const positions = [
+        { wx: -721, wz: 384 },
+        { wx: -128, wz: -256 },
+        { wx: -1, wz: 0 },
+        { wx: 43, wz: 256 },
+        { wx: 512, wz: -777 },
+      ]
+      const surfaceHeights = [1, 60, 61, 62, 63, 64, 65, 82, 120, 180, 210]
 
-  it.effect('and generates nothing outside it', () =>
-    Effect.sync(() => {
-      const roster = new Set<string>(BIOMES)
-
-      for (const biome of wide.counts.keys()) {
-        expect(roster.has(biome)).toBe(true)
-      }
-    }),
-  )
-})
-
-describe('the mix', () => {
-  it.effect('puts every biome inside its measured band', () =>
-    Effect.sync(() => {
-      for (const [biome, low, high] of BANDS) {
-        const share = shareOf(wide, biome)
-
-        expect(share, `${biome} is below its band at ${share.toFixed(4)}`).toBeGreaterThanOrEqual(low)
-        expect(share, `${biome} is above its band at ${share.toFixed(4)}`).toBeLessThanOrEqual(high)
-      }
-    }),
-  )
-
-  /**
-   * The bands are per-biome and could all be satisfied while one biome quietly
-   * dominated everything interesting. This states the whole-distribution version
-   * directly: no biome is half the world.
-   *
-   * PLAINS is the one to watch, because it is the FALLBACK — every climate that
-   * matches no rule lands there (`domain/biome.ts` `FALLBACK_BIOME`). A rule
-   * table that stopped matching would not throw; it would produce a planet of
-   * grass, with every other band failing only on its lower bound.
-   */
-  it.effect('is spread out: no biome takes half the map, and the fallback is not the map', () =>
-    Effect.sync(() => {
-      for (const biome of BIOMES) {
-        expect(shareOf(wide, biome), `${biome} dominates`).toBeLessThan(0.5)
-      }
-      expect(shareOf(wide, 'PLAINS')).toBeLessThan(shareOf(wide, 'OCEAN') + shareOf(wide, 'BEACH'))
-    }),
-  )
-
-  /**
-   * Not a property of one seed. Coarser stride to stay inside the test budget;
-   * the SPAN — the thing that must not shrink — is unchanged, which is the whole
-   * lesson of F-1 and F-5.
-   */
-  it.effect('holds for other seeds too, so it is a property of the classifier', () =>
-    Effect.sync(() => {
-      for (const seed of [1, 4242, 999983, 77777]) {
-        const other = survey(seed, SURVEY_SPAN, SURVEY_STRIDE * 2)
-
-        for (const [biome, low, high] of BANDS) {
-          const share = (other.counts.get(biome) ?? 0) / other.total
-          expect(share, `${biome} out of band on seed ${String(seed)} at ${share.toFixed(4)}`).toBeGreaterThanOrEqual(
-            low,
+      for (const { wx, wz } of positions) {
+        for (const surfaceY of surfaceHeights) {
+          const generated = Result.getOrThrow(
+            resolveTerrainColumnForGeneration(seed, wx, wz, DEFAULT_TERRAIN_LEVELS, surfaceY),
           )
-          expect(share, `${biome} out of band on seed ${String(seed)} at ${share.toFixed(4)}`).toBeLessThanOrEqual(
-            high,
+          const expected = Result.getOrThrow(
+            minecraftBiomeFor({
+              levels,
+              seed,
+              surfaceY: blockAxis(surfaceY),
+              wx: blockAxis(wx),
+              wz: blockAxis(wz),
+            }),
           )
+          expect(generated.biome).toBe(expected)
         }
       }
     }),
   )
-})
 
-/**
- * ---------------------------------------------------------------------------
- * The structural half — exact, and independent of every band above.
- * ---------------------------------------------------------------------------
- *
- * `biomeFor` applies two height overrides upstream of `classifyBiome`: OCEAN
- * below `seaLevel - 2`, BEACH up to `seaLevel + 1`. Those thresholds bracket
- * `seaLevel` on both sides, so two set inclusions hold for EVERY column, at
- * every seed, with no measurement involved:
- *
- *     OCEAN        subset of   below sea level
- *     below sea    subset of   OCEAN union BEACH
- *
- * These tie the biome distribution to the elevation distribution that
- * `test/terrain-distribution.test.ts` already pins. A band can be widened until
- * it passes; an inclusion cannot.
- */
-describe('the height overrides agree with the heights', () => {
-  it.effect('no column below sea level classifies as a land biome', () =>
+  it.effect('surveys five fixed seeds across at least 25 longest-climate wavelengths', () =>
     Effect.sync(() => {
-      expect(wide.submergedButDry).toBe(0)
-      // Not vacuous: the elevation test measures this at 42.9%.
-      expect(wide.belowSea / wide.total).toBeGreaterThan(0.33)
+      expect(surveys).toHaveLength(SURVEY_SEEDS.length)
+      expect(SURVEY_SPAN / LONGEST_BIOME_WAVELENGTH_BLOCKS).toBeGreaterThanOrEqual(25)
+      for (const survey of surveys) {
+        expect(survey.columns).toHaveLength((SURVEY_SPAN / survey.stride) ** 2)
+      }
+      const expectedColumnCount = SURVEY_CONFIGS.reduce(
+        (total, { stride }) => total + (SURVEY_SPAN / stride) ** 2,
+        0,
+      )
+      expect(generatedColumns).toHaveLength(expectedColumnCount)
     }),
   )
 
-  it.effect('and no OCEAN column is above sea level', () =>
+  it.effect('reaches every coarse category and emits only registered kernel biomes', () =>
     Effect.sync(() => {
-      expect(wide.oceanAboveSea).toBe(0)
-      expect(shareOf(wide, 'OCEAN')).toBeLessThan(wide.belowSea / wide.total)
-    }),
-  )
-
-  /**
-   * The shoreline band is `[seaLevel - 2, seaLevel + 1]`, four blocks of height,
-   * so BEACH is a fixed-width slice of the height distribution rather than a
-   * climate result. docs/testing.md §4-b F-1 records the consequence being
-   * observed: flattening the shaper widened BEACH from 7.1% to 15.9% without
-   * anyone touching biome classification. This pins the mechanism, so the next
-   * person to see BEACH move looks at the shaper and not at `BIOME_RULES`.
-   */
-  it.effect('BEACH is a height band, so it tracks the shaper and not the climate', () =>
-    Effect.sync(() => {
-      const half = Math.floor(SURVEY_SPAN / 2)
-      let inShorelineBand = 0
-      let beach = 0
-
-      for (let dz = 0; dz < SURVEY_SPAN; dz += SURVEY_STRIDE * 2) {
-        for (let dx = 0; dx < SURVEY_SPAN; dx += SURVEY_STRIDE * 2) {
-          const wx = dx - half
-          const wz = dz - half
-          const surfaceY = surfaceHeightAt(noiseSeed(SEED), blockAxis(wx), blockAxis(wz))
-          if (
-            surfaceY >= DEFAULT_TERRAIN_LEVELS.seaLevel - 2 &&
-            surfaceY <= DEFAULT_TERRAIN_LEVELS.seaLevel + 1
-          ) {
-            inShorelineBand += 1
-          }
-          if (biomeFor(noiseSeed(SEED), blockAxis(wx), blockAxis(wz), surfaceY, DEFAULT_TERRAIN_LEVELS) === 'BEACH') {
-            beach += 1
-          }
+      for (const survey of surveys) {
+        expect(survey.coarseCounts.size).toBe(BIOMES.length)
+        for (const biome of BIOMES) {
+          expect(survey.coarseCounts.get(biome) ?? 0, `${biome} missing on seed ${String(survey.seed)}`).toBeGreaterThan(0)
         }
       }
 
-      expect(inShorelineBand).toBeGreaterThan(0)
-      expect(beach).toBe(inShorelineBand)
+      for (const { coarseBiome, kernelBiome } of generatedColumns) {
+        expect(BIOMES).toContain(coarseBiome)
+        expect(KERNEL_BIOMES).toContain(kernelBiome)
+      }
+    }),
+  )
+
+  it.effect('keeps each coarse-biome share inside its baseline multi-seed band', () =>
+    Effect.sync(() => {
+      const shares = surveys.flatMap((survey) =>
+        COARSE_BIOME_SHARE_BOUNDS.map(([biome]) => ({
+          seed: survey.seed,
+          biome,
+          share: shareOf(survey.coarseCounts, survey.columns.length, biome),
+        })),
+      )
+      const violations = shares.filter(({ biome, share }) => {
+        const bounds = COARSE_BIOME_SHARE_BOUNDS.find(([candidate]) => candidate === biome)
+        return bounds === undefined || share < bounds[1] || share > bounds[2]
+      })
+
+      expect(violations, `measured coarse-biome shares: ${JSON.stringify(shares)}`).toStrictEqual([])
+    }),
+  )
+
+  // mc-noise applies OCEAN below seaLevel - 2 and BEACH through seaLevel + 1;
+  // above that it returns the climate classifier, which can itself return OCEAN.
+  it.effect('preserves submerged and shoreline classification boundaries for every seed', () =>
+    Effect.sync(() => {
+      const belowSeaShares = surveys.map((survey) => ({
+        seed: survey.seed,
+        share: survey.belowSea / survey.columns.length,
+      }))
+      const outsideRange = belowSeaShares.filter(
+        ({ share }) => share <= SEA_LEVEL_MIN_SHARE || share >= SEA_LEVEL_MAX_SHARE,
+      )
+
+      expect(outsideRange, `measured below-sea shares: ${JSON.stringify(belowSeaShares)}`).toStrictEqual([])
+      for (const survey of surveys) {
+        expect(survey.submergedButDry).toBe(0)
+        expect(survey.shorelineBand).toBeGreaterThan(0)
+        expect(survey.beach).toBe(survey.shorelineBand)
+      }
+    }),
+  )
+
+  it.effect('stores only concrete kernel biome ids in generated chunk columns', () =>
+    Effect.sync(() => {
+      const chunk = Result.getOrThrow(generateChunkAt(noiseSeed(SURVEY_CONFIGS[0].seed), chunkAxis(0), chunkAxis(0), { decorate: false }))
+      expect(chunk.biomes).toHaveLength(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
+      for (const biome of chunk.biomes) {
+        expect(KERNEL_BIOMES).toContain(biome)
+        expect((BIOMES as ReadonlyArray<string>).includes(biome)).toBe(false)
+      }
+    }),
+  )
+
+  it.effect('generates oceans, deep oceans, and concrete mountain refinements', () =>
+    Effect.sync(() => {
+      expect(countMatching(({ kernelBiome }) => OCEAN_BIOMES.has(kernelBiome))).toBeGreaterThan(0)
+      expect(countMatching(({ kernelBiome }) => kernelBiome.startsWith('deep_') && OCEAN_BIOMES.has(kernelBiome))).toBeGreaterThan(0)
+      expect(countMatching(({ coarseBiome }) => coarseBiome === 'MOUNTAINS')).toBeGreaterThan(0)
+      expect(countMatching(({ coarseBiome, kernelBiome }) => coarseBiome === 'MOUNTAINS' && MOUNTAIN_BIOMES.has(kernelBiome))).toBeGreaterThan(0)
+      expect(countMatching(({ kernelBiome }) => MOUNTAIN_BIOMES.has(kernelBiome))).toBeGreaterThan(0)
+    }),
+  )
+
+  it.effect('keeps every deep ocean at or below the deep-water surface threshold', () =>
+    Effect.sync(() => {
+      const deepOceanColumns = generatedColumns.filter(({ kernelBiome }) => kernelBiome.startsWith('deep_'))
+      expect(deepOceanColumns.length).toBeGreaterThan(0)
+      for (const column of deepOceanColumns) {
+        expect(column.surfaceY).toBeLessThanOrEqual(30)
+      }
     }),
   )
 })
 
-/**
- * `climateAt` is `docs/public-api.md`'s documented entry point for a column's
- * raw climate sample, used by nothing else in this survey (`biomeFor` goes
- * through the internal `climateAtWithContinentalness` on its own path), so it
- * needs its own direct coverage rather than riding along on `biomeFor`'s.
- */
-describe('climateAt, the public climate query', () => {
-  it.effect('is deterministic: the same (seed, wx, wz) always answers identically', () =>
+describe('the public climate query', () => {
+  it.effect('is deterministic and position-dependent', () =>
     Effect.sync(() => {
-      const first = climateAt(noiseSeed(SEED), blockAxis(100), blockAxis(200))
-      const second = climateAt(noiseSeed(SEED), blockAxis(100), blockAxis(200))
-      expect(second).toStrictEqual(first)
+      const seed = noiseSeed(SURVEY_CONFIGS[0].seed)
+      const first = climateAt(seed, blockAxis(100), blockAxis(200))
+      expect(climateAt(seed, blockAxis(100), blockAxis(200))).toStrictEqual(first)
+      expect(climateAt(seed, blockAxis(6000), blockAxis(-6000))).not.toStrictEqual(first)
     }),
   )
 
-  it.effect('keeps every field in the range its noise primitive guarantees', () =>
+  it.effect('keeps climate fields inside their primitive ranges', () =>
     Effect.sync(() => {
-      // `fbm2D` averages `valueNoise2D` octaves, itself a bilinear
-      // interpolation of `latticeValue` outputs in `[0, 1)`, so temperature,
-      // humidity and the unscaled `riverNoise` stay in `[0, 1)`.
-      // `continentalness` and `erosion` go through `toBipolar` (`value * 2 -
-      // 1`), so they land in `[-1, 1)`.
-      const sample = climateAt(noiseSeed(SEED), blockAxis(-4096), blockAxis(3072))
-
+      const sample = climateAt(noiseSeed(SURVEY_CONFIGS[0].seed), blockAxis(-4096), blockAxis(3072))
       expect(sample.temperature).toBeGreaterThanOrEqual(0)
       expect(sample.temperature).toBeLessThan(1)
       expect(sample.humidity).toBeGreaterThanOrEqual(0)
@@ -414,14 +315,6 @@ describe('climateAt, the public climate query', () => {
       expect(sample.erosion).toBeGreaterThanOrEqual(-1)
       expect(sample.erosion).toBeLessThan(1)
       expect(Number.isFinite(sample.pv)).toBe(true)
-    }),
-  )
-
-  it.effect('actually samples position-dependent noise rather than a constant', () =>
-    Effect.sync(() => {
-      const here = climateAt(noiseSeed(SEED), blockAxis(0), blockAxis(0))
-      const farAway = climateAt(noiseSeed(SEED), blockAxis(6000), blockAxis(-6000))
-      expect(farAway).not.toStrictEqual(here)
     }),
   )
 })

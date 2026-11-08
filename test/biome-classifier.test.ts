@@ -1,14 +1,17 @@
 /* oxlint-disable no-magic-numbers */
+import * as fc from 'fast-check'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 
 // eslint-disable-next-line sort-imports -- The external imports precede the project module.
 import {
   type ClimateSample,
   classifyBiomeFromClimate,
+  refineBiomeCategoryForKernel,
   peaksAndValleysFromWeirdness,
   refineBeachBiome,
 } from '../src/domain/biome-classifier'
+import { BIOMES, KERNEL_BIOMES } from '../src/domain/biome'
 
 const climate = (overrides: Partial<ClimateSample> = {}): ClimateSample => ({
   continentalness: 0,
@@ -76,6 +79,93 @@ describe('biome classifier', () => {
           }),
         ),
       ).toBe('FLOWER_FOREST')
+    }),
+  )
+
+  it.effect('refines every mc-noise category to a registered kernel biome', () =>
+    Effect.sync(() => {
+      for (const category of BIOMES) {
+        const result = refineBiomeCategoryForKernel(category, climate(), 100)
+        expect(Result.isSuccess(result), `${category} should be supported`).toBe(true)
+        if (Result.isSuccess(result)) {
+          expect(KERNEL_BIOMES).toContain(result.success)
+        }
+      }
+    }),
+  )
+
+  it.effect('refines mountain categories to concrete height and climate variants', () =>
+    Effect.sync(() => {
+      const cases: ReadonlyArray<readonly [ClimateSample, number, string]> = [
+        [climate({ temperature: 0.2 }), 190, 'frozen_peaks'],
+        [climate({ temperature: 0.2 }), 160, 'snowy_slopes'],
+        [climate({ erosion: 0.2 }), 160, 'windswept_gravelly_hills'],
+        [climate({ erosion: 0.8 }), 160, 'stony_peaks'],
+        [climate({ humidity: 0.8, temperature: 0.8 }), 130, 'cherry_grove'],
+        [climate({ humidity: 0.6 }), 130, 'windswept_forest'],
+        [climate({ temperature: 0.2 }), 130, 'grove'],
+        [climate(), 130, 'windswept_hills'],
+      ]
+
+      for (const [sample, surfaceY, expected] of cases) {
+        const result = refineBiomeCategoryForKernel('MOUNTAINS', sample, surfaceY)
+        expect(Result.isSuccess(result)).toBe(true)
+        if (Result.isSuccess(result)) {
+          expect(result.success).toBe(expected)
+          expect(KERNEL_BIOMES).toContain(result.success)
+        }
+      }
+    }),
+  )
+
+  it.effect('fails with a tagged error for unknown runtime classifier values', () =>
+    Effect.sync(() => {
+      const result = refineBiomeCategoryForKernel('UNRECOGNIZED_CATEGORY', climate(), 80)
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: 'UnsupportedBiomeCategory',
+          category: 'UNRECOGNIZED_CATEGORY',
+          receivedType: 'string',
+        })
+      }
+    }),
+  )
+
+  it.effect('returns a registered biome or a tagged failure for arbitrary runtime categories and climates', () =>
+    Effect.sync(() => {
+      const categories = new Set<string>(BIOMES)
+      fc.assert(
+        fc.property(
+          fc.anything(),
+          fc.record({
+            continentalness: fc.integer({ min: -1000, max: 1000 }),
+            erosion: fc.integer({ min: -1000, max: 1000 }),
+            humidity: fc.integer({ min: -1000, max: 1000 }),
+            pv: fc.integer({ min: -1000, max: 1000 }),
+            riverNoise: fc.integer({ min: -1000, max: 1000 }),
+            temperature: fc.integer({ min: -1000, max: 1000 }),
+          }),
+          fc.integer({ min: -64, max: 511 }),
+          (category, climateSample, surfaceY) => {
+            const result = refineBiomeCategoryForKernel(category, climateSample, surfaceY)
+            if (typeof category === 'string' && categories.has(category)) {
+              expect(Result.isSuccess(result)).toBe(true)
+              if (Result.isSuccess(result)) {
+                expect(KERNEL_BIOMES).toContain(result.success)
+              }
+              return
+            }
+
+            expect(Result.isFailure(result)).toBe(true)
+            if (Result.isFailure(result)) {
+              expect(result.failure._tag).toBe('UnsupportedBiomeCategory')
+            }
+          },
+        ),
+        { numRuns: 128, seed: 0x71e29 },
+      )
     }),
   )
 })

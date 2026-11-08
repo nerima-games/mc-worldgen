@@ -1,10 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { blockAxis } from './fixtures/validated-inputs'
-import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome } from '../src/domain/biome'
+import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, KERNEL_BIOMES, classifyBiome } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import {
   cellOf,
+  AVAILABLE_TREE_SPECIES,
+  KERNEL_BIOME_TREE_DENSITY,
   shouldPlaceTree,
   treeCellCandidate,
   TREE_CELL_JITTER_ORIGIN,
@@ -12,6 +14,7 @@ import {
   TREE_GRID_AREA,
   TREE_GRID_SIZE,
   TREE_MIN_SPACING,
+  UNAVAILABLE_TREE_SPECIES,
 } from '../src/domain/tree-placement'
 
 describe('classifyBiome', () => {
@@ -51,6 +54,20 @@ describe('classifyBiome', () => {
     Effect.sync(() => {
       expect(Object.keys(BIOME_SURFACES).sort()).toStrictEqual([...BIOMES].sort())
       expect(Object.keys(BIOME_TREE_DENSITY).sort()).toStrictEqual([...BIOMES].sort())
+    }),
+  )
+
+  it.effect('has a bounded oak-tree density for every concrete kernel biome', () =>
+    Effect.sync(() => {
+      expect(Object.keys(KERNEL_BIOME_TREE_DENSITY).sort()).toStrictEqual([...KERNEL_BIOMES].sort())
+      for (const [biome, density] of Object.entries(KERNEL_BIOME_TREE_DENSITY)) {
+        expect(Number.isFinite(density), `${biome} density should be finite`).toBe(true)
+        expect(density, `${biome} density should be a probability`).toBeGreaterThanOrEqual(0)
+        expect(density, `${biome} density should be a probability`).toBeLessThanOrEqual(1)
+      }
+      expect(AVAILABLE_TREE_SPECIES).toStrictEqual(['oak'])
+      expect(UNAVAILABLE_TREE_SPECIES).toContain('birch')
+      expect(UNAVAILABLE_TREE_SPECIES).toContain('spruce')
     }),
   )
 

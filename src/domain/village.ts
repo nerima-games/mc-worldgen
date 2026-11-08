@@ -2,7 +2,9 @@ import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordi
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 import { Option, Predicate, Result } from 'effect'
 import {
+  type OverworldTerrainResultSampler,
   type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
   type VillageSite,
   villageSitesNearChunk,
 } from './structure-siting.js'
@@ -44,6 +46,11 @@ type HouseBlockRequest = {
   readonly floorY?: number
 }
 
+type HouseBlockResultRequest = Omit<HouseBlockRequest, 'floorY' | 'sampleTerrain'> & {
+  readonly floorY: number
+  readonly sampleTerrain: OverworldTerrainResultSampler
+}
+
 // eslint-disable-next-line id-length, no-magic-numbers -- Fixed offsets define the compact village plan.
 const HOUSES: readonly [House, House] = [
   // eslint-disable-next-line id-length, no-magic-numbers -- Fixed x/z offsets define the compact village plan.
@@ -81,6 +88,28 @@ const houseFloorY = (site: VillageSite, house: House, sample: OverworldTerrainSa
 
 export type VillageHouseFloorYs = readonly [number, number]
 
+const houseFloorYWithResult = (
+  site: VillageSite,
+  house: House,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<number, OverworldTerrainSamplingFailure> => {
+  let highest = 0
+  // eslint-disable-next-line id-length, no-magic-numbers -- dx is the conventional local x offset.
+  for (let dx = -HOUSE_HALF_X; dx <= HOUSE_HALF_X; dx += 1) {
+    // eslint-disable-next-line id-length, no-magic-numbers -- dz is the conventional local z offset.
+    for (let dz = -HOUSE_HALF_Z; dz <= HOUSE_HALF_Z; dz += 1) {
+      const terrain = sampleTerrain(
+        blockAxisFromKnownSafeInteger(site.x + house.x + dx),
+        blockAxisFromKnownSafeInteger(site.z + house.z + dz),
+      )
+      if (Result.isFailure(terrain)) {return Result.fail(terrain.failure)}
+      highest = Math.max(highest, terrain.success.surfaceY)
+    }
+  }
+  // eslint-disable-next-line no-magic-numbers -- Floor height is one block above the highest sampled ground.
+  return Result.succeed(highest + 1)
+}
+
 export const villageHouseFloorYsForSite = (
   site: VillageSite,
   sampleTerrain: OverworldTerrainSampler,
@@ -88,6 +117,17 @@ export const villageHouseFloorYsForSite = (
   houseFloorY(site, HOUSES[FIRST_HOUSE_INDEX], sampleTerrain),
   houseFloorY(site, HOUSES[SECOND_HOUSE_INDEX], sampleTerrain),
 ]
+
+export const villageHouseFloorYsForSiteWithResult = (
+  site: VillageSite,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<VillageHouseFloorYs, OverworldTerrainSamplingFailure> => {
+  const first = houseFloorYWithResult(site, HOUSES[FIRST_HOUSE_INDEX], sampleTerrain)
+  if (Result.isFailure(first)) {return Result.fail(first.failure)}
+  const second = houseFloorYWithResult(site, HOUSES[SECOND_HOUSE_INDEX], sampleTerrain)
+  if (Result.isFailure(second)) {return Result.fail(second.failure)}
+  return Result.succeed([first.success, second.success])
+}
 
 const villageVillagerSpawnForHouse = (
   seed: NoiseSeed,
@@ -272,6 +312,95 @@ export const villageBlockSamplerForSite = (
     if (Predicate.isNotUndefined(second)) {return second}
     return villageRoadBlockAt(site, wx, y, wz, sampleTerrain)
   }
+
+type VillageResultBlockSampler = (
+  wx: BlockAxis,
+  y: BlockAxis,
+  wz: BlockAxis,
+) => Result.Result<BlockId | undefined, OverworldTerrainSamplingFailure>
+
+const houseBlockAtWithResult = ({
+  site,
+  house,
+  wx,
+  y,
+  wz,
+  sampleTerrain,
+  floorY,
+}: HouseBlockResultRequest): Result.Result<BlockId | undefined, OverworldTerrainSamplingFailure> => {
+  const dx = wx - (site.x + house.x)
+  const dz = wz - (site.z + house.z)
+  if (!isInsideHouseFootprint(dx, dz)) {
+    // eslint-disable-next-line no-undefined -- Outside the house keeps terrain unchanged.
+    return Result.succeed(undefined)
+  }
+  const terrain = sampleTerrain(wx, wz)
+  if (Result.isFailure(terrain)) {return Result.fail(terrain.failure)}
+  return Result.succeed(houseBlockWithinFootprint({
+    dx,
+    dz,
+    floorY,
+    house,
+    surfaceY: terrain.success.surfaceY,
+    y,
+  }))
+}
+
+const villageRoadBlockAtWithResult = (
+  site: VillageSite,
+  wx: BlockAxis,
+  y: BlockAxis,
+  wz: BlockAxis,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<BlockId | undefined, OverworldTerrainSamplingFailure> => {
+  const dx = Math.abs(wx - site.x)
+  const dz = Math.abs(wz - site.z)
+  // eslint-disable-next-line no-magic-numbers -- Roads are three blocks wide and extend 28 blocks from the centre.
+  const onRoad = (dx <= 1 && dz <= 28) || (dz <= 1 && dx <= 28)
+  if (!onRoad) {
+    // eslint-disable-next-line no-undefined -- Outside the road keeps terrain unchanged.
+    return Result.succeed(undefined)
+  }
+  const terrain = sampleTerrain(wx, wz)
+  if (Result.isFailure(terrain)) {return Result.fail(terrain.failure)}
+  return Result.succeed(villageRoadBlockAtSurface(y, terrain.success.surfaceY))
+}
+
+export const villageBlockSamplerForSiteWithResult = (
+  site: VillageSite,
+  sampleTerrain: OverworldTerrainResultSampler,
+  floorYs: VillageHouseFloorYs,
+): VillageResultBlockSampler =>
+  // eslint-disable-next-line max-statements -- House priority and road fallback mirror the raw sampler's resolver order.
+  (wx, y, wz) => {
+  const first = houseBlockAtWithResult(
+    {
+      floorY: floorYs[FIRST_HOUSE_INDEX],
+      house: HOUSES[FIRST_HOUSE_INDEX],
+      sampleTerrain,
+      site,
+      wx,
+      wz,
+      y,
+    },
+  )
+  if (Result.isFailure(first)) {return Result.fail(first.failure)}
+  if (Predicate.isNotUndefined(first.success)) {return first}
+  const second = houseBlockAtWithResult(
+    {
+      floorY: floorYs[SECOND_HOUSE_INDEX],
+      house: HOUSES[SECOND_HOUSE_INDEX],
+      sampleTerrain,
+      site,
+      wx,
+      wz,
+      y,
+    },
+  )
+  if (Result.isFailure(second)) {return Result.fail(second.failure)}
+  if (Predicate.isNotUndefined(second.success)) {return second}
+  return villageRoadBlockAtWithResult(site, wx, y, wz, sampleTerrain)
+}
 
 /** Resolves one world-space village block, including cleared walking/interior space. */
 // eslint-disable-next-line max-params, max-statements -- Public point sampling requires world axes and terrain context.

@@ -80,7 +80,7 @@
  * did not move, and because the density conversion is per unit AREA, growing the
  * cell from 4×4 to 8×8 does not change their tree counts at all.
  */
-import { BIOME_TREE_DENSITY, type BiomeType } from './biome.js'
+import { BIOME_TREE_DENSITY, type BiomeType, type KernelBiomeType } from './biome.js'
 import type { TerrainLevels } from './constants.js'
 
 /**
@@ -150,6 +150,99 @@ const MIN_SPACING_ADJACENT_WINDOW_OFFSET = 1
 
 export const TREE_MIN_SPACING: number = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + MIN_SPACING_ADJACENT_WINDOW_OFFSET
 
+/** Oak is the only registered log/leaf pair in mc-kernel 0.15.0. */
+export const AVAILABLE_TREE_SPECIES = ['oak'] as const
+
+/** These vanilla species have no registered log and leaf blocks in mc-kernel 0.15.0. */
+export const UNAVAILABLE_TREE_SPECIES = [
+  'birch',
+  'spruce',
+  'jungle',
+  'acacia',
+  'dark_oak',
+  'mangrove',
+  'cherry',
+  'bamboo',
+  'crimson',
+  'warped',
+  'pale_oak',
+] as const
+
+export const KERNEL_BIOME_TREE_DENSITY: Readonly<Record<KernelBiomeType, number>> = {
+  badlands: 0,
+  bamboo_jungle: 0.012,
+  basalt_deltas: 0,
+  beach: 0,
+  birch_forest: 0.012,
+  cherry_grove: 0.008,
+  cold_ocean: 0,
+  crimson_forest: 0,
+  dappled_forest: 0.012,
+  dark_forest: 0.012,
+  deep_cold_ocean: 0,
+  deep_dark: 0,
+  deep_frozen_ocean: 0,
+  deep_lukewarm_ocean: 0,
+  deep_ocean: 0,
+  desert: 0,
+  dripstone_caves: 0,
+  end_barrens: 0,
+  end_highlands: 0,
+  end_midlands: 0,
+  eroded_badlands: 0,
+  flower_forest: 0.012,
+  forest: 0.012,
+  frozen_ocean: 0,
+  frozen_peaks: 0,
+  frozen_river: 0,
+  grove: 0.009,
+  ice_spikes: 0.004,
+  jagged_peaks: 0,
+  jungle: 0.012,
+  lukewarm_ocean: 0,
+  lush_caves: 0,
+  mangrove_swamp: 0.012,
+  meadow: 0.008,
+  mushroom_fields: 0,
+  nether_wastes: 0,
+  ocean: 0,
+  old_growth_birch_forest: 0.012,
+  old_growth_pine_taiga: 0.009,
+  old_growth_spruce_taiga: 0.009,
+  pale_garden: 0.008,
+  plains: 0.006,
+  river: 0,
+  savanna: 0.008,
+  savanna_plateau: 0.008,
+  small_end_islands: 0,
+  snowy_beach: 0,
+  snowy_plains: 0.004,
+  snowy_slopes: 0,
+  snowy_taiga: 0.006,
+  soul_sand_valley: 0,
+  sparse_jungle: 0.006,
+  stony_peaks: 0,
+  stony_shore: 0,
+  sulfur_caves: 0,
+  sunflower_plains: 0.006,
+  swamp: 0.012,
+  taiga: 0.009,
+  the_end: 0,
+  the_void: 0,
+  warm_ocean: 0,
+  warped_forest: 0,
+  windswept_forest: 0.009,
+  windswept_gravelly_hills: 0.003,
+  windswept_hills: 0.006,
+  windswept_savanna: 0.006,
+  wooded_badlands: 0.006,
+}
+
+const ALL_BIOME_TREE_DENSITY: Readonly<Record<BiomeType | KernelBiomeType, number>> = {
+  ...BIOME_TREE_DENSITY,
+  ...KERNEL_BIOME_TREE_DENSITY,
+}
+
 const fract = (value: number): number => value - Math.floor(value)
 
 export type TreeCandidate = {
@@ -205,7 +298,7 @@ export const shouldPlaceTree = (input: {
   readonly worldX: number
   readonly worldZ: number
   readonly surfaceY: number
-  readonly biome: BiomeType
+  readonly biome: BiomeType | KernelBiomeType
   readonly terrainLevels: TerrainLevels
 }): boolean => {
   const candidate = treeCellCandidate(cellOf(input.worldX), cellOf(input.worldZ))
@@ -219,7 +312,7 @@ export const shouldPlaceTree = (input: {
     return false
   }
 
-  const density = BIOME_TREE_DENSITY[input.biome]
+  const density = ALL_BIOME_TREE_DENSITY[input.biome]
 
   return fract(candidate.cellRng * TREE_DENSITY_ROLL_RNG_SCALE) < density * TREE_GRID_AREA
 }

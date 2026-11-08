@@ -541,8 +541,8 @@ describe('the chunk format round-trips', () => {
       expect(payload.blockStates.length).toBe(349_528)
       expect(payload.blockStateCodecVersion).toBe(BLOCK_STATE_CODEC_VERSION)
 
-      // Biome NAMES, so reordering `BIOMES` cannot corrupt a save.
-      expect(payload.biomes.every((biome) => (BIOMES as ReadonlyArray<string>).includes(biome))).toBe(true)
+      // Biome NAMES, so reordering `CHUNK_BIOMES` cannot corrupt a save.
+      expect(payload.biomes.every((biome) => CHUNK_BIOMES.includes(biome))).toBe(true)
 
       // Plain numbers: the brand is a compile-time fact and must not reach the
       // wire, or the save file would depend on `effect`'s runtime.

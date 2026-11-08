@@ -40,6 +40,8 @@ import { Option, Result } from 'effect'
 import { channelSeed, latticeValue } from './noise-compatibility.js'
 import type { BiomeType } from './biome.js'
 import type { NoiseSeed } from '@nerima-games/mc-noise'
+import type { TerrainDensityFailure } from './density-function.js'
+import type { UnsupportedBiomeCategory } from './biome-classifier.js'
 import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 /**
@@ -64,18 +66,8 @@ export const STRONGHOLD_REGION_SPAWN_PERMILLE = 350
  */
 export const STRONGHOLD_SITE_MARGIN = 96
 
-/**
- * Y of the room floor. `stronghold.ts:21`.
- *
- * Transcribed, and it survives the port for a reason worth checking rather than
- * assuming: this repository's stone is continuous at y=28. Measured over 144
- * chunks at three seeds, every cell at y=25..35 is STONE — the depth is well
- * below the shallowest surface (`MIN_SURFACE_Y` is 38) and well above the
- * bedrock floor. `test/structure-siting.test.ts` pins that, because a floor Y
- * transcribed from a taller world is exactly the class of error
- * `./ore.ts`'s depth bands turned out to be.
- */
-export const STRONGHOLD_FLOOR_Y = 28
+/** The stronghold floor stays below the cave band and above the bedrock cell. */
+export const STRONGHOLD_FLOOR_Y = 5
 
 /** How many region shells `nearestStrongholdSite` will search. `stronghold.ts:57`. */
 export const STRONGHOLD_SEARCH_RADIUS = 6
@@ -221,7 +213,7 @@ export const VILLAGE_REGION_SIZE = 160
  * REGRESSION (worldgen-village-availability): shipped at 120 in `feat: add
  * deterministic village generation` (2026-08-01), tuned against the biome
  * layout of that day. `feat(worldgen): expand climate biome classifier`
- * (2026-08-08) fragmented PLAINS to ~6.6% of real terrain and broke it into
+ * (2026-08-08) measured PLAINS at ~6.6% in its terrain sample and split it into
  * small patches without anyone revisiting this density — see
  * `VILLAGE_SITE_ATTEMPTS`'s comment for the full chain of evidence
  * (including that commit silently relocating `test/village.test.ts`'s
@@ -230,9 +222,11 @@ export const VILLAGE_REGION_SIZE = 160
  * presence-roll × P(valid footprint | region attempted); the classifier
  * change collapsed the second factor, so this raises the first factor back
  * up to restore the product-level density the pre-fragmentation terrain had.
- * 350 matches this file's own `STRONGHOLD_REGION_SPAWN_PERMILLE`, an
- * existing in-repo precedent for this rarity band rather than an invented
- * number.
+ * The runtime rate is 500‰; `test/village.test.ts` measures the availability
+ * battery and records the remaining seed limits. The grid metadata reuses this
+ * constant so it cannot advertise a different rate. The WG2 3D survey measures
+ * PLAINS at 2.0%; village density under this new distribution still needs
+ * gameplay balance validation.
  */
 export const VILLAGE_REGION_SPAWN_PERMILLE = 500
 export const VILLAGE_SITE_MARGIN = 32
@@ -312,6 +306,25 @@ export type OverworldTerrainSample = {
 }
 
 export type OverworldTerrainSampler = (x: BlockAxis, z: BlockAxis) => OverworldTerrainSample
+export type OverworldTerrainSamplingFailure = TerrainDensityFailure | UnsupportedBiomeCategory
+export type OverworldTerrainResultSampler = (
+  x: BlockAxis,
+  z: BlockAxis,
+) => Result.Result<OverworldTerrainSample, OverworldTerrainSamplingFailure>
+export type OverworldTerrainPoint = Readonly<{ readonly x: BlockAxis; readonly z: BlockAxis }>
+
+export const sampleOverworldTerrainPoints = (
+  sampleTerrain: OverworldTerrainResultSampler,
+  points: ReadonlyArray<OverworldTerrainPoint>,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> => {
+  const samples: Array<OverworldTerrainSample> = []
+  for (const point of points) {
+    const sample = sampleTerrain(point.x, point.z)
+    if (Result.isFailure(sample)) {return Result.fail(sample.failure)}
+    samples.push(sample.success)
+  }
+  return Result.succeed(Object.freeze(samples))
+}
 
 /**
  * Is every probe of a candidate village site dry, level PLAINS?
@@ -350,7 +363,7 @@ const isValidVillageSite = (
  * generation` (2026-08-01) assumed PLAINS was common and contiguous enough
  * that one seeded point usually landed on a valid footprint. A week later
  * `feat(worldgen): expand climate biome classifier` (2026-08-08) fragmented
- * the biome layout — real terrain now measures PLAINS at ~6.6% and broken
+ * the biome layout — that terrain sample measured PLAINS at ~6.6% and split it
  * into small patches (`test/village.test.ts`'s own fixed "known real-terrain
  * accepted fixture" had to be relocated in that same commit because the site
  * it used to accept no longer validated) — without anyone revisiting this
@@ -364,14 +377,16 @@ const isValidVillageSite = (
  * however high, provably cannot fix every seed — an exhaustive real-terrain
  * scan showed some seeds have zero valid footprints in ANY region that the
  * presence roll selects, at any radius, so no retry count helps them. That is
- * why `VILLAGE_REGION_SPAWN_PERMILLE` also moved (120 → 350): retries recover
+ * why `VILLAGE_REGION_SPAWN_PERMILLE` was raised from 120 to 500: retries recover
  * the seeds whose valid footprint just wasn't the one seeded draw landed on;
  * a higher presence roll recovers the seeds where the selected regions never
  * contained a valid footprint at all. Each attempt draws from its own channel
  * (`village-x-${n}`, `village-z-${n}`), so attempts are independent seeded
  * draws rather than one point nudged around, and the search stays a pure
  * function of `(seed, regionX, regionZ)`: same seed, same region, same
- * result, no matter how many chunks around it have already asked.
+ * result, no matter how many chunks around it have already asked. The 6.6%
+ * figure is historical: the WG2 3D survey measures PLAINS at 2.0%, so the
+ * player-facing village density for the new terrain remains to be validated.
  */
 const VILLAGE_SITE_ATTEMPTS = 64
 
@@ -383,32 +398,82 @@ type VillageCandidateRegion = {
   readonly sampleTerrain: OverworldTerrainSampler
 }
 
-/** Allocate a site only after all five terrain probes pass. */
-const villageCandidateForAttempt = (
-  region: VillageCandidateRegion,
+type VillageCandidateCoordinates = Readonly<{ readonly siteX: BlockAxis; readonly siteZ: BlockAxis }>
+
+const villageCandidateCoordinatesForAttempt = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  span: number,
   attempt: number,
-): VillageSite | false => {
-  const { regionX, regionZ, sampleTerrain, seed, span } = region
+): VillageCandidateCoordinates => {
   const x = regionX * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN + Math.floor(
     latticeValue(channelSeed(seed, `village-x-${String(attempt)}`), regionX, regionZ) * span,
   )
   const z = regionZ * VILLAGE_REGION_SIZE + VILLAGE_SITE_MARGIN + Math.floor(
     latticeValue(channelSeed(seed, `village-z-${String(attempt)}`), regionX, regionZ) * span,
   )
-  const siteX = blockAxisFromKnownSafeInteger(x)
-  const siteZ = blockAxisFromKnownSafeInteger(z)
+  return { siteX: blockAxisFromKnownSafeInteger(x), siteZ: blockAxisFromKnownSafeInteger(z) }
+}
+
+type VillageCandidateTerrainProbes = Readonly<{
+  readonly center: OverworldTerrainSample
+  readonly minX: OverworldTerrainSample
+  readonly maxX: OverworldTerrainSample
+  readonly minZ: OverworldTerrainSample
+  readonly maxZ: OverworldTerrainSample
+}>
+
+const villageCandidateTerrainProbesWithResult = (
+  siteX: BlockAxis,
+  siteZ: BlockAxis,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<VillageCandidateTerrainProbes, OverworldTerrainSamplingFailure> =>
+  Result.gen(function* sampleVillageCandidateTerrain() {
+    const center = yield* sampleTerrain(siteX, siteZ)
+    const minX = yield* sampleTerrain(blockAxisFromKnownSafeInteger(siteX - VILLAGE_HALF_EXTENT), siteZ)
+    const maxX = yield* sampleTerrain(blockAxisFromKnownSafeInteger(siteX + VILLAGE_HALF_EXTENT), siteZ)
+    const minZ = yield* sampleTerrain(siteX, blockAxisFromKnownSafeInteger(siteZ - VILLAGE_HALF_EXTENT))
+    const maxZ = yield* sampleTerrain(siteX, blockAxisFromKnownSafeInteger(siteZ + VILLAGE_HALF_EXTENT))
+    return { center, maxX, maxZ, minX, minZ }
+  })
+
+/** Allocate a site only after all five terrain probes pass. */
+const villageCandidateForAttempt = (
+  region: VillageCandidateRegion,
+  attempt: number,
+): VillageSite | false => {
+  const { regionX, regionZ, sampleTerrain, seed, span } = region
+  const { siteX, siteZ } = villageCandidateCoordinatesForAttempt(seed, regionX, regionZ, span, attempt)
   if (
     isValidVillageSite(
       sampleTerrain(siteX, siteZ),
-      sampleTerrain(blockAxisFromKnownSafeInteger(x - VILLAGE_HALF_EXTENT), siteZ),
-      sampleTerrain(blockAxisFromKnownSafeInteger(x + VILLAGE_HALF_EXTENT), siteZ),
-      sampleTerrain(siteX, blockAxisFromKnownSafeInteger(z - VILLAGE_HALF_EXTENT)),
-      sampleTerrain(siteX, blockAxisFromKnownSafeInteger(z + VILLAGE_HALF_EXTENT)),
+      sampleTerrain(blockAxisFromKnownSafeInteger(siteX - VILLAGE_HALF_EXTENT), siteZ),
+      sampleTerrain(blockAxisFromKnownSafeInteger(siteX + VILLAGE_HALF_EXTENT), siteZ),
+      sampleTerrain(siteX, blockAxisFromKnownSafeInteger(siteZ - VILLAGE_HALF_EXTENT)),
+      sampleTerrain(siteX, blockAxisFromKnownSafeInteger(siteZ + VILLAGE_HALF_EXTENT)),
     )
   ) {
     return { x: siteX, z: siteZ }
   }
   return false
+}
+
+type VillageResultCandidateRegion = Omit<VillageCandidateRegion, 'sampleTerrain'> & {
+  readonly sampleTerrain: OverworldTerrainResultSampler
+}
+
+const villageCandidateForAttemptWithResult = (
+  region: VillageResultCandidateRegion,
+  attempt: number,
+): Result.Result<VillageSite | false, OverworldTerrainSamplingFailure> => {
+  const { regionX, regionZ, sampleTerrain, seed, span } = region
+  const { siteX, siteZ } = villageCandidateCoordinatesForAttempt(seed, regionX, regionZ, span, attempt)
+  const probes = villageCandidateTerrainProbesWithResult(siteX, siteZ, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  const { center, minX, maxX, minZ, maxZ } = probes.success
+  if (!isValidVillageSite(center, minX, maxX, minZ, maxZ)) {return Result.succeed(false)}
+  return Result.succeed({ x: siteX, z: siteZ })
 }
 
 export const villagePresenceChannelSeedFor = (seed: NoiseSeed): NoiseSeed => channelSeed(seed, 'village-present')
@@ -452,6 +517,35 @@ const villageSiteOptionForRegion = (
   return Option.none()
 }
 
+const firstVillageCandidateForRegionWithResult = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<VillageSite>, OverworldTerrainSamplingFailure> => {
+  const span = VILLAGE_REGION_SIZE - VILLAGE_SITE_MARGIN * MARGIN_SIDES
+  const candidateRegion: VillageResultCandidateRegion = { regionX, regionZ, sampleTerrain, seed, span }
+  for (let attempt = 0; attempt < VILLAGE_SITE_ATTEMPTS; attempt++) {
+    const candidate = villageCandidateForAttemptWithResult(candidateRegion, attempt)
+    if (Result.isFailure(candidate)) {return Result.fail(candidate.failure)}
+    if (candidate.success !== false) {return Result.succeed(Option.some(candidate.success))}
+  }
+  return Result.succeed(Option.none())
+}
+
+const villageSiteOptionForRegionWithResult = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainResultSampler,
+  candidatePresenceChecked = false,
+): Result.Result<Option.Option<VillageSite>, OverworldTerrainSamplingFailure> => {
+  if (!candidatePresenceChecked && !villageCandidateExistsInRegion(seed, regionX, regionZ)) {
+    return Result.succeed(Option.none())
+  }
+  return firstVillageCandidateForRegionWithResult(seed, regionX, regionZ, sampleTerrain)
+}
+
 const validateVillageRegionCoordinates = (
   regionX: number,
   regionZ: number,
@@ -470,6 +564,15 @@ export const villageSiteOptionForValidatedRegion = (
   sampleTerrain: OverworldTerrainSampler,
   candidatePresenceChecked = false,
 ): Option.Option<VillageSite> => villageSiteOptionForRegion(seed, regionX, regionZ, sampleTerrain, candidatePresenceChecked)
+
+export const villageSiteOptionForValidatedRegionWithResult = (
+  seed: NoiseSeed,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: OverworldTerrainResultSampler,
+  candidatePresenceChecked = false,
+): Result.Result<Option.Option<VillageSite>, OverworldTerrainSamplingFailure> =>
+  villageSiteOptionForRegionWithResult(seed, regionX, regionZ, sampleTerrain, candidatePresenceChecked)
 
 type VillageChunkQuery = {
   readonly bounds: SitingChunkBounds
@@ -526,6 +629,17 @@ export const villageSiteForRegion = (
   const validation = validateVillageRegionCoordinates(regionX, regionZ)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
   return Result.succeed(villageSiteOptionForRegion(seed, validation.success.x, validation.success.z, sampleTerrain))
+}
+
+export const villageSiteForRegionWithResultSampler = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<VillageSite>, InvalidNaturalStructureCoordinate | OverworldTerrainSamplingFailure> => {
+  const validation = validateVillageRegionCoordinates(regionX, regionZ)
+  if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
+  return villageSiteOptionForRegionWithResult(seed, validation.success.x, validation.success.z, sampleTerrain)
 }
 
 /** Finds all accepted village centres whose footprint can overlap this chunk. */

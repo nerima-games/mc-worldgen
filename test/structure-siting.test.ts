@@ -13,13 +13,16 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
 import { readBlock } from '../src/domain/chunk'
+import { CAVE_FLOOR_Y } from '../src/domain/carver'
 import { BEDROCK_Y, blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { NATURAL_STRUCTURE_GRID } from '../src/domain/natural-structure-grid-data'
 import {
   STRONGHOLD_FLOOR_Y,
   STRONGHOLD_REGION_SIZE,
   STRONGHOLD_SEARCH_RADIUS,
   STRONGHOLD_REGION_SPAWN_PERMILLE,
   STRONGHOLD_SITE_MARGIN,
+  VILLAGE_REGION_SPAWN_PERMILLE,
   VILLAGE_HALF_EXTENT,
   locateStronghold,
   nearestStrongholdSite,
@@ -27,12 +30,15 @@ import {
   strongholdSitesNearChunk,
   type StrongholdSite,
   type OverworldTerrainSampler,
+  type OverworldTerrainResultSampler,
   villageSiteForRegion as villageSiteForRegionRaw,
+  villageSiteForRegionWithResultSampler,
   villageSitesNearChunk,
 } from '../src/domain/structure-siting'
-import { MIN_SURFACE_Y, generateChunkAt, strongholdSiteForRegion, villageSiteForRegion } from './helpers/unwrapped-worldgen'
+import { generateChunkAt, strongholdSiteForRegion, villageSiteForRegion } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { TerrainDensityFailure, createTerrainDensitySampler } from '../src/domain/density-function'
 
 const VILLAGE_TEST_REGION = { x: -29, z: -25 }
 const FLAT_VILLAGE_TERRAIN: OverworldTerrainSampler = () => ({ biome: 'PLAINS', seaLevel: blockAxis(63), surfaceY: blockAxis(70) })
@@ -44,13 +50,20 @@ const villageTestSite = () => Option.getOrThrow(villageSiteForRegion(
 ))
 
 describe('the region rule', () => {
-  it.effect('transcribes the reference’s four constants', () =>
+  it.effect('transcribes stronghold region constants and keeps the floor below the cave band', () =>
     Effect.sync(() => {
       // `packages/world/domain/terrain/stronghold.ts:17-21`.
       expect(STRONGHOLD_REGION_SIZE).toBe(384)
       expect(STRONGHOLD_REGION_SPAWN_PERMILLE).toBe(350)
       expect(STRONGHOLD_SITE_MARGIN).toBe(96)
-      expect(STRONGHOLD_FLOOR_Y).toBe(28)
+      expect(STRONGHOLD_FLOOR_Y).toBe(5)
+    }),
+  )
+
+  it.effect('uses one 500-permille village rate for siting and grid metadata', () =>
+    Effect.sync(() => {
+      expect(VILLAGE_REGION_SPAWN_PERMILLE).toBe(500)
+      expect(NATURAL_STRUCTURE_GRID.village.spawnPermille).toBe(500)
     }),
   )
 
@@ -432,6 +445,20 @@ describe('region coordinate bounds', () => {
 })
 
 describe('village chunk query coordinate bounds', () => {
+  it.effect('propagates typed failures from the result terrain sampler', () => Effect.sync(() => {
+    const failure = new TerrainDensityFailure({ stage: 'evaluation', message: 'sample failed' })
+    const resultSampler: OverworldTerrainResultSampler = () => Result.fail(failure)
+    const result = villageSiteForRegionWithResultSampler(
+      GOLDEN_SEED,
+      VILLAGE_TEST_REGION.x,
+      VILLAGE_TEST_REGION.z,
+      resultSampler,
+    )
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {expect(result.failure).toBe(failure)}
+  }))
+
   it.effect('returns a typed failure for an invalid village region', () => Effect.sync(() => {
     const result = villageSiteForRegionRaw(GOLDEN_SEED, Number.NaN, 0, () => {
       throw new Error('invalid village regions must not sample terrain')
@@ -622,42 +649,45 @@ describe('the chunk query the block half would start from', () => {
   }))
 })
 
-describe('STRONGHOLD_FLOOR_Y survives the port', () => {
-  /**
-   * A depth transcribed from a taller world is exactly what `domain/ore.ts`'s
-   * bands turned out to be, so the one constant here that describes a DEPTH is
-   * checked against this repository's terrain rather than trusted.
-   */
-  it.effect('sits in continuous stone in this repository’s terrain, not in air or bedrock', () =>
+describe('STRONGHOLD_FLOOR_Y stays outside the cave band', () => {
+  it.effect('sits in continuous solid terrain in this repository, not in air or bedrock', () =>
     Effect.sync(() => {
+      const samplerResult = createTerrainDensitySampler(GOLDEN_SEED)
+      if (Result.isFailure(samplerResult)) throw samplerResult.failure
+      const sampler = samplerResult.success
       let cells = 0
-      let stone = 0
+      let solid = 0
+      let generatedChunkLocalColumn: readonly [number, number] | undefined
 
       for (let cx = -3; cx < 3; cx += 1) {
         for (let cz = -3; cz < 3; cz += 1) {
-          const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(cx), chunkAxis(cz), { decorate: false })
           for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
             for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+              const sample = sampler.densityAt(cx * CHUNK_SIZE_XZ + lx, STRONGHOLD_FLOOR_Y, cz * CHUNK_SIZE_XZ + lz)
+              if (Result.isFailure(sample)) throw sample.failure
               cells += 1
-              const id = readBlock(chunk.blocks, blockIndex(lx, STRONGHOLD_FLOOR_Y, lz))
-              if (id === BLOCK.STONE) {
-                stone += 1
+              if (sample.success > 0) {
+                solid += 1
+                if (cx === 0 && cz === 0 && generatedChunkLocalColumn === undefined) {
+                  generatedChunkLocalColumn = [lx, lz]
+                }
               }
-              // Whatever else it is, it must not be the bedrock floor.
-              expect(id).not.toBe(BLOCK.BEDROCK)
             }
           }
         }
       }
 
-      // Caves reach this depth, so this is "almost all" rather than "all" —
-      // which is itself the reason the block half needs an intersection rule.
-      expect(stone / cells).toBeGreaterThan(0.85)
+      // y=5 is below the cave carver's y=6 floor, while remaining above bedrock.
+      expect(solid / cells).toBeGreaterThan(0.85)
+      if (generatedChunkLocalColumn === undefined) throw new Error('expected a solid y=5 density sample in chunk 0,0')
+      const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(0), chunkAxis(0), { decorate: false })
+      const [localX, localZ] = generatedChunkLocalColumn
+      const id = readBlock(chunk.blocks, blockIndex(localX, STRONGHOLD_FLOOR_Y, localZ))
+      expect(id).toBe(BLOCK.DEEPSLATE)
+      expect(id).not.toBe(BLOCK.BEDROCK)
 
-      // Buried by construction as well as by measurement: the room floor is
-      // below the SHALLOWEST surface the shaper can produce, so no stronghold
-      // can ever break the surface however low the terrain goes there.
-      expect(STRONGHOLD_FLOOR_Y).toBeLessThan(MIN_SURFACE_Y)
+      // The room floor stays below the cave carver's first writable Y cell.
+      expect(STRONGHOLD_FLOOR_Y).toBeLessThan(CAVE_FLOOR_Y)
       expect(STRONGHOLD_FLOOR_Y).toBeGreaterThan(BEDROCK_Y)
     }),
   )

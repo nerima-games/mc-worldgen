@@ -21,6 +21,7 @@
  * `biome-classifier.ts`: temperature, humidity, continentalness, erosion, pv,
  * riverNoise) and applies the height and river refinements separately.
  */
+import { BIOME_TYPES, type BiomeType as KernelBiomeType } from '@nerima-games/mc-kernel/domain/biome'
 import { type BlockId, blockIdOf } from '@nerima-games/mc-kernel'
 import {
   HUM_DRY,
@@ -55,13 +56,17 @@ export const BIOMES = [
 
 export type BiomeType = (typeof BIOMES)[number]
 
+/** Concrete vanilla biome ids accepted by mc-kernel 0.15.0. */
+export const KERNEL_BIOMES: ReadonlyArray<KernelBiomeType> = BIOME_TYPES
+export type { KernelBiomeType }
+
 /** Biomes that may be stored in a dimension-agnostic chunk. */
-// The isolatedDeclarations flag forbids an array literal with a spread
-// Element unless the declaration carries an explicit type (TS9018). This
-// Widens the element type identically to what `as const` inference would
-// Have produced, since `ChunkBiomeType` below is already the union of every
-// Element.
-export const CHUNK_BIOMES: ReadonlyArray<BiomeType | 'NETHER' | 'END'> = [...BIOMES, 'NETHER', 'END'] as const
+export const CHUNK_BIOMES: ReadonlyArray<BiomeType | KernelBiomeType | 'NETHER' | 'END'> = [
+  ...BIOMES,
+  ...KERNEL_BIOMES,
+  'NETHER',
+  'END',
+]
 
 export type ChunkBiomeType = (typeof CHUNK_BIOMES)[number]
 

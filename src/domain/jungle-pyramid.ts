@@ -4,10 +4,16 @@ import type {
   NaturalStructureMarkerDraft,
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
-import type { OverworldTerrainSample, OverworldTerrainSampler } from './structure-siting.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSample,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_HEIGHT } from './constants.js'
-import { Option } from 'effect'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type JunglePyramidCandidate = { readonly x: number; readonly z: number }
@@ -52,6 +58,18 @@ const terrainProbesFor = (
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z - PYRAMID_GROUND_PROBE_OFFSET)),
     sampleTerrain(blockAxis(candidate.x), blockAxis(candidate.z + PYRAMID_GROUND_PROBE_OFFSET)),
   ]
+
+const terrainProbesForResult = (
+  candidate: JunglePyramidCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<ReadonlyArray<OverworldTerrainSample>, OverworldTerrainSamplingFailure> =>
+  sampleOverworldTerrainPoints(sampleTerrain, [
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x - PYRAMID_GROUND_PROBE_OFFSET), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x + PYRAMID_GROUND_PROBE_OFFSET), z: blockAxis(candidate.z) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z - PYRAMID_GROUND_PROBE_OFFSET) },
+    { x: blockAxis(candidate.x), z: blockAxis(candidate.z + PYRAMID_GROUND_PROBE_OFFSET) },
+  ])
 
 const terrainIsSuitable = (probes: ReadonlyArray<OverworldTerrainSample>): boolean =>
   probes.every((probe) => probe.biome === 'JUNGLE' && probe.surfaceY > probe.seaLevel + JUNGLE_PYRAMID_LAYOUT.minDryClearance)
@@ -254,4 +272,21 @@ export const planJunglePyramidForCandidate = (
     markers: Object.freeze(markers),
     origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
   }))
+}
+
+export const planJunglePyramidForCandidateWithResultSampler = (
+  candidate: JunglePyramidCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<JunglePyramidDraft>, OverworldTerrainSamplingFailure> => {
+  const probes = terrainProbesForResult(candidate, sampleTerrain)
+  if (Result.isFailure(probes)) {return Result.fail(probes.failure)}
+  if (!terrainIsSuitable(probes.success)) {return Result.succeed(Option.none())}
+  const baseYOption = baseYForProbes(probes.success)
+  if (Option.isNone(baseYOption)) {return Result.succeed(Option.none())}
+  const { blocks, markers } = buildJunglePyramidPlan(candidate, baseYOption.value)
+  return Result.succeed(Option.some(Object.freeze({
+    blocks: Object.freeze([...blocks.values()]),
+    markers: Object.freeze(markers),
+    origin: Object.freeze({ x: candidate.x, y: baseYOption.value, z: candidate.z }),
+  })))
 }

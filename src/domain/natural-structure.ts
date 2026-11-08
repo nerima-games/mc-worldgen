@@ -20,15 +20,16 @@ import {
   isValidatedCandidateChannelInput,
   validateNaturalStructureRegion,
 } from './natural-structure-plan-builder.js'
-import { type CompactStructureDraft, planCompactStructureForCandidate } from './compact-structure.js'
-import { type DesertPyramidDraft, planDesertPyramidForCandidate } from './desert-pyramid.js'
-import { type DesertWellDraft, planDesertWellForCandidate } from './desert-well.js'
-import { type IglooDraft, planIglooForCandidate } from './igloo.js'
-import { type JunglePyramidDraft, planJunglePyramidForCandidate } from './jungle-pyramid.js'
-import { type MineshaftDraft, planMineshaftForCandidate } from './mineshaft.js'
+import { type CompactStructureDraft, planCompactStructureForCandidate, planCompactStructureForCandidateWithResultSampler } from './compact-structure.js'
+import { type DesertPyramidDraft, planDesertPyramidForCandidate, planDesertPyramidForCandidateWithResultSampler } from './desert-pyramid.js'
+import { type DesertWellDraft, planDesertWellForCandidate, planDesertWellForCandidateWithResultSampler } from './desert-well.js'
+import { type IglooDraft, planIglooForCandidate, planIglooForCandidateWithResultSampler } from './igloo.js'
+import { type JunglePyramidDraft, planJunglePyramidForCandidate, planJunglePyramidForCandidateWithResultSampler } from './jungle-pyramid.js'
+import { type MineshaftDraft, planMineshaftForCandidate, planMineshaftForCandidateWithResultSampler } from './mineshaft.js'
 import type {
   NaturalStructureKind,
   NaturalStructurePlan,
+  NaturalStructurePlanFailure,
   NaturalStructureSamplers,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
@@ -41,22 +42,28 @@ import {
   validateNaturalStructureChunkCoordinates,
 } from './natural-structure-chunk-planner.js'
 export type { NaturalStructureRegionPlanRequest } from './natural-structure-chunk-planner.js'
-import { type OceanMonumentDraft, planOceanMonumentForCandidate } from './ocean-monument.js'
-import { type OceanRuinDraft, planOceanRuinForCandidate } from './ocean-ruin.js'
+import { type OceanMonumentDraft, planOceanMonumentForCandidate, planOceanMonumentForCandidateWithResultSampler } from './ocean-monument.js'
+import { type OceanRuinDraft, planOceanRuinForCandidate, planOceanRuinForCandidateWithResultSampler } from './ocean-ruin.js'
 import { Option, Predicate, Result } from 'effect'
 import {
   type OverworldTerrainSampler,
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSamplingFailure,
   VILLAGE_HALF_EXTENT,
   type VillageSite,
   villageSiteForRegion,
   villageSiteOptionForValidatedRegion,
+  villageSiteForRegionWithResultSampler,
+  villageSiteOptionForValidatedRegionWithResult,
 } from './structure-siting.js'
-import { type PillagerOutpostDraft, planPillagerOutpostForCandidate } from './pillager-outpost.js'
-import { type ShipwreckDraft, planShipwreckForCandidate } from './shipwreck.js'
+import { type PillagerOutpostDraft, planPillagerOutpostForCandidate, planPillagerOutpostForCandidateWithResultSampler } from './pillager-outpost.js'
+import { type ShipwreckDraft, planShipwreckForCandidate, planShipwreckForCandidateWithResultSampler } from './shipwreck.js'
 import {
   type VillageVillagerSpawn,
   villageBlockSamplerForSite,
+  villageBlockSamplerForSiteWithResult,
   villageHouseFloorYsForSite,
+  villageHouseFloorYsForSiteWithResult,
   villageVillagerSpawnsForSiteWithFloorYs,
 } from './village.js'
 import { CHUNK_HEIGHT } from './constants.js'
@@ -90,12 +97,14 @@ export type {
   NaturalStructureKind,
   NaturalStructureMarker,
   NaturalStructurePlan,
+  NaturalStructurePlanFailure,
   NaturalStructurePosition,
   NaturalStructureRegion,
   NaturalStructureSamplers,
   NetherStructureTerrainSample,
   NetherStructureTerrainSampler,
 } from './natural-structure-types.js'
+export type { OverworldTerrainResultSampler, OverworldTerrainSamplingFailure } from './structure-siting.js'
 export {
   applyNaturalStructurePlansToChunk,
   naturalStructureSliceForChunk,
@@ -105,7 +114,7 @@ export { planRuinedNetherPortalForRegion } from './natural-structure-portal.js'
 export { planStrongholdForRegion } from './stronghold-structure.js'
 export { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
 
-export type NaturalStructurePlanResult = Result.Result<Option.Option<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
+export type NaturalStructurePlanResult = Result.Result<Option.Option<NaturalStructurePlan>, NaturalStructurePlanFailure>
 const NO_NATURAL_STRUCTURE_PLAN: NaturalStructurePlanResult = Result.succeed(Option.none())
 
 const planForValidatedRegion = (
@@ -149,6 +158,24 @@ const planCandidateStructureForRegion = <Draft>(
   }, validatesCandidateRegion(candidateChannelInput))
 }
 
+type ResultCandidateStructureRegionPlanRequest<Draft> = Omit<CandidateStructureRegionPlanRequest<Draft>, 'sampleCandidate'> & {
+  readonly sampleCandidate: (candidate: Candidate) => Result.Result<Option.Option<Draft>, OverworldTerrainSamplingFailure>
+}
+
+const planCandidateStructureForRegionWithResultSampler = <Draft>(
+  request: ResultCandidateStructureRegionPlanRequest<Draft>,
+): NaturalStructurePlanResult => {
+  const { candidateChannelInput, finish, kind, regionX, regionZ, sampleCandidate } = request
+  return planForValidatedRegion(kind, regionX, regionZ, () => {
+    const candidateOption = candidateForRegion(request, kind, regionX, regionZ)
+    if (Option.isNone(candidateOption)) {return NO_NATURAL_STRUCTURE_PLAN}
+    const draftResult = sampleCandidate(candidateOption.value)
+    if (Result.isFailure(draftResult)) {return Result.fail(draftResult.failure)}
+    if (Option.isNone(draftResult.success)) {return NO_NATURAL_STRUCTURE_PLAN}
+    return Result.map(finish(draftResult.success.value), Option.some)
+  }, validatesCandidateRegion(candidateChannelInput))
+}
+
 const finishCompactStructurePlan = (
   seed: NoiseSeed,
   regionX: number,
@@ -185,6 +212,40 @@ const planCompactStructureForRegionWithPresence = (
   if (Option.isNone(draftOption)) {return NO_NATURAL_STRUCTURE_PLAN}
   return Result.map(finishCompactStructurePlan(context.seed, regionX, regionZ, kind, draftOption.value), Option.some)
 }, validatesCandidateRegion(context.candidateChannelInput))
+
+// eslint-disable-next-line max-params -- This adapter binds region context, sampler, draft planner and finisher.
+const planOverworldCandidateWithResultSampler = <Draft>(
+  context: NaturalStructurePlanContext,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  kind: NaturalStructureKind,
+  sampleCandidate: (candidate: Candidate) => Result.Result<Option.Option<Draft>, OverworldTerrainSamplingFailure>,
+  finish: (draft: Draft) => Result.Result<NaturalStructurePlan, InvalidNaturalStructureCoordinate>,
+): NaturalStructurePlanResult => planCandidateStructureForRegionWithResultSampler({
+  candidateChannelInput: context.candidateChannelInput,
+  dimension: 'overworld',
+  finish,
+  kind,
+  regionX,
+  regionZ,
+  sampleCandidate,
+  seed: context.seed,
+})
+
+const planCompactStructureForRegionWithResultSampler = (
+  context: NaturalStructurePlanContext,
+  kind: CompactStructureKind,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: OverworldTerrainResultSampler,
+): NaturalStructurePlanResult => planOverworldCandidateWithResultSampler(
+  context,
+  regionX,
+  regionZ,
+  kind,
+  (candidate) => planCompactStructureForCandidateWithResultSampler(kind, candidate, sampleTerrain),
+  (draft) => finishCompactStructurePlan(context.seed, regionX, regionZ, kind, draft),
+)
 
 export const planCompactStructureForRegion = (
   seed: NoiseSeed,
@@ -228,6 +289,31 @@ const carveVillageBlocks = (
   }
 }
 
+// eslint-disable-next-line max-statements -- Every sampled village column must propagate its typed failure.
+const carveVillageBlocksWithResultSampler = (
+  mutable: MutablePlan,
+  site: VillageSite,
+  sampleTerrain: OverworldTerrainResultSampler,
+  villageBlockAt: ReturnType<typeof villageBlockSamplerForSiteWithResult>,
+): Result.Result<true, OverworldTerrainSamplingFailure> => {
+  for (let x = site.x - VILLAGE_HALF_EXTENT; x <= site.x + VILLAGE_HALF_EXTENT; x += UNIT_STEP) {
+    for (let z = site.z - VILLAGE_HALF_EXTENT; z <= site.z + VILLAGE_HALF_EXTENT; z += UNIT_STEP) {
+      const surface = sampleTerrain(blockAxisFromKnownSafeInteger(x), blockAxisFromKnownSafeInteger(z))
+      if (Result.isFailure(surface)) {return Result.fail(surface.failure)}
+      for (let y = Number(surface.success.surfaceY); y < Math.min(CHUNK_HEIGHT, surface.success.surfaceY + VILLAGE_STRUCTURE_HEIGHT); y += UNIT_STEP) {
+        const block = villageBlockAt(
+          blockAxisFromKnownSafeInteger(x),
+          blockAxisFromKnownSafeInteger(y),
+          blockAxisFromKnownSafeInteger(z),
+        )
+        if (Result.isFailure(block)) {return Result.fail(block.failure)}
+        if (Predicate.isNotUndefined(block.success)) {addBlock(mutable, { block: block.success, x, y, z })}
+      }
+    }
+  }
+  return Result.succeed(true)
+}
+
 /** Marks every villager spawn, and drops one loot chest beside the first. */
 const placeVillageSpawnsAndLoot = (mutable: MutablePlan, spawns: ReadonlyArray<VillageVillagerSpawn>): void => {
   for (const [spawnIndex, spawn] of spawns.entries()) {
@@ -264,6 +350,37 @@ const createVillagePlan = (
   ), Option.some)
 }
 
+// eslint-disable-next-line max-statements -- Site, floor, block and origin samples each propagate typed failure.
+const createVillagePlanWithResultSampler = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  site: VillageSite,
+  sampleTerrain: OverworldTerrainResultSampler,
+): NaturalStructurePlanResult => {
+  const mutable: MutablePlan = { blocks: new Map(), markers: [] }
+  const houseFloorYs = villageHouseFloorYsForSiteWithResult(site, sampleTerrain)
+  if (Result.isFailure(houseFloorYs)) {return Result.fail(houseFloorYs.failure)}
+  const villageBlockAt = villageBlockSamplerForSiteWithResult(site, sampleTerrain, houseFloorYs.success)
+  const carved = carveVillageBlocksWithResultSampler(mutable, site, sampleTerrain, villageBlockAt)
+  if (Result.isFailure(carved)) {return Result.fail(carved.failure)}
+  placeVillageSpawnsAndLoot(mutable, villageVillagerSpawnsForSiteWithFloorYs(seed, site, houseFloorYs.success))
+  const origin = sampleTerrain(site.x, site.z)
+  if (Result.isFailure(origin)) {return Result.fail(origin.failure)}
+  const plan = finishPlan(
+    {
+      dimension: 'overworld',
+      id: `village:${String(seed)}:${String(regionX)}:${String(regionZ)}`,
+      kind: 'village',
+      origin: { x: site.x, y: origin.success.surfaceY, z: site.z },
+      region: { x: regionX, z: regionZ },
+    },
+    mutable,
+  )
+  if (Result.isFailure(plan)) {return Result.fail(plan.failure)}
+  return Result.succeed(Option.some(plan.success))
+}
+
 /** Plans the same village layout used by the Overworld chunk generator. */
 const planVillageForSiteOption = (
   seed: NoiseSeed,
@@ -287,6 +404,18 @@ export const planVillageForRegion = (
   return planVillageForSiteOption(seed, regionX, regionZ, siteResult.success, sampleTerrain)
 }
 
+export const planVillageForRegionWithResultSampler = (
+  seed: NoiseSeed,
+  regionX: number,
+  regionZ: number,
+  sampleTerrain: OverworldTerrainResultSampler,
+): NaturalStructurePlanResult => {
+  const siteResult = villageSiteForRegionWithResultSampler(seed, regionX, regionZ, sampleTerrain)
+  if (Result.isFailure(siteResult)) {return Result.fail(siteResult.failure)}
+  if (Option.isNone(siteResult.success)) {return NO_NATURAL_STRUCTURE_PLAN}
+  return createVillagePlanWithResultSampler(seed, regionX, regionZ, siteResult.success.value, sampleTerrain)
+}
+
 const planVillageForValidatedRegion = (
   seed: NoiseSeed,
   regionX: ValidatedNaturalStructureRegionAxis,
@@ -306,6 +435,25 @@ const planVillageForValidatedRegion = (
   ),
   sampleTerrain,
 )
+
+const planVillageForValidatedRegionWithResultSampler = (
+  seed: NoiseSeed,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: OverworldTerrainResultSampler,
+  candidateChannelInput?: CandidateChannelInput,
+): NaturalStructurePlanResult => {
+  const siteResult = villageSiteOptionForValidatedRegionWithResult(
+    seed,
+    regionX,
+    regionZ,
+    sampleTerrain,
+    isCandidatePresenceValidatedInput(candidateChannelInput),
+  )
+  if (Result.isFailure(siteResult)) {return Result.fail(siteResult.failure)}
+  if (Option.isNone(siteResult.success)) {return NO_NATURAL_STRUCTURE_PLAN}
+  return createVillagePlanWithResultSampler(seed, regionX, regionZ, siteResult.success.value, sampleTerrain)
+}
 
 const finishDesertPyramidPlan = (
   seed: NoiseSeed,
@@ -771,6 +919,118 @@ const planOverworldKind = (
   return planVillageCandidateRegion(context, regionX, regionZ, sampleTerrain)
 }
 
+// eslint-disable-next-line max-statements -- Each kind selects its matching typed sampler and plan finisher.
+const planOverworldKindWithResultSampler = (
+  context: NaturalStructurePlanContext,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+  sampleTerrain: OverworldTerrainResultSampler,
+): NaturalStructurePlanResult => {
+  if (context.kind === 'village') {
+    return planVillageForValidatedRegionWithResultSampler(
+      context.seed,
+      regionX,
+      regionZ,
+      sampleTerrain,
+      context.candidateChannelInput,
+    )
+  }
+  if (isCompactStructureKind(context.kind)) {
+    return planCompactStructureForRegionWithResultSampler(context, context.kind, regionX, regionZ, sampleTerrain)
+  }
+  if (context.kind === 'desert-pyramid') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planDesertPyramidForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishDesertPyramidPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'desert-well') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planDesertWellForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishDesertWellPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'igloo') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planIglooForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishIglooPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'jungle-pyramid') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planJunglePyramidForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishJunglePyramidPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'mineshaft') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planMineshaftForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishMineshaftPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'pillager-outpost') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planPillagerOutpostForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishPillagerOutpostPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'ocean-monument') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planOceanMonumentForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishOceanMonumentPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'ocean-ruin') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planOceanRuinForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishOceanRuinPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  if (context.kind === 'shipwreck') {
+    return planOverworldCandidateWithResultSampler(
+      context,
+      regionX,
+      regionZ,
+      context.kind,
+      (candidate) => planShipwreckForCandidateWithResultSampler(candidate, sampleTerrain),
+      (draft) => finishShipwreckPlan(context.seed, regionX, regionZ, draft),
+    )
+  }
+  return NO_NATURAL_STRUCTURE_PLAN
+}
+
 const planOverworldRegion = (
   context: NaturalStructurePlanContext,
   regionX: ValidatedNaturalStructureRegionAxis,
@@ -784,6 +1044,9 @@ const planOverworldRegion = (
       regionZ,
       isCandidatePresenceValidatedInput(context.candidateChannelInput),
     )
+  }
+  if (Predicate.isNotUndefined(context.samplers.overworldResult)) {
+    return planOverworldKindWithResultSampler(context, regionX, regionZ, context.samplers.overworldResult)
   }
   const { overworld: sampleTerrain } = context.samplers
   if (Predicate.isUndefined(sampleTerrain)) {
@@ -903,26 +1166,63 @@ const planNaturalStructureForChunkRegion: NaturalStructureRegionPlanner = (
  * coordinates through floor division.
  */
 /** Plans structures after a caller has validated the complete chunk footprint. */
-export const naturalStructurePlansForValidatedChunk = (
+export function naturalStructurePlansForValidatedChunk(
+  seed: NoiseSeed,
+  dimension: 'end' | 'nether',
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
+  samplers?: NaturalStructureSamplers,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
+export function naturalStructurePlansForValidatedChunk(
+  seed: NoiseSeed,
+  dimension: 'overworld',
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
+  samplers?: NaturalStructureSamplers,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure>
+export function naturalStructurePlansForValidatedChunk(
+  seed: NoiseSeed,
+  dimension: Dimension,
+  validatedChunk: ValidatedNaturalStructureChunkCoordinates,
+  samplers?: NaturalStructureSamplers,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure>
+export function naturalStructurePlansForValidatedChunk(
   seed: NoiseSeed,
   dimension: Dimension,
   validatedChunk: ValidatedNaturalStructureChunkCoordinates,
   samplers: NaturalStructureSamplers = {},
-): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> =>
-  enumerateNaturalStructurePlansForValidatedChunk(
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure> {
+  return enumerateNaturalStructurePlansForValidatedChunk(
     seed,
     dimension,
     validatedChunk,
     samplers,
     planNaturalStructureForChunkRegion,
   )
+}
 
-export const naturalStructurePlansForChunk = (
+export function naturalStructurePlansForChunk(
+  seed: NoiseSeed,
+  dimension: 'end' | 'nether',
+  coord: ChunkCoord,
+  samplers?: NaturalStructureSamplers,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate>
+export function naturalStructurePlansForChunk(
+  seed: NoiseSeed,
+  dimension: 'overworld',
+  coord: ChunkCoord,
+  samplers?: NaturalStructureSamplers,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure>
+export function naturalStructurePlansForChunk(
+  seed: NoiseSeed,
+  dimension: Dimension,
+  coord: ChunkCoord,
+  samplers?: NaturalStructureSamplers,
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure>
+export function naturalStructurePlansForChunk(
   seed: NoiseSeed,
   dimension: Dimension,
   coord: ChunkCoord,
   samplers: NaturalStructureSamplers = {},
-): Result.Result<ReadonlyArray<NaturalStructurePlan>, InvalidNaturalStructureCoordinate> => {
+): Result.Result<ReadonlyArray<NaturalStructurePlan>, NaturalStructurePlanFailure> {
   const validation = validateNaturalStructureChunkCoordinates(dimension, coord)
   if (Result.isFailure(validation)) {return Result.fail(validation.failure)}
   return naturalStructurePlansForValidatedChunk(seed, dimension, validation.success, samplers)
