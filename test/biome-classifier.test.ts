@@ -7,6 +7,7 @@ import { Effect, Result } from 'effect'
 import {
   type ClimateSample,
   classifyBiomeFromClimate,
+  biomeCategoryFromNoise,
   refineBiomeCategoryForKernel,
   peaksAndValleysFromWeirdness,
   refineBeachBiome,
@@ -25,6 +26,21 @@ const climate = (overrides: Partial<ClimateSample> = {}): ClimateSample => ({
 })
 
 describe('biome classifier', () => {
+  it.effect('refines mountain, snow, and mangrove variants and rejects unknown categories', () => Effect.sync(() => {
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('MOUNTAINS', climate({ temperature: 0.2 }), blockAxis(180)))).toBe('frozen_peaks')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('MOUNTAINS', climate({ temperature: 0.5 }), blockAxis(180)))).toBe('jagged_peaks')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('SNOW', climate(), blockAxis(180)))).toBe('frozen_peaks')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('SNOW', climate(), blockAxis(150)))).toBe('snowy_slopes')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('SWAMP', climate({ temperature: 0.9, humidity: 0.9 }), blockAxis(70)))).toBe('mangrove_swamp')
+    expect(Result.getOrThrow(biomeCategoryFromNoise('PLAINS'))).toBe('PLAINS')
+
+    const unsupported = biomeCategoryFromNoise('NOT_A_BIOME')
+    expect(Result.isFailure(unsupported)).toBe(true)
+    if (Result.isFailure(unsupported)) {
+      expect(unsupported.failure).toMatchObject({ _tag: 'UnsupportedBiomeCategory', category: 'NOT_A_BIOME' })
+    }
+  }))
+
   it.effect('converts weirdness to peaks and valleys', () =>
     Effect.sync(() => {
       expect(peaksAndValleysFromWeirdness(0)).toBe(-1)

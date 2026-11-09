@@ -1031,6 +1031,32 @@ const planOverworldKindWithResultSampler = (
   return NO_NATURAL_STRUCTURE_PLAN
 }
 
+const planOverworldKindMismatch = (
+  context: NaturalStructurePlanContext,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+): NaturalStructurePlanResult => {
+  const resultSampler = context.samplers.overworldResult
+  if (Predicate.isUndefined(resultSampler)) {return NO_NATURAL_STRUCTURE_PLAN}
+  return planOverworldKindWithResultSampler(context, regionX, regionZ, resultSampler)
+}
+
+const planOverworldRegionWithSamplers = (
+  context: NaturalStructurePlanContext,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
+): NaturalStructurePlanResult => {
+  const resultSampler = context.samplers.overworldResult
+  if (Predicate.isNotUndefined(resultSampler)) {
+    return planOverworldKindWithResultSampler(context, regionX, regionZ, resultSampler)
+  }
+  const { overworld: sampleTerrain } = context.samplers
+  if (Predicate.isUndefined(sampleTerrain)) {
+    return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
+  }
+  return planOverworldKind(context, regionX, regionZ, sampleTerrain)
+}
+
 const planOverworldRegion = (
   context: NaturalStructurePlanContext,
   regionX: ValidatedNaturalStructureRegionAxis,
@@ -1045,14 +1071,15 @@ const planOverworldRegion = (
       isCandidatePresenceValidatedInput(context.candidateChannelInput),
     )
   }
-  if (Predicate.isNotUndefined(context.samplers.overworldResult)) {
-    return planOverworldKindWithResultSampler(context, regionX, regionZ, context.samplers.overworldResult)
+  if (
+    context.kind === 'bastion-remnant' ||
+    context.kind === 'end-city' ||
+    context.kind === 'nether-fortress' ||
+    context.kind === 'ruined-nether-portal'
+  ) {
+    return planOverworldKindMismatch(context, regionX, regionZ)
   }
-  const { overworld: sampleTerrain } = context.samplers
-  if (Predicate.isUndefined(sampleTerrain)) {
-    return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
-  }
-  return planOverworldKind(context, regionX, regionZ, sampleTerrain)
+  return planOverworldRegionWithSamplers(context, regionX, regionZ)
 }
 
 const netherFortressPresenceChannelSeedFor = (
@@ -1123,9 +1150,6 @@ const planNaturalStructureForRegionAt = (
   regionZ: ValidatedNaturalStructureRegionAxis,
 ): NaturalStructurePlanResult => {
   if (context.dimension === 'overworld') {
-    if (context.kind === 'bastion-remnant' || context.kind === 'end-city' || context.kind === 'nether-fortress' || context.kind === 'ruined-nether-portal') {
-      return planForValidatedRegion(context.kind, regionX, regionZ, () => NO_NATURAL_STRUCTURE_PLAN, validatesCandidateRegion(context.candidateChannelInput))
-    }
     return planOverworldRegion(context, regionX, regionZ)
   }
   if (context.dimension === 'nether') {

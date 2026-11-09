@@ -185,12 +185,14 @@ export const createTerrainDensitySampler = (seed: NoiseSeed): Result.Result<Terr
       }
 
       const surfaceHeightAt = (wx: BlockAxisValue, wz: BlockAxisValue): Result.Result<BlockAxisValue, TerrainDensityFailure> => {
+        let surfaceY = MIN_SURFACE_Y
         for (let wy = SURFACE_SCAN_START; wy >= MIN_SURFACE_Y; wy -= SURFACE_SCAN_STEP) {
           if (densityAtForGeneration(wx, blockAxisFromKnownSafeInteger(wy), wz) > DENSITY_SURFACE_THRESHOLD) {
-            return Result.succeed(blockAxisFromKnownSafeInteger(wy))
+            surfaceY = wy
+            break
           }
         }
-        return Result.succeed(blockAxisFromKnownSafeInteger(MIN_SURFACE_Y))
+        return Result.succeed(blockAxisFromKnownSafeInteger(surfaceY))
       }
 
       return Object.freeze({ densityAt, densityAtForGeneration, surfaceHeightAt })

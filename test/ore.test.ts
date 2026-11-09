@@ -26,6 +26,10 @@ import { generateChunkAt } from './helpers/unwrapped-worldgen'
 
 const COLUMN_COUNT = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
 const BLOCK_COUNT = CHUNK_HEIGHT * COLUMN_COUNT
+const FALLBACK_ORE_MIN_Y = 10
+const FALLBACK_ORE_MAX_Y = 20
+const FALLBACK_ORE_EXPECTED_Y = 16
+const BIOME_FILTER_SEED = 1234
 const ORE_SAMPLE_SEED_SEARCH_LIMIT = 128
 const ORE_NAMES: ReadonlyArray<OreName> = ['COAL', 'COPPER', 'DIAMOND', 'EMERALD', 'GOLD', 'IRON', 'LAPIS', 'REDSTONE']
 const EMERALD_MOUNTAIN_BIOME_SET: ReadonlySet<string> = new Set(EMERALD_MOUNTAIN_BIOME_IDS)
@@ -218,6 +222,17 @@ describe('ore height providers', () => {
       expect(trapezoidDraws).toBe(2)
 
       expect(sampleOreY(trapezoid, 40, 40, () => 0.5)).toBe(40)
+
+      const trapezoidWithoutPlateau: OreConfig = {
+        attemptsPerChunk: 1,
+        distribution: 'trapezoid',
+        feature: 'coal-lower',
+        maxY: FALLBACK_ORE_MAX_Y,
+        minY: FALLBACK_ORE_MIN_Y,
+        name: 'COAL',
+        size: 1,
+      }
+      expect(sampleOreY(trapezoidWithoutPlateau, FALLBACK_ORE_MIN_Y, FALLBACK_ORE_MAX_Y, () => 0.5)).toBe(FALLBACK_ORE_EXPECTED_Y)
     }),
   )
 
@@ -284,6 +299,27 @@ describe('ore height providers', () => {
 })
 
 describe('ore placement', () => {
+  it.effect('fails closed when biome-filtered features have missing or unrecognized biome ids', () =>
+    Effect.sync(() => {
+      const coord: ChunkCoord = { cx: chunkAxis(0), cz: chunkAxis(0) }
+      const missingBiomeBlocks = solidOverworldBlocks()
+      placeOres(missingBiomeBlocks, noiseSeed(BIOME_FILTER_SEED), coord, [])
+      expect(missingBiomeBlocks).not.toContain(ORE_BLOCK.EMERALD)
+      expect(missingBiomeBlocks).not.toContain(DEEPSLATE_ORE_BLOCK.EMERALD)
+
+      const goldExtra = ORE_CONFIGS.find((config) => config.feature === 'gold-extra')
+      if (goldExtra === undefined) throw new Error('gold-extra feature is required by the vanilla table')
+      const previousRule = goldExtra.biomeRule
+      expect(Reflect.set(goldExtra, 'biomeRule', 'unregistered')).toBe(true)
+      try {
+        placeOres(solidOverworldBlocks(), noiseSeed(BIOME_FILTER_SEED), coord, allPlainsBiomes())
+      } finally {
+        Reflect.set(goldExtra, 'biomeRule', previousRule)
+      }
+      expect(goldExtra.biomeRule).toBe(previousRule)
+    }),
+  )
+
   it.effect('skips off-buffer samples and keeps every placed ore inside its clipped feature band', () =>
     Effect.sync(() => {
       const blocks = solidOverworldBlocks()

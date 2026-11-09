@@ -2,7 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import * as fc from 'fast-check'
 import { Effect, Result, Schema } from 'effect'
 import { CHUNK_FORMAT, InvalidTerrainLevels, generateChunk, generateChunkAt } from '../src/index'
-import { createTerrainDensitySampler, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt, surfaceHeightAtResult } from '../src/domain/density-function'
+import { createTerrainDensitySampler, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt, surfaceHeightAtResult, surfaceHeightFromContinentalness } from '../src/domain/density-function'
 import { CHUNK_HEIGHT } from '../src/domain/constants'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
@@ -65,6 +65,11 @@ const expectGeneratedChunk = (result: unknown): void => {
 }
 
 describe('terrainLevels generation input', () => {
+  it.effect('clamps the legacy continentalness surface query into BlockAxis bounds', () => Effect.sync(() => {
+    expect(Number(surfaceHeightFromContinentalness(-1))).toBe(MIN_SURFACE_Y)
+    expect(Number(surfaceHeightFromContinentalness(1))).toBe(MAX_SURFACE_Y)
+  }))
+
   it.effect('keeps the fused generation evaluator equal to the mc-noise density runtime', () =>
     Effect.sync(() => {
       const sampler = Result.getOrThrow(createTerrainDensitySampler(SEED))

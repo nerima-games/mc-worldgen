@@ -1,10 +1,10 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Result } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { minecraftBiomeFor } from '@nerima-games/mc-noise'
 import { BIOMES, KERNEL_BIOMES, type BiomeType, type KernelBiomeType } from '../src/domain/biome'
 import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { createTerrainDensitySampler } from '../src/domain/density-function'
-import { climateAt, resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
+import { climateAt, resolveTerrainColumn, resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
 import { generateChunkAt } from '../src/domain/terrain'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
@@ -27,6 +27,8 @@ const LONGEST_BIOME_WAVELENGTH_BLOCKS = Math.max(
 )
 const SEA_LEVEL_MIN_SHARE = 0.33
 const SEA_LEVEL_MAX_SHARE = 0.5
+const LEGACY_DRY_COLUMN = { wx: 0, wz: 0 }
+const LEGACY_LAKE_COLUMN = { wx: -512, wz: -96 }
 
 const OCEAN_BIOMES: ReadonlySet<KernelBiomeType> = new Set([
   'cold_ocean',
@@ -153,6 +155,20 @@ const COARSE_BIOME_SHARE_BOUNDS: ReadonlyArray<readonly [BiomeType, number, numb
 ]
 
 describe('generated biome distribution', () => {
+  it.effect('keeps the legacy column query usable for dry land and lake basins', () => Effect.sync(() => {
+    const seed = noiseSeed(20260726)
+    const dry = resolveTerrainColumn(seed, LEGACY_DRY_COLUMN.wx, LEGACY_DRY_COLUMN.wz, DEFAULT_TERRAIN_LEVELS)
+    const lake = resolveTerrainColumn(seed, LEGACY_LAKE_COLUMN.wx, LEGACY_LAKE_COLUMN.wz, DEFAULT_TERRAIN_LEVELS)
+
+    expect(Option.isNone(dry.lakeBasinY)).toBe(true)
+    expect(dry.waterLevel).toBeNull()
+    expect(Option.isSome(lake.lakeBasinY)).toBe(true)
+    expect(lake.waterLevel).not.toBeNull()
+    if (Option.isSome(lake.lakeBasinY)) {
+      expect(lake.surfaceY).toBe(lake.lakeBasinY.value)
+    }
+  }))
+
   it.effect('matches mc-noise biome queries while sharing one climate sample', () =>
     Effect.sync(() => {
       const seed = noiseSeed(51821)
