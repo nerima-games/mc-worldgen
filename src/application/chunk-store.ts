@@ -225,7 +225,7 @@ export type ChunkStoreApi = {
    */
   readonly getBlockWithState: (
     position: BlockPosition,
-  ) => Effect.Effect<Store.BlockWithStateSnapshotReading, BlockStateCodecFailure>
+  ) => Effect.Effect<Store.BlockWithStateReading, BlockStateCodecFailure>
   /**
    * Write one block. Reuses the prepare/publish transitions in one `Ref.modify`
    * so concurrent compatibility writes stay atomic. A block-state change dirties
@@ -825,13 +825,7 @@ const makeChunkStoreInternal = (
       getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current.chunks, position)),
       getBlockWithState: (position) =>
         Effect.flatMap(Ref.get(state), (current) =>
-          Effect.map(
-            Effect.fromResult(Store.blockWithStateAt(current.chunks, position)),
-            (reading): Store.BlockWithStateSnapshotReading => ({
-              ...reading,
-              dimensionRevision: current.chunks.revisionClock,
-            }),
-          ),
+          Effect.fromResult(Store.blockWithStateAt(current.chunks, position)),
         ),
 
       // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss

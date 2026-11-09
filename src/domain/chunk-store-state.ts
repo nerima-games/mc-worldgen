@@ -55,10 +55,10 @@ import {
   defaultBlockState,
   encodeBlockState,
 } from '@nerima-games/mc-kernel/domain/block-state'
+import { Brand, Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, blockIndex } from './constants.js'
 import { type ChunkLight, type LightQueueUnderflowError, computeChunkLights, getLightAt, updateChunkLights } from './light.js'
 import { type ChunkWithBlockStates, getBlockAt, setBlockAt } from './chunk.js'
-import { Option, Result } from 'effect'
 import { blockAxisFromKnownSafeInteger, chunkAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
@@ -100,15 +100,17 @@ export type BlockReading =
   | { readonly _tag: 'ChunkNotLoaded' }
   | { readonly _tag: 'OutOfWorld' }
 
-export type BlockWithStateReading =
-  | { readonly _tag: 'Block'; readonly block: BlockId; readonly state?: BlockStateValues }
-  | { readonly _tag: 'ChunkNotLoaded' }
-  | { readonly _tag: 'OutOfWorld' }
+export type DimensionRevision = number & Brand.Brand<'DimensionRevision'>
 
-/** A block read and dimension revision captured from the same published state. */
-export type BlockWithStateSnapshotReading = BlockWithStateReading & {
-  readonly dimensionRevision: number
-}
+export type BlockWithStateReading =
+  | {
+      readonly _tag: 'Block'
+      readonly block: BlockId
+      readonly state?: BlockStateValues
+      readonly dimensionRevision: DimensionRevision
+    }
+  | { readonly _tag: 'ChunkNotLoaded'; readonly dimensionRevision: DimensionRevision }
+  | { readonly _tag: 'OutOfWorld'; readonly dimensionRevision: DimensionRevision }
 
 export const CHUNK_NOT_LOADED: BlockReading = { _tag: 'ChunkNotLoaded' }
 export const OUT_OF_WORLD: BlockReading = { _tag: 'OutOfWorld' }
@@ -117,11 +119,15 @@ export const blockReading = (block: BlockId): BlockReading => ({ _tag: 'Block', 
 
 const EMPTY_BLOCK_STATE_PROPERTY_COUNT = 0
 
-const blockWithStateReading = (block: BlockId, state: BlockStateValues): BlockWithStateReading => {
+const blockWithStateReading = (
+  block: BlockId,
+  state: BlockStateValues,
+  dimensionRevision: DimensionRevision,
+): BlockWithStateReading => {
   if (Object.keys(state).length === EMPTY_BLOCK_STATE_PROPERTY_COUNT) {
-    return { _tag: 'Block', block }
+    return { _tag: 'Block', block, dimensionRevision }
   }
-  return { _tag: 'Block', block, state }
+  return { _tag: 'Block', block, dimensionRevision, state }
 }
 
 const EMPTY_ENCODED_BLOCK_STATE = 0
@@ -416,7 +422,7 @@ export type ChunkStoreState = {
   /** Revisions for resident chunks only. */
   readonly revisions: ReadonlyMap<ChunkKey, number>
   /** Monotonic across writes, residency transitions, and reset. */
-  readonly revisionClock: number
+  readonly revisionClock: DimensionRevision
   /**
    * Computed light, per resident chunk. ABSENT MEANS STALE, not dark.
    *
@@ -453,7 +459,9 @@ export type ChunkStoreState = {
 }
 
 /** A chunk has no current revision before it becomes resident. */
-const INITIAL_CHUNK_REVISION = 0
+const makeDimensionRevision = Brand.nominal<DimensionRevision>()
+const INITIAL_DIMENSION_REVISION_VALUE = 0
+const INITIAL_DIMENSION_REVISION = makeDimensionRevision(INITIAL_DIMENSION_REVISION_VALUE)
 /** Every write or residency transition advances the store's revision clock once. */
 const CHUNK_REVISION_STEP = 1
 const NO_CHANGES = 0
@@ -462,7 +470,7 @@ export const emptyChunkStoreState: ChunkStoreState = {
   lights: new Map(),
   loaded: new Map(),
   nextSubscriberId: 0,
-  revisionClock: INITIAL_CHUNK_REVISION,
+  revisionClock: INITIAL_DIMENSION_REVISION,
   revisions: new Map(),
   subscribers: new Map(),
 }
@@ -470,12 +478,12 @@ export const emptyChunkStoreState: ChunkStoreState = {
 const incrementChunkRevisions = (
   state: ChunkStoreState,
   keys: ReadonlyArray<ChunkKey>,
-): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: number }> => {
+): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: DimensionRevision }> => {
   const { revisions: currentRevisions, revisionClock: currentRevisionClock } = state
   const revisions = new Map(currentRevisions)
   let revisionClock = currentRevisionClock
   for (const key of keys) {
-    revisionClock += CHUNK_REVISION_STEP
+    revisionClock = makeDimensionRevision(revisionClock + CHUNK_REVISION_STEP)
     revisions.set(key, revisionClock)
   }
   return { revisionClock, revisions }
@@ -484,11 +492,11 @@ const incrementChunkRevisions = (
 const removeChunkRevision = (
   state: ChunkStoreState,
   key: ChunkKey,
-): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: number }> => {
+): Readonly<{ readonly revisions: ReadonlyMap<ChunkKey, number>; readonly revisionClock: DimensionRevision }> => {
   const { revisions: currentRevisions, revisionClock: currentRevisionClock } = state
   const revisions = new Map(currentRevisions)
   revisions.delete(key)
-  return { revisionClock: currentRevisionClock + CHUNK_REVISION_STEP, revisions }
+  return { revisionClock: makeDimensionRevision(currentRevisionClock + CHUNK_REVISION_STEP), revisions }
 }
 
 /**
@@ -796,19 +804,19 @@ export const blockWithStateAt = (
   position: BlockPosition,
 ): Result.Result<BlockWithStateReading, BlockStateCodecFailure> => {
   if (!isWorldY(position.y)) {
-    return Result.succeed(OUT_OF_WORLD)
+    return Result.succeed({ _tag: 'OutOfWorld', dimensionRevision: state.revisionClock })
   }
 
   const target = resolveLoadedChunk(state, position)
   if (!target) {
-    return Result.succeed(CHUNK_NOT_LOADED)
+    return Result.succeed({ _tag: 'ChunkNotLoaded', dimensionRevision: state.revisionClock })
   }
 
   const block = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
   const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
   const encodedState = blockStateCodeAt(target.chunk, index)
   return Result.map(decodeBlockState(block, encodedState), (blockState) =>
-    blockWithStateReading(block, blockState),
+    blockWithStateReading(block, blockState, state.revisionClock),
   )
 }
 

@@ -40,7 +40,7 @@ import {
   wasWritten,
   withBlockAt,
   withChunk,
-  type BlockWithStateSnapshotReading,
+  type BlockWithStateReading,
 } from '../src/domain/chunk-store-state'
 import { makeChunkStoreLru } from '../src/domain/chunk-store-lru'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from '../src/domain/constants'
@@ -727,7 +727,7 @@ describe('reading a block', () => {
         yield* store.load(coord)
         yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
 
-        const captured = yield* Deferred.make<BlockWithStateSnapshotReading>()
+        const captured = yield* Deferred.make<BlockWithStateReading>()
         const resumeReader = yield* Deferred.make<void>()
         // Hold the reader after it captures the result, then publish while its
         // caller is still waiting for the read effect to finish.

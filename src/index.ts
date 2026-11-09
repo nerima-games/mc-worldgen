@@ -74,13 +74,13 @@ export {
 export type {
   BlockReading,
   BlockWithStateReading,
-  BlockWithStateSnapshotReading,
   BlockWriteOutcome,
   ChunkDirtyBatch,
   ChunkDirtyChunk,
   ChunkLocalAabb,
   ChunkNeighbours,
   ChunkStoreState,
+  DimensionRevision,
   DirtySubscriberState,
   LightReading,
 } from './domain/chunk-store-state.js'

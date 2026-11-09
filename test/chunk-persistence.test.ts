@@ -385,6 +385,7 @@ describe('chunk persistence', () => {
           _tag: 'Block',
           block: legacy.block,
           state: Result.getOrThrow(defaultBlockState(legacy.block)),
+          dimensionRevision: expect.any(Number),
         })
       }
     }),
