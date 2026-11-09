@@ -186,7 +186,7 @@
     "text": "number"
   },
   {
-    "count": 4,
+    "count": 2,
     "file": "src/domain/terrain-column.ts",
     "ruleId": "no-raw-exported-function-parameter",
     "text": "number"
