@@ -70,11 +70,19 @@ describe('CHUNK_FORMAT_V2: the pre-state format, kept as a read path', () => {
   it.effect('CF-V2-3: v2 decoding can be re-encoded as v2', () =>
     Effect.gen(function* () {
       const legacy = yield* decodeSave(CHUNK_FORMAT_V2, legacyEnvelope)
-      const encoded = yield* encodeSave(CHUNK_FORMAT_V2, legacy)
+      const encoded = yield* encodeSave(CHUNK_FORMAT_V2, {
+        biomes: legacy.biomes,
+        blocks: legacy.blocks,
+        coord: legacy.coord,
+      })
 
       expect(encoded.version).toBe(2)
       const restored = yield* decodeSave(CHUNK_FORMAT_V2, encoded)
       expect([...restored.blocks]).toStrictEqual([...legacy.blocks])
+      expect(restored.endFeatureIds).toStrictEqual([])
+      expect(restored.endFeatureMarkers).toStrictEqual([])
+      expect(restored.naturalStructureIds).toStrictEqual([])
+      expect(restored.naturalStructureMarkers).toStrictEqual([])
     }),
   )
 

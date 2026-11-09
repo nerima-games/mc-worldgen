@@ -5,7 +5,7 @@ import { encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { vi } from 'vitest'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlockStates, emptyBlocks, readBlock, type ChunkWithBlockStates } from '../src/domain/chunk'
-import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { blockAxis, validatedBlockPosition as blockPosition, validatedChunkCoord as chunkCoord } from './fixtures/validated-inputs'
 
 const lightFunctions = vi.hoisted(() => ({
@@ -24,10 +24,13 @@ vi.mock('../src/domain/light.js', async () => {
 
 import { emptyChunkLight, LightQueueUnderflowError, computeChunkLights, updateChunkLights } from '../src/domain/light'
 import {
+  blockWithStateAt,
   emptyChunkStoreState,
+  drained,
   lightAt,
   prepareBlockWrite,
   publishPreparedBlockWrite,
+  subscribed,
   withBlockAt,
   withChunk,
   type ChunkStoreState,
@@ -52,6 +55,41 @@ const stateWithCompleteLightCache = (): ChunkStoreState => {
 }
 
 describe('ChunkStoreState typed light failures', () => {
+  it('rejects a state value the block codec does not allow', () => {
+    const expected = encodeBlockState(BLOCK.STONE, { axis: 'x' })
+    const result = withBlockAt(emptyChunkStoreState, POSITION, BLOCK.STONE, { axis: 'x' })
+
+    expect(Result.isFailure(expected)).toBe(true)
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(expected) && Result.isFailure(result)) {
+      expect(result.failure).toStrictEqual(expected.failure)
+    }
+  })
+
+  it('keeps the full chunk bounds when a resident chunk is replaced', () => {
+    const [subscriber, subscribedState] = subscribed(emptyChunkStoreState)
+    const loaded = withChunk(subscribedState, CHUNK)
+    const replaced = withChunk(loaded, CHUNK)
+    const [batch] = drained(replaced, subscriber)
+
+    expect(batch.changed).toStrictEqual([{
+      ...COORD,
+      min: [0, 0, 0],
+      max: [CHUNK_SIZE_XZ, CHUNK_HEIGHT, CHUNK_SIZE_XZ],
+    }])
+  })
+
+  it('reads the empty encoded default when a state buffer is short', () => {
+    const shortChunk = { ...CHUNK, blockStates: new Uint32Array(0) }
+    const state = withChunk(emptyChunkStoreState, shortChunk)
+    const reading = blockWithStateAt(state, POSITION)
+
+    expect(Result.isSuccess(reading)).toBe(true)
+    if (Result.isSuccess(reading)) {
+      expect(reading.success).toStrictEqual({ _tag: 'Block', block: BLOCK.AIR })
+    }
+  })
+
   it('rolls a block buffer back when incremental relighting fails', () => {
     vi.mocked(updateChunkLights).mockReturnValue(Result.fail(FAILURE))
     const state = stateWithCompleteLightCache()

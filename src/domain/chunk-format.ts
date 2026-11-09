@@ -714,7 +714,6 @@ const HEX_PADDING = '0'
 const CHARACTER_INDEX = 0
 const UTF16_HEX_WIDTH = 4
 const ORDER_BEFORE = -1
-const ORDER_EQUAL = 0
 const ORDER_AFTER = 1
 const ZERO = 0
 const ONE = 1
@@ -747,10 +746,8 @@ const canonicalJsonObjectText = (
     if (left < right) {
       return ORDER_BEFORE
     }
-    if (left > right) {
-      return ORDER_AFTER
-    }
-    return ORDER_EQUAL
+    // Object.entries has unique keys, so its comparator never sees equality.
+    return ORDER_AFTER
   })
   return `{${entries.map(([key, entry]) => `${canonicalJsonString(key)}:${stringifyValue(entry)}`).join(',')}}`
 }
@@ -946,11 +943,7 @@ const CHUNK_STRUCT_V3_BASE: Schema.Codec<ChunkStructV3Type, {
 
 const validateV3BlockStates = (chunk: ChunkStructV3Type): Schema.FilterOutput => {
   for (const [cellIndex, blockIdValue] of chunk.blocks.entries()) {
-    const blockId = BlockId.result(blockIdValue)
-    if (Result.isFailure(blockId)) {
-      return `invalid block id at cell ${String(cellIndex)}: invalid-block-id`
-    }
-    const decoded = decodeBlockState(blockId.success, chunk.blockStates[cellIndex])
+    const decoded = decodeBlockState(BlockId(blockIdValue), chunk.blockStates[cellIndex])
     if (Result.isFailure(decoded)) {
       return `invalid block state at cell ${String(cellIndex)}: ${decoded.failure.reason}`
     }

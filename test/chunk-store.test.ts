@@ -416,7 +416,7 @@ describe('residency', () => {
         )
 
       const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(boundedSource, TEST_CAPACITY))
-      const coords = Array.from({ length: 5 }, (_, index) => chunkCoord(chunkAxis(index), 0))
+      const coords = Array.from({ length: 5 }, (_, index) => chunkCoord(chunkAxis(index === 4 ? 0 : index), 0))
       const loads = yield* Effect.forEach(
         coords,
         (coord) =>
@@ -439,7 +439,8 @@ describe('residency', () => {
       const loaded = yield* Fiber.join(loads)
 
       expect(loaded).toHaveLength(5)
-      expect(sourceCalls).toBe(5)
+      expect(loaded[0]).toBe(loaded[4])
+      expect(sourceCalls).toBe(4)
       expect(maxActiveSources).toBe(4)
       expect(activeSources).toBe(0)
     }).pipe(Effect.scoped),
@@ -833,6 +834,30 @@ describe('writing a block', () => {
 
       expect(failure).toStrictEqual({ _tag: 'BlockStateCodecFailure', reason: 'reserved-code' })
       expect(yield* store.isLoaded(coord)).toBe(false)
+    }),
+  )
+
+  it.effect('returns a typed failure for source chunks with malformed state buffers', () =>
+    Effect.gen(function* () {
+      const coord = chunkCoord(chunkAxis(0), 0)
+      const chunk = flatChunk(coord, FLAT_SURFACE_Y)
+      const malformedChunks: ReadonlyArray<Chunk> = [
+        { ...chunk, blockStates: null } as unknown as Chunk,
+        { ...chunk, blockStates: new Uint32Array(1) },
+        { ...chunk, blocks: new Uint16Array(1) },
+        { ...chunk, blocks: new Uint16Array(1), blockStates: new Uint32Array(CHUNK_VOLUME) },
+      ]
+
+      for (const malformed of malformedChunks) {
+        const store = yield* Effect.provide(
+          ChunkStore,
+          ChunkStoreLayer(() => Effect.succeed(malformed), TEST_CAPACITY),
+        )
+        const failure = yield* Effect.flip(store.load(coord))
+
+        expect(failure).toStrictEqual({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
+        expect(yield* store.isLoaded(coord)).toBe(false)
+      }
     }),
   )
 

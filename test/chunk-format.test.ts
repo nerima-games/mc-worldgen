@@ -73,6 +73,7 @@ import {
   encodeBlockState,
 } from '@nerima-games/mc-kernel/domain/block-state'
 import { withDefaultBlockStates } from '../src/domain/chunk'
+import type { EndFeatureMarker } from '../src/domain/end-features'
 import { planEndCityForRegion, type NaturalStructureChunk } from './helpers/unwrapped-worldgen'
 import {
   decodeSave,
@@ -115,6 +116,18 @@ const INTEGRITY_ENCODED: ChunkEncoded = Effect.runSync(
     naturalStructureMarkers: [INTEGRITY_MARKER],
   }), (envelope) => envelope.payload as ChunkEncoded),
 )
+
+const integrityForMarkerData = (data: {
+  readonly endFeatureIds: ReadonlyArray<string>
+  readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+  readonly naturalStructureIds: ReadonlyArray<string>
+  readonly naturalStructureMarkers: NaturalStructureChunk['naturalStructureMarkers']
+}) => chunkIntegrityMetadataFor({
+  biomes: FIXTURE.biomes,
+  blockStates: FIXTURE.blockStates,
+  blocks: FIXTURE.blocks,
+  ...data,
+})
 
 /** An envelope carrying `ENCODED` with one field replaced. */
 const envelopeWith = (patch: Partial<ChunkEncoded>) =>
@@ -260,6 +273,83 @@ describe('the chunk format round-trips', () => {
     }
     expect(restored.success.blockStates.length).toBe(CHUNK_VOLUME)
     expect([...restored.success.blockStates]).toStrictEqual(new Array(CHUNK_VOLUME).fill(0))
+  })
+
+  it('CF-2c: encoding accepts undefined states and rejects malformed stateful chunks', () => {
+    const generated = generateChunk(SEED, validated.validatedChunkCoord(6, -3))
+    const encodedUndefinedStates = Schema.encodeUnknownResult(CHUNK_SCHEMA)({ ...generated, blockStates: undefined })
+    expect(Result.isSuccess(encodedUndefinedStates)).toBe(true)
+
+    const malformedBlocks = Schema.encodeUnknownResult(CHUNK_SCHEMA)({
+      ...FIXTURE,
+      blocks: new Uint8Array(CHUNK_VOLUME),
+    })
+    expect(Result.isFailure(malformedBlocks)).toBe(true)
+
+    const nullStates = Schema.encodeUnknownResult(CHUNK_SCHEMA)({ ...FIXTURE, blockStates: null })
+    expect(Result.isFailure(nullStates)).toBe(true)
+
+    const unknownBlockIds = Uint16Array.from(generated.blocks)
+    unknownBlockIds[0] = BLOCK_ID_MAX
+    const unknownDefault = Schema.encodeUnknownResult(CHUNK_SCHEMA)({
+      ...generated,
+      blocks: unknownBlockIds,
+      blockStates: undefined,
+    })
+    expect(Result.isFailure(unknownDefault)).toBe(true)
+  })
+
+  it('canonicalizes marker objects and JSON scalar edge cases before checksumming', () => {
+    const unicodeMarker = { ...INTEGRITY_MARKER, structureId: '雪村' }
+    const reorderedUnicodeMarker = {
+      z: unicodeMarker.z,
+      y: unicodeMarker.y,
+      x: unicodeMarker.x,
+      lootTable: unicodeMarker.lootTable,
+      kind: unicodeMarker.kind,
+      structureKind: unicodeMarker.structureKind,
+      structureId: unicodeMarker.structureId,
+    } satisfies NaturalStructureChunk['naturalStructureMarkers'][number]
+
+    const canonical = integrityForMarkerData({
+      endFeatureIds: [],
+      endFeatureMarkers: [],
+      naturalStructureIds: ['雪村'],
+      naturalStructureMarkers: [unicodeMarker],
+    })
+    const reordered = integrityForMarkerData({
+      endFeatureIds: [],
+      endFeatureMarkers: [],
+      naturalStructureIds: ['雪村'],
+      naturalStructureMarkers: [reorderedUnicodeMarker],
+    })
+    expect(reordered.sections.structureMarkers).toStrictEqual(canonical.sections.structureMarkers)
+
+    const nullScalar = integrityForMarkerData({
+      endFeatureIds: [null as unknown as string],
+      endFeatureMarkers: [],
+      naturalStructureIds: [],
+      naturalStructureMarkers: [],
+    })
+    expect(nullScalar.sections.structureMarkers.byteLength).toBeGreaterThan(0)
+
+    const position = validated.validatedBlockPosition(1, 64, 1)
+    const nonFiniteMarker: EndFeatureMarker = {
+      kind: 'end-crystal-cage',
+      featureId: 'non-finite-radius',
+      center: position,
+      radius: Number.NaN,
+      minY: position.y,
+      maxY: position.y,
+      material: 'iron_bars',
+    }
+    const nonFinite = integrityForMarkerData({
+      endFeatureIds: [],
+      endFeatureMarkers: [nonFiniteMarker],
+      naturalStructureIds: [],
+      naturalStructureMarkers: [],
+    })
+    expect(nonFinite.sections.structureMarkers.byteLength).toBeGreaterThan(0)
   })
 
   it.effect('CF-3: the payload survives JSON and still decodes', () =>

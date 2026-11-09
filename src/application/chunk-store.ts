@@ -365,9 +365,9 @@ const loadStoredOrGeneratedChunk = (
   )
 }
 
-const defaultBlockIdCode = 0
-const invalidEncodedBlockStateCode = -1
-const blockStateValidationStep = 1
+const DEFAULT_BLOCK_ID_CODE = 0
+const DEFAULT_BLOCK_STATE_CODE = 0
+const BLOCK_STATE_VALIDATION_STEP = 1
 
 const recordValidatedBlockStateCode = (
   validatedCodesByBlockId: Map<number, Set<number>>,
@@ -380,11 +380,7 @@ const recordValidatedBlockStateCode = (
 }
 
 const decodeEncodedBlockState = (blockIdValue: number, stateCode: number): Result.Result<true, BlockStateCodecFailure> => {
-  const blockId = BlockId.result(blockIdValue)
-  if (Result.isFailure(blockId)) {
-    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-block-id' })
-  }
-  const decoded = decodeBlockState(blockId.success, stateCode)
+  const decoded = decodeBlockState(BlockId(blockIdValue), stateCode)
   return Result.map(decoded, () => true)
 }
 
@@ -409,13 +405,16 @@ const validEncodedBlockStates = (
   chunk: ChunkWithBlockStates,
 ): Result.Result<true, BlockStateCodecFailure> => {
   const validatedCodesByBlockId = new Map<number, Set<number>>()
-  for (let index = 0; index < CHUNK_VOLUME; index += blockStateValidationStep) {
-    const blockIdValue = chunk.blocks[index] ?? defaultBlockIdCode
-    const stateCode = chunk.blockStates[index] ?? invalidEncodedBlockStateCode
+  for (let index = 0; index < CHUNK_VOLUME; index += BLOCK_STATE_VALIDATION_STEP) {
+    const blockIdValue = chunk.blocks[index] ?? DEFAULT_BLOCK_ID_CODE
+    const stateCode = chunk.blockStates[index] ?? DEFAULT_BLOCK_STATE_CODE
     const validation = validateEncodedBlockState(validatedCodesByBlockId, blockIdValue, stateCode)
     if (Result.isFailure(validation)) {
       return validation
     }
+  }
+  if (chunk.blocks.length !== CHUNK_VOLUME || chunk.blockStates.length !== CHUNK_VOLUME) {
+    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
   }
   return Result.succeed(true)
 }
@@ -427,10 +426,10 @@ const materializeChunkStates = (chunk: Chunk): Result.Result<ChunkWithBlockState
   }
 
   const stateful = materialized.success
-  if (stateful.blocks.length !== CHUNK_VOLUME || stateful.blockStates.length !== CHUNK_VOLUME) {
-    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
-  }
   if (Option.isNone(Option.fromNullishOr(chunk.blockStates))) {
+    if (stateful.blocks.length !== CHUNK_VOLUME) {
+      return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
+    }
     return Result.succeed(stateful)
   }
   const validStates = validEncodedBlockStates(stateful)

@@ -390,6 +390,37 @@ describe('chunk persistence', () => {
     }),
   )
 
+  it.effect('returns missing when a legacy record disappears during migration lookup', () =>
+    Effect.gen(function* () {
+      for (const version of [CHUNK_FORMAT_V1.version, CHUNK_FORMAT_V2.version]) {
+        const backing = yield* makeInMemoryStorage
+        const coord = validated.validatedChunkCoord(version, 0)
+        const key = chunkSaveKey(context, coord)
+        const envelope = Result.getOrThrow(sealSaveEnvelope(
+          saveEnvelope(CHUNK_FORMAT.name, version, {}),
+        ))
+        yield* backing.put(key, envelope)
+
+        let reads = 0
+        const disappearingStorage: StorageService = {
+          ...backing,
+          get: (requestedKey) =>
+            Effect.gen(function* () {
+              reads += 1
+              if (reads > 1) return Option.none()
+              return yield* backing.get(requestedKey)
+            }),
+        }
+        const persistence = yield* makeChunkPersistence(context).pipe(
+          Effect.provideService(StoragePort, disappearingStorage),
+        )
+
+        expect(yield* persistence.load(coord)).toStrictEqual(Option.none())
+        expect(reads).toBe(2)
+      }
+    }),
+  )
+
   it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v3 on the next save', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage

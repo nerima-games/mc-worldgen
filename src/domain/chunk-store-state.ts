@@ -120,6 +120,10 @@ const blockWithStateReading = (block: BlockId, state: BlockStateValues): BlockWi
   return { _tag: 'Block', block, state }
 }
 
+const EMPTY_ENCODED_BLOCK_STATE = 0
+const blockStateCodeAt = (chunk: ChunkWithBlockStates, index: number): number =>
+  chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+
 /**
  * The outcome of a block write.
  *
@@ -782,8 +786,6 @@ const relightAfterBlockChange = (
   return Result.succeed(withoutLights(state.lights, affectedLightKeys(coord, local)))
 }
 
-const EMPTY_ENCODED_BLOCK_STATE = 0
-
 /** Read one block and its decoded state from the same resident chunk snapshot. */
 export const blockWithStateAt = (
   state: ChunkStoreState,
@@ -800,7 +802,7 @@ export const blockWithStateAt = (
 
   const block = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
   const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
-  const encodedState = target.chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+  const encodedState = blockStateCodeAt(target.chunk, index)
   return Result.map(decodeBlockState(block, encodedState), (blockState) =>
     blockWithStateReading(block, blockState),
   )
@@ -833,7 +835,7 @@ type BlockWriteValues = Readonly<{
 const blockWriteValuesFor = (target: LoadedChunkTarget, block: BlockId, nextState: number): BlockWriteValues => {
   const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
   const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
-  const previousState = target.chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+  const previousState = blockStateCodeAt(target.chunk, index)
   return {
     block,
     blockChanged: previous !== block,
@@ -1033,7 +1035,7 @@ const currentChunkWriteFor = (
   const current = builder.chunks.get(target.key) ?? target.chunk
   const previous = BlockId(getBlockAt(current, target.local.lx, target.local.ly, target.local.lz))
   const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
-  const previousState = current.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+  const previousState = blockStateCodeAt(current, index)
   return { blockChanged: previous !== edit.block, index, previous, previousState }
 }
 
@@ -1240,7 +1242,7 @@ const prepareResolvedBlockWrite = (
   const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
   const outcome = blockWriteOutcome(
     previous,
-    target.chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE,
+    blockStateCodeAt(target.chunk, index),
     edit.block,
     encodedState,
     target.coord,

@@ -59,15 +59,12 @@ export const emptyBlockStates = (): Uint32Array => new Uint32Array(CHUNK_VOLUME)
  */
 const encodedDefaultStateFor = (blockIdValue: number): Result.Result<number, BlockStateCodecFailure> => {
   // Uint16Array constrains every value to BlockId's representable range.
-  const blockId = BlockId.result(blockIdValue)
-  if (Result.isFailure(blockId)) {
-    return Result.fail({ _tag: 'BlockStateCodecFailure', reason: 'invalid-block-id' })
-  }
-  const defaultState = defaultBlockState(blockId.success)
+  const blockId = BlockId(blockIdValue)
+  const defaultState = defaultBlockState(blockId)
   if (Result.isFailure(defaultState)) {
     return Result.fail(defaultState.failure)
   }
-  return encodeBlockState(blockId.success, defaultState.success)
+  return encodeBlockState(blockId, defaultState.success)
 }
 
 const encodedDefaultStateFromCache = (
