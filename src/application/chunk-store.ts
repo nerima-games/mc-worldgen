@@ -218,10 +218,14 @@ export type ChunkStoreApi = {
 
   /** Read one block. Total: distinguishes air from not-loaded from out-of-world. */
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
-  /** Read a block and its state from one store snapshot; state-less blocks omit `state`. */
+  /**
+   * Read a block, its state, and the dimension revision from one published
+   * snapshot. Pass `dimensionRevision` as the expected revision for a C7 write.
+   * State-less blocks omit `state`.
+   */
   readonly getBlockWithState: (
     position: BlockPosition,
-  ) => Effect.Effect<Store.BlockWithStateReading, BlockStateCodecFailure>
+  ) => Effect.Effect<Store.BlockWithStateSnapshotReading, BlockStateCodecFailure>
   /**
    * Write one block. Reuses the prepare/publish transitions in one `Ref.modify`
    * so concurrent compatibility writes stay atomic. A block-state change dirties
@@ -821,7 +825,13 @@ const makeChunkStoreInternal = (
       getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current.chunks, position)),
       getBlockWithState: (position) =>
         Effect.flatMap(Ref.get(state), (current) =>
-          Effect.fromResult(Store.blockWithStateAt(current.chunks, position)),
+          Effect.map(
+            Effect.fromResult(Store.blockWithStateAt(current.chunks, position)),
+            (reading): Store.BlockWithStateSnapshotReading => ({
+              ...reading,
+              dimensionRevision: current.chunks.revisionClock,
+            }),
+          ),
         ),
 
       // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss

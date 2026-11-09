@@ -40,6 +40,7 @@ import {
   wasWritten,
   withBlockAt,
   withChunk,
+  type BlockWithStateSnapshotReading,
 } from '../src/domain/chunk-store-state'
 import { makeChunkStoreLru } from '../src/domain/chunk-store-lru'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from '../src/domain/constants'
@@ -693,6 +694,7 @@ describe('reading a block', () => {
         expect(yield* store.getBlockWithState(blockPosition(blockAxis(0), FLAT_SURFACE_Y + 1, 0))).toStrictEqual({
           _tag: 'Block',
           block: BLOCK.AIR,
+          dimensionRevision: expect.any(Number),
         })
 
         const position = blockPosition(blockAxis(5), 20, 6)
@@ -702,14 +704,59 @@ describe('reading a block', () => {
           _tag: 'Block',
           block: BLOCK.LOG,
           state: { axis: 'x' },
+          dimensionRevision: expect.any(Number),
         })
 
         expect(yield* store.getBlockWithState(blockPosition(blockAxis(1000), 10, 1000))).toStrictEqual({
           _tag: 'ChunkNotLoaded',
+          dimensionRevision: expect.any(Number),
         })
         expect(yield* store.getBlockWithState(blockPosition(blockAxis(0), CHUNK_HEIGHT, 0))).toStrictEqual({
           _tag: 'OutOfWorld',
+          dimensionRevision: expect.any(Number),
         })
+      }),
+    ),
+  )
+
+  it.effect('keeps the block state and dimension revision from one snapshot across a concurrent publish', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const coord = chunkCoord(chunkAxis(0), 0)
+        const position = blockPosition(blockAxis(5), 20, 6)
+        yield* store.load(coord)
+        yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+
+        const captured = yield* Deferred.make<BlockWithStateSnapshotReading>()
+        const resumeReader = yield* Deferred.make<void>()
+        // Hold the reader after it captures the result, then publish while its
+        // caller is still waiting for the read effect to finish.
+        const reader = yield* store.getBlockWithState(position).pipe(
+          Effect.tap((snapshot) => Deferred.succeed(captured, snapshot)),
+          Effect.tap(() => Deferred.await(resumeReader)),
+          Effect.forkChild,
+        )
+
+        const snapshot = yield* Deferred.await(captured)
+        yield* store.setBlock(position, BLOCK.LOG, { axis: 'y' })
+        yield* Deferred.succeed(resumeReader, undefined)
+        const returned = yield* Fiber.join(reader)
+
+        expect(returned).toStrictEqual({
+          _tag: 'Block',
+          block: BLOCK.LOG,
+          state: { axis: 'x' },
+          dimensionRevision: snapshot.dimensionRevision,
+        })
+
+        const latest = yield* store.getBlockWithState(position)
+        expect(latest).toStrictEqual({
+          _tag: 'Block',
+          block: BLOCK.LOG,
+          state: { axis: 'y' },
+          dimensionRevision: expect.any(Number),
+        })
+        expect(latest.dimensionRevision).toBeGreaterThan(snapshot.dimensionRevision)
       }),
     ),
   )

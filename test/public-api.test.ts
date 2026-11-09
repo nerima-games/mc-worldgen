@@ -75,7 +75,9 @@ type GetBlockWithStateError = ReturnType<worldgen.ChunkStoreApi['getBlockWithSta
 export type PublicRootExportsBlockStateStoreTypes = Assert<
   worldgen.BlockStateValues extends Exclude<SetBlockStateArgument, undefined> ? true : false
 > & Assert<worldgen.BlockStateCodecFailure extends SetBlockError ? true : false>
-  & Assert<worldgen.BlockWithStateReading extends GetBlockWithStateResult ? true : false>
+  & Assert<GetBlockWithStateResult extends worldgen.BlockWithStateReading ? true : false>
+  & Assert<worldgen.BlockWithStateSnapshotReading extends GetBlockWithStateResult ? true : false>
+  & Assert<GetBlockWithStateResult extends worldgen.BlockWithStateSnapshotReading ? true : false>
   & Assert<worldgen.BlockStateCodecFailure extends GetBlockWithStateError ? true : false>
 type WithBlockAtStateArgument = Parameters<typeof worldgen.withBlockAt>[3]
 type WithBlockAtError = ReturnType<typeof worldgen.withBlockAt> extends Result.Result<infer _A, infer E>

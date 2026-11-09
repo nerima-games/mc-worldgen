@@ -105,6 +105,11 @@ export type BlockWithStateReading =
   | { readonly _tag: 'ChunkNotLoaded' }
   | { readonly _tag: 'OutOfWorld' }
 
+/** A block read and dimension revision captured from the same published state. */
+export type BlockWithStateSnapshotReading = BlockWithStateReading & {
+  readonly dimensionRevision: number
+}
+
 export const CHUNK_NOT_LOADED: BlockReading = { _tag: 'ChunkNotLoaded' }
 export const OUT_OF_WORLD: BlockReading = { _tag: 'OutOfWorld' }
 

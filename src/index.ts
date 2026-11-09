@@ -74,6 +74,7 @@ export {
 export type {
   BlockReading,
   BlockWithStateReading,
+  BlockWithStateSnapshotReading,
   BlockWriteOutcome,
   ChunkDirtyBatch,
   ChunkDirtyChunk,
