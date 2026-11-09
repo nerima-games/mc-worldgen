@@ -120,7 +120,8 @@ describe('ChunkStore typed service boundaries', () => {
         fc.asyncProperty(arbitraryDirtyCells, async (cells) => {
           const store = await freshStore()
           const coord = chunkCoord(0, 0)
-          await loadAt(store, blockPosition(0, 0, 0))
+          const loaded = await capture(store.load(coord))
+          expect(loaded.kind).toBe('success')
           const subscription = await Effect.runPromise(store.subscribeDirty)
 
           await cells.reduce<Promise<void>>(
