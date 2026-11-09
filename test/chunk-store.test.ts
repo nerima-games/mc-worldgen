@@ -683,6 +683,35 @@ describe('reading a block', () => {
       }),
     ),
   )
+
+  it.effect('reads a block id and state from one store snapshot', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.load(chunkCoord(chunkAxis(0), 0))
+
+        expect(yield* store.getBlockWithState(blockPosition(blockAxis(0), FLAT_SURFACE_Y + 1, 0))).toStrictEqual({
+          _tag: 'Block',
+          block: BLOCK.AIR,
+        })
+
+        const position = blockPosition(blockAxis(5), 20, 6)
+        const write = yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+        expect(write['_tag']).toBe('Written')
+        expect(yield* store.getBlockWithState(position)).toStrictEqual({
+          _tag: 'Block',
+          block: BLOCK.LOG,
+          state: { axis: 'x' },
+        })
+
+        expect(yield* store.getBlockWithState(blockPosition(blockAxis(1000), 10, 1000))).toStrictEqual({
+          _tag: 'ChunkNotLoaded',
+        })
+        expect(yield* store.getBlockWithState(blockPosition(blockAxis(0), CHUNK_HEIGHT, 0))).toStrictEqual({
+          _tag: 'OutOfWorld',
+        })
+      }),
+    ),
+  )
 })
 
 describe('writing a block', () => {

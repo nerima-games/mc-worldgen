@@ -53,6 +53,7 @@ export {
   WRITE_CHUNK_NOT_LOADED,
   WRITE_OUT_OF_WORLD,
   blockAt,
+  blockWithStateAt,
   blockReading,
   chunkSnapshotOf,
   drained,
@@ -72,6 +73,7 @@ export {
 } from './domain/chunk-store-state.js'
 export type {
   BlockReading,
+  BlockWithStateReading,
   BlockWriteOutcome,
   ChunkDirtyBatch,
   ChunkDirtyChunk,

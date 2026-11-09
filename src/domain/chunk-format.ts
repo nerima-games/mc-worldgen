@@ -685,10 +685,6 @@ export type ChunkIntegritySection = 'blocks' | 'blockStates' | 'biomes' | 'struc
 
 export type ChunkIntegrityFailure = Readonly<{
   readonly _tag: 'ChunkIntegrityFailure'
-  readonly actualByteLength: number
-  readonly actualChecksum: string
-  readonly expectedByteLength: number
-  readonly expectedChecksum: string
   readonly reason: 'byte-length-mismatch' | 'checksum-mismatch'
   readonly section: ChunkIntegritySection
 }>
@@ -832,10 +828,6 @@ const chunkIntegrityFailureFor = (
     if (expected.byteLength !== received.byteLength) {
       return Option.some({
         _tag: 'ChunkIntegrityFailure',
-        actualByteLength: received.byteLength,
-        actualChecksum: received.checksum,
-        expectedByteLength: expected.byteLength,
-        expectedChecksum: expected.checksum,
         reason: 'byte-length-mismatch',
         section,
       })
@@ -843,10 +835,6 @@ const chunkIntegrityFailureFor = (
     if (expected.checksum !== received.checksum) {
       return Option.some({
         _tag: 'ChunkIntegrityFailure',
-        actualByteLength: received.byteLength,
-        actualChecksum: received.checksum,
-        expectedByteLength: expected.byteLength,
-        expectedChecksum: expected.checksum,
         reason: 'checksum-mismatch',
         section,
       })
@@ -863,11 +851,7 @@ const isChunkIntegrityFailure = (value: unknown): value is ChunkIntegrityFailure
   }
   return value['_tag'] === 'ChunkIntegrityFailure' &&
     (value['section'] === 'blocks' || value['section'] === 'blockStates' || value['section'] === 'biomes' || value['section'] === 'structureMarkers') &&
-    (value['reason'] === 'byte-length-mismatch' || value['reason'] === 'checksum-mismatch') &&
-    typeof value['actualByteLength'] === 'number' &&
-    typeof value['actualChecksum'] === 'string' &&
-    typeof value['expectedByteLength'] === 'number' &&
-    typeof value['expectedChecksum'] === 'string'
+    (value['reason'] === 'byte-length-mismatch' || value['reason'] === 'checksum-mismatch')
 }
 
 const schemaIssueChildren = (issue: Record<string, unknown>): ReadonlyArray<unknown> => {

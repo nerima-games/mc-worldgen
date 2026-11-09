@@ -9,7 +9,8 @@ import {
   type StorageService,
 } from '@nerima-games/mc-save'
 import { Deferred, Effect, Fiber, Layer, Option, Result } from 'effect'
-import { decodeBlockState, encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
+import { BLOCK_IDS, blockTypeOfId } from '@nerima-games/mc-kernel'
+import { decodeBlockState, defaultBlockState, encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import {
   ChunkCapacity,
@@ -20,7 +21,7 @@ import {
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
-import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1 } from '../src/domain/chunk-format'
+import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1, CHUNK_FORMAT_V2 } from '../src/domain/chunk-format'
 import { blockIndex, CHUNK_VOLUME } from '../src/domain/constants'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 
@@ -37,6 +38,12 @@ const source: ChunkSource = (coord) => Effect.succeed(generatedChunk(coord))
 const capacity = (value: number) => Result.getOrThrow(ChunkCapacity.result(value))
 const TEST_CAPACITY = capacity(32)
 const ONE_CHUNK_CAPACITY = capacity(1)
+
+const DOOR_BLOCK = BLOCK_IDS.find((blockId) => {
+  const blockType = blockTypeOfId(blockId)
+  return Result.isSuccess(blockType) && blockType.success === 'door'
+})
+if (DOOR_BLOCK === undefined) throw new Error('mc-kernel does not register the door block')
 
 const makeStoreWith = (storage: StorageService, chunkCapacity: ChunkCapacity, chunkSource: ChunkSource = source) =>
   makePersistentChunkStore(chunkSource, context, chunkCapacity).pipe(Effect.provideService(StoragePort, storage))
@@ -308,6 +315,78 @@ describe('chunk persistence', () => {
       expect(restored.blockStates[index]).toBe(encoded.success)
       expect(Result.isSuccess(decoded)).toBe(true)
       if (Result.isSuccess(decoded)) expect(decoded.success.axis).toBe('x')
+    }),
+  )
+
+  it.effect('reads the open door state after save, eviction, and reload', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const store = yield* makeStoreWith(storage, ONE_CHUNK_CAPACITY)
+      const coord = validated.validatedChunkCoord(0, 0)
+      const nextCoord = validated.validatedChunkCoord(1, 0)
+      const position = validated.validatedBlockPosition(5, 20, 6)
+      const openDoorState = { ...Result.getOrThrow(defaultBlockState(DOOR_BLOCK)), open: true }
+
+      yield* store.load(coord)
+      const prepared = yield* store.prepare([{ position, block: DOOR_BLOCK, state: openDoorState }])
+      yield* store.publish(prepared)
+      expect(yield* store.getBlockWithState(position)).toMatchObject({
+        _tag: 'Block',
+        block: DOOR_BLOCK,
+        state: { open: true },
+      })
+
+      yield* store.load(nextCoord)
+      expect(yield* store.isLoaded(coord)).toBe(false)
+      expect(Option.isSome(yield* storage.get(chunkSaveKey(context, coord)))).toBe(true)
+
+      yield* store.load(coord)
+      expect(yield* store.getBlockWithState(position)).toMatchObject({
+        _tag: 'Block',
+        block: DOOR_BLOCK,
+        state: { open: true },
+      })
+    }),
+  )
+
+  it.effect('reads kernel default states from migrated v1 and v2 chunks', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
+      const v1Coord = validated.validatedChunkCoord(0, 0)
+      const v2Coord = validated.validatedChunkCoord(1, 0)
+      const localIndex = blockIndex(5, 20, 6)
+      const v1Blocks = new Uint8Array(CHUNK_VOLUME)
+      v1Blocks[localIndex] = BLOCK.LOG
+      const v2BlockBytes = new Uint8Array(CHUNK_VOLUME * 2)
+      new DataView(v2BlockBytes.buffer).setUint16(localIndex * 2, DOOR_BLOCK, true)
+
+      for (const legacy of [
+        { version: CHUNK_FORMAT_V1.version, coord: v1Coord, block: BLOCK.LOG, blocks: v1Blocks },
+        { version: CHUNK_FORMAT_V2.version, coord: v2Coord, block: DOOR_BLOCK, blocks: v2BlockBytes },
+      ]) {
+        yield* storage.put(
+          chunkSaveKey(context, legacy.coord),
+          Result.getOrThrow(
+            sealSaveEnvelope(
+              saveEnvelope(CHUNK_FORMAT.name, legacy.version, {
+                biomes: Array.from({ length: CHUNK_BIOME_COUNT }, () => 'PLAINS' as const),
+                blocks: Buffer.from(legacy.blocks).toString('base64'),
+                coord: { cx: legacy.coord.cx, cz: legacy.coord.cz },
+              }),
+            ),
+          ),
+        )
+
+        yield* store.load(legacy.coord)
+        const worldX = legacy.coord.cx * 16 + 5
+        const worldZ = legacy.coord.cz * 16 + 6
+        expect(yield* store.getBlockWithState(validated.validatedBlockPosition(worldX, 20, worldZ))).toStrictEqual({
+          _tag: 'Block',
+          block: legacy.block,
+          state: Result.getOrThrow(defaultBlockState(legacy.block)),
+        })
+      }
     }),
   )
 

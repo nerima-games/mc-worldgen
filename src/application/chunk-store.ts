@@ -218,6 +218,10 @@ export type ChunkStoreApi = {
 
   /** Read one block. Total: distinguishes air from not-loaded from out-of-world. */
   readonly getBlock: (position: BlockPosition) => Effect.Effect<Store.BlockReading>
+  /** Read a block and its state from one store snapshot; state-less blocks omit `state`. */
+  readonly getBlockWithState: (
+    position: BlockPosition,
+  ) => Effect.Effect<Store.BlockWithStateReading, BlockStateCodecFailure>
   /**
    * Write one block. Reuses the prepare/publish transitions in one `Ref.modify`
    * so concurrent compatibility writes stay atomic. A block-state change dirties
@@ -816,6 +820,10 @@ const makeChunkStoreInternal = (
     return {
       ...makeBlockWriteApi(state),
       getBlock: (position) => Effect.map(Ref.get(state), (current) => Store.blockAt(current.chunks, position)),
+      getBlockWithState: (position) =>
+        Effect.flatMap(Ref.get(state), (current) =>
+          Effect.fromResult(Store.blockWithStateAt(current.chunks, position)),
+        ),
 
       // `Ref.modify` and not `Ref.get`, even though this reads. A cache miss
       // Computes the chunk's grids and has to publish them, or the next reader

@@ -52,6 +52,7 @@ import {
 import {
   type BlockStateCodecFailure,
   type BlockStateValues,
+  decodeBlockState,
   defaultBlockState,
   encodeBlockState,
 } from '@nerima-games/mc-kernel/domain/block-state'
@@ -100,10 +101,24 @@ export type BlockReading =
   | { readonly _tag: 'ChunkNotLoaded' }
   | { readonly _tag: 'OutOfWorld' }
 
+export type BlockWithStateReading =
+  | { readonly _tag: 'Block'; readonly block: BlockId; readonly state?: BlockStateValues }
+  | { readonly _tag: 'ChunkNotLoaded' }
+  | { readonly _tag: 'OutOfWorld' }
+
 export const CHUNK_NOT_LOADED: BlockReading = { _tag: 'ChunkNotLoaded' }
 export const OUT_OF_WORLD: BlockReading = { _tag: 'OutOfWorld' }
 
 export const blockReading = (block: BlockId): BlockReading => ({ _tag: 'Block', block })
+
+const EMPTY_BLOCK_STATE_PROPERTY_COUNT = 0
+
+const blockWithStateReading = (block: BlockId, state: BlockStateValues): BlockWithStateReading => {
+  if (Object.keys(state).length === EMPTY_BLOCK_STATE_PROPERTY_COUNT) {
+    return { _tag: 'Block', block }
+  }
+  return { _tag: 'Block', block, state }
+}
 
 /**
  * The outcome of a block write.
@@ -768,6 +783,28 @@ const relightAfterBlockChange = (
 }
 
 const EMPTY_ENCODED_BLOCK_STATE = 0
+
+/** Read one block and its decoded state from the same resident chunk snapshot. */
+export const blockWithStateAt = (
+  state: ChunkStoreState,
+  position: BlockPosition,
+): Result.Result<BlockWithStateReading, BlockStateCodecFailure> => {
+  if (!isWorldY(position.y)) {
+    return Result.succeed(OUT_OF_WORLD)
+  }
+
+  const target = resolveLoadedChunk(state, position)
+  if (!target) {
+    return Result.succeed(CHUNK_NOT_LOADED)
+  }
+
+  const block = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
+  const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
+  const encodedState = target.chunk.blockStates[index] ?? EMPTY_ENCODED_BLOCK_STATE
+  return Result.map(decodeBlockState(block, encodedState), (blockState) =>
+    blockWithStateReading(block, blockState),
+  )
+}
 
 const encodedStateFor = (
   block: BlockId,
