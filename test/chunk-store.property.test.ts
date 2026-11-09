@@ -178,6 +178,29 @@ describe('ChunkStore typed service boundaries', () => {
     }),
   )
 
+  it.effect('getBlockWithState returns a revision-tagged reading or its declared codec failure for arbitrary positions', () =>
+    Effect.promise(async () => {
+      await fc.assert(
+        fc.asyncProperty(arbitraryPosition, async (position) => {
+          const store = await freshStore()
+          const result = await capture(store.getBlockWithState(position))
+          if (result.kind === 'failure') {
+            expectErrorTag(result.error, ['BlockStateCodecFailure'])
+            return
+          }
+
+          expect(Number.isSafeInteger(result.value.dimensionRevision) && result.value.dimensionRevision >= 0).toBe(true)
+          if (position.y < 0 || position.y >= CHUNK_HEIGHT) {
+            expect(result.value._tag).toBe('OutOfWorld')
+          } else {
+            expect(result.value._tag).toBe('ChunkNotLoaded')
+          }
+        }),
+        { numRuns: 16, seed: 0x6c57a },
+      )
+    }),
+  )
+
   it.effect('setBlock returns an outcome or its declared state/light failure for arbitrary valid positions and block ids', () =>
     Effect.promise(async () => {
       await fc.assert(
