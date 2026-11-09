@@ -86,7 +86,11 @@ describe('ChunkStoreState typed light failures', () => {
 
     expect(Result.isSuccess(reading)).toBe(true)
     if (Result.isSuccess(reading)) {
-      expect(reading.success).toStrictEqual({ _tag: 'Block', block: BLOCK.AIR })
+      expect(reading.success).toStrictEqual({
+        _tag: 'Block',
+        block: BLOCK.AIR,
+        dimensionRevision: state.revisionClock,
+      })
     }
   })
 

@@ -342,7 +342,7 @@
     "text": "number"
   },
   {
-    "count": 8,
+    "count": 7,
     "file": "src/domain/chunk-store-state.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"
