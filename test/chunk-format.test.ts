@@ -50,7 +50,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import * as fc from 'fast-check'
 import * as validated from './fixtures/validated-inputs'
-import { Effect, Option, Result, Schema } from 'effect'
+import { Effect, Option, Result, Schema, SchemaIssue } from 'effect'
 import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
   chunkIntegrityFailureFromSaveDecodeError,
@@ -78,6 +78,7 @@ import { planEndCityForRegion, type NaturalStructureChunk } from './helpers/unwr
 import {
   decodeSave,
   encodeSave,
+  SaveDecodeError,
   saveEnvelope,
   type SaveEnvelopeDraft,
 } from '@nerima-games/mc-save'
@@ -665,6 +666,25 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
       expect(outcome.cause).toContain(`expected ${String(CHUNK_VOLUME * 4)} block-state bytes`)
     }),
   )
+
+  it('CF-7b: integrity extraction ignores non-record nested schema issues', () => {
+    const parseResult = Schema.decodeUnknownResult(Schema.String)(0)
+    if (Result.isSuccess(parseResult)) {
+      throw new Error('Expected a schema mismatch for the malformed issue fixture')
+    }
+
+    const nestedIssue = new SchemaIssue.Pointer([], parseResult.failure.issue)
+    // Model an issue tree from an incompatible decoder with a primitive child.
+    Object.defineProperty(nestedIssue, 'issue', { value: null })
+    const error = new SaveDecodeError({
+      format: CHUNK_FORMAT_NAME,
+      version: CHUNK_FORMAT.version,
+      reason: 'malformed schema issue tree',
+      cause: new Schema.SchemaError(nestedIssue),
+    })
+
+    expect(chunkIntegrityFailureFromSaveDecodeError(error)).toEqual(Option.none())
+  })
 })
 
 describe('v3 block states are validated against each cell block id', () => {
