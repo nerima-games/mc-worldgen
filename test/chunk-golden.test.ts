@@ -512,8 +512,8 @@ describe('what backs the biome digest', () => {
             const surfaceY = surfaceHeightAt(GOLDEN_SEED, validated.blockAxis(wx), validated.blockAxis(wz))
             const expected = Result.getOrThrow(resolveTerrainColumnForGeneration(
               GOLDEN_SEED,
-              wx,
-              wz,
+              validated.blockAxis(wx),
+              validated.blockAxis(wz),
               DEFAULT_TERRAIN_LEVELS,
               surfaceY,
             )).kernelBiome

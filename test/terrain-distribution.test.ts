@@ -3,7 +3,7 @@ import { Effect, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { createTerrainDensitySampler, MAX_SURFACE_Y, MIN_SURFACE_Y, type TerrainDensitySampler } from '../src/domain/density-function'
 import { generateChunkAt } from '../src/domain/terrain'
-import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const SURVEY_CONFIGS = [
   { seed: 20260726, stride: 128 },
@@ -58,7 +58,7 @@ const surveySeed = (seedValue: number, stride: number): TerrainSurvey => {
     for (let dx = 0; dx < SURVEY_SPAN; dx += stride) {
       const wx = dx - half
       const wz = dz - half
-      const sample = sampler.surfaceHeightAt(wx, wz)
+      const sample = sampler.surfaceHeightAt(blockAxis(wx), blockAxis(wz))
       if (Result.isFailure(sample)) {
         throw new Error(`surface sample failed for seed ${String(seedValue)} at ${String(wx)},${String(wz)}: ${sample.failure.message}`)
       }
@@ -103,7 +103,7 @@ const hasVerticalOverhang = (sampler: TerrainDensitySampler): boolean => {
       let signChanges = 0
 
       for (let wy = OVERHANG_SCAN_MIN_Y; wy <= OVERHANG_SCAN_MAX_Y; wy += OVERHANG_SCAN_STEP) {
-        const density = Result.getOrThrow(sampler.densityAt(wx, wy, wz))
+        const density = Result.getOrThrow(sampler.densityAt(blockAxis(wx), blockAxis(wy), blockAxis(wz)))
         const solid = density > SURFACE_THRESHOLD
         if (previousSolid !== undefined && solid !== previousSolid) {
           signChanges += 1

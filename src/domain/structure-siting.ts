@@ -633,8 +633,8 @@ export const villageSiteForRegion = (
 
 export const villageSiteForRegionWithResultSampler = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: OverworldTerrainResultSampler,
 ): Result.Result<Option.Option<VillageSite>, InvalidNaturalStructureCoordinate | OverworldTerrainSamplingFailure> => {
   const validation = validateVillageRegionCoordinates(regionX, regionZ)

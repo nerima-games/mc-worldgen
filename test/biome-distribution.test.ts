@@ -84,13 +84,13 @@ const surveySeed = (seedValue: number, stride: number): BiomeSurvey => {
     for (let dx = 0; dx < SURVEY_SPAN; dx += stride) {
       const wx = dx - half
       const wz = dz - half
-      const sample = sampler.surfaceHeightAt(wx, wz)
+      const sample = sampler.surfaceHeightAt(blockAxis(wx), blockAxis(wz))
       if (Result.isFailure(sample)) {
         throw new Error(`surface sample failed for seed ${String(seedValue)} at ${String(wx)},${String(wz)}: ${sample.failure.message}`)
       }
       const surfaceY = sample.success
       const column = Result.getOrThrow(
-        resolveTerrainColumnForGeneration(seed, wx, wz, DEFAULT_TERRAIN_LEVELS, surfaceY),
+        resolveTerrainColumnForGeneration(seed, blockAxis(wx), blockAxis(wz), DEFAULT_TERRAIN_LEVELS, surfaceY),
       )
       const generated = { coarseBiome: column.biome, kernelBiome: column.kernelBiome, surfaceY }
       columns.push(generated)
@@ -172,7 +172,7 @@ describe('generated biome distribution', () => {
       for (const { wx, wz } of positions) {
         for (const surfaceY of surfaceHeights) {
           const generated = Result.getOrThrow(
-            resolveTerrainColumnForGeneration(seed, wx, wz, DEFAULT_TERRAIN_LEVELS, surfaceY),
+            resolveTerrainColumnForGeneration(seed, blockAxis(wx), blockAxis(wz), DEFAULT_TERRAIN_LEVELS, blockAxis(surfaceY)),
           )
           const expected = Result.getOrThrow(
             minecraftBiomeFor({

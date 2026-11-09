@@ -87,10 +87,19 @@ export const ORE_MIN_Y_FLOOR: number = WORLD_MIN_Y
 
 export type OreDistribution = 'uniform' | 'trapezoid'
 type OreBiomeRule = 'badlands' | 'dripstone-caves' | 'mountain' | 'not-dripstone-caves'
+type OreFeature =
+  | 'coal-lower' | 'coal-upper'
+  | 'iron-small' | 'iron-middle' | 'iron-upper'
+  | 'copper-small' | 'copper-large'
+  | 'redstone' | 'redstone-lower'
+  | 'lapis' | 'lapis-buried'
+  | 'gold' | 'gold-lower' | 'gold-extra'
+  | 'diamond-small' | 'diamond-buried' | 'diamond-large' | 'diamond-medium'
+  | 'emerald'
 
 export type OreConfig = {
   /** Vanilla placed-feature name, also used to derive an independent stream. */
-  readonly feature: string
+  readonly feature: OreFeature
   readonly name: OreName
   /** Vanilla absolute Y bounds, inclusive. Runtime clips them to the chunk buffer. */
   readonly minY: number

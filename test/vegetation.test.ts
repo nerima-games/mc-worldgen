@@ -55,7 +55,7 @@ import {
   shouldPlaceGroundPlant,
 } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
-import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const PLANT_ID_SET = new Set<number>(PLANT_IDS)
 
@@ -88,9 +88,9 @@ const decoratedChunks = VEGETATION_GOLDEN_SPECS.map((spec) => ({
 const vegetationDensitySampler = Result.getOrThrow(createTerrainDensitySampler(GOLDEN_SEED))
 
 const generatedCoarseBiomeAt = (wx: number, wz: number): BiomeType => {
-  const surfaceY = Result.getOrThrow(vegetationDensitySampler.surfaceHeightAt(wx, wz))
+  const surfaceY = Result.getOrThrow(vegetationDensitySampler.surfaceHeightAt(blockAxis(wx), blockAxis(wz)))
   return Result.getOrThrow(
-    resolveTerrainColumnForGeneration(GOLDEN_SEED, wx, wz, DEFAULT_TERRAIN_LEVELS, surfaceY),
+    resolveTerrainColumnForGeneration(GOLDEN_SEED, blockAxis(wx), blockAxis(wz), DEFAULT_TERRAIN_LEVELS, surfaceY),
   ).biome
 }
 

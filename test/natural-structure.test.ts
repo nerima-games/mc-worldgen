@@ -6,7 +6,7 @@ import { Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { emptyBlocks } from '../src/domain/chunk'
 import { chunkCoord } from '@nerima-games/mc-kernel'
-import { candidatePresenceChannelSeedFor } from '../src/domain/natural-structure-plan-builder'
+import { candidatePresenceChannelSeedFor, validateNaturalStructureRegion } from '../src/domain/natural-structure-plan-builder'
 import {
   applyNaturalStructurePlansToChunk,
   MAX_NATURAL_STRUCTURE_BLOCKS,
@@ -693,8 +693,8 @@ describe('natural structure plans', () => {
     const sampleTerrain: OverworldTerrainResultSampler = () => Result.fail(failure)
     const villageResult = planVillageForRegionWithResultSampler(
       noiseSeed(seed),
-      village.region.x,
-      village.region.z,
+      validatedNaturalStructureRegionAxisFrom(Result.getOrThrow(validateNaturalStructureRegion('village', village.region)), 'x'),
+      validatedNaturalStructureRegionAxisFrom(Result.getOrThrow(validateNaturalStructureRegion('village', village.region)), 'z'),
       sampleTerrain,
     )
     const coord = chunkCoord(chunkAxis(Math.floor(village.origin.x / CHUNK_SIZE_XZ)), chunkAxis(Math.floor(village.origin.z / CHUNK_SIZE_XZ)))

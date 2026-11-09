@@ -408,7 +408,7 @@
     "text": "string"
   },
   {
-    "count": 15,
+    "count": 12,
     "file": "src/domain/ore.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"

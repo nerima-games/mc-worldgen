@@ -77,8 +77,8 @@ describe('terrainLevels generation input', () => {
             wz: fc.integer({ min: -2_048, max: 2_048 }),
           }),
           ({ wx, wy, wz }) => {
-            const runtimeDensity = Result.getOrThrow(sampler.densityAt(wx, wy, wz))
-            expect(sampler.densityAtForGeneration(wx, wy, wz)).toBeCloseTo(runtimeDensity, 12)
+            const runtimeDensity = Result.getOrThrow(sampler.densityAt(blockAxis(wx), blockAxis(wy), blockAxis(wz)))
+            expect(sampler.densityAtForGeneration(blockAxis(wx), blockAxis(wy), blockAxis(wz))).toBeCloseTo(runtimeDensity, 12)
           },
         ),
         { numRuns: 64, seed: 0x71e21 },
@@ -97,7 +97,7 @@ describe('terrainLevels generation input', () => {
             wz: fc.integer({ min: -1_000_000, max: 1_000_000 }),
           }),
           ({ wx, wz }) => {
-            const sampled = sampler.surfaceHeightAt(wx, wz)
+            const sampled = sampler.surfaceHeightAt(blockAxis(wx), blockAxis(wz))
             expect(Result.isSuccess(sampled)).toBe(true)
             if (!Result.isSuccess(sampled)) {
               return

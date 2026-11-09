@@ -398,9 +398,15 @@ const writeSolidDensitySample = (blocks: Uint16Array, lx: number, lz: number, y:
 
 const fillDensityColumn = ({ blocks, sampler, lx, lz, wx, wz }: DensityColumnRequest): number => {
   let initialSurfaceY = BEDROCK_Y + ONE_BLOCK_ABOVE
+  const worldX = blockAxisFromKnownSafeInteger(wx)
+  const worldZ = blockAxisFromKnownSafeInteger(wz)
   blocks[blockIndex(lx, BEDROCK_Y, lz)] = BLOCK.BEDROCK
   for (let y = BEDROCK_Y + ONE_BLOCK_ABOVE; y <= MAX_SURFACE_Y; y += AXIS_STEP) {
-    const density = sampler.densityAtForGeneration(wx, y, wz)
+    const density = sampler.densityAtForGeneration(
+      worldX,
+      blockAxisFromKnownSafeInteger(y),
+      worldZ,
+    )
     if (writeSolidDensitySample(blocks, lx, lz, y, density)) {
       initialSurfaceY = y
     }
@@ -414,7 +420,13 @@ const resolveGeneratedTerrainColumn = (
   wz: number,
   initialSurfaceY: number,
 ): Result.Result<TerrainColumnForGeneration, TerrainGenerationError> => {
-  const column = resolveTerrainColumnForGeneration(context.seed, wx, wz, context.levels, initialSurfaceY)
+  const column = resolveTerrainColumnForGeneration(
+    context.seed,
+    blockAxisFromKnownSafeInteger(wx),
+    blockAxisFromKnownSafeInteger(wz),
+    context.levels,
+    blockAxisFromKnownSafeInteger(initialSurfaceY),
+  )
   if (Result.isSuccess(column)) {
     return Result.succeed(column.success)
   }

@@ -406,8 +406,8 @@ export const planVillageForRegion = (
 
 export const planVillageForRegionWithResultSampler = (
   seed: NoiseSeed,
-  regionX: number,
-  regionZ: number,
+  regionX: ValidatedNaturalStructureRegionAxis,
+  regionZ: ValidatedNaturalStructureRegionAxis,
   sampleTerrain: OverworldTerrainResultSampler,
 ): NaturalStructurePlanResult => {
   const siteResult = villageSiteForRegionWithResultSampler(seed, regionX, regionZ, sampleTerrain)

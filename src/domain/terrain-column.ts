@@ -200,15 +200,13 @@ const lakeNoiseAt = (seed: NoiseSeed, wx: number, wz: number): number =>
 
 const resolveGenerationBiomes = (
   seed: NoiseSeed,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
   levels: TerrainLevels,
-  initialSurfaceY: number,
+  initialSurfaceY: BlockAxis,
 ): Result.Result<GenerationBiomeData, RangeError | UnsupportedBiomeCategory> =>
   Result.gen(function* buildGenerationBiomeData() {
-    const blockX = blockAxisFromKnownSafeInteger(wx)
-    const blockZ = blockAxisFromKnownSafeInteger(wz)
-    const climate = yield* minecraftClimateAt(seed, blockX, blockZ)
+    const climate = yield* minecraftClimateAt(seed, wx, wz)
     let noiseCategory = classifyMinecraftBiomeFromClimate(climate)
     if (initialSurfaceY < levels.seaLevel - OCEAN_BELOW_SEA_LEVEL_MARGIN) {
       noiseCategory = 'OCEAN'
@@ -222,10 +220,10 @@ const resolveGenerationBiomes = (
 
 export const resolveTerrainColumnForGeneration = (
   seed: NoiseSeed,
-  wx: number,
-  wz: number,
+  wx: BlockAxis,
+  wz: BlockAxis,
   levels: TerrainLevels,
-  initialSurfaceY: number,
+  initialSurfaceY: BlockAxis,
 ): Result.Result<TerrainColumnForGeneration, RangeError | UnsupportedBiomeCategory> =>
   Result.gen(function* resolveGeneratedTerrainColumn() {
     const { biome, climate, kernelBiome } = yield* resolveGenerationBiomes(seed, wx, wz, levels, initialSurfaceY)

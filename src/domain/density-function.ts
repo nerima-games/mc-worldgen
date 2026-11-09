@@ -4,6 +4,7 @@ import {
   type DensityBounds,
   type DensityFunction,
   type DensityNoiseSource,
+  type DensityValue as DensityValueType,
   type NoiseFn3D,
   type NoiseSeed,
   createDensityFunctionRuntime,
@@ -88,9 +89,9 @@ export const TerrainDensityFailure: new (
 export type TerrainDensityFailure = InstanceType<typeof TerrainDensityFailure>
 
 export type TerrainDensitySampler = Readonly<{
-  readonly densityAt: (wx: number, wy: number, wz: number) => Result.Result<number, TerrainDensityFailure>
-  readonly densityAtForGeneration: (wx: number, wy: number, wz: number) => number
-  readonly surfaceHeightAt: (wx: number, wz: number) => Result.Result<BlockAxisValue, TerrainDensityFailure>
+  readonly densityAt: (wx: BlockAxisValue, wy: BlockAxisValue, wz: BlockAxisValue) => Result.Result<DensityValueType, TerrainDensityFailure>
+  readonly densityAtForGeneration: (wx: BlockAxisValue, wy: BlockAxisValue, wz: BlockAxisValue) => DensityValueType
+  readonly surfaceHeightAt: (wx: BlockAxisValue, wz: BlockAxisValue) => Result.Result<BlockAxisValue, TerrainDensityFailure>
 }>
 
 const constructionFailure = (error: TypeError | RangeError): TerrainDensityFailure =>
@@ -163,29 +164,29 @@ export const createTerrainDensitySampler = (seed: NoiseSeed): Result.Result<Terr
   return Result.flatMap(density, (terrainDensity) => {
     const runtime = Result.mapError(createDensityFunctionRuntime(terrainDensity), constructionFailure)
     return Result.map(runtime, (densityRuntime) => {
-      const densityAt = (wx: number, wy: number, wz: number): Result.Result<number, TerrainDensityFailure> =>
+      const densityAt = (wx: BlockAxisValue, wy: BlockAxisValue, wz: BlockAxisValue): Result.Result<DensityValueType, TerrainDensityFailure> =>
         Result.mapError(
           densityRuntime.compute({ x: positionAxis(wx), y: positionAxis(wy), z: positionAxis(wz) }),
           evaluationFailure,
         )
 
       // This fuses the same mc-noise density tree as buildTerrainDensity for the hot voxel loop.
-      const densityAtForGeneration = (wx: number, wy: number, wz: number): number => {
+      const densityAtForGeneration = (wx: BlockAxisValue, wy: BlockAxisValue, wz: BlockAxisValue): DensityValueType => {
         const gradientRatio = Math.max(
           UNIT_INTERVAL_MIN,
           Math.min(UNIT_INTERVAL_MAX, (wy - DENSITY_GRADIENT_START_Y) / DENSITY_GRADIENT_TOP_Y),
         )
-        return (
+        return densityValue(
           DENSITY_BASE_MAGNITUDE + DENSITY_GRADIENT_VALUE_DELTA * gradientRatio +
           field.raw3d(wx / CONTINENTAL_XZ_WAVELENGTH_BLOCKS, wy / CONTINENTAL_Y_WAVELENGTH_BLOCKS, wz / CONTINENTAL_XZ_WAVELENGTH_BLOCKS) * CONTINENTAL_AMPLITUDE +
           field.raw3d(wx / REGIONAL_XZ_WAVELENGTH_BLOCKS, wy / REGIONAL_Y_WAVELENGTH_BLOCKS, wz / REGIONAL_XZ_WAVELENGTH_BLOCKS) * REGIONAL_AMPLITUDE +
-          field.raw3d(wx / OVERHANG_XZ_WAVELENGTH_BLOCKS, wy / OVERHANG_Y_WAVELENGTH_BLOCKS, wz / OVERHANG_XZ_WAVELENGTH_BLOCKS) * OVERHANG_AMPLITUDE
+          field.raw3d(wx / OVERHANG_XZ_WAVELENGTH_BLOCKS, wy / OVERHANG_Y_WAVELENGTH_BLOCKS, wz / OVERHANG_XZ_WAVELENGTH_BLOCKS) * OVERHANG_AMPLITUDE,
         )
       }
 
-      const surfaceHeightAt = (wx: number, wz: number): Result.Result<BlockAxisValue, TerrainDensityFailure> => {
+      const surfaceHeightAt = (wx: BlockAxisValue, wz: BlockAxisValue): Result.Result<BlockAxisValue, TerrainDensityFailure> => {
         for (let wy = SURFACE_SCAN_START; wy >= MIN_SURFACE_Y; wy -= SURFACE_SCAN_STEP) {
-          if (densityAtForGeneration(wx, wy, wz) > DENSITY_SURFACE_THRESHOLD) {
+          if (densityAtForGeneration(wx, blockAxisFromKnownSafeInteger(wy), wz) > DENSITY_SURFACE_THRESHOLD) {
             return Result.succeed(blockAxisFromKnownSafeInteger(wy))
           }
         }

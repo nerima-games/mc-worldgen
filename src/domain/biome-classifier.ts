@@ -25,6 +25,7 @@ import {
 } from './biome-classifier.config.js'
 import { BIOMES, type BiomeType, type KernelBiomeType, classifyBiome } from './biome.js'
 import { Data, Result } from 'effect'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 
 const TEMPERATURE_COLD_VARIANT = 0.2
 const TEMPERATURE_MOUNTAIN_COLD = 0.3
@@ -274,7 +275,7 @@ const kernelBiomeForCategory: Readonly<Record<BiomeType, (climate: ClimateSample
 export const refineBiomeCategoryForKernel = (
   category: unknown,
   climate: ClimateSample,
-  surfaceY: number,
+  surfaceY: BlockAxis,
 ): Result.Result<KernelBiomeType, UnsupportedBiomeCategory> => {
   if (!isBiomeCategory(category)) {
     return Result.fail(unsupportedCategory(category))

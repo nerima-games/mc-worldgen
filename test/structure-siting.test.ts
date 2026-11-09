@@ -37,6 +37,8 @@ import {
 } from '../src/domain/structure-siting'
 import { generateChunkAt, strongholdSiteForRegion, villageSiteForRegion } from './helpers/unwrapped-worldgen'
 import { GOLDEN_SEED } from '../scripts/golden-fixture'
+import { validateNaturalStructureRegion } from '../src/domain/natural-structure-plan-builder'
+import { validatedNaturalStructureRegionAxisFrom } from '../src/domain/natural-structure-coordinate-validation'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 import { TerrainDensityFailure, createTerrainDensitySampler } from '../src/domain/density-function'
 
@@ -450,8 +452,8 @@ describe('village chunk query coordinate bounds', () => {
     const resultSampler: OverworldTerrainResultSampler = () => Result.fail(failure)
     const result = villageSiteForRegionWithResultSampler(
       GOLDEN_SEED,
-      VILLAGE_TEST_REGION.x,
-      VILLAGE_TEST_REGION.z,
+      validatedNaturalStructureRegionAxisFrom(Result.getOrThrow(validateNaturalStructureRegion('village', VILLAGE_TEST_REGION)), 'x'),
+      validatedNaturalStructureRegionAxisFrom(Result.getOrThrow(validateNaturalStructureRegion('village', VILLAGE_TEST_REGION)), 'z'),
       resultSampler,
     )
 
@@ -663,7 +665,7 @@ describe('STRONGHOLD_FLOOR_Y stays outside the cave band', () => {
         for (let cz = -3; cz < 3; cz += 1) {
           for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
             for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-              const sample = sampler.densityAt(cx * CHUNK_SIZE_XZ + lx, STRONGHOLD_FLOOR_Y, cz * CHUNK_SIZE_XZ + lz)
+              const sample = sampler.densityAt(blockAxis(cx * CHUNK_SIZE_XZ + lx), blockAxis(STRONGHOLD_FLOOR_Y), blockAxis(cz * CHUNK_SIZE_XZ + lz))
               if (Result.isFailure(sample)) throw sample.failure
               cells += 1
               if (sample.success > 0) {

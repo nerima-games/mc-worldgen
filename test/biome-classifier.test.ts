@@ -12,6 +12,7 @@ import {
   refineBeachBiome,
 } from '../src/domain/biome-classifier'
 import { BIOMES, KERNEL_BIOMES } from '../src/domain/biome'
+import { blockAxis } from './fixtures/validated-inputs'
 
 const climate = (overrides: Partial<ClimateSample> = {}): ClimateSample => ({
   continentalness: 0,
@@ -85,7 +86,7 @@ describe('biome classifier', () => {
   it.effect('refines every mc-noise category to a registered kernel biome', () =>
     Effect.sync(() => {
       for (const category of BIOMES) {
-        const result = refineBiomeCategoryForKernel(category, climate(), 100)
+        const result = refineBiomeCategoryForKernel(category, climate(), blockAxis(100))
         expect(Result.isSuccess(result), `${category} should be supported`).toBe(true)
         if (Result.isSuccess(result)) {
           expect(KERNEL_BIOMES).toContain(result.success)
@@ -108,7 +109,7 @@ describe('biome classifier', () => {
       ]
 
       for (const [sample, surfaceY, expected] of cases) {
-        const result = refineBiomeCategoryForKernel('MOUNTAINS', sample, surfaceY)
+        const result = refineBiomeCategoryForKernel('MOUNTAINS', sample, blockAxis(surfaceY))
         expect(Result.isSuccess(result)).toBe(true)
         if (Result.isSuccess(result)) {
           expect(result.success).toBe(expected)
@@ -120,7 +121,7 @@ describe('biome classifier', () => {
 
   it.effect('fails with a tagged error for unknown runtime classifier values', () =>
     Effect.sync(() => {
-      const result = refineBiomeCategoryForKernel('UNRECOGNIZED_CATEGORY', climate(), 80)
+      const result = refineBiomeCategoryForKernel('UNRECOGNIZED_CATEGORY', climate(), blockAxis(80))
 
       expect(Result.isFailure(result)).toBe(true)
       if (Result.isFailure(result)) {
@@ -149,7 +150,7 @@ describe('biome classifier', () => {
           }),
           fc.integer({ min: -64, max: 511 }),
           (category, climateSample, surfaceY) => {
-            const result = refineBiomeCategoryForKernel(category, climateSample, surfaceY)
+            const result = refineBiomeCategoryForKernel(category, climateSample, blockAxis(surfaceY))
             if (typeof category === 'string' && categories.has(category)) {
               expect(Result.isSuccess(result)).toBe(true)
               if (Result.isSuccess(result)) {
