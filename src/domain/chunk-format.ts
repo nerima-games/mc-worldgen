@@ -76,10 +76,12 @@
  * Holding onto it is what `CHUNK_FORMAT` below does, and invariance is the
  * reason its two type parameters are handled in OPPOSITE directions:
  *
- *   `PersistableChunkV3` (the A side) is PINNED by annotation. It is a
- *       `ChunkWithBlockStates` plus the optional structure metadata accepted
- *       by generation. Callers materialize omitted generated states through
- *       `withDefaultBlockStates` before encoding.
+ *   `PersistableChunkV3` (the A side) is PINNED by annotation. Its TypeScript
+ *       input requires a `ChunkWithBlockStates` plus optional structure
+ *       metadata accepted by generation. The encoder also accepts raw
+ *       generated chunks without a state buffer at runtime and materializes
+ *       kernel defaults before checksumming. Callers that need a complete
+ *       in-memory chunk can use `withDefaultBlockStates`.
  *
  *   `ChunkEncoded` (the I side) is DERIVED with `Schema.Schema.Encoded`. Hand
  *       writing it would be a transcription of the schema sitting beside it,

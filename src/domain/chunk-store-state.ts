@@ -20,11 +20,10 @@
  * ---------------------------------------------------------------------------
  *
  * `withBlockAt` writes into the existing `Uint16Array` and `Uint32Array` rather
- * than producing copies. A chunk buffer is 65,536 elements; a copy per block
- * write would mean several megabytes of allocation and copying for one tick of
- * the falling-block budget (`FALLING_BLOCK_MOVES_PER_TICK = 32` in mx-gameplay).
- * The reference implementation mutates in place for exactly this reason, and
- * plan.md §5.2 sanctions this class of measured exception.
+ * than producing copies. Each buffer has 65,536 entries, so copying both for a
+ * single block write means about 384 KiB of allocation and copying. Up to 32
+ * falling-block moves can happen in one tick (`FALLING_BLOCK_MOVES_PER_TICK` in
+ * mx-gameplay), so this state transition mutates the buffers in place.
  *
  * The store's public write path does not use that helper: transaction
  * preparation copies each changed chunk and publication swaps the chunk map.

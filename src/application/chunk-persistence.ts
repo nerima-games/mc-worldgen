@@ -45,15 +45,7 @@ export const chunkSaveKey = (
     `chunk/${encodeURIComponent(worldId)}/${encodeURIComponent(dimension)}/${String(coord.cx)}/${String(coord.cz)}`,
   )
 
-/**
- * Load a chunk under `CHUNK_FORMAT` (v3), falling back to v2 or v1 and
- * materializing kernel default states for formats that did not store them.
- *
- * mc-save's `decodeSave` accepts only the format's current version. The stored
- * version selects an older schema; decode failures for that schema propagate
- * as-is, and a codec failure while deriving defaults remains a typed domain
- * failure.
- */
+/** Load a v1 chunk with its schema, then derive each block's kernel default state. */
 const loadLegacyChunk = (
   storage: StorageService,
   key: SaveKey,

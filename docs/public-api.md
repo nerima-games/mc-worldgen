@@ -10,7 +10,7 @@ Import production mc-worldgen APIs from the package root. Testing utilities are 
 - Coordinates use mc-kernel brands. `ChunkCoord` contains `ChunkAxis` values, block positions use `BlockAxis`, and chunk-local horizontal positions use `LocalAxis`.
 - Every chunk-store factory and layer requires a positive safe-integer `ChunkCapacity`. A full store evicts its least recently used clean chunk. Dirty chunks are persisted before eviction; a failed save leaves the chunk resident and returns a typed error.
 - `ChunkStoreRegistry` provides an independent bounded `ChunkStoreApi` for each dimension. Its renderer-facing reads are `peek`, `neighbours`, `subscribeDirty`, and `getLight`.
-- The package root exports `Chunk`, `ChunkWithBlockStates`, `ReadonlyChunk`, `ReadonlyChunkWithBlockStates`, `ReadonlyUint16Array`, `ReadonlyUint32Array`, `ChunkDirtyBatch`, `ChunkDirtyChunk`, `ChunkLocalAabb`, `ChunkIntegrityFailure`, and `ChunkIntegritySection`. It also re-exports the `BlockStateValues` and `BlockStateCodecFailure` types from mc-kernel. `ChunkNeighbours`, `LightReading`, `CHUNK_HEIGHT`, and `chunkKeyOf` are exported too. `chunkKeyOf` returns mc-kernel's branded `ChunkKey`; import the `ChunkKey` type from mc-kernel.
+- The package root exports `Chunk`, `ChunkWithBlockStates`, `ReadonlyChunk`, `ReadonlyChunkWithBlockStates`, `ReadonlyUint16Array`, `ReadonlyUint32Array`, `ChunkDirtyBatch`, `ChunkDirtyChunk`, `ChunkLocalAabb`, `ChunkIntegrityFailure`, `ChunkIntegritySection`, and `BlockWithStateReading`. It also re-exports the `BlockStateValues` and `BlockStateCodecFailure` types from mc-kernel. `ChunkNeighbours`, `LightReading`, `CHUNK_HEIGHT`, and `chunkKeyOf` are exported too. `chunkKeyOf` returns mc-kernel's branded `ChunkKey`; import the `ChunkKey` type from mc-kernel.
 - The package root exports `detectNetherPortal` and `generatePortalLayout`; shared portal types remain defined by mc-kernel.
 - `woodland-mansion-single-chunk` is a `CompactStructureKind` included in `NaturalStructureKind`. It keeps its blocks and markers in one chunk; the existing `woodland-mansion` kind may span chunks.
 - Natural-structure region planners return a typed `Result` containing an `Option`. Invalid regions or unrepresentable structure footprints return `InvalidNaturalStructureCoordinate`; a valid region with no candidate returns `Success(None)`.
@@ -50,7 +50,7 @@ The End feature API is separate from natural-structure region planning. `endFeat
 
 ## Store services and persistence
 
-`ChunkCapacity` is required by `makeChunkStore(source, capacity)` and the store layers. `ChunkStoreRegistryLayer(sourceForDimension, capacity)` provides the in-memory registry.
+`ChunkCapacity` is required by `makeChunkStore(source, capacity)` and the store layers. `ChunkStoreRegistryLayer(sourceForDimension, capacity)` provides an in-memory registry with one independent store per dimension.
 
 `PersistentChunkStoreRegistryLayer(sourceForDimension, worldId, capacity)` takes the world ID as a function argument and requires `StoragePort` from `@nerima-games/mc-save` in its Effect layer environment. The service key `@nerima-games/mc-worldgen/ChunkStoreRegistry` is an Effect service identifier, not a package subpath. The [dimension-store migration example](./migration-0.6.0.md#select-a-store-by-dimension) shows how to provide the layer.
 
