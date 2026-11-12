@@ -14,7 +14,7 @@ import { CHUNK_VOLUME } from '../src/domain/constants'
 
 const blocks = new Uint16Array(CHUNK_VOLUME)
 blocks.fill(AIR_BLOCK_ID)
-blocks[0] = 2 // stone in the kernel 0.15.0 registry
+blocks[0] = 2 // stone (legacy block id 2)
 blocks[1] = 3 // dirt
 blocks[2] = 4 // grass block
 blocks[3] = 6 // water
@@ -90,8 +90,8 @@ describe('CHUNK_FORMAT_V2: the pre-state format, kept as a read path', () => {
     Effect.gen(function* () {
       const legacy = yield* decodeSave(CHUNK_FORMAT_V2, legacyEnvelope)
       const migrated = yield* Effect.fromResult(migrateChunkV2ToV3(legacy))
-      // In kernel 0.15.0, these four legacy block types all use state code zero
-      // for their defaults. Keep this fixture independent of the migration codec.
+      // These legacy block types use state code zero for their defaults.
+      // Keep this fixture independent of the migration codec.
       const expected = new Uint32Array(CHUNK_VOLUME).fill(0)
 
       expect(migrated.blockStates).toStrictEqual(expected)
