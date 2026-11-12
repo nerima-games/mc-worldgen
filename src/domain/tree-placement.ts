@@ -166,6 +166,7 @@ export const UNAVAILABLE_TREE_SPECIES = [
   'crimson',
   'warped',
   'pale_oak',
+  'poplar',
 ] as const
 
 export const KERNEL_BIOME_TREE_DENSITY: Readonly<Record<KernelBiomeType, number>> = {

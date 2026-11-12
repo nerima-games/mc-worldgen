@@ -68,6 +68,7 @@ describe('classifyBiome', () => {
       expect(AVAILABLE_TREE_SPECIES).toStrictEqual(['oak'])
       expect(UNAVAILABLE_TREE_SPECIES).toContain('birch')
       expect(UNAVAILABLE_TREE_SPECIES).toContain('spruce')
+      expect(UNAVAILABLE_TREE_SPECIES).toContain('poplar')
     }),
   )
 
