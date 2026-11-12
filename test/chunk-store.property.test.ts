@@ -55,6 +55,7 @@ const arbitraryDirtyCells = fc.uniqueArray(
 const arbitraryBlockId = fc
   .oneof(fc.constant(0), fc.constant(0xffff), fc.integer({ min: 0, max: 0xffff }))
   .map((value) => Result.getOrThrow(BlockId.result(value)))
+const arbitraryLogAxis = fc.constantFrom('x', 'y', 'z')
 const arbitraryGenerationOptions = fc.oneof(
   fc.anything().map((terrainLevels) => ({ terrainLevels })),
   fc.record({
@@ -230,6 +231,52 @@ describe('ChunkStore typed service boundaries', () => {
     }),
   )
 
+  it.effect('setBlock publishes generated valid log axes and reads the same state back', () =>
+    Effect.promise(async () => {
+      const store = await freshStore()
+      const position = blockPosition(1, 20, 1)
+      await loadAt(store, position)
+
+      await fc.assert(
+        fc.asyncProperty(arbitraryLogAxis, async (axis) => {
+          const write = await capture(store.setBlock(position, BLOCK.LOG, { axis }))
+          expect(write.kind).toBe('success')
+          if (write.kind === 'success') expect(['Written', 'Unchanged']).toContain(write.value._tag)
+
+          const reading = await capture(store.getBlockWithState(position))
+          expect(reading.kind).toBe('success')
+          if (reading.kind === 'success') {
+            expect(reading.value).toMatchObject({ _tag: 'Block', block: BLOCK.LOG, state: { axis } })
+          }
+        }),
+        { numRuns: 9, seed: 0x6c57b },
+      )
+    }),
+  )
+
+  it.effect('setBlock rejects state properties unsupported by the selected block without changing data', () =>
+    Effect.promise(async () => {
+      const store = await freshStore()
+      const position = blockPosition(1, 20, 1)
+      await loadAt(store, position)
+      const subscription = await Effect.runPromise(store.subscribeDirty)
+      await Effect.runPromise(subscription.drain)
+      const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+
+      await fc.assert(
+        fc.asyncProperty(arbitraryLogAxis, async (axis) => {
+          const write = await capture(store.setBlock(position, BLOCK.STONE, { axis }))
+          expect(write.kind).toBe('failure')
+          if (write.kind === 'failure') expectErrorTag(write.error, ['BlockStateCodecFailure'])
+
+          expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
+          expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
+        }),
+        { numRuns: 9, seed: 0x6c57c },
+      )
+    }),
+  )
+
   it.effect('publish returns void or a declared write/light failure for arbitrary valid prepared writes', () =>
     Effect.promise(async () => {
       await fc.assert(
@@ -267,6 +314,60 @@ describe('ChunkStore typed service boundaries', () => {
           }
         }),
         { numRuns: 16, seed: 0x6c575 },
+      )
+    }),
+  )
+
+  it.effect('prepare keeps generated valid log axes invisible until publication', () =>
+    Effect.promise(async () => {
+      const store = await freshStore()
+      const position = blockPosition(1, 20, 1)
+      await loadAt(store, position)
+
+      await fc.assert(
+        fc.asyncProperty(arbitraryLogAxis, async (axis) => {
+          const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+          if (!before) throw new Error('loaded chunk has no snapshot')
+          const readingBefore = await Effect.runPromise(store.getBlockWithState(position))
+
+          const prepared = await capture(store.prepare([{ position, block: BLOCK.LOG, state: { axis } }]))
+          expect(prepared.kind).toBe('success')
+          expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
+          expect(await Effect.runPromise(store.getBlockWithState(position))).toStrictEqual(readingBefore)
+          if (prepared.kind === 'success') {
+            expect(await capture(store.publish(prepared.value))).toMatchObject({ kind: 'success' })
+          }
+
+          expect(await Effect.runPromise(store.getBlockWithState(position))).toMatchObject({
+            _tag: 'Block',
+            block: BLOCK.LOG,
+            state: { axis },
+          })
+        }),
+        { numRuns: 9, seed: 0x6c57d },
+      )
+    }),
+  )
+
+  it.effect('prepare returns a typed state codec failure without changing data', () =>
+    Effect.promise(async () => {
+      const store = await freshStore()
+      const position = blockPosition(1, 20, 1)
+      await loadAt(store, position)
+      const subscription = await Effect.runPromise(store.subscribeDirty)
+      await Effect.runPromise(subscription.drain)
+      const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+
+      await fc.assert(
+        fc.asyncProperty(arbitraryLogAxis, async (axis) => {
+          const prepared = await capture(store.prepare([{ position, block: BLOCK.STONE, state: { axis } }]))
+          expect(prepared.kind).toBe('failure')
+          if (prepared.kind === 'failure') expectErrorTag(prepared.error, ['BlockStateCodecFailure'])
+
+          expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
+          expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
+        }),
+        { numRuns: 9, seed: 0x6c57e },
       )
     }),
   )
