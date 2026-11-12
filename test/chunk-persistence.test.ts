@@ -38,6 +38,7 @@ const source: ChunkSource = (coord) => Effect.succeed(generatedChunk(coord))
 const capacity = (value: number) => Result.getOrThrow(ChunkCapacity.result(value))
 const TEST_CAPACITY = capacity(32)
 const ONE_CHUNK_CAPACITY = capacity(1)
+const TWO_CHUNK_CAPACITY = capacity(2)
 
 const DOOR_BLOCK = BLOCK_IDS.find((blockId) => {
   const blockType = blockTypeOfId(blockId)
@@ -182,6 +183,101 @@ describe('chunk persistence', () => {
       expect(readCalls).toBe(5)
       expect(maxActiveReads).toBe(4)
       expect(activeReads).toBe(0)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('bounds concurrent source reads while full-store eviction persists dirty chunks', () =>
+    Effect.gen(function* (): Effect.gen.Return<void, unknown, import('effect').Scope.Scope> {
+      const backing = yield* makeInMemoryStorage
+      const enteredFourSources = yield* Deferred.make<void>()
+      const startedFiveRequests = yield* Deferred.make<void>()
+      const releaseSources = yield* Deferred.make<void>()
+      let trackSourceReads = false
+      let activeSourceReads = 0
+      let maxActiveSourceReads = 0
+      let sourceReadCalls = 0
+      let startedRequests = 0
+      const gatedSource: ChunkSource = (coord) =>
+        Effect.acquireUseRelease(
+          Effect.gen(function* () {
+            if (!trackSourceReads) return false
+            activeSourceReads += 1
+            sourceReadCalls += 1
+            maxActiveSourceReads = Math.max(maxActiveSourceReads, activeSourceReads)
+            if (activeSourceReads === 4) yield* Deferred.succeed(enteredFourSources, undefined)
+            return true
+          }),
+          (tracked) =>
+            Effect.gen(function* () {
+              if (tracked) yield* Deferred.await(releaseSources)
+              return generatedChunk(coord)
+            }),
+          (tracked) =>
+            tracked
+              ? Effect.sync(() => {
+                  activeSourceReads -= 1
+                })
+              : Effect.void,
+        )
+
+      const store = yield* makeStoreWith(backing, TWO_CHUNK_CAPACITY, gatedSource)
+      const dirtyCoords = [validated.validatedChunkCoord(0, 0), validated.validatedChunkCoord(1, 0)]
+      const dirtyPositions = [
+        validated.validatedBlockPosition(0, 10, 0),
+        validated.validatedBlockPosition(16, 10, 0),
+      ]
+      yield* store.load(dirtyCoords[0]!)
+      yield* store.load(dirtyCoords[1]!)
+      yield* store.setBlock(dirtyPositions[0]!, BLOCK.SAND)
+      yield* store.setBlock(dirtyPositions[1]!, BLOCK.GRAVEL)
+
+      trackSourceReads = true
+      const coldCoords = Array.from({ length: 5 }, (_, index) => validated.validatedChunkCoord(index + 2, 0))
+      const loads = Effect.forEach(
+        coldCoords,
+        (coord) =>
+          Effect.gen(function* () {
+            startedRequests += 1
+            if (startedRequests === 5) yield* Deferred.succeed(startedFiveRequests, undefined)
+            return yield* store.load(coord)
+          }),
+        { concurrency: 'unbounded' },
+      )
+      const fiber = yield* loads.pipe(Effect.forkChild)
+
+      yield* Deferred.await(enteredFourSources)
+      yield* Deferred.await(startedFiveRequests)
+      yield* Effect.yieldNow
+
+      expect(sourceReadCalls).toBe(4)
+      expect(activeSourceReads).toBe(4)
+      expect(maxActiveSourceReads).toBe(4)
+
+      yield* Deferred.succeed(releaseSources, undefined)
+      const loaded = yield* Fiber.join(fiber)
+      expect(loaded.map(({ coord }) => `${String(coord.cx)},${String(coord.cz)}`)).toStrictEqual(
+        coldCoords.map(({ cx, cz }) => `${String(cx)},${String(cz)}`),
+      )
+      expect(new Set(loaded.map(({ coord }) => `${String(coord.cx)},${String(coord.cz)}`)).size).toBe(coldCoords.length)
+      expect(sourceReadCalls).toBe(coldCoords.length)
+      expect(maxActiveSourceReads).toBe(4)
+      expect(activeSourceReads).toBe(0)
+
+      const residents = yield* store.loadedCoords
+      const residentKeys = residents.map(({ cx, cz }) => `${String(cx)},${String(cz)}`)
+      expect(residents).toHaveLength(2)
+      expect(new Set(residentKeys).size).toBe(2)
+      expect(residentKeys.every((key) => coldCoords.some(({ cx, cz }) => key === `${String(cx)},${String(cz)}`))).toBe(true)
+      expect(yield* store.isLoaded(dirtyCoords[0]!)).toBe(false)
+      expect(yield* store.isLoaded(dirtyCoords[1]!)).toBe(false)
+      expect(Option.isSome(yield* backing.get(chunkSaveKey(context, dirtyCoords[0]!)))).toBe(true)
+      expect(Option.isSome(yield* backing.get(chunkSaveKey(context, dirtyCoords[1]!)))).toBe(true)
+
+      const restoredStore = yield* makeStoreWith(backing, TWO_CHUNK_CAPACITY)
+      const restoredFirst = yield* restoredStore.load(dirtyCoords[0]!)
+      const restoredSecond = yield* restoredStore.load(dirtyCoords[1]!)
+      expect(restoredFirst.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+      expect(restoredSecond.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.GRAVEL)
     }).pipe(Effect.scoped),
   )
 
