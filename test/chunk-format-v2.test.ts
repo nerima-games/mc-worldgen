@@ -1,6 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BLOCK_IDS, BlockId, AIR_BLOCK_ID } from '@nerima-games/mc-kernel'
-import { defaultBlockState, encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
+import { AIR_BLOCK_ID } from '@nerima-games/mc-kernel'
 import { decodeSave, encodeSave, saveEnvelope } from '@nerima-games/mc-save'
 import { Effect, Result } from 'effect'
 import * as validated from './fixtures/validated-inputs'
@@ -15,9 +14,10 @@ import { CHUNK_VOLUME } from '../src/domain/constants'
 
 const blocks = new Uint16Array(CHUNK_VOLUME)
 blocks.fill(AIR_BLOCK_ID)
-blocks[0] = BLOCK_IDS[2] ?? AIR_BLOCK_ID
-blocks[1] = BLOCK_IDS[3] ?? AIR_BLOCK_ID
-blocks[2] = BLOCK_IDS[4] ?? AIR_BLOCK_ID
+blocks[0] = 2 // stone in the kernel 0.15.0 registry
+blocks[1] = 3 // dirt
+blocks[2] = 4 // grass block
+blocks[3] = 6 // water
 
 const blockBytes = new Uint8Array(blocks.length * 2)
 const blockView = new DataView(blockBytes.buffer)
@@ -86,38 +86,13 @@ describe('CHUNK_FORMAT_V2: the pre-state format, kept as a read path', () => {
     }),
   )
 
-  it.effect('CF-V2-4: migration derives every default through the kernel codec, then round-trips as v3', () =>
+  it.effect('CF-V2-4: migration applies the literal default state codes, then round-trips as v3', () =>
     Effect.gen(function* () {
       const legacy = yield* decodeSave(CHUNK_FORMAT_V2, legacyEnvelope)
       const migrated = yield* Effect.fromResult(migrateChunkV2ToV3(legacy))
-      const expected = new Uint32Array(CHUNK_VOLUME)
-      const encodedDefaults = new Map<number, number>()
-
-      for (const blockIdValue of new Set(legacy.blocks)) {
-        const blockId = BlockId.result(blockIdValue)
-        expect(Result.isSuccess(blockId)).toBe(true)
-        if (Result.isFailure(blockId)) {
-          return
-        }
-        const defaultState = defaultBlockState(blockId.success)
-        expect(Result.isSuccess(defaultState)).toBe(true)
-        if (Result.isFailure(defaultState)) {
-          return
-        }
-        const encoded = encodeBlockState(blockId.success, defaultState.success)
-        expect(Result.isSuccess(encoded)).toBe(true)
-        if (Result.isFailure(encoded)) {
-          return
-        }
-        encodedDefaults.set(blockIdValue, encoded.success)
-      }
-      for (const [index, blockIdValue] of legacy.blocks.entries()) {
-        const encodedDefault = encodedDefaults.get(blockIdValue)
-        expect(encodedDefault).toBeDefined()
-        if (encodedDefault !== undefined) {
-          expected[index] = encodedDefault
-        }
-      }
+      // In kernel 0.15.0, these four legacy block types all use state code zero
+      // for their defaults. Keep this fixture independent of the migration codec.
+      const expected = new Uint32Array(CHUNK_VOLUME).fill(0)
 
       expect(migrated.blockStates).toStrictEqual(expected)
       expect(migrated.coord).toStrictEqual(legacy.coord)
