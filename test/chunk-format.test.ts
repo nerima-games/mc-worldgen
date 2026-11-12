@@ -282,6 +282,39 @@ describe('untrusted chunk payload limits', () => {
       expect(refused._tag).toBe('Refused')
       expect(refused.detail).toContain('SaveDecodeError')
       expect(refused.cause).toContain(`expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes`)
+
+      const atLimitChunk = Schema.decodeUnknownSync(CHUNK_SCHEMA)(atLimit)
+      const unicodeIds = [...(atLimitChunk.naturalStructureIds ?? [])]
+      const unicodeFillerIndex = unicodeIds.findIndex(
+        (id, index) => index >= 400 && id.length < MAX_CHUNK_METADATA_STRING_LENGTH,
+      )
+      const unicodeFiller = unicodeIds[unicodeFillerIndex]
+      expect(unicodeFillerIndex).toBeGreaterThanOrEqual(400)
+      if (unicodeFiller === undefined) throw new Error('the byte-limit fixture has no expandable identifier')
+      unicodeIds[unicodeFillerIndex] = `${unicodeFiller}x`
+      const unicodeIndex = unicodeIds.findIndex((id, index) => index >= 400 && /x{9}$/u.test(id))
+      expect(unicodeIndex).toBeGreaterThanOrEqual(400)
+      const unicodeId = unicodeIds[unicodeIndex]
+      if (unicodeId === undefined) throw new Error('the byte-limit fixture has no nine-byte ASCII suffix')
+      unicodeIds[unicodeIndex] = `${unicodeId.slice(0, -9)}é中😀`
+      const unicodeOverLimit: ChunkEncoded = {
+        ...overLimit,
+        naturalStructureIds: unicodeIds,
+        integrity: chunkIntegrityMetadataFor({
+          biomes: atLimitChunk.biomes,
+          blockStates: atLimitChunk.blockStates,
+          blocks: atLimitChunk.blocks,
+          endFeatureIds: atLimitChunk.endFeatureIds ?? [],
+          endFeatureMarkers: atLimitChunk.endFeatureMarkers ?? [],
+          naturalStructureIds: unicodeIds,
+          naturalStructureMarkers: atLimitChunk.naturalStructureMarkers ?? [],
+        }),
+      }
+      expect(Buffer.byteLength(JSON.stringify(unicodeOverLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES + 1)
+
+      const unicodeRefused = yield* decodeOutcome(envelopeWith(unicodeOverLimit))
+      expect(unicodeRefused._tag).toBe('Refused')
+      expect(unicodeRefused.cause).toContain(`expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes`)
     }),
   )
 
