@@ -100,28 +100,28 @@ const VILLAGE_REMOTE_OUTLIER_SITE = {
   z: blockAxis(VILLAGE_REMOTE_OUTLIER.siteZ),
 }
 const VILLAGE_SEED_2_SITE_SAMPLE = {
-  regionX: 2,
-  regionZ: 6,
-  ring: 63,
+  regionX: 6,
+  regionZ: -2,
+  ring: 64,
   seed: 2,
-  siteX: 431,
-  siteZ: 1030,
+  siteX: 1042,
+  siteZ: -199,
 } as const
 const VILLAGE_SEED_3_SITE_SAMPLE = {
   regionX: 5,
   regionZ: -2,
-  ring: 52,
+  ring: 51,
   seed: 3,
-  siteX: 851,
-  siteZ: -235,
+  siteX: 833,
+  siteZ: -223,
 } as const
 const VILLAGE_SEED_5_SITE_SAMPLE = {
   regionX: 4,
   regionZ: -8,
-  ring: 77,
+  ring: 75,
   seed: 5,
-  siteX: 702,
-  siteZ: -1237,
+  siteX: 672,
+  siteZ: -1204,
 } as const
 const VILLAGE_NO_SITE_WITHIN_48_SEED = 20260728
 
@@ -131,8 +131,8 @@ const VILLAGE_NO_SITE_WITHIN_48_SEED = 20260728
  * seed 1 remains a remote outlier at ring 92. The remaining sample uses seed 4
  * and the three original repro seeds with ordinary availability.
  *
- * The previous 48-ring cutoff excluded real sites at rings 52, 63, 77, and 54
- * in the WG2 terrain. The 80-ring bound captures those without treating
+ * The previous 48-ring cutoff excluded real sites at rings 51, 64, 75, and 52
+ * in the interpolated terrain. The 80-ring bound captures those without treating
  * seed 1's ring-92 site as nearby.
  */
 const VILLAGE_AVAILABILITY_BATTERY = [4, 7, 42, 1337] as const
@@ -344,7 +344,7 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
     }),
   )
 
-  it.effect('records seed 2 village at its generated-terrain spawn ring 63', () =>
+  it.effect('records seed 2 village at its generated-terrain spawn ring 64', () =>
     Effect.sync(() => {
       const seed = noiseSeed(VILLAGE_SEED_2_SITE_SAMPLE.seed)
       const terrain = makeActualTerrain(VILLAGE_SEED_2_SITE_SAMPLE.seed)
@@ -367,7 +367,7 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
     }),
   )
 
-  it.effect('records seed 3 village at its generated-terrain spawn ring 52', () =>
+  it.effect('records seed 3 village at its generated-terrain spawn ring 51', () =>
     Effect.sync(() => {
       const seed = noiseSeed(VILLAGE_SEED_3_SITE_SAMPLE.seed)
       const terrain = makeActualTerrain(VILLAGE_SEED_3_SITE_SAMPLE.seed)
@@ -390,7 +390,7 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
     }),
   )
 
-  it.effect('records seed 5 village at its generated-terrain spawn ring 77', () =>
+  it.effect('records seed 5 village at its generated-terrain spawn ring 75', () =>
     Effect.sync(() => {
       const seed = noiseSeed(VILLAGE_SEED_5_SITE_SAMPLE.seed)
       const terrain = makeActualTerrain(VILLAGE_SEED_5_SITE_SAMPLE.seed)
@@ -413,7 +413,7 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
     }),
   )
 
-  it.effect('records seed 20260728 at ring 54, outside the previous 48-ring bound', () =>
+  it.effect('records seed 20260728 at ring 52, outside the previous 48-ring bound', () =>
     Effect.sync(() => {
       const seed = VILLAGE_NO_SITE_WITHIN_48_SEED
       const terrain = makeActualTerrain(seed)
@@ -422,7 +422,7 @@ describe('villages are findable on real terrain (worldgen-village-availability)'
         seed,
         terrain,
       )
-      expect(ring).toBe(54)
+      expect(ring).toBe(52)
     }),
   )
 

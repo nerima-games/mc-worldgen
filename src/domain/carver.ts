@@ -53,11 +53,9 @@
  * Why the margin is a parameter
  * ---------------------------------------------------------------------------
  *
- * `waterFloorMargin: 0` disables the guard, which is not a feature — it is a
- * test affordance. `test/carver.test.ts` generates the same chunk with the
- * guard on and off and asserts that the unguarded run really does hollow out a
- * lake bed. A regression test that cannot demonstrate the regression is only
- * asserting that today's code does what today's code does.
+ * The low-level carver accepts zero so its regression test can demonstrate the
+ * hollow-lake bug. The public `generateChunk` boundary rejects zero and every
+ * other non-positive or non-integer margin.
  */
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
 import { type NoiseFn3D, type NoiseSeed, createNoiseField } from '@nerima-games/mc-noise'
@@ -113,8 +111,8 @@ const CAVE_NOISE_Y_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_Y_WAV
 export type CarveOptions = {
   /**
    * Solid blocks to preserve beneath the lowest water block in a column.
-   * Defaults to `WATER_FLOOR_MARGIN` (3, matching the reference). Zero disables
-   * the guard and reproduces the hollow-lake bug — for tests only.
+   * Defaults to `WATER_FLOOR_MARGIN` (3, matching the reference). The public
+   * `generateChunk` API requires a positive finite integer.
    */
   readonly waterFloorMargin?: number
 }

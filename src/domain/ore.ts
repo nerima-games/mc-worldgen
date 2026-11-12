@@ -86,11 +86,11 @@ export const ORE_MAX_Y: number = CHUNK_HEIGHT - LAST_BLOCK_OFFSET
 export const ORE_MIN_Y_FLOOR: number = WORLD_MIN_Y
 
 export type OreDistribution = 'uniform' | 'trapezoid'
-type OreBiomeRule = 'badlands' | 'dripstone-caves' | 'mountain' | 'not-dripstone-caves'
+type OreBiomeRule = 'badlands' | 'mountain' | 'not-dripstone-caves'
 type OreFeature =
   | 'coal-lower' | 'coal-upper'
   | 'iron-small' | 'iron-middle' | 'iron-upper'
-  | 'copper-small' | 'copper-large'
+  | 'copper-small'
   | 'redstone' | 'redstone-lower'
   | 'lapis' | 'lapis-buried'
   | 'gold' | 'gold-lower' | 'gold-extra'
@@ -129,7 +129,6 @@ export const ORE_CONFIGS: ReadonlyArray<OreConfig> = [
   { attemptsPerChunk: 10, distribution: 'trapezoid', feature: 'iron-middle', maxY: 56, minY: -24, name: 'IRON', plateau: 0, size: 9 },
   { attemptsPerChunk: 90, distribution: 'trapezoid', feature: 'iron-upper', maxY: 384, minY: 80, name: 'IRON', plateau: 0, size: 9 },
   { attemptsPerChunk: 16, biomeRule: 'not-dripstone-caves', distribution: 'trapezoid', feature: 'copper-small', maxY: 112, minY: -16, name: 'COPPER', plateau: 0, size: 10 },
-  { attemptsPerChunk: 16, biomeRule: 'dripstone-caves', distribution: 'trapezoid', feature: 'copper-large', maxY: 112, minY: -16, name: 'COPPER', plateau: 0, size: 20 },
   { attemptsPerChunk: 4, distribution: 'uniform', feature: 'redstone', maxY: 15, minY: -64, name: 'REDSTONE', size: 8 },
   { attemptsPerChunk: 8, distribution: 'trapezoid', feature: 'redstone-lower', maxY: -32, minY: -64, name: 'REDSTONE', plateau: 0, size: 8 },
   { attemptsPerChunk: 2, distribution: 'trapezoid', feature: 'lapis', maxY: 32, minY: -32, name: 'LAPIS', plateau: 0, size: 7 },
@@ -144,6 +143,13 @@ export const ORE_CONFIGS: ReadonlyArray<OreConfig> = [
   { attemptsPerChunk: 100, biomeRule: 'mountain', distribution: 'trapezoid', feature: 'emerald', maxY: 480, minY: -16, name: 'EMERALD', plateau: 0, size: 3 },
 ]
 /* eslint-enable no-magic-numbers */
+
+export const UNAVAILABLE_ORE_FEATURES = [
+  {
+    feature: 'copper-large',
+    reason: 'Requires dripstone-caves biome classification, which is deferred beyond WG2.',
+  },
+] as const
 
 /**
  * The per-feature, per-chunk stream seed. World seed, chunk origin, and feature
@@ -372,8 +378,6 @@ const isBiomeAllowed = (config: OreConfig, biome: ChunkBiomeType | undefined): b
   switch (biomeRule.value) {
     case 'badlands':
       return BADLANDS_BIOME_SET.has(biomeId)
-    case 'dripstone-caves':
-      return biomeId === DRIPSTONE_CAVES_BIOME_ID
     case 'mountain':
       return EMERALD_MOUNTAIN_BIOME_SET.has(biomeId)
     case 'not-dripstone-caves':

@@ -149,10 +149,8 @@ const submergedFixture = (): SubmergedFixture => {
         continue
       }
 
-      const unguarded = generateChunkAt(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), {
-        decorate: false,
-        carve: { waterFloorMargin: 0 },
-      }).blocks
+      const unguarded = guarded.slice()
+      carveCaves(unguarded, noiseSeed(SEED), validatedChunkCoord(cx, cz), { waterFloorMargin: 0 })
 
       if (hollowUnderWater(unguarded, columns) > 0) {
         cachedFixture = { coord: [cx, cz], guarded, unguarded, columns }

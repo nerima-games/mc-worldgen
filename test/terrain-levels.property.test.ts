@@ -115,6 +115,9 @@ describe('terrainLevels generation input', () => {
         { numRuns: 32, seed: 0x71e24 },
       )
 
+      const minimumSafeCoordinate = sampler.surfaceHeightAt(blockAxis(Number.MIN_SAFE_INTEGER), blockAxis(0))
+      expect(Result.isSuccess(minimumSafeCoordinate)).toBe(true)
+
       for (const wx of [-16, -1, 0, 15, 16]) {
         for (const wz of [-16, -1, 0, 15, 16]) {
           const queried = surfaceHeightAtResult(SEED, blockAxis(wx), blockAxis(wz))
@@ -139,6 +142,30 @@ describe('terrainLevels generation input', () => {
           expectGeneratedChunk(result)
         }),
         { numRuns: 24, seed: 0x71e22 },
+      )
+    }),
+  )
+
+  it.effect('returns a typed failure for invalid arbitrary water floor margins and schema-valid chunks for valid margins', () =>
+    Effect.sync(() => {
+      fc.assert(
+        fc.property(fc.anything(), (waterFloorMargin) => {
+          const result = generateWithOptions({ carve: { waterFloorMargin } })
+          const validMargin =
+            typeof waterFloorMargin === 'number' &&
+            Number.isFinite(waterFloorMargin) &&
+            Number.isInteger(waterFloorMargin) &&
+            waterFloorMargin > 0
+
+          if (validMargin) {
+            expectGeneratedChunk(result)
+            return
+          }
+
+          expectTypedFailure(result)
+          expect(result).toMatchObject({ failure: { field: 'waterFloorMargin' } })
+        }),
+        { numRuns: 32, seed: 0x71e25 },
       )
     }),
   )

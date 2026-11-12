@@ -474,9 +474,9 @@ const main = async (): Promise<void> => {
     loadWorldgen(resolve(afterRootArg)),
   ])
 
+  const timing = pairedTiming(before, after)
   const [beforeProfile, afterProfile] = [summarizeWorld(before), summarizeWorld(after)]
   const [beforeRegion, afterRegion] = [representativeRegion(before), representativeRegion(after)]
-  const timing = pairedTiming(before, after)
   const svg = comparisonSvg(beforeRegion, afterRegion, before, after)
   const report = {
     biomeDistribution: {

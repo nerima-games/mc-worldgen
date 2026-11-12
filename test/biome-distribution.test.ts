@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Result } from 'effect'
-import { minecraftBiomeFor } from '@nerima-games/mc-noise'
+import { classifyMinecraftBiomeFromClimate, minecraftBiomeFor, minecraftClimateAt } from '@nerima-games/mc-noise'
 import { BIOMES, KERNEL_BIOMES, type BiomeType, type KernelBiomeType } from '../src/domain/biome'
 import { classifyBiomeFromClimate } from '../src/domain/biome-classifier'
 import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
@@ -139,9 +139,10 @@ const countMatching = (predicate: (column: GeneratedColumn) => boolean): number 
 const shareOf = (counts: ReadonlyMap<BiomeType, number>, total: number, biome: BiomeType): number =>
   (counts.get(biome) ?? 0) / total
 
+// The 8-block density lattice shifts the shoreline compared with exact per-voxel sampling.
 const COARSE_BIOME_SHARE_BOUNDS: ReadonlyArray<readonly [BiomeType, number, number]> = [
   ['OCEAN', 0.2, 0.5],
-  ['BEACH', 0.07, 0.28],
+  ['BEACH', 0.065, 0.28],
   ['PLAINS', 0.04, 0.15],
   ['FOREST', 0.03, 0.15],
   ['DESERT', 0.03, 0.1],
@@ -237,7 +238,7 @@ describe('generated biome distribution', () => {
     }),
   )
 
-  it.effect('keeps each coarse-biome share inside its baseline multi-seed band', () =>
+  it.effect('keeps each coarse-biome share inside its multi-seed terrain-grid band', () =>
     Effect.sync(() => {
       const shares = surveys.flatMap((survey) =>
         COARSE_BIOME_SHARE_BOUNDS.map(([biome]) => ({
@@ -309,6 +310,25 @@ describe('generated biome distribution', () => {
 })
 
 describe('the public climate query', () => {
+  it.effect('matches the pinned mc-noise climate API without Result-wrapped per-column sampling', () =>
+    Effect.sync(() => {
+      const coordinates = Array.from({ length: 32 }, (_, index) => ({
+        wx: blockAxis(-321 + index * 73),
+        wz: blockAxis(811 - index * 41),
+      }))
+
+      for (const seedValue of [SURVEY_CONFIGS[0].seed, SURVEY_CONFIGS[2].seed, SURVEY_CONFIGS[4].seed]) {
+        const seed = noiseSeed(seedValue)
+        for (const { wx, wz } of coordinates) {
+          const expected = Result.getOrThrow(minecraftClimateAt(seed, wx, wz))
+          const actual = climateAt(seed, wx, wz)
+          expect(actual).toStrictEqual(expected)
+          expect(classifyBiomeFromClimate(actual)).toBe(classifyMinecraftBiomeFromClimate(expected))
+        }
+      }
+    }),
+  )
+
   it.effect('is deterministic and position-dependent', () =>
     Effect.sync(() => {
       const seed = noiseSeed(SURVEY_CONFIGS[0].seed)

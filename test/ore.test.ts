@@ -13,6 +13,7 @@ import {
   ORE_IDS,
   ORE_MAX_Y,
   ORE_MIN_Y_FLOOR,
+  UNAVAILABLE_ORE_FEATURES,
   growVein,
   oreStreamSeed,
   placeOres,
@@ -100,7 +101,6 @@ const expectedFeatureRows = [
   { feature: 'iron-middle', name: 'IRON', minY: -24, maxY: 56, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 10, size: 9, biomeRule: null },
   { feature: 'iron-upper', name: 'IRON', minY: 80, maxY: 384, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 90, size: 9, biomeRule: null },
   { feature: 'copper-small', name: 'COPPER', minY: -16, maxY: 112, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 16, size: 10, biomeRule: 'not-dripstone-caves' },
-  { feature: 'copper-large', name: 'COPPER', minY: -16, maxY: 112, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 16, size: 20, biomeRule: 'dripstone-caves' },
   { feature: 'redstone', name: 'REDSTONE', minY: -64, maxY: 15, distribution: 'uniform', plateau: 0, attemptsPerChunk: 4, size: 8, biomeRule: null },
   { feature: 'redstone-lower', name: 'REDSTONE', minY: -64, maxY: -32, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 8, size: 8, biomeRule: null },
   { feature: 'lapis', name: 'LAPIS', minY: -32, maxY: 32, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 2, size: 7, biomeRule: null },
@@ -131,6 +131,10 @@ describe('the vanilla ore feature table', () => {
   it.effect('matches Java Edition feature ranges, attempts, sizes, distributions and biome filters', () =>
     Effect.sync(() => {
       expect(ORE_CONFIGS.map(rowOf)).toStrictEqual(expectedFeatureRows)
+      expect(UNAVAILABLE_ORE_FEATURES).toStrictEqual([{
+        feature: 'copper-large',
+        reason: 'Requires dripstone-caves biome classification, which is deferred beyond WG2.',
+      }])
       expect(ORE_MIN_Y_FLOOR).toBe(0)
       expect(ORE_MAX_Y).toBe(255)
 

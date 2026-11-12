@@ -118,6 +118,35 @@ describe('water level invariant', () => {
     }),
   )
 
+  it.effect('rejects non-positive, non-finite, and fractional water floor margins with a typed failure', () =>
+    Effect.sync(() => {
+      for (const waterFloorMargin of [
+        -1,
+        0,
+        undefined,
+        null,
+        '3',
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        1.5,
+      ]) {
+        const result = Reflect.apply(generateChunkAtResult, undefined, [
+          noiseSeed(1234),
+          chunkAxis(0),
+          chunkAxis(0),
+          { carve: { waterFloorMargin } },
+        ])
+
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(InvalidTerrainLevels)
+          expect(result.failure).toMatchObject({ _tag: 'InvalidTerrainLevels', field: 'waterFloorMargin' })
+        }
+      }
+    }),
+  )
+
   it.effect('rejects chunk coordinates whose block origin is outside the safe integer range', () =>
     Effect.sync(() => {
       expect(() =>
@@ -137,6 +166,77 @@ describe('water level invariant', () => {
       ].some(([cx, cz]) => generateChunkAt(noiseSeed(1234), chunkAxis(cx ?? 0), chunkAxis(cz ?? 0)).blocks.includes(BLOCK.WATER))
 
       expect(anyWater).toBe(true)
+    }),
+  )
+})
+
+describe('water floor margin input', () => {
+  const generateWithOptions = (options: unknown) =>
+    Reflect.apply(generateChunkAtResult, undefined, [noiseSeed(1234), chunkAxis(0), chunkAxis(0), options])
+
+  it.effect('accepts the positive integer boundary', () =>
+    Effect.sync(() => {
+      const result = generateWithOptions({ carve: { waterFloorMargin: 1 } })
+
+      expect(Result.isSuccess(result)).toBe(true)
+    }),
+  )
+
+  it.effect('defaults an omitted carve margin, rejects explicit undefined and malformed options', () =>
+    Effect.sync(() => {
+      const omittedMargin = generateWithOptions({ carve: {} })
+      expect(Result.isSuccess(omittedMargin)).toBe(true)
+
+      for (const options of [null]) {
+        const result = generateWithOptions(options)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure).toMatchObject({ _tag: 'InvalidTerrainLevels', field: 'options' })
+        }
+      }
+
+      const explicitUndefinedCarve = generateWithOptions({ carve: undefined })
+      expect(Result.isFailure(explicitUndefinedCarve)).toBe(true)
+      if (Result.isFailure(explicitUndefinedCarve)) {
+        expect(explicitUndefinedCarve.failure).toMatchObject({ _tag: 'InvalidTerrainLevels', field: 'options' })
+      }
+    }),
+  )
+
+  it.effect('rejects malformed carve values and margin accessors without invoking them', () =>
+    Effect.sync(() => {
+      const invalidCarveValues = [null, undefined, [], 'invalid carve options', 1]
+      for (const carve of invalidCarveValues) {
+        const result = generateWithOptions({ carve })
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure).toMatchObject({ _tag: 'InvalidTerrainLevels', field: 'options' })
+        }
+      }
+
+      const carveAccessor = Object.defineProperty({}, 'carve', {
+        configurable: true,
+        get: () => {
+          throw new Error('carve accessor must not run')
+        },
+      })
+      const carveAccessorResult = generateWithOptions(carveAccessor)
+      expect(Result.isFailure(carveAccessorResult)).toBe(true)
+      if (Result.isFailure(carveAccessorResult)) {
+        expect(carveAccessorResult.failure).toMatchObject({ field: 'options' })
+      }
+
+      const marginAccessor = Object.defineProperty({}, 'waterFloorMargin', {
+        configurable: true,
+        get: () => {
+          throw new Error('waterFloorMargin accessor must not run')
+        },
+      })
+      const marginAccessorResult = generateWithOptions({ carve: marginAccessor })
+      expect(Result.isFailure(marginAccessorResult)).toBe(true)
+      if (Result.isFailure(marginAccessorResult)) {
+        expect(marginAccessorResult.failure).toMatchObject({ field: 'waterFloorMargin' })
+      }
     }),
   )
 })

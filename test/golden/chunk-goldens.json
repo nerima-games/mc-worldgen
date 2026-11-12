@@ -6,11 +6,11 @@
       "cx": 5,
       "cz": 7,
       "decorate": true,
-      "blocksSha256": "ac1dc74ce6058f40917da26089be117b76ce5822a5d2bf6c6ed7ce57b8c9903d",
+      "blocksSha256": "3408386d62f3a62bbeb64b9a44cd366212ffd5d2880b68c9166223c0b58290ff",
       "biomesSha256": "f51194f9b769b94921097577340142d0feba5684459b82cc7f68cd9d4675c5a0",
       "summary": {
         "blockCounts": {
-          "AIR": 55570,
+          "AIR": 55572,
           "BEDROCK": 256,
           "DEEPSLATE": 1613,
           "DIRT": 0,
@@ -23,8 +23,8 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 7119,
-          "WATER": 3,
+          "STONE": 7116,
+          "WATER": 4,
           "COAL_ORE": 34,
           "COPPER_ORE": 90,
           "DIAMOND_ORE": 0,
@@ -128,7 +128,7 @@
         },
         "topBlockY": {
           "min": 63,
-          "max": 77
+          "max": 76
         },
         "caveBandAir": 8195,
         "ravineCutColumns": 0
@@ -138,11 +138,11 @@
       "cx": 3,
       "cz": 5,
       "decorate": true,
-      "blocksSha256": "be356ec7dcbb89771c5832bcd8e34e738c27c45226ca27303ec904f5efe45a9b",
+      "blocksSha256": "6731cdc7c8840ca9a9fa158d28c1b81d9bd33239ee1979bd85ccedd1c248b4e7",
       "biomesSha256": "75a5016a547d13bef23b2433d8db43086f073dd14c8e2464691e519b3e2f0235",
       "summary": {
         "blockCounts": {
-          "AIR": 44372,
+          "AIR": 44870,
           "BEDROCK": 256,
           "DEEPSLATE": 3756,
           "DIRT": 1024,
@@ -155,7 +155,7 @@
           "OBSIDIAN": 0,
           "SAND": 0,
           "SNOW": 256,
-          "STONE": 15556,
+          "STONE": 15058,
           "WATER": 0,
           "COAL_ORE": 68,
           "COPPER_ORE": 114,
@@ -256,8 +256,8 @@
         },
         "waterSurfaceY": null,
         "topBlockY": {
-          "min": 84,
-          "max": 91
+          "min": 82,
+          "max": 89
         },
         "caveBandAir": 931,
         "ravineCutColumns": 0
@@ -267,11 +267,11 @@
       "cx": 11,
       "cz": 3,
       "decorate": true,
-      "blocksSha256": "ab5aa7f3e1b4d135956ac160a2e74e41a44b9dfffa6ef5770851cd4d0413fc23",
+      "blocksSha256": "bc0bd5bd17e45a2bc5df64e010b71379e46e388a0327887f2aa520995900f02d",
       "biomesSha256": "d124257a6c949d030fcbfa2d5cc2f9e93c4793bb0afb8c3dc2e3dbdce5267969",
       "summary": {
         "blockCounts": {
-          "AIR": 50665,
+          "AIR": 51085,
           "BEDROCK": 256,
           "DEEPSLATE": 3445,
           "DIRT": 0,
@@ -284,7 +284,7 @@
           "OBSIDIAN": 0,
           "SAND": 1280,
           "SNOW": 0,
-          "STONE": 9570,
+          "STONE": 9153,
           "WATER": 0,
           "COAL_ORE": 85,
           "COPPER_ORE": 110,
@@ -303,7 +303,7 @@
           "DEEPSLATE_LAPIS_ORE": 7,
           "DEEPSLATE_REDSTONE_ORE": 0,
           "BROWN_MUSHROOM": 0,
-          "CACTUS": 24,
+          "CACTUS": 21,
           "DANDELION": 0,
           "FERN": 0,
           "KELP": 0,
@@ -385,8 +385,8 @@
         },
         "waterSurfaceY": null,
         "topBlockY": {
-          "min": 83,
-          "max": 88
+          "min": 82,
+          "max": 86
         },
         "caveBandAir": 7077,
         "ravineCutColumns": 0
@@ -396,14 +396,14 @@
       "cx": 11,
       "cz": -1,
       "decorate": true,
-      "blocksSha256": "10a0c09da60c146263569d5950175cdd31725b07cf7571b13338bbe1eb8de042",
+      "blocksSha256": "d7c42506c80105214efd971c76c80166679a2c0c2db40ed1c1f938de1e5ef083",
       "biomesSha256": "3830b57f5014b509eafe55e951320d0fda36d2d35719b6d03a5251607e6a34c4",
       "summary": {
         "blockCounts": {
-          "AIR": 49254,
+          "AIR": 49548,
           "BEDROCK": 256,
-          "DEEPSLATE": 1424,
-          "DIRT": 929,
+          "DEEPSLATE": 1434,
+          "DIRT": 936,
           "GRASS": 234,
           "GRAVEL": 0,
           "ICE": 0,
@@ -413,10 +413,10 @@
           "OBSIDIAN": 0,
           "SAND": 66,
           "SNOW": 0,
-          "STONE": 13121,
+          "STONE": 12800,
           "WATER": 0,
           "COAL_ORE": 51,
-          "COPPER_ORE": 90,
+          "COPPER_ORE": 110,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
           "GOLD_ORE": 0,
@@ -424,7 +424,7 @@
           "LAPIS_ORE": 7,
           "REDSTONE_ORE": 0,
           "DEEPSLATE_COAL_ORE": 0,
-          "DEEPSLATE_COPPER_ORE": 10,
+          "DEEPSLATE_COPPER_ORE": 0,
           "DEEPSLATE_DIAMOND_ORE": 0,
           "DEEPSLATE_EMERALD_ORE": 0,
           "DEEPSLATE_GOLD_ORE": 9,
@@ -514,8 +514,8 @@
         },
         "waterSurfaceY": null,
         "topBlockY": {
-          "min": 77,
-          "max": 87
+          "min": 79,
+          "max": 85
         },
         "caveBandAir": 5135,
         "ravineCutColumns": 0
@@ -525,26 +525,26 @@
       "cx": 5,
       "cz": -6,
       "decorate": true,
-      "blocksSha256": "ffdf53533fc57302c8ce1b2f16bf746fc95fbadcb8350799c4a77fd0f23e1dbf",
+      "blocksSha256": "3aa47c6a141304ac01c3340ff5e2d97553231e7b6fa3764b3c937caca1423b0a",
       "biomesSha256": "9d6ee08a0adc277cfc2dbc1c15a3944f4b1edb0c96080fb726e20ef03d5f85c7",
       "summary": {
         "blockCounts": {
-          "AIR": 55220,
+          "AIR": 55466,
           "BEDROCK": 256,
           "DEEPSLATE": 1263,
-          "DIRT": 979,
+          "DIRT": 1012,
           "GRASS": 256,
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 15,
+          "LEAVES": 18,
           "LOG": 5,
           "OBSIDIAN": 0,
           "SAND": 0,
           "SNOW": 0,
-          "STONE": 7244,
+          "STONE": 6997,
           "WATER": 0,
-          "COAL_ORE": 85,
+          "COAL_ORE": 51,
           "COPPER_ORE": 70,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
@@ -570,7 +570,7 @@
           "RED_MUSHROOM": 0,
           "SEAGRASS": 0,
           "SUGAR_CANE": 0,
-          "TALL_GRASS": 45
+          "TALL_GRASS": 44
         },
         "biomeCounts": {
           "badlands": 0,
@@ -643,8 +643,8 @@
         },
         "waterSurfaceY": null,
         "topBlockY": {
-          "min": 68,
-          "max": 88
+          "min": 67,
+          "max": 85
         },
         "caveBandAir": 8929,
         "ravineCutColumns": 0
@@ -654,11 +654,11 @@
       "cx": -8,
       "cz": 8,
       "decorate": true,
-      "blocksSha256": "56b03dcbfbe923a479d32c31e091f9896afc4adb39af5a507800e9ee68a7f5ed",
+      "blocksSha256": "058e958c228806c942862ddee007cafadbb469ced6e2986c771fc1d56fd7da78",
       "biomesSha256": "f854a876dfa2e2a9069e763fd8a0fdcb9944bf256debe30006d5f6f014a37190",
       "summary": {
         "blockCounts": {
-          "AIR": 52724,
+          "AIR": 52729,
           "BEDROCK": 256,
           "DEEPSLATE": 3342,
           "DIRT": 0,
@@ -671,15 +671,15 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 2335,
-          "WATER": 5554,
+          "STONE": 2338,
+          "WATER": 5539,
           "COAL_ORE": 17,
           "COPPER_ORE": 30,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
           "GOLD_ORE": 0,
           "IRON_ORE": 0,
-          "LAPIS_ORE": 7,
+          "LAPIS_ORE": 14,
           "REDSTONE_ORE": 0,
           "DEEPSLATE_COAL_ORE": 0,
           "DEEPSLATE_COPPER_ORE": 10,
@@ -778,7 +778,7 @@
           "min": 63,
           "max": 63
         },
-        "caveBandAir": 3572,
+        "caveBandAir": 3577,
         "ravineCutColumns": 0
       }
     },
@@ -786,7 +786,7 @@
       "cx": -9,
       "cz": 0,
       "decorate": true,
-      "blocksSha256": "3b48156ebf819a6e233d392c19dc4f9dbfca92457f71ffe189dc72ab6ca997be",
+      "blocksSha256": "d5f8b251927bb9c3f2c61fca8bb7ff2ffe67c58c65ee23f8493fb7eb134d14f4",
       "biomesSha256": "41200eddb5d60f5b6d3c88c04c82423e9383f3b9392d8cb38ffa5a44775d37d2",
       "summary": {
         "blockCounts": {
@@ -803,8 +803,8 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 5981,
-          "WATER": 4025,
+          "STONE": 5878,
+          "WATER": 4128,
           "COAL_ORE": 17,
           "COPPER_ORE": 39,
           "DIAMOND_ORE": 0,
@@ -918,14 +918,14 @@
       "cx": 0,
       "cz": 0,
       "decorate": true,
-      "blocksSha256": "a3b6153b5986918c76d1e6bc720cff74b277c3c432d110043581e18206b39ff6",
-      "biomesSha256": "7fd9f450bacf5c86862a9d6daf46be9ced8f7488efa324f8adf8dfd70654eb24",
+      "blocksSha256": "936b8160131f215d6c217e0f149acbc3db7b93b69a1cea0e3a7194321c3bcd77",
+      "biomesSha256": "24ab352a5965b24ab7151a0d9d9e05bcca840e622f5453a9902546655e5ea274",
       "summary": {
         "blockCounts": {
-          "AIR": 55365,
+          "AIR": 55358,
           "BEDROCK": 256,
           "DEEPSLATE": 2541,
-          "DIRT": 308,
+          "DIRT": 316,
           "GRASS": 0,
           "GRAVEL": 0,
           "ICE": 0,
@@ -933,11 +933,11 @@
           "LEAVES": 20,
           "LOG": 5,
           "OBSIDIAN": 0,
-          "SAND": 878,
-          "SNOW": 77,
-          "STONE": 5804,
-          "WATER": 16,
-          "COAL_ORE": 55,
+          "SAND": 875,
+          "SNOW": 79,
+          "STONE": 5812,
+          "WATER": 13,
+          "COAL_ORE": 57,
           "COPPER_ORE": 30,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
@@ -957,11 +957,11 @@
           "CACTUS": 7,
           "DANDELION": 0,
           "FERN": 0,
-          "KELP": 43,
+          "KELP": 41,
           "LILY_PAD": 0,
           "POPPY": 0,
           "RED_MUSHROOM": 0,
-          "SEAGRASS": 41,
+          "SEAGRASS": 36,
           "SUGAR_CANE": 0,
           "TALL_GRASS": 0
         },
@@ -969,7 +969,7 @@
           "badlands": 0,
           "bamboo_jungle": 0,
           "basalt_deltas": 0,
-          "beach": 179,
+          "beach": 177,
           "birch_forest": 0,
           "cherry_grove": 0,
           "cold_ocean": 0,
@@ -1013,7 +1013,7 @@
           "savanna": 0,
           "small_end_islands": 0,
           "snowy_beach": 0,
-          "snowy_plains": 77,
+          "snowy_plains": 79,
           "snowy_slopes": 0,
           "snowy_taiga": 0,
           "soul_sand_valley": 0,
@@ -1050,11 +1050,11 @@
       "cx": 4,
       "cz": -16,
       "decorate": true,
-      "blocksSha256": "8b0c436ae529de0de37768a0c3b25bc7b5ccd404c0946fe1903e7bc72a26f4c7",
+      "blocksSha256": "b2f59c33e927413738b8dd38a85e697f5a266eb6e8bd4344c6587b8c05ab2839",
       "biomesSha256": "11d247216af41d6fdebb9b654475738767a5a4dd30e8895e99bcf27cd6c8bbc7",
       "summary": {
         "blockCounts": {
-          "AIR": 52954,
+          "AIR": 52952,
           "BEDROCK": 256,
           "DEEPSLATE": 3767,
           "DIRT": 0,
@@ -1067,8 +1067,8 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 5230,
-          "WATER": 2043,
+          "STONE": 5283,
+          "WATER": 1991,
           "COAL_ORE": 17,
           "COPPER_ORE": 10,
           "DIAMOND_ORE": 0,
@@ -1089,12 +1089,12 @@
           "CACTUS": 0,
           "DANDELION": 0,
           "FERN": 0,
-          "KELP": 224,
+          "KELP": 225,
           "LILY_PAD": 0,
           "POPPY": 0,
           "RED_MUSHROOM": 0,
-          "SEAGRASS": 122,
-          "SUGAR_CANE": 1,
+          "SEAGRASS": 120,
+          "SUGAR_CANE": 3,
           "TALL_GRASS": 0
         },
         "biomeCounts": {
@@ -1182,7 +1182,7 @@
       "cx": -4,
       "cz": -1,
       "decorate": true,
-      "blocksSha256": "681cf4c4d791c9b0d6d5b0cca47892a0568c585cccfa75aa1eb2e650ae67d344",
+      "blocksSha256": "307c257cb9767e4d067a69d6c5bfd9da4d28ecc7ed1b13987dd9e5d2da6841dc",
       "biomesSha256": "41200eddb5d60f5b6d3c88c04c82423e9383f3b9392d8cb38ffa5a44775d37d2",
       "summary": {
         "blockCounts": {
@@ -1199,8 +1199,8 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 6792,
-          "WATER": 4191,
+          "STONE": 6614,
+          "WATER": 4369,
           "COAL_ORE": 17,
           "COPPER_ORE": 50,
           "DIAMOND_ORE": 0,
@@ -1314,11 +1314,11 @@
       "cx": -28,
       "cz": -52,
       "decorate": true,
-      "blocksSha256": "fdbe11c4e491d7ccbd59e890cac85a94d85a75b5130fcf6a5055cd99ddc79e62",
+      "blocksSha256": "99c9fe87390d1bcb4ab962437c7d28625eb30a0d37b996f82df49cfab19f9919",
       "biomesSha256": "b7a32ae7b3256f5972f64444c945db68355939b466481d1a539cc0dd6e082c95",
       "summary": {
         "blockCounts": {
-          "AIR": 50857,
+          "AIR": 50873,
           "BEDROCK": 256,
           "DEEPSLATE": 3542,
           "DIRT": 1024,
@@ -1331,7 +1331,7 @@
           "OBSIDIAN": 0,
           "SAND": 0,
           "SNOW": 0,
-          "STONE": 9222,
+          "STONE": 9206,
           "WATER": 0,
           "COAL_ORE": 68,
           "COPPER_ORE": 55,
@@ -1433,7 +1433,7 @@
         "waterSurfaceY": null,
         "topBlockY": {
           "min": 66,
-          "max": 73
+          "max": 74
         },
         "caveBandAir": 3095,
         "ravineCutColumns": 0
@@ -1443,13 +1443,13 @@
       "cx": -10,
       "cz": 8,
       "decorate": true,
-      "blocksSha256": "a8310065c78c2a672d13ef5e17d762cafcbe1c02383919f791f23428b3a28470",
+      "blocksSha256": "cbefe3459881de3151e6e3a545bdd06e4ad290ebbf9e792ae14d11dc97fae873",
       "biomesSha256": "7bed54b20c7d25f5e508ef4b1b8959a8dfb6249a778527a783cf8f2d29911080",
       "summary": {
         "blockCounts": {
           "AIR": 49166,
           "BEDROCK": 256,
-          "DEEPSLATE": 3718,
+          "DEEPSLATE": 3740,
           "DIRT": 0,
           "GRASS": 0,
           "GRAVEL": 0,
@@ -1460,22 +1460,22 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 4167,
-          "WATER": 6822,
+          "STONE": 4149,
+          "WATER": 6836,
           "COAL_ORE": 52,
-          "COPPER_ORE": 42,
+          "COPPER_ORE": 50,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
           "GOLD_ORE": 18,
-          "IRON_ORE": 30,
+          "IRON_ORE": 26,
           "LAPIS_ORE": 7,
           "REDSTONE_ORE": 0,
           "DEEPSLATE_COAL_ORE": 16,
-          "DEEPSLATE_COPPER_ORE": 38,
+          "DEEPSLATE_COPPER_ORE": 20,
           "DEEPSLATE_DIAMOND_ORE": 0,
           "DEEPSLATE_EMERALD_ORE": 0,
           "DEEPSLATE_GOLD_ORE": 9,
-          "DEEPSLATE_IRON_ORE": 45,
+          "DEEPSLATE_IRON_ORE": 41,
           "DEEPSLATE_LAPIS_ORE": 0,
           "DEEPSLATE_REDSTONE_ORE": 0,
           "BROWN_MUSHROOM": 0,
@@ -1575,11 +1575,11 @@
       "cx": -14,
       "cz": -1,
       "decorate": true,
-      "blocksSha256": "87776b068d323f2644b0da5dbc3861d2de52cc7968afb3f5e4bf1b4808f72e05",
+      "blocksSha256": "e6e9850d70006adfa9c220bcc3d6373321e442cc197e641cb6165bdf1b3ba46c",
       "biomesSha256": "41200eddb5d60f5b6d3c88c04c82423e9383f3b9392d8cb38ffa5a44775d37d2",
       "summary": {
         "blockCounts": {
-          "AIR": 52422,
+          "AIR": 52396,
           "BEDROCK": 256,
           "DEEPSLATE": 3785,
           "DIRT": 0,
@@ -1590,10 +1590,10 @@
           "LEAVES": 0,
           "LOG": 0,
           "OBSIDIAN": 0,
-          "SAND": 817,
+          "SAND": 818,
           "SNOW": 0,
-          "STONE": 3317,
-          "WATER": 4445,
+          "STONE": 3318,
+          "WATER": 4469,
           "COAL_ORE": 0,
           "COPPER_ORE": 0,
           "DIAMOND_ORE": 0,
@@ -1699,7 +1699,7 @@
           "min": 63,
           "max": 63
         },
-        "caveBandAir": 3270,
+        "caveBandAir": 3244,
         "ravineCutColumns": 0
       }
     },
@@ -1707,11 +1707,11 @@
       "cx": -8,
       "cz": 8,
       "decorate": false,
-      "blocksSha256": "becdb10231d505c4b9e2323edc128606f6d56a6092214257cd3c15073731dfca",
+      "blocksSha256": "cecf19ef6c35210d66098d8883fe5b77210be0b2543458a9c89fca9a59276505",
       "biomesSha256": "f854a876dfa2e2a9069e763fd8a0fdcb9944bf256debe30006d5f6f014a37190",
       "summary": {
         "blockCounts": {
-          "AIR": 52724,
+          "AIR": 52729,
           "BEDROCK": 256,
           "DEEPSLATE": 3342,
           "DIRT": 0,
@@ -1724,15 +1724,15 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 2335,
-          "WATER": 5962,
+          "STONE": 2338,
+          "WATER": 5947,
           "COAL_ORE": 17,
           "COPPER_ORE": 30,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
           "GOLD_ORE": 0,
           "IRON_ORE": 0,
-          "LAPIS_ORE": 7,
+          "LAPIS_ORE": 14,
           "REDSTONE_ORE": 0,
           "DEEPSLATE_COAL_ORE": 0,
           "DEEPSLATE_COPPER_ORE": 10,
@@ -1831,7 +1831,7 @@
           "min": 63,
           "max": 63
         },
-        "caveBandAir": 3572,
+        "caveBandAir": 3577,
         "ravineCutColumns": 0
       }
     },
@@ -1839,11 +1839,11 @@
       "cx": 4,
       "cz": 9,
       "decorate": true,
-      "blocksSha256": "e8052ff37c767a53847d3bee3564be7e179cab7018fa3f41715a0e393a88b4b3",
+      "blocksSha256": "66cdba9c27a2d156b50a621f57092a94110b122834eb1b634dbf1422059c30ce",
       "biomesSha256": "22b97b0d6b5e9cf227b0b8c5218b564e55145d58061d0b64c4f3ea7b691d1d48",
       "summary": {
         "blockCounts": {
-          "AIR": 50860,
+          "AIR": 51162,
           "BEDROCK": 256,
           "DEEPSLATE": 3776,
           "DIRT": 0,
@@ -1856,9 +1856,9 @@
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
-          "STONE": 9583,
+          "STONE": 9298,
           "WATER": 0,
-          "COAL_ORE": 68,
+          "COAL_ORE": 51,
           "COPPER_ORE": 50,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
@@ -1957,8 +1957,8 @@
         },
         "waterSurfaceY": null,
         "topBlockY": {
-          "min": 71,
-          "max": 84
+          "min": 72,
+          "max": 81
         },
         "caveBandAir": 4990,
         "ravineCutColumns": 0
@@ -1968,11 +1968,11 @@
       "cx": 21,
       "cz": 12,
       "decorate": true,
-      "blocksSha256": "4490258d1eb1e3c3b5205fd4d70042b5f9a32f6e1af9b2fd444077a8600a6dde",
-      "biomesSha256": "1d2eb8d978b058330197338c462f9fe5f42fde85670a1eb93d9d4be2f1bdaf87",
+      "blocksSha256": "06871ac64e36a9762f1e9f526b278101ba53e76e1531c7aeed36297af70e28f4",
+      "biomesSha256": "eda1880efd0606ce42113fbc3c9ea13fdbc479e664f92a16c20bad523ff121ae",
       "summary": {
         "blockCounts": {
-          "AIR": 49310,
+          "AIR": 49518,
           "BEDROCK": 256,
           "DEEPSLATE": 3771,
           "DIRT": 0,
@@ -1983,11 +1983,11 @@
           "LEAVES": 0,
           "LOG": 0,
           "OBSIDIAN": 0,
-          "SAND": 1265,
+          "SAND": 1216,
           "SNOW": 0,
-          "STONE": 9756,
-          "WATER": 617,
-          "COAL_ORE": 25,
+          "STONE": 9695,
+          "WATER": 540,
+          "COAL_ORE": 26,
           "COPPER_ORE": 60,
           "DIAMOND_ORE": 0,
           "EMERALD_ORE": 0,
@@ -2007,11 +2007,11 @@
           "CACTUS": 0,
           "DANDELION": 0,
           "FERN": 0,
-          "KELP": 217,
+          "KELP": 202,
           "LILY_PAD": 0,
           "POPPY": 0,
           "RED_MUSHROOM": 0,
-          "SEAGRASS": 124,
+          "SEAGRASS": 117,
           "SUGAR_CANE": 0,
           "TALL_GRASS": 0
         },
@@ -2019,7 +2019,7 @@
           "badlands": 0,
           "bamboo_jungle": 0,
           "basalt_deltas": 0,
-          "beach": 33,
+          "beach": 73,
           "birch_forest": 0,
           "cherry_grove": 0,
           "cold_ocean": 0,
@@ -2046,7 +2046,7 @@
           "ice_spikes": 0,
           "jagged_peaks": 0,
           "jungle": 0,
-          "lukewarm_ocean": 223,
+          "lukewarm_ocean": 183,
           "lush_caves": 0,
           "mangrove_swamp": 0,
           "meadow": 0,
@@ -2089,11 +2089,11 @@
           "max": 63
         },
         "topBlockY": {
-          "min": 39,
+          "min": 35,
           "max": 63
         },
-        "caveBandAir": 143,
-        "ravineCutColumns": 3
+        "caveBandAir": 302,
+        "ravineCutColumns": 13
       }
     }
   ]

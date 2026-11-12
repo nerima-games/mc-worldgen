@@ -1,5 +1,5 @@
 import { type BlockAxis as BlockAxisValue, PositionAxis as positionAxis } from '@nerima-games/mc-kernel/domain/coordinates'
-import { Data, Result } from 'effect'
+import { Data, Option, Result } from 'effect'
 import {
   type DensityBounds,
   type DensityFunction,
@@ -19,12 +19,12 @@ import {
   DensityValue as densityValue,
   densityYClampedGradient,
 } from '@nerima-games/mc-noise'
+import { MAX_SURFACE_Y, MIN_SURFACE_Y } from './constants.js'
+import { type TerrainDensitySurfaceSampler, createTerrainDensitySurfaceSampler } from './density-grid.js'
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeedValue, fbm2D } from './noise-compatibility.js'
 
-/** Lowest Y sampled by the public surface query, matching the column fill pass after bedrock. */
-export const MIN_SURFACE_Y = 1
-export const MAX_SURFACE_Y = 210
+export { MAX_SURFACE_Y, MIN_SURFACE_Y } from './constants.js'
 export const CONTINENTALNESS_CONTRAST = 1.15
 
 const DENSITY_BASE_MAGNITUDE = 1.45
@@ -184,7 +184,14 @@ export const createTerrainDensitySampler = (seed: NoiseSeed): Result.Result<Terr
         )
       }
 
+      const sampleDensitySurface: TerrainDensitySurfaceSampler = createTerrainDensitySurfaceSampler(densityAtForGeneration)
+
       const surfaceHeightAt = (wx: BlockAxisValue, wz: BlockAxisValue): Result.Result<BlockAxisValue, TerrainDensityFailure> => {
+        const sampledSurface = sampleDensitySurface(wx, wz)
+        if (Option.isSome(sampledSurface)) {
+          return Result.succeed(sampledSurface.value)
+        }
+
         let surfaceY = MIN_SURFACE_Y
         for (let wy = SURFACE_SCAN_START; wy >= MIN_SURFACE_Y; wy -= SURFACE_SCAN_STEP) {
           if (densityAtForGeneration(wx, blockAxisFromKnownSafeInteger(wy), wz) > DENSITY_SURFACE_THRESHOLD) {

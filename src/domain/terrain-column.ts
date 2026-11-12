@@ -7,19 +7,12 @@
 import type { BiomeType, KernelBiomeType } from './biome.js'
 import {
   type ClimateSample,
-  type UnsupportedBiomeCategory,
-  biomeCategoryFromNoise,
   classifyBiomeFromClimate,
   peaksAndValleysFromWeirdness,
-  refineBiomeCategoryForKernel,
+  refineKnownBiomeCategoryForKernel,
 } from './biome-classifier.js'
 import { DEFAULT_TERRAIN_LEVELS, type TerrainLevels } from './constants.js'
 import { LAKE_NOISE_SCALE, LAKE_WORLD_OFFSET } from './lake-config.js'
-import {
-  type NoiseSeed,
-  classifyMinecraftBiomeFromClimate,
-  minecraftClimateAt,
-} from '@nerima-games/mc-noise'
 import { Option, Result } from 'effect'
 import { RIVER_NOISE_SCALE, RIVER_WORLD_OFFSET } from './biome-classifier.config.js'
 import { type ResolvedSurfaceMaterial, resolveSurfaceMaterial } from './surface-resolver.js'
@@ -27,6 +20,7 @@ import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibi
 import { channelSeedValue, fbm2D, valueNoise2D } from './noise-compatibility.js'
 import { computeLakeBasinY, determineWaterLevelValue, isLakeShoreColumnForGeneration, resolveSurfaceYFromBasin } from './lake-generator.js'
 import { continentalnessAt, surfaceHeightFromContinentalness, surfaceHeightValueFromContinentalness } from './density-function.js'
+import type { NoiseSeed } from '@nerima-games/mc-noise'
 
 type BlockAxis = import('@nerima-games/mc-kernel/domain/coordinates').BlockAxis
 
@@ -204,19 +198,46 @@ const resolveGenerationBiomes = (
   wz: BlockAxis,
   levels: TerrainLevels,
   initialSurfaceY: BlockAxis,
-): Result.Result<GenerationBiomeData, RangeError | UnsupportedBiomeCategory> =>
-  Result.gen(function* buildGenerationBiomeData() {
-    const climate = yield* minecraftClimateAt(seed, wx, wz)
-    let noiseCategory = classifyMinecraftBiomeFromClimate(climate)
-    if (initialSurfaceY < levels.seaLevel - OCEAN_BELOW_SEA_LEVEL_MARGIN) {
-      noiseCategory = 'OCEAN'
-    } else if (initialSurfaceY <= levels.seaLevel + BEACH_ABOVE_SEA_LEVEL_MARGIN) {
-      noiseCategory = 'BEACH'
-    }
-    const biome = yield* biomeCategoryFromNoise(noiseCategory)
-    const kernelBiome = yield* refineBiomeCategoryForKernel(noiseCategory, climate, initialSurfaceY)
-    return { biome, climate, kernelBiome }
+): GenerationBiomeData => {
+  const climate = climateAt(seed, wx, wz)
+  let biome = classifyBiomeFromClimate(climate)
+  if (initialSurfaceY < levels.seaLevel - OCEAN_BELOW_SEA_LEVEL_MARGIN) {
+    biome = 'OCEAN'
+  } else if (initialSurfaceY <= levels.seaLevel + BEACH_ABOVE_SEA_LEVEL_MARGIN) {
+    biome = 'BEACH'
+  }
+  const kernelBiome = refineKnownBiomeCategoryForKernel(biome, climate, initialSurfaceY)
+  return { biome, climate, kernelBiome }
+}
+
+export const resolveTerrainColumnForGenerationValue = (
+  seed: NoiseSeed,
+  wx: BlockAxis,
+  wz: BlockAxis,
+  levels: TerrainLevels,
+  initialSurfaceY: BlockAxis,
+): TerrainColumnForGeneration => {
+  const { biome, climate, kernelBiome } = resolveGenerationBiomes(seed, wx, wz, levels, initialSurfaceY)
+  const lakeNoiseValue = lakeNoiseAt(seed, wx, wz)
+  const lakeBasinY = computeLakeBasinY(biome, lakeNoiseValue, initialSurfaceY, levels)
+  const resolvedSurfaceY = resolveSurfaceYFromBasin(biome, initialSurfaceY, lakeBasinY)
+  const waterLevel = determineWaterLevelValue(biome, resolvedSurfaceY, lakeBasinY, levels)
+  const surface = resolveSurfaceMaterial(biome, resolvedSurfaceY, waterLevel ?? levels.seaLevel, {
+    hasLakeBasin: lakeBasinY !== null,
+    isShore: isLakeShoreColumnForGeneration(lakeBasinY, lakeNoiseValue, resolvedSurfaceY, levels),
   })
+
+  return {
+    biome,
+    initialSurfaceY,
+    kernelBiome,
+    lakeBasinY,
+    surface,
+    surfaceY: resolvedSurfaceY,
+    temperature: climate.temperature,
+    waterLevel,
+  }
+}
 
 export const resolveTerrainColumnForGeneration = (
   seed: NoiseSeed,
@@ -224,29 +245,8 @@ export const resolveTerrainColumnForGeneration = (
   wz: BlockAxis,
   levels: TerrainLevels,
   initialSurfaceY: BlockAxis,
-): Result.Result<TerrainColumnForGeneration, RangeError | UnsupportedBiomeCategory> =>
-  Result.gen(function* resolveGeneratedTerrainColumn() {
-    const { biome, climate, kernelBiome } = yield* resolveGenerationBiomes(seed, wx, wz, levels, initialSurfaceY)
-    const lakeNoiseValue = lakeNoiseAt(seed, wx, wz)
-    const lakeBasinY = computeLakeBasinY(biome, lakeNoiseValue, initialSurfaceY, levels)
-    const resolvedSurfaceY = resolveSurfaceYFromBasin(biome, initialSurfaceY, lakeBasinY)
-    const waterLevel = determineWaterLevelValue(biome, resolvedSurfaceY, lakeBasinY, levels)
-    const surface = resolveSurfaceMaterial(biome, resolvedSurfaceY, waterLevel ?? levels.seaLevel, {
-      hasLakeBasin: lakeBasinY !== null,
-      isShore: isLakeShoreColumnForGeneration(lakeBasinY, lakeNoiseValue, resolvedSurfaceY, levels),
-    })
-
-    return {
-      biome,
-      initialSurfaceY,
-      kernelBiome,
-      lakeBasinY,
-      surface,
-      surfaceY: resolvedSurfaceY,
-      temperature: climate.temperature,
-      waterLevel,
-    }
-  })
+): Result.Result<TerrainColumnForGeneration, never> =>
+  Result.succeed(resolveTerrainColumnForGenerationValue(seed, wx, wz, levels, initialSurfaceY))
 
 type TerrainColumnValues = Readonly<{
   readonly biome: BiomeType

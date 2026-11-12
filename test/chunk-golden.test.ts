@@ -78,7 +78,9 @@ import {
 } from '../src/domain/constants'
 import { RIVER_WATER_LEVEL } from '../src/domain/lake-config'
 import { ORE_IDS } from '../src/domain/ore'
-import { generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
+import { MAX_SURFACE_Y, createTerrainDensitySampler } from '../src/domain/density-function'
+import { createTerrainDensityGrid, type TerrainDensityGrid } from '../src/domain/density-grid'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import { resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
 import { PLANT_IDS } from '../src/domain/vegetation'
 // Every remaining `*_BLOCK` record in src/domain — the block ids each natural
@@ -133,6 +135,24 @@ const generated: ReadonlyArray<{ readonly spec: GoldenSpec; readonly chunk: Chun
 
 const describeSpec = (spec: GoldenSpec): string =>
   `(${String(spec.cx)}, ${String(spec.cz)})${spec.decorate ? '' : ' no-decorate'}`
+
+const initialSurfaceYFromDensityGrid = (
+  densityGrid: TerrainDensityGrid,
+  samples: Float64Array,
+  lx: number,
+  lz: number,
+): number => {
+  densityGrid.sampleColumn(lx, lz, samples)
+  let surfaceY = BEDROCK_Y + 1
+  let y = BEDROCK_Y + 1
+  for (const density of samples) {
+    if (density > 0) {
+      surfaceY = y
+    }
+    y += 1
+  }
+  return surfaceY
+}
 
 const countBlocks = (chunk: Chunk, wanted: number): number => {
   let count = 0
@@ -499,23 +519,30 @@ describe('what backs the block digest', () => {
 describe('what backs the biome digest', () => {
   /**
    * I-6. `generateChunk` writes a concrete kernel biome from inside its column
-   * loop. Re-resolving that choice from the same absolute location catches a
-   * default-filled array and keeps the coarse mc-noise categories out of storage.
+   * loop. Re-resolving that choice from the same interpolated density column
+   * catches a default-filled array and keeps coarse categories out of storage.
    */
   it.effect('I-6: stored biome ids agree with the mc-noise category and climate resolver', () =>
     Effect.sync(() => {
+      const sampler = Result.getOrThrow(createTerrainDensitySampler(GOLDEN_SEED))
+      const samples = new Float64Array(MAX_SURFACE_Y - BEDROCK_Y)
       for (const { spec, chunk } of generated) {
+        const densityGrid = createTerrainDensityGrid(
+          sampler.densityAtForGeneration,
+          validated.blockAxis(spec.cx * CHUNK_SIZE_XZ),
+          validated.blockAxis(spec.cz * CHUNK_SIZE_XZ),
+        )
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
             const wx = spec.cx * CHUNK_SIZE_XZ + lx
             const wz = spec.cz * CHUNK_SIZE_XZ + lz
-            const surfaceY = surfaceHeightAt(GOLDEN_SEED, validated.blockAxis(wx), validated.blockAxis(wz))
+            const surfaceY = initialSurfaceYFromDensityGrid(densityGrid, samples, lx, lz)
             const expected = Result.getOrThrow(resolveTerrainColumnForGeneration(
               GOLDEN_SEED,
               validated.blockAxis(wx),
               validated.blockAxis(wz),
               DEFAULT_TERRAIN_LEVELS,
-              surfaceY,
+              validated.blockAxis(surfaceY),
             )).kernelBiome
 
             expect(

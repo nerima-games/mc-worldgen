@@ -107,6 +107,10 @@ export const DEFAULT_TERRAIN_LEVELS: TerrainLevels = {
 /** Lowest solid layer. Nothing is ever carved or replaced below this. */
 export const BEDROCK_Y = 0
 
+/** Lowest and highest Y values sampled for the terrain surface. */
+export const MIN_SURFACE_Y = 1
+export const MAX_SURFACE_Y = 210
+
 /** Upper-exclusive boundary of the vanilla deepslate layer. */
 export const DEEPSLATE_CEILING = 16
 

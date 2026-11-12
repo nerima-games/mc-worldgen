@@ -84,7 +84,8 @@ import {
 } from './natural-structure.js'
 import type { OverworldTerrainResultSampler, OverworldTerrainSample } from './structure-siting.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
-import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGeneration, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGenerationValue, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
+import { type TerrainDensityGrid, createTerrainDensityGrid } from './density-grid.js'
 import {
   type ValidatedNaturalStructureChunkCoordinates,
   validateNaturalStructureChunkCoordinates,
@@ -116,6 +117,7 @@ export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 /** Single-block iteration step for the per-voxel/per-column loops below. */
 const AXIS_STEP = 1
 const DENSITY_SURFACE_THRESHOLD = 0
+const MIN_WATER_FLOOR_MARGIN = 1
 /** Sentinel stored for columns whose terrain has no water surface. */
 const NO_WATER_LEVEL = -1
 const LOCAL_COLUMN_MIN = 0
@@ -128,7 +130,7 @@ export type GenerateOptions = {
 }
 
 type InvalidTerrainLevelsFields = {
-  readonly field: 'options' | 'terrainLevels'
+  readonly field: 'options' | 'terrainLevels' | 'waterFloorMargin'
 }
 
 export const InvalidTerrainLevels: new (
@@ -326,6 +328,71 @@ const terrainLevelsForGeneration = (options: unknown): Result.Result<TerrainLeve
   return Result.mapError(decoded, () => new InvalidTerrainLevels({ field: 'terrainLevels' }))
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const invalidCarveOptions = (): Result.Result<never, InvalidTerrainLevels> =>
+  Result.fail(new InvalidTerrainLevels({ field: 'options' }))
+
+const marginOptionsForGeneration = (carve: Record<string, unknown>): Result.Result<CarveOptions, InvalidTerrainLevels> => {
+  const marginDescriptor = Object.getOwnPropertyDescriptor(carve, 'waterFloorMargin')
+  if (!marginDescriptor) {
+    return Result.succeed({})
+  }
+  if (!('value' in marginDescriptor)) {
+    return Result.fail(new InvalidTerrainLevels({ field: 'waterFloorMargin' }))
+  }
+
+  const margin: unknown = marginDescriptor.value
+  if (
+    typeof margin !== 'number' ||
+    !Number.isFinite(margin) ||
+    !Number.isInteger(margin) ||
+    margin < MIN_WATER_FLOOR_MARGIN
+  ) {
+    return Result.fail(new InvalidTerrainLevels({ field: 'waterFloorMargin' }))
+  }
+  return Result.succeed({ waterFloorMargin: margin })
+}
+
+const carveOptionsFromValue = (carve: unknown): Result.Result<CarveOptions, InvalidTerrainLevels> => {
+  if (!isRecord(carve)) {
+    return invalidCarveOptions()
+  }
+  return marginOptionsForGeneration(carve)
+}
+
+const carveOptionsForGeneration = (options: GenerateOptions): Result.Result<CarveOptions, InvalidTerrainLevels> => {
+  const carveDescriptor = Object.getOwnPropertyDescriptor(options, 'carve')
+  if (!carveDescriptor) {
+    return Result.succeed({})
+  }
+  if (!('value' in carveDescriptor)) {
+    return invalidCarveOptions()
+  }
+  return carveOptionsFromValue(carveDescriptor.value)
+}
+
+type ResolvedGenerateOptions = Readonly<{
+  carve: CarveOptions
+  generation: GenerateOptions
+  terrainLevels: TerrainLevels
+}>
+
+const resolvedGenerateOptionsForGeneration = (
+  options: GenerateOptions,
+): Result.Result<ResolvedGenerateOptions, InvalidTerrainLevels> => {
+  const terrainLevels = terrainLevelsForGeneration(options)
+  if (Result.isFailure(terrainLevels)) {
+    return Result.fail(terrainLevels.failure)
+  }
+  const carve = carveOptionsForGeneration(options)
+  if (Result.isFailure(carve)) {
+    return Result.fail(carve.failure)
+  }
+  return Result.succeed({ carve: carve.success, generation: options, terrainLevels: terrainLevels.success })
+}
+
 const createChunkGenerationContext = (
   seed: NoiseSeed,
   validatedChunk: ValidatedNaturalStructureChunkCoordinates,
@@ -377,39 +444,35 @@ const writeColumnBuffers = (
 
 type DensityColumnRequest = Readonly<{
   blocks: Uint16Array
-  sampler: TerrainDensitySampler
+  densitySamples: Float64Array
   lx: number
   lz: number
-  wx: number
-  wz: number
 }>
 
-const writeSolidDensitySample = (blocks: Uint16Array, lx: number, lz: number, y: number, density: number): boolean => {
-  if (density <= DENSITY_SURFACE_THRESHOLD) {
-    return false
-  }
-  let stone = BLOCK.STONE
-  if (y < DEEPSLATE_CEILING) {
-    stone = BLOCK.DEEPSLATE
-  }
-  blocks[blockIndex(lx, y, lz)] = stone
-  return true
+const densityColumnStartIndex = (blocks: Uint16Array, lx: number, lz: number): number => {
+  const bedrockIndex = blockIndex(lx, BEDROCK_Y, lz)
+  blocks[bedrockIndex] = BLOCK.BEDROCK
+  return bedrockIndex + ONE_BLOCK_ABOVE
 }
 
-const fillDensityColumn = ({ blocks, sampler, lx, lz, wx, wz }: DensityColumnRequest): number => {
+const solidBlockForY = (y: number): number => {
+  if (y < DEEPSLATE_CEILING) {
+    return BLOCK.DEEPSLATE
+  }
+  return BLOCK.STONE
+}
+
+const fillDensityColumn = ({ blocks, densitySamples, lx, lz }: DensityColumnRequest): number => {
   let initialSurfaceY = BEDROCK_Y + ONE_BLOCK_ABOVE
-  const worldX = blockAxisFromKnownSafeInteger(wx)
-  const worldZ = blockAxisFromKnownSafeInteger(wz)
-  blocks[blockIndex(lx, BEDROCK_Y, lz)] = BLOCK.BEDROCK
-  for (let y = BEDROCK_Y + ONE_BLOCK_ABOVE; y <= MAX_SURFACE_Y; y += AXIS_STEP) {
-    const density = sampler.densityAtForGeneration(
-      worldX,
-      blockAxisFromKnownSafeInteger(y),
-      worldZ,
-    )
-    if (writeSolidDensitySample(blocks, lx, lz, y, density)) {
+  let y = initialSurfaceY
+  let blockIndexAtY = densityColumnStartIndex(blocks, lx, lz)
+  for (const density of densitySamples) {
+    if (density > DENSITY_SURFACE_THRESHOLD) {
+      blocks[blockIndexAtY] = solidBlockForY(y)
       initialSurfaceY = y
     }
+    blockIndexAtY += AXIS_STEP
+    y += AXIS_STEP
   }
   return initialSurfaceY
 }
@@ -419,23 +482,14 @@ const resolveGeneratedTerrainColumn = (
   wx: number,
   wz: number,
   initialSurfaceY: number,
-): Result.Result<TerrainColumnForGeneration, TerrainGenerationError> => {
-  const column = resolveTerrainColumnForGeneration(
+): TerrainColumnForGeneration =>
+  resolveTerrainColumnForGenerationValue(
     context.seed,
     blockAxisFromKnownSafeInteger(wx),
     blockAxisFromKnownSafeInteger(wz),
     context.levels,
     blockAxisFromKnownSafeInteger(initialSurfaceY),
   )
-  if (Result.isSuccess(column)) {
-    return Result.succeed(column.success)
-  }
-  const { failure } = column
-  if (failure instanceof RangeError) {
-    return Result.fail(new TerrainDensityFailure({ message: failure.message, stage: 'evaluation' }))
-  }
-  return Result.fail(failure)
-}
 
 type PreparedTerrainColumn = Readonly<{
   column: TerrainColumnForGeneration
@@ -444,49 +498,52 @@ type PreparedTerrainColumn = Readonly<{
 
 const prepareTerrainColumn = (
   context: ChunkGenerationContext,
-  sampler: TerrainDensitySampler,
+  densityGrid: TerrainDensityGrid,
+  densitySamples: Float64Array,
   lx: number,
   lz: number,
-): Result.Result<PreparedTerrainColumn, TerrainGenerationError> => {
+): PreparedTerrainColumn => {
   const wx = context.minBlockX + lx
   const wz = context.minBlockZ + lz
-  const initialSurfaceY = fillDensityColumn({ blocks: context.blocks, lx, lz, sampler, wx, wz })
-  const terrainColumnResult = resolveGeneratedTerrainColumn(context, wx, wz, initialSurfaceY)
-  if (Result.isFailure(terrainColumnResult)) {
-    return Result.fail(terrainColumnResult.failure)
-  }
-  return Result.succeed({ column: terrainColumnResult.success, surfaceY: initialSurfaceY })
+  densityGrid.sampleColumn(lx, lz, densitySamples)
+  const initialSurfaceY = fillDensityColumn({
+    blocks: context.blocks,
+    densitySamples,
+    lx,
+    lz,
+  })
+  const column = resolveGeneratedTerrainColumn(context, wx, wz, initialSurfaceY)
+  return { column, surfaceY: initialSurfaceY }
 }
 
 const generateColumn = (
   context: ChunkGenerationContext,
-  sampler: TerrainDensitySampler,
+  densityGrid: TerrainDensityGrid,
+  densitySamples: Float64Array,
   lx: number,
   lz: number,
-): Result.Result<void, TerrainGenerationError> => {
-  const prepared = prepareTerrainColumn(context, sampler, lx, lz)
-  if (Result.isFailure(prepared)) {
-    return Result.fail(prepared.failure)
-  }
-  const { column, surfaceY } = prepared.success
+): void => {
+  const prepared = prepareTerrainColumn(context, densityGrid, densitySamples, lx, lz)
+  const { column, surfaceY } = prepared
   const filled = fillColumn(context.blocks, { column, lx, lz }, surfaceY)
   writeColumnBuffers(context, columnIndexForKnownLocalRange(lx, lz), column, filled)
-  return Result.void
 }
 
 const generateColumns = (
   context: ChunkGenerationContext,
   sampler: TerrainDensitySampler,
-): Result.Result<void, TerrainGenerationError> => {
+): void => {
+  const densityGrid = createTerrainDensityGrid(
+    sampler.densityAtForGeneration,
+    blockAxisFromKnownSafeInteger(context.minBlockX),
+    blockAxisFromKnownSafeInteger(context.minBlockZ),
+  )
+  const densitySamples = new Float64Array(MAX_SURFACE_Y - BEDROCK_Y)
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      const column = generateColumn(context, sampler, lx, lz)
-      if (Result.isFailure(column)) {
-        return Result.fail(column.failure)
-      }
+      generateColumn(context, densityGrid, densitySamples, lx, lz)
     }
   }
-  return Result.void
 }
 
 const plantTreesPass = (context: ChunkGenerationContext): void => {
@@ -597,12 +654,12 @@ const externalStructureTerrainSample = (
   if (Result.isFailure(initialSurface)) {
     return Result.fail(initialSurface.failure)
   }
-  const column = resolveGeneratedTerrainColumn(context, wx, wz, initialSurface.success)
-  return Result.map(column, (resolved) => ({
+  const resolved = resolveGeneratedTerrainColumn(context, wx, wz, initialSurface.success)
+  return Result.succeed({
     biome: resolved.biome,
     seaLevel: blockAxisFromKnownSafeInteger(context.levels.seaLevel),
     surfaceY: blockAxisFromKnownSafeInteger(resolved.surfaceY),
-  }))
+  })
 }
 
 const cacheTerrainSample = (
@@ -684,29 +741,22 @@ const placeOresAndDecorate = (context: ChunkGenerationContext, options: Generate
 const runTerrainPassesBeforeStructures = (
   context: ChunkGenerationContext,
   options: GenerateOptions,
+  carveOptions: CarveOptions,
   sampler: TerrainDensitySampler,
-): Result.Result<void, TerrainGenerationError> => {
-  const columns = generateColumns(context, sampler)
-  if (Result.isFailure(columns)) {
-    return Result.fail(columns.failure)
-  }
-  carveCaves(context.blocks, context.seed, context.coord, options.carve ?? {})
+): void => {
+  generateColumns(context, sampler)
+  carveCaves(context.blocks, context.seed, context.coord, carveOptions)
   placeOresAndDecorate(context, options)
-  return Result.void
 }
 
 const generateValidatedChunk = (
   seed: NoiseSeed,
   validatedChunk: ValidatedNaturalStructureChunkCoordinates,
-  levels: TerrainLevels,
-  options: GenerateOptions,
+  options: ResolvedGenerateOptions,
   sampler: TerrainDensitySampler,
 ): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate | InvalidTerrainLevels> => {
-  const context = createChunkGenerationContext(seed, validatedChunk, levels, sampler)
-  const terrainPasses = runTerrainPassesBeforeStructures(context, options, sampler)
-  if (Result.isFailure(terrainPasses)) {
-    return Result.fail(terrainPasses.failure)
-  }
+  const context = createChunkGenerationContext(seed, validatedChunk, options.terrainLevels, sampler)
+  runTerrainPassesBeforeStructures(context, options.generation, options.carve, sampler)
   return writeStructures({ biomes: context.biomes, blocks: context.blocks, coord: validatedChunk.coord }, context)
 }
 
@@ -722,9 +772,9 @@ export const generateChunk = (
   if (Result.isFailure(coordinateValidation)) {
     return Result.fail(coordinateValidation.failure)
   }
-  const terrainLevels = terrainLevelsForGeneration(options)
-  if (Result.isFailure(terrainLevels)) {
-    return Result.fail(terrainLevels.failure)
+  const resolvedOptions = resolvedGenerateOptionsForGeneration(options)
+  if (Result.isFailure(resolvedOptions)) {
+    return Result.fail(resolvedOptions.failure)
   }
   const sampler = createTerrainDensitySampler(seed)
   if (Result.isFailure(sampler)) {
@@ -733,8 +783,7 @@ export const generateChunk = (
   return generateValidatedChunk(
     seed,
     coordinateValidation.success,
-    terrainLevels.success,
-    options,
+    resolvedOptions.success,
     sampler.success,
   )
 }

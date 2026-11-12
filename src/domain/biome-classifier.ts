@@ -267,6 +267,12 @@ const kernelBiomeForCategory: Readonly<Record<BiomeType, (climate: ClimateSample
   },
 }
 
+export const refineKnownBiomeCategoryForKernel = (
+  category: BiomeType,
+  climate: ClimateSample,
+  surfaceY: BlockAxis,
+): KernelBiomeType => kernelBiomeForCategory[category](climate, surfaceY)
+
 /**
  * Refine mc-noise's coarse category into a concrete biome registered by
  * mc-kernel. Unknown runtime categories fail with a tag so upgrades cannot
@@ -280,7 +286,7 @@ export const refineBiomeCategoryForKernel = (
   if (!isBiomeCategory(category)) {
     return Result.fail(unsupportedCategory(category))
   }
-  return Result.succeed(kernelBiomeForCategory[category](climate, surfaceY))
+  return Result.succeed(refineKnownBiomeCategoryForKernel(category, climate, surfaceY))
 }
 
 /** Map an accepted mc-noise category to the legacy material/vegetation category. */
