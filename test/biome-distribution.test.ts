@@ -2,10 +2,11 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Result } from 'effect'
 import { minecraftBiomeFor } from '@nerima-games/mc-noise'
 import { BIOMES, KERNEL_BIOMES, type BiomeType, type KernelBiomeType } from '../src/domain/biome'
+import { classifyBiomeFromClimate } from '../src/domain/biome-classifier'
 import { CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import { createTerrainDensitySampler } from '../src/domain/density-function'
 import { climateAt, resolveTerrainColumn, resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
-import { generateChunkAt } from '../src/domain/terrain'
+import { biomeFor, generateChunkAt, surfaceBiomeAt, terrainColumnAt } from '../src/domain/terrain'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const SURVEY_CONFIGS = [
@@ -333,4 +334,39 @@ describe('the public climate query', () => {
       expect(Number.isFinite(sample.pv)).toBe(true)
     }),
   )
+})
+
+describe('the public biome and terrain-column queries', () => {
+  it.effect('applies ocean and beach overrides before using the climate classifier', () => Effect.sync(() => {
+    const seed = noiseSeed(SURVEY_CONFIGS[0].seed)
+    const wx = blockAxis(0)
+    const wz = blockAxis(0)
+    const biomeAt = (surfaceY: number) => biomeFor(seed, wx, wz, blockAxis(surfaceY), DEFAULT_TERRAIN_LEVELS)
+
+    expect(biomeAt(60)).toBe('OCEAN')
+    expect(biomeAt(61)).toBe('BEACH')
+    expect(biomeAt(64)).toBe('BEACH')
+    expect(biomeAt(65)).toBe(classifyBiomeFromClimate(climateAt(seed, wx, wz)))
+  }))
+
+  it.effect('shares the surface biome with an explicit biome query at the resolved height', () => Effect.sync(() => {
+    const seed = noiseSeed(SURVEY_CONFIGS[0].seed)
+    const wx = blockAxis(-721)
+    const wz = blockAxis(384)
+    const surface = surfaceBiomeAt(seed, wx, wz, DEFAULT_TERRAIN_LEVELS)
+
+    expect(Number.isSafeInteger(surface.surfaceY)).toBe(true)
+    expect(BIOMES).toContain(surface.biome)
+    expect(biomeFor(seed, wx, wz, surface.surfaceY, DEFAULT_TERRAIN_LEVELS)).toBe(surface.biome)
+  }))
+
+  it.effect('uses the default terrain levels when called with three arguments', () => Effect.sync(() => {
+    const seed = noiseSeed(SURVEY_CONFIGS[0].seed)
+    const wx = blockAxis(0)
+    const wz = blockAxis(0)
+
+    expect(terrainColumnAt(seed, wx, wz)).toStrictEqual(
+      terrainColumnAt(seed, wx, wz, DEFAULT_TERRAIN_LEVELS),
+    )
+  }))
 })

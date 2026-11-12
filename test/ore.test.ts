@@ -90,6 +90,9 @@ const orePlacementsIn = (blocks: Uint16Array): ReadonlyArray<Readonly<{ id: numb
   return placements
 }
 
+// Independent Java Edition 26.3 expectations from the Minecraft Wiki:
+// https://minecraft.wiki/w/Copper_ore and https://minecraft.wiki/w/Ore_%28feature%29
+// https://minecraft.wiki/w/Deepslate_Emerald_Ore
 const expectedFeatureRows = [
   { feature: 'coal-lower', name: 'COAL', minY: 0, maxY: 192, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 20, size: 17, biomeRule: null },
   { feature: 'coal-upper', name: 'COAL', minY: 136, maxY: 319, distribution: 'uniform', plateau: 0, attemptsPerChunk: 30, size: 17, biomeRule: null },
@@ -222,6 +225,15 @@ describe('ore height providers', () => {
       expect(trapezoidDraws).toBe(2)
 
       expect(sampleOreY(trapezoid, 40, 40, () => 0.5)).toBe(40)
+
+      const copper = ORE_CONFIGS.find((config) => config.feature === 'copper-small')
+      const emerald = ORE_CONFIGS.find((config) => config.feature === 'emerald')
+      expect(copper).toBeDefined()
+      expect(emerald).toBeDefined()
+      if (copper === undefined || emerald === undefined) return
+
+      expect(sampleOreY(copper, -16, 112, () => 0.5)).toBe(48)
+      expect(sampleOreY(emerald, -16, 480, () => 0.5)).toBe(232)
 
       const trapezoidWithoutPlateau: OreConfig = {
         attemptsPerChunk: 1,
@@ -437,11 +449,13 @@ describe('ore placement', () => {
         const biomes: ReadonlyArray<BiomeType> = Array.from({ length: COLUMN_COUNT }, () => biome)
         const blocks = solidOverworldBlocks()
         placeOres(blocks, noiseSeed(4242), { cx: chunkAxis(0), cz: chunkAxis(0) }, biomes)
-        const emeraldCount = blocks.reduce(
-          (count, block) => count + (block === ORE_BLOCK.EMERALD || block === DEEPSLATE_ORE_BLOCK.EMERALD ? 1 : 0),
-          0,
-        )
-        expect(emeraldCount, `no emeralds generated in ${biome}`).toBeGreaterThan(0)
+        const emeraldPlacements = orePlacementsIn(blocks).filter(({ name }) => name === 'EMERALD')
+
+        expect(emeraldPlacements.length, `no emeralds generated in ${biome}`).toBeGreaterThan(0)
+        for (const { y } of emeraldPlacements) {
+          expect(y, `emerald outside the stored Y=0..255 range in ${biome}`).toBeGreaterThanOrEqual(0)
+          expect(y, `emerald outside the stored Y=0..255 range in ${biome}`).toBeLessThanOrEqual(255)
+        }
       }
     }),
   )

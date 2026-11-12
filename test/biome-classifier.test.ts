@@ -99,6 +99,42 @@ describe('biome classifier', () => {
     }),
   )
 
+  it.effect('refines swamp and mountain climates on each climate boundary', () => Effect.sync(() => {
+    const wetSwamp = climate({
+      continentalness: 0.4,
+      erosion: 0.2,
+      humidity: 0.9,
+      temperature: 0.6,
+    })
+    const erodedSwamp = climate({
+      continentalness: 0.3,
+      erosion: 0.1,
+      humidity: 0.9,
+      temperature: 0.6,
+    })
+    const unchangedSwamp = climate({
+      continentalness: 0.3,
+      erosion: 0.2,
+      humidity: 0.9,
+      temperature: 0.6,
+    })
+    const lowMountaininess = climate({
+      continentalness: 0.5,
+      erosion: 0.1,
+      humidity: 0.5,
+      pv: 0,
+      riverNoise: 0.1,
+      temperature: 0.2,
+    })
+    const moderateMountaininess = { ...lowMountaininess, pv: 0.3 }
+
+    expect(classifyBiomeFromClimate(wetSwamp)).toBe('FOREST')
+    expect(classifyBiomeFromClimate(erodedSwamp)).toBe('FOREST')
+    expect(classifyBiomeFromClimate(unchangedSwamp)).toBe('SWAMP')
+    expect(classifyBiomeFromClimate(lowMountaininess)).toBe('TAIGA')
+    expect(classifyBiomeFromClimate(moderateMountaininess)).toBe('MOUNTAINS')
+  }))
+
   it.effect('refines every mc-noise category to a registered kernel biome', () =>
     Effect.sync(() => {
       for (const category of BIOMES) {
