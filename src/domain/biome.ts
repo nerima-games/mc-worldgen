@@ -56,7 +56,7 @@ export const BIOMES = [
 
 export type BiomeType = (typeof BIOMES)[number]
 
-/** Concrete vanilla biome ids accepted by mc-kernel 0.15.0. */
+/** Concrete vanilla biome ids accepted by the pinned kernel registry. */
 export const KERNEL_BIOMES: ReadonlyArray<KernelBiomeType> = BIOME_TYPES
 export type { KernelBiomeType }
 
