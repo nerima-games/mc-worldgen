@@ -150,10 +150,10 @@ const MIN_SPACING_ADJACENT_WINDOW_OFFSET = 1
 
 export const TREE_MIN_SPACING: number = TREE_GRID_SIZE - TREE_CELL_JITTER_SPAN + MIN_SPACING_ADJACENT_WINDOW_OFFSET
 
-/** Oak is the only registered log/leaf pair in mc-kernel 0.15.0. */
+/** Oak is the only registered log/leaf pair in the pinned kernel registry. */
 export const AVAILABLE_TREE_SPECIES = ['oak'] as const
 
-/** These vanilla species have no registered log and leaf blocks in mc-kernel 0.15.0. */
+/** These vanilla species have no registered log and leaf blocks in the pinned kernel registry. */
 export const UNAVAILABLE_TREE_SPECIES = [
   'birch',
   'spruce',
