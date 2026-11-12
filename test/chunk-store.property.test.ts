@@ -263,6 +263,7 @@ describe('ChunkStore typed service boundaries', () => {
       const subscription = await Effect.runPromise(store.subscribeDirty)
       await Effect.runPromise(subscription.drain)
       const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+      const beforeDimensionRevision = (await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision
 
       await fc.assert(
         fc.asyncProperty(arbitraryLogAxis, async (axis) => {
@@ -270,6 +271,7 @@ describe('ChunkStore typed service boundaries', () => {
           expect(write.kind).toBe('failure')
           if (write.kind === 'failure') expectErrorTag(write.error, ['BlockStateCodecFailure'])
 
+          expect((await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision).toBe(beforeDimensionRevision)
           expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
           expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
         }),
@@ -286,6 +288,7 @@ describe('ChunkStore typed service boundaries', () => {
       const subscription = await Effect.runPromise(store.subscribeDirty)
       await Effect.runPromise(subscription.drain)
       const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+      const beforeDimensionRevision = (await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision
 
       await fc.assert(
         fc.asyncProperty(arbitraryInvalidLogAxis, async (axis) => {
@@ -293,6 +296,7 @@ describe('ChunkStore typed service boundaries', () => {
           expect(write.kind).toBe('failure')
           if (write.kind === 'failure') expectErrorTag(write.error, ['BlockStateCodecFailure'])
 
+          expect((await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision).toBe(beforeDimensionRevision)
           expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
           expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
         }),
@@ -381,6 +385,7 @@ describe('ChunkStore typed service boundaries', () => {
       const subscription = await Effect.runPromise(store.subscribeDirty)
       await Effect.runPromise(subscription.drain)
       const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+      const beforeDimensionRevision = (await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision
 
       await fc.assert(
         fc.asyncProperty(arbitraryLogAxis, async (axis) => {
@@ -388,6 +393,7 @@ describe('ChunkStore typed service boundaries', () => {
           expect(prepared.kind).toBe('failure')
           if (prepared.kind === 'failure') expectErrorTag(prepared.error, ['BlockStateCodecFailure'])
 
+          expect((await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision).toBe(beforeDimensionRevision)
           expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
           expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
         }),
@@ -404,6 +410,7 @@ describe('ChunkStore typed service boundaries', () => {
       const subscription = await Effect.runPromise(store.subscribeDirty)
       await Effect.runPromise(subscription.drain)
       const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+      const beforeDimensionRevision = (await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision
 
       await fc.assert(
         fc.asyncProperty(arbitraryInvalidLogAxis, async (axis) => {
@@ -411,6 +418,7 @@ describe('ChunkStore typed service boundaries', () => {
           expect(prepared.kind).toBe('failure')
           if (prepared.kind === 'failure') expectErrorTag(prepared.error, ['BlockStateCodecFailure'])
 
+          expect((await Effect.runPromise(store.getBlockWithState(position))).dimensionRevision).toBe(beforeDimensionRevision)
           expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
           expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
         }),

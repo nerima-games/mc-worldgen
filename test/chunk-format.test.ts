@@ -230,9 +230,11 @@ const payloadAtByteLength = (byteLength: number): ChunkEncoded => {
   })
 }
 
+const envelopeWithPayload = (payload: unknown) =>
+  saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, payload)
+
 /** An envelope carrying `ENCODED` with one field replaced. */
-const envelopeWith = (patch: Partial<ChunkEncoded>) =>
-  saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, { ...ENCODED, ...patch })
+const envelopeWith = (patch: Partial<ChunkEncoded>) => envelopeWithPayload({ ...ENCODED, ...patch })
 
 type DecodeOutcome = {
   readonly _tag: 'Refused' | 'Accepted'
@@ -259,6 +261,43 @@ const decodeOutcome = (envelope: SaveEnvelopeDraft): Effect.Effect<DecodeOutcome
   })
 
 describe('untrusted chunk payload limits', () => {
+  it.effect('measures unknown properties before schema projection', () =>
+    Effect.gen(function* () {
+      const knownByteLength = Buffer.byteLength(JSON.stringify(ENCODED), 'utf8')
+      expect(knownByteLength).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const withUnknown = (value: string) => ({ ...ENCODED, unrecognized: value })
+      const emptyUnknownByteLength = Buffer.byteLength(JSON.stringify(withUnknown('')), 'utf8')
+      const unknownValueLength = MAX_CHUNK_PAYLOAD_BYTES - emptyUnknownByteLength
+      expect(unknownValueLength).toBeGreaterThan(0)
+
+      const atLimit = withUnknown('x'.repeat(unknownValueLength))
+      expect(Buffer.byteLength(JSON.stringify(atLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES)
+      const accepted = yield* decodeOutcome(envelopeWithPayload(atLimit))
+      expect(accepted._tag).toBe('Accepted')
+
+      const overLimit = withUnknown(`${'x'.repeat(unknownValueLength)}x`)
+      expect(Buffer.byteLength(JSON.stringify(overLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES + 1)
+      const refused = yield* decodeOutcome(envelopeWithPayload(overLimit))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.cause).toContain(`expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes`)
+    }),
+  )
+
+  it.effect('returns a typed failure when a raw payload is not JSON-serializable', () =>
+    Effect.gen(function* () {
+      const cyclicPayload: Record<string, unknown> = {}
+      cyclicPayload['self'] = cyclicPayload
+      const undefinedJsonPayload = { ...ENCODED, toJSON: () => undefined }
+
+      for (const payload of ['invalid', null, cyclicPayload, undefinedJsonPayload]) {
+        const refused = yield* decodeOutcome(envelopeWithPayload(payload))
+        expect(refused._tag).toBe('Refused')
+        expect(refused.detail).toContain('SaveDecodeError')
+      }
+    }),
+  )
+
   it.effect('accepts the total JSON payload limit and refuses the next byte', () =>
     Effect.gen(function* () {
       const atLimit = payloadAtByteLength(MAX_CHUNK_PAYLOAD_BYTES)

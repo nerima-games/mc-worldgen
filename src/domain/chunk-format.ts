@@ -190,11 +190,13 @@ const utf8ByteLength = (value: string): number => {
 const withChunkPayloadByteLimit = <Decoded, Encoded extends object>(
   schema: Schema.Codec<Decoded, Encoded>,
 ): Schema.Codec<Decoded, Encoded> =>
-  Schema.toEncoded(schema).pipe(
+  Schema.declare<Encoded>((payload: unknown): payload is Encoded => typeof payload === 'object' && payload !== null).pipe(
     Schema.check(Schema.makeFilter((payload: Encoded) => {
-      // Struct decoding reconstructs the encoded chunk object from its fields.
-      const serialized = JSON.stringify(payload)
-      const byteLength = utf8ByteLength(serialized)
+      const serialized = Result.try(() => JSON.stringify(payload))
+      if (Result.isFailure(serialized) || typeof serialized.success !== 'string') {
+        return 'expected a JSON-serializable chunk payload'
+      }
+      const byteLength = utf8ByteLength(serialized.success)
       if (byteLength <= MAX_CHUNK_PAYLOAD_BYTES) {
         return
       }
