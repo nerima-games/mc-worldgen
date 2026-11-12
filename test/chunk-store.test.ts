@@ -14,6 +14,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Deferred, Effect, Fiber, Layer, Result } from 'effect'
 import { makeInMemoryStorage, StoragePort } from '@nerima-games/mc-save'
+import { decodeBlockState, encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import type { ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import {
   ChunkStore,
@@ -32,16 +33,17 @@ import {
   type ChunkWritePrepareError,
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
-import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { emptyBlockStates, emptyBlocks, type Chunk } from '../src/domain/chunk'
 import {
   chunkKeyOf,
   emptyChunkStoreState,
   wasWritten,
   withBlockAt,
   withChunk,
+  type BlockWithStateReading,
 } from '../src/domain/chunk-store-state'
 import { makeChunkStoreLru } from '../src/domain/chunk-store-lru'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME } from '../src/domain/constants'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 import {
   blockAxis,
@@ -82,6 +84,12 @@ const flatChunk = (coord: ChunkCoord, surfaceY: number): Chunk => {
 }
 
 const FLAT_SURFACE_Y = 63
+
+const fullChunkDirty = (coord: ChunkCoord) => ({
+  ...coord,
+  min: [0, 0, 0] as const,
+  max: [CHUNK_SIZE_XZ, CHUNK_HEIGHT, CHUNK_SIZE_XZ] as const,
+})
 
 const flatSource: ChunkSource = (coord) => Effect.sync(() => flatChunk(coord, FLAT_SURFACE_Y))
 
@@ -136,6 +144,8 @@ describe('generated chunk sources', () => {
       // The convenience Layer is not a second code path: the same seed must
       // generate byte-identical terrain through either route.
       expect(fromLayer.blocks).toStrictEqual(fromManualComposition.blocks)
+      expect(fromLayer.blockStates).toHaveLength(CHUNK_VOLUME)
+      expect(fromLayer.blockStates).toStrictEqual(fromManualComposition.blockStates)
       expect(fromLayer.biomes).toStrictEqual(fromManualComposition.biomes)
     }),
   )
@@ -189,6 +199,7 @@ describe('generated chunk sources', () => {
       const restored = yield* second.load(coord)
 
       expect(restored.blocks).toStrictEqual(beforeUnload?.blocks)
+      expect(restored.blockStates).toStrictEqual(beforeUnload?.blockStates)
       expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
     }),
   )
@@ -380,6 +391,118 @@ describe('residency', () => {
     }),
   )
 
+  it.effect('limits cold source calls to four and waits the fifth load', () =>
+    Effect.gen(function* (): Effect.gen.Return<void, unknown, import('effect').Scope.Scope> {
+      const enteredFourSources = yield* Deferred.make<void>()
+      const startedFiveRequests = yield* Deferred.make<void>()
+      const releaseSources = yield* Deferred.make<void>()
+      let activeSources = 0
+      let maxActiveSources = 0
+      let sourceCalls = 0
+      let startedRequests = 0
+
+      const boundedSource: ChunkSource = (coord) =>
+        Effect.acquireUseRelease(
+          Effect.gen(function* () {
+            activeSources += 1
+            sourceCalls += 1
+            maxActiveSources = Math.max(maxActiveSources, activeSources)
+            if (activeSources === 4) yield* Deferred.succeed(enteredFourSources, undefined)
+          }),
+          () => Deferred.await(releaseSources).pipe(Effect.as(flatChunk(coord, FLAT_SURFACE_Y))),
+          () =>
+            Effect.sync(() => {
+              activeSources -= 1
+            }),
+        )
+
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(boundedSource, TEST_CAPACITY))
+      const coords = Array.from({ length: 5 }, (_, index) => chunkCoord(chunkAxis(index === 4 ? 0 : index), 0))
+      const loads = yield* Effect.forEach(
+        coords,
+        (coord) =>
+          Effect.gen(function* () {
+            startedRequests += 1
+            if (startedRequests === 5) yield* Deferred.succeed(startedFiveRequests, undefined)
+            return yield* store.load(coord)
+          }),
+        { concurrency: 'unbounded' },
+      ).pipe(Effect.forkChild)
+
+      yield* Deferred.await(enteredFourSources)
+      yield* Deferred.await(startedFiveRequests)
+      yield* Effect.yieldNow
+
+      expect(sourceCalls).toBe(4)
+      expect(maxActiveSources).toBe(4)
+
+      yield* Deferred.succeed(releaseSources, undefined)
+      const loaded = yield* Fiber.join(loads)
+
+      expect(loaded).toHaveLength(5)
+      expect(loaded[0]).toBe(loaded[4])
+      expect(sourceCalls).toBe(4)
+      expect(maxActiveSources).toBe(4)
+      expect(activeSources).toBe(0)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('releases a cold-load permit when a waiting fiber is interrupted', () =>
+    Effect.gen(function* (): Effect.gen.Return<void, unknown, import('effect').Scope.Scope> {
+      const enteredFourSources = yield* Deferred.make<void>()
+      const releaseSources = yield* Deferred.make<void>()
+      const fifthStarted = yield* Deferred.make<void>()
+      let activeSources = 0
+      let maxActiveSources = 0
+      let sourceCalls = 0
+
+      const boundedSource: ChunkSource = (coord) =>
+        Effect.acquireUseRelease(
+          Effect.gen(function* () {
+            activeSources += 1
+            sourceCalls += 1
+            maxActiveSources = Math.max(maxActiveSources, activeSources)
+            if (activeSources === 4) yield* Deferred.succeed(enteredFourSources, undefined)
+          }),
+          () => Deferred.await(releaseSources).pipe(Effect.as(flatChunk(coord, FLAT_SURFACE_Y))),
+          () =>
+            Effect.sync(() => {
+              activeSources -= 1
+            }),
+        )
+
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(boundedSource, TEST_CAPACITY))
+      const firstCoords = Array.from({ length: 4 }, (_, index) => chunkCoord(chunkAxis(index), 0))
+      const firstLoads = yield* Effect.forEach(firstCoords, (coord) => store.load(coord), {
+        concurrency: 'unbounded',
+      }).pipe(Effect.forkChild)
+      yield* Deferred.await(enteredFourSources)
+
+      const fifthCoord = chunkCoord(chunkAxis(4), 0)
+      const waitingFiber = yield* Effect.gen(function* () {
+        yield* Deferred.succeed(fifthStarted, undefined)
+        return yield* store.load(fifthCoord)
+      }).pipe(Effect.forkChild)
+      yield* Deferred.await(fifthStarted)
+      yield* Effect.yieldNow
+      yield* Fiber.interrupt(waitingFiber)
+      const interrupted = yield* Fiber.await(waitingFiber)
+
+      expect(interrupted._tag).toBe('Failure')
+      expect(sourceCalls).toBe(4)
+      expect(maxActiveSources).toBe(4)
+
+      yield* Deferred.succeed(releaseSources, undefined)
+      yield* Fiber.join(firstLoads)
+      const replacement = yield* store.load(fifthCoord)
+
+      expect(replacement.coord).toStrictEqual(fifthCoord)
+      expect(sourceCalls).toBe(5)
+      expect(maxActiveSources).toBe(4)
+      expect(activeSources).toBe(0)
+    }).pipe(Effect.scoped),
+  )
+
   it.effect('unload reports whether anything was resident', () =>
     withStore((store) =>
       Effect.gen(function* () {
@@ -562,6 +685,98 @@ describe('reading a block', () => {
       }),
     ),
   )
+
+  it.effect('reads a block id and state from one store snapshot', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.load(chunkCoord(chunkAxis(0), 0))
+
+        expect(yield* store.getBlockWithState(blockPosition(blockAxis(0), FLAT_SURFACE_Y + 1, 0))).toStrictEqual({
+          _tag: 'Block',
+          block: BLOCK.AIR,
+          dimensionRevision: expect.any(Number),
+        })
+
+        const position = blockPosition(blockAxis(5), 20, 6)
+        const write = yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+        expect(write['_tag']).toBe('Written')
+        expect(yield* store.getBlockWithState(position)).toStrictEqual({
+          _tag: 'Block',
+          block: BLOCK.LOG,
+          state: { axis: 'x' },
+          dimensionRevision: expect.any(Number),
+        })
+
+        expect(yield* store.getBlockWithState(blockPosition(blockAxis(1000), 10, 1000))).toStrictEqual({
+          _tag: 'ChunkNotLoaded',
+          dimensionRevision: expect.any(Number),
+        })
+        expect(yield* store.getBlockWithState(blockPosition(blockAxis(0), CHUNK_HEIGHT, 0))).toStrictEqual({
+          _tag: 'OutOfWorld',
+          dimensionRevision: expect.any(Number),
+        })
+      }),
+    ),
+  )
+
+  it.effect('never pairs a block state with another publication’s dimension revision', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const coord = chunkCoord(chunkAxis(0), 0)
+        const position = blockPosition(blockAxis(5), 20, 6)
+        yield* store.load(coord)
+        yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+        const initial = yield* store.getBlockWithState(position)
+        if (initial._tag !== 'Block' || initial.block !== BLOCK.LOG || initial.state?.axis !== 'x') {
+          throw new Error('the initial block state was not published')
+        }
+
+        const expectedSnapshotByRevision = new Map<number, { block: number; state?: { axis: 'x' | 'y' } }>([
+          [Number(initial.dimensionRevision), { block: BLOCK.LOG, state: { axis: 'x' } }],
+        ])
+        const writes = Effect.gen(function* () {
+          for (let index = 0; index < 64; index += 1) {
+            const revision = Number(initial.dimensionRevision) + index + 1
+            const snapshot = index % 2 === 0
+              ? { block: BLOCK.STONE }
+              : { block: BLOCK.LOG, state: { axis: index % 4 === 1 ? 'y' as const : 'x' as const } }
+            expectedSnapshotByRevision.set(revision, snapshot)
+            const outcome = index % 2 === 0
+              ? yield* store.setBlock(position, BLOCK.STONE)
+              : yield* store.setBlock(position, BLOCK.LOG, snapshot.state)
+            expect(outcome._tag).toBe('Written')
+            yield* Effect.yieldNow
+          }
+        })
+        const reads = Effect.gen(function* () {
+          const observedRevisions = new Set<number>()
+          const observedBlocks = new Set<number>()
+          const observedAxes = new Set<'x' | 'y'>()
+          for (let index = 0; index < 128; index += 1) {
+            const reading: BlockWithStateReading = yield* store.getBlockWithState(position)
+            expect(reading._tag).toBe('Block')
+            if (reading._tag === 'Block') {
+              const revision = Number(reading.dimensionRevision)
+              const expectedSnapshot = expectedSnapshotByRevision.get(revision)
+              expect(expectedSnapshot).toBeDefined()
+              expect(reading.block).toBe(expectedSnapshot?.block)
+              expect(reading.state).toStrictEqual(expectedSnapshot?.state)
+              observedBlocks.add(reading.block)
+              if (reading.state?.axis === 'x' || reading.state?.axis === 'y') observedAxes.add(reading.state.axis)
+              observedRevisions.add(revision)
+            }
+            yield* Effect.yieldNow
+          }
+          return { observedAxes, observedBlocks, observedRevisions }
+        })
+
+        const results = yield* Effect.all([writes, reads], { concurrency: 'unbounded' })
+        expect(results[1].observedRevisions.size).toBeGreaterThan(1)
+        expect([...results[1].observedBlocks]).toEqual(expect.arrayContaining([BLOCK.LOG, BLOCK.STONE]))
+        expect([...results[1].observedAxes]).toEqual(expect.arrayContaining(['x', 'y']))
+      }),
+    ),
+  )
 })
 
 describe('writing a block', () => {
@@ -602,6 +817,114 @@ describe('writing a block', () => {
     ),
   )
 
+  it.effect('uses the kernel default when state is omitted and reports a state-only change as Written', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const coord = chunkCoord(chunkAxis(0), 0)
+        const position = blockPosition(blockAxis(5), 20, 6)
+        const index = blockIndex(5, 20, 6)
+        const subscription = yield* store.subscribeDirty
+        yield* store.load(coord)
+
+        const defaultState = encodeBlockState(BLOCK.LOG, {})
+        expect(Result.isSuccess(defaultState)).toBe(true)
+        if (Result.isFailure(defaultState)) return
+
+        const first = yield* store.setBlock(position, BLOCK.LOG)
+        expect(first).toMatchObject({ _tag: 'Written', previous: BLOCK.STONE })
+        const firstChunk = yield* store.snapshot(coord)
+        expect(firstChunk?.blockStates[index]).toBe(defaultState.success)
+        yield* subscription.drain
+
+        const changed = yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+        expect(changed).toStrictEqual({ _tag: 'Written', previous: BLOCK.LOG, chunk: coord })
+
+        const stored = yield* store.snapshot(coord)
+        const decoded = stored && decodeBlockState(BLOCK.LOG, stored.blockStates[index])
+        expect(decoded && Result.isSuccess(decoded) ? decoded.success.axis : undefined).toBe('x')
+        expect((yield* subscription.drain).changed).toStrictEqual([
+          { ...coord, min: [5, 20, 6], max: [6, 21, 7] },
+        ])
+
+        const stateOnly = yield* store.setBlock(position, BLOCK.LOG, { axis: 'z' })
+        expect(stateOnly).toStrictEqual({ _tag: 'Written', previous: BLOCK.LOG, chunk: coord })
+        const finalChunk = yield* store.snapshot(coord)
+        const finalState = finalChunk && decodeBlockState(BLOCK.LOG, finalChunk.blockStates[index])
+        expect(finalState && Result.isSuccess(finalState) ? finalState.success.axis : undefined).toBe('z')
+        expect((yield* subscription.drain).changed).toStrictEqual([
+          { ...coord, min: [5, 20, 6], max: [6, 21, 7] },
+        ])
+
+        const unchanged = yield* store.setBlock(position, BLOCK.LOG, { axis: 'z' })
+        expect(unchanged).toStrictEqual({ _tag: 'Unchanged', previous: BLOCK.LOG })
+        expect(yield* subscription.drain).toStrictEqual({ changed: [], removed: [] })
+      }),
+    ),
+  )
+
+  it.effect('returns the kernel codec failure for invalid states without changing chunk data', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const coord = chunkCoord(chunkAxis(0), 0)
+        const position = blockPosition(blockAxis(5), 20, 6)
+        const subscription = yield* store.subscribeDirty
+        yield* store.load(coord)
+        yield* subscription.drain
+        const before = yield* store.snapshot(coord)
+        if (!before) throw new Error('loaded chunk has no snapshot')
+        const encoded = encodeBlockState(BLOCK.STONE, { axis: 'x' })
+        if (Result.isSuccess(encoded)) throw new Error('stone does not support the axis property')
+
+        const failure = yield* Effect.flip(store.setBlock(position, BLOCK.STONE, { axis: 'x' }))
+        const after = yield* store.snapshot(coord)
+
+        expect(failure).toStrictEqual(encoded.failure)
+        expect(after?.blocks).toStrictEqual(before.blocks)
+        expect(after?.blockStates).toStrictEqual(before.blockStates)
+        expect(yield* subscription.drain).toStrictEqual({ changed: [], removed: [] })
+      }),
+    ),
+  )
+
+  it.effect('rejects a loaded chunk whose encoded block state is invalid', () =>
+    Effect.gen(function* () {
+      const coord = chunkCoord(chunkAxis(0), 0)
+      const chunk = flatChunk(coord, FLAT_SURFACE_Y)
+      const blockStates = emptyBlockStates()
+      blockStates[blockIndex(5, 20, 6)] = 1
+      const source: ChunkSource = () => Effect.succeed({ ...chunk, blockStates })
+      const store = yield* Effect.provide(ChunkStore, ChunkStoreLayer(source, TEST_CAPACITY))
+      const failure = yield* Effect.flip(store.load(coord))
+
+      expect(failure).toStrictEqual({ _tag: 'BlockStateCodecFailure', reason: 'reserved-code' })
+      expect(yield* store.isLoaded(coord)).toBe(false)
+    }),
+  )
+
+  it.effect('returns a typed failure for source chunks with malformed state buffers', () =>
+    Effect.gen(function* () {
+      const coord = chunkCoord(chunkAxis(0), 0)
+      const chunk = flatChunk(coord, FLAT_SURFACE_Y)
+      const malformedChunks: ReadonlyArray<Chunk> = [
+        { ...chunk, blockStates: null } as unknown as Chunk,
+        { ...chunk, blockStates: new Uint32Array(1) },
+        { ...chunk, blocks: new Uint16Array(1) },
+        { ...chunk, blocks: new Uint16Array(1), blockStates: new Uint32Array(CHUNK_VOLUME) },
+      ]
+
+      for (const malformed of malformedChunks) {
+        const store = yield* Effect.provide(
+          ChunkStore,
+          ChunkStoreLayer(() => Effect.succeed(malformed), TEST_CAPACITY),
+        )
+        const failure = yield* Effect.flip(store.load(coord))
+
+        expect(failure).toStrictEqual({ _tag: 'BlockStateCodecFailure', reason: 'invalid-encoded-value' })
+        expect(yield* store.isLoaded(coord)).toBe(false)
+      }
+    }),
+  )
+
   it.effect('REGRESSION: rewriting the same block is Unchanged and does NOT dirty the chunk', () =>
     withStore((store) =>
       Effect.gen(function* () {
@@ -621,6 +944,31 @@ describe('writing a block', () => {
 })
 
 describe('the dirty channel', () => {
+  it.effect('uses half-open chunk-local AABBs for initial loads and boundary writes', () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        const coord = chunkCoord(chunkAxis(0), 0)
+        const subscription = yield* store.subscribeDirty
+        yield* store.load(coord)
+
+        expect((yield* subscription.drain).changed).toStrictEqual([fullChunkDirty(coord)])
+
+        yield* store.setBlock(
+          blockPosition(blockAxis(CHUNK_SIZE_XZ - 1), CHUNK_HEIGHT - 1, CHUNK_SIZE_XZ - 1),
+          BLOCK.SAND,
+        )
+
+        expect((yield* subscription.drain).changed).toStrictEqual([
+          {
+            ...coord,
+            min: [CHUNK_SIZE_XZ - 1, CHUNK_HEIGHT - 1, CHUNK_SIZE_XZ - 1],
+            max: [16, 256, 16],
+          },
+        ])
+      }),
+    ),
+  )
+
   it.effect('reports a chunk ONCE however many blocks changed in it', () =>
     withStore((store) =>
       Effect.gen(function* () {
@@ -636,7 +984,7 @@ describe('the dirty channel', () => {
         }
 
         const batch = yield* subscription.drain
-        expect(batch.changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
+        expect(batch.changed).toStrictEqual([{ ...chunkCoord(chunkAxis(0), 0), min: [2, 1, 2], max: [3, 33, 3] }])
         expect(batch.removed).toStrictEqual([])
       }),
     ),
@@ -655,8 +1003,12 @@ describe('the dirty channel', () => {
 
         // Draining one must not consume the other's. The reference's
         // single-consumer `drainRenderDirtyChunks` could not do this.
-        expect((yield* gameplay.drain).changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
-        expect((yield* renderer.drain).changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
+        expect((yield* gameplay.drain).changed).toStrictEqual([
+          { ...chunkCoord(chunkAxis(0), 0), min: [0, 10, 0], max: [1, 11, 1] },
+        ])
+        expect((yield* renderer.drain).changed).toStrictEqual([
+          { ...chunkCoord(chunkAxis(0), 0), min: [0, 10, 0], max: [1, 11, 1] },
+        ])
         expect((yield* renderer.drain).changed).toStrictEqual([])
       }),
     ),
@@ -712,12 +1064,16 @@ describe('the dirty channel', () => {
 
         const afterLoad = yield* subscription.drain
         expect(afterLoad.changed.map(chunkKeyOf).sort()).toStrictEqual(['0,0', '1,0'])
+        expect([...afterLoad.changed].sort((left, right) => chunkKeyOf(left).localeCompare(chunkKeyOf(right)))).toStrictEqual([
+          fullChunkDirty(chunkCoord(chunkAxis(0), 0)),
+          fullChunkDirty(chunkCoord(chunkAxis(1), 0)),
+        ])
         expect(afterLoad.removed).toStrictEqual([])
 
         yield* store.unload(chunkCoord(chunkAxis(1), 0))
 
         const afterUnload = yield* subscription.drain
-        expect(afterUnload.changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
+        expect(afterUnload.changed).toStrictEqual([fullChunkDirty(chunkCoord(chunkAxis(0), 0))])
         expect(afterUnload.removed).toStrictEqual([chunkCoord(chunkAxis(1), 0)])
       }),
     ),
@@ -733,7 +1089,7 @@ describe('the dirty channel', () => {
         yield* store.load(chunkCoord(chunkAxis(0), 0))
 
         const batch = yield* subscription.drain
-        expect(batch.changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
+        expect(batch.changed).toStrictEqual([fullChunkDirty(chunkCoord(chunkAxis(0), 0))])
         expect(batch.removed).toStrictEqual([])
       }),
     ),
@@ -752,7 +1108,7 @@ describe('the dirty channel', () => {
         yield* store.load(chunkCoord(chunkAxis(0), 0))
         // A detached subscriber accumulates nothing and sees nothing.
         expect(yield* first.drain).toStrictEqual({ changed: [], removed: [] })
-        expect((yield* second.drain).changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
+        expect((yield* second.drain).changed).toStrictEqual([fullChunkDirty(chunkCoord(chunkAxis(0), 0))])
       }),
     ),
   )
@@ -764,7 +1120,7 @@ describe('the dirty channel', () => {
           Effect.gen(function* () {
             const subscription = yield* store.subscribeDirtyScoped
             yield* store.load(chunkCoord(chunkAxis(0), 0))
-            expect((yield* subscription.drain).changed).toStrictEqual([chunkCoord(chunkAxis(0), 0)])
+            expect((yield* subscription.drain).changed).toStrictEqual([fullChunkDirty(chunkCoord(chunkAxis(0), 0))])
           }),
         )
 
@@ -819,8 +1175,10 @@ describe('aliasing is stated, not hidden', () => {
         const coord = chunkCoord(chunkAxis(0), 0)
         const chunk = yield* store.load(coord)
         const index = blockIndex(0, 10, 0)
+        const originalBlockStates = new Uint32Array(chunk.blockStates)
 
         expect(chunk.blocks[index]).toBe(BLOCK.STONE)
+        expect(chunk.blockStates).toHaveLength(CHUNK_VOLUME)
         expect(yield* store.peek(coord)).toBe(chunk)
         expect(yield* store.load(coord)).toBe(chunk)
         expect((yield* store.peek(coord))?.blocks).toBe(chunk.blocks)
@@ -830,8 +1188,10 @@ describe('aliasing is stated, not hidden', () => {
 
         expect(published).not.toBe(chunk)
         expect(published?.blocks).not.toBe(chunk.blocks)
+        expect(published?.blockStates).not.toBe(chunk.blockStates)
         expect(chunk.blocks[index]).toBe(BLOCK.STONE)
         expect(published?.blocks[index]).toBe(BLOCK.SAND)
+        expect(chunk.blockStates).toStrictEqual(originalBlockStates)
       }),
     ),
   )
@@ -841,11 +1201,14 @@ describe('aliasing is stated, not hidden', () => {
       Effect.gen(function* () {
         yield* store.load(chunkCoord(chunkAxis(0), 0))
         const snapshot = yield* store.snapshot(chunkCoord(chunkAxis(0), 0))
+        if (!snapshot) throw new Error('loaded chunk has no snapshot')
         const index = blockIndex(0, 10, 0)
+        const snapshotBlockStates = new Uint32Array(snapshot.blockStates)
 
         yield* store.setBlock(blockPosition(blockAxis(0), 10, 0), BLOCK.SAND)
 
         expect(snapshot?.blocks[index]).toBe(BLOCK.STONE)
+        expect(snapshot?.blockStates).toStrictEqual(snapshotBlockStates)
       }),
     ),
   )
@@ -857,7 +1220,7 @@ describe('copy-on-write block transactions', () => {
     const coord = chunkCoord(chunkAxis(0), 0)
     const position = blockPosition(blockAxis(1), FLAT_SURFACE_Y, 1)
     const chunk = flatChunk(coord, FLAT_SURFACE_Y)
-    const state = withChunk(emptyChunkStoreState, chunk)
+    const state = withChunk(emptyChunkStoreState, { ...chunk, blockStates: emptyBlockStates() })
 
     expect(Result.getOrThrow(withBlockAt(state, blockPosition(blockAxis(1), CHUNK_HEIGHT + 5, 1), BLOCK.SAND))[0]._tag).toBe(
       'OutOfWorld',
@@ -1023,6 +1386,7 @@ describe('copy-on-write block transactions', () => {
             { position: secondPosition, previous: BLOCK.STONE, next: BLOCK.GRAVEL },
           ]),
         )
+        expect(prepared.changes.some((change) => 'state' in change)).toBe(false)
         expect(yield* store.peek(firstCoord)).toBe(first)
         expect(yield* store.peek(secondCoord)).toBe(second)
         expect(yield* store.peek(untouchedCoord)).toBe(untouched)

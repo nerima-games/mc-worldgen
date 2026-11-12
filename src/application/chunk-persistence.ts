@@ -1,4 +1,13 @@
-import { CHUNK_FORMAT, CHUNK_FORMAT_V1, migrateChunkV1ToV2 } from '../domain/chunk-format.js'
+import {
+  CHUNK_FORMAT,
+  CHUNK_FORMAT_V1,
+  CHUNK_FORMAT_V2,
+  type ChunkIntegrityFailure,
+  chunkIntegrityFailureFromSaveDecodeError,
+  migrateChunkV1ToV3,
+  migrateChunkV2ToV3,
+} from '../domain/chunk-format.js'
+import { type Chunk, type ChunkWithBlockStates, withDefaultBlockStates } from '../domain/chunk.js'
 import { type ChunkCoord, type Dimension } from '@nerima-games/mc-kernel'
 import { Effect, Option } from 'effect'
 import {
@@ -10,15 +19,15 @@ import {
   loadFrom,
   saveTo,
 } from '@nerima-games/mc-save'
-import type { Chunk } from '../domain/chunk.js'
+import type { BlockStateCodecFailure } from '@nerima-games/mc-kernel/domain/block-state'
 
 // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the standalone MigrationError
 // Class from its public error surface; decode/migration failures are now
 // Reported as SaveDecodeError. This union tracks mc-save's actual exports.
-export type ChunkPersistenceError = StorageError | SaveDecodeError
+export type ChunkPersistenceError = StorageError | SaveDecodeError | BlockStateCodecFailure | ChunkIntegrityFailure
 
 export type ChunkPersistence = {
-  readonly load: (coord: ChunkCoord) => Effect.Effect<Option.Option<Chunk>, ChunkPersistenceError>
+  readonly load: (coord: ChunkCoord) => Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError>
   readonly save: (chunk: Chunk) => Effect.Effect<void, ChunkPersistenceError>
 }
 
@@ -36,36 +45,45 @@ export const chunkSaveKey = (
     `chunk/${encodeURIComponent(worldId)}/${encodeURIComponent(dimension)}/${String(coord.cx)}/${String(coord.cz)}`,
   )
 
-/**
- * Load a chunk under `CHUNK_FORMAT` (v2), falling back to `CHUNK_FORMAT_V1`
- * for a save written before `domain/chunk.ts`'s block buffer widened.
- *
- * mc-save's `decodeSave` refuses any envelope whose version is not the
- * format's own — see `CHUNK_FORMAT`'s doc comment in `chunk-format.ts` — so
- * the v2 attempt fails with a `SaveDecodeError` reporting the STORED
- * envelope's actual version whenever a v1 save is read this way. Matching on
- * `error.version === CHUNK_FORMAT_V1.version` distinguishes "this envelope is
- * v1" from every other decode failure (malformed envelope, wrong format name,
- * genuinely corrupt v2 payload), each of which reports a version other than
- * 1 or fails for a reason unrelated to version at all. Only the v1 case is
- * retried; every other `SaveDecodeError` propagates unchanged.
- */
+/** Load a v1 chunk with its schema, then derive each block's kernel default state. */
 const loadLegacyChunk = (
   storage: StorageService,
   key: SaveKey,
-): Effect.Effect<Option.Option<Chunk>, ChunkPersistenceError> =>
-  loadFrom(CHUNK_FORMAT_V1, key).pipe(
+): Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError> =>
+  loadFrom(CHUNK_FORMAT_V1, key, { record: 'Chunk' }).pipe(
     Effect.provideService(StoragePort, storage),
-    Effect.map(Option.map(migrateChunkV1ToV2)),
+    Effect.flatMap(Option.match({
+      onNone: () => Effect.succeed(Option.none()),
+      onSome: (chunk) => Effect.map(Effect.fromResult(migrateChunkV1ToV3(chunk)), Option.some),
+    })),
+  )
+
+const loadV2Chunk = (
+  storage: StorageService,
+  key: SaveKey,
+): Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError> =>
+  loadFrom(CHUNK_FORMAT_V2, key, { record: 'Chunk' }).pipe(
+    Effect.provideService(StoragePort, storage),
+    Effect.flatMap(Option.match({
+      onNone: () => Effect.succeed(Option.none()),
+      onSome: (chunk) => Effect.map(Effect.fromResult(migrateChunkV2ToV3(chunk)), Option.some),
+    })),
   )
 
 const loadChunk = (
   storage: StorageService,
   key: SaveKey,
-): Effect.Effect<Option.Option<Chunk>, ChunkPersistenceError> =>
-  loadFrom(CHUNK_FORMAT, key).pipe(
+): Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError> =>
+  loadFrom(CHUNK_FORMAT, key, { record: 'Chunk' }).pipe(
     Effect.provideService(StoragePort, storage),
     Effect.catchTag('SaveDecodeError', (error) => {
+      const integrityFailure = chunkIntegrityFailureFromSaveDecodeError(error)
+      if (Option.isSome(integrityFailure)) {
+        return Effect.fail(integrityFailure.value)
+      }
+      if (error.version === CHUNK_FORMAT_V2.version) {
+        return loadV2Chunk(storage, key)
+      }
       if (error.version === CHUNK_FORMAT_V1.version) {
         return loadLegacyChunk(storage, key)
       }
@@ -79,8 +97,10 @@ export const makeChunkPersistence = (
 ): Effect.Effect<ChunkPersistence, never, StoragePort> =>
   Effect.map(StoragePort, (storage) => ({
     load: (coord) => loadChunk(storage, chunkSaveKey(context, coord)),
-    save: (chunk) =>
-      saveTo(CHUNK_FORMAT, chunkSaveKey(context, chunk.coord), chunk).pipe(
+    save: (chunk) => Effect.flatMap(
+      Effect.fromResult(withDefaultBlockStates(chunk)),
+      (chunkWithBlockStates) => saveTo(CHUNK_FORMAT, chunkSaveKey(context, chunk.coord), chunkWithBlockStates).pipe(
         Effect.provideService(StoragePort, storage),
       ),
+    ),
   }))

@@ -9,6 +9,8 @@ import {
   type StorageService,
 } from '@nerima-games/mc-save'
 import { Deferred, Effect, Fiber, Layer, Option, Result } from 'effect'
+import { BLOCK_IDS, blockTypeOfId } from '@nerima-games/mc-kernel'
+import { decodeBlockState, defaultBlockState, encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { chunkSaveKey, makeChunkPersistence, type ChunkPersistenceContext } from '../src/application/chunk-persistence'
 import {
   ChunkCapacity,
@@ -19,7 +21,7 @@ import {
 } from '../src/application/chunk-store'
 import { BLOCK } from '../src/domain/biome'
 import { emptyBlocks, type Chunk } from '../src/domain/chunk'
-import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1 } from '../src/domain/chunk-format'
+import { CHUNK_BIOME_COUNT, CHUNK_FORMAT, CHUNK_FORMAT_V1, CHUNK_FORMAT_V2 } from '../src/domain/chunk-format'
 import { blockIndex, CHUNK_VOLUME } from '../src/domain/constants'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
 
@@ -36,6 +38,13 @@ const source: ChunkSource = (coord) => Effect.succeed(generatedChunk(coord))
 const capacity = (value: number) => Result.getOrThrow(ChunkCapacity.result(value))
 const TEST_CAPACITY = capacity(32)
 const ONE_CHUNK_CAPACITY = capacity(1)
+const TWO_CHUNK_CAPACITY = capacity(2)
+
+const DOOR_BLOCK = BLOCK_IDS.find((blockId) => {
+  const blockType = blockTypeOfId(blockId)
+  return Result.isSuccess(blockType) && blockType.success === 'door'
+})
+if (DOOR_BLOCK === undefined) throw new Error('mc-kernel does not register the door block')
 
 const makeStoreWith = (storage: StorageService, chunkCapacity: ChunkCapacity, chunkSource: ChunkSource = source) =>
   makePersistentChunkStore(chunkSource, context, chunkCapacity).pipe(Effect.provideService(StoragePort, storage))
@@ -112,6 +121,164 @@ describe('chunk persistence', () => {
       expect(generated).toBe(false)
       expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.STONE)
     }),
+  )
+
+  it.effect('limits cold storage reads to four and waits the fifth load', () =>
+    Effect.gen(function* (): Effect.gen.Return<void, unknown, import('effect').Scope.Scope> {
+      const backing = yield* makeInMemoryStorage
+      const enteredFourReads = yield* Deferred.make<void>()
+      const startedFiveRequests = yield* Deferred.make<void>()
+      const releaseReads = yield* Deferred.make<void>()
+      let activeReads = 0
+      let maxActiveReads = 0
+      let readCalls = 0
+      let startedRequests = 0
+
+      const boundedStorage: StorageService = {
+        ...backing,
+        get: (key) =>
+          Effect.acquireUseRelease(
+            Effect.gen(function* () {
+              activeReads += 1
+              readCalls += 1
+              maxActiveReads = Math.max(maxActiveReads, activeReads)
+              if (activeReads === 4) yield* Deferred.succeed(enteredFourReads, undefined)
+            }),
+            () =>
+              Effect.gen(function* () {
+                yield* Deferred.await(releaseReads)
+                return yield* backing.get(key)
+              }),
+            () =>
+              Effect.sync(() => {
+                activeReads -= 1
+              }),
+          ),
+      }
+
+      const store = yield* makeStoreWith(boundedStorage, TEST_CAPACITY)
+      const coords = Array.from({ length: 5 }, (_, index) => validated.validatedChunkCoord(index, 0))
+      const loads = Effect.forEach(
+        coords,
+        (coord) =>
+          Effect.gen(function* () {
+            startedRequests += 1
+            if (startedRequests === 5) yield* Deferred.succeed(startedFiveRequests, undefined)
+            return yield* store.load(coord)
+          }),
+        { concurrency: 'unbounded' },
+      )
+      const fiber = yield* loads.pipe(Effect.forkChild)
+
+      yield* Deferred.await(enteredFourReads)
+      yield* Deferred.await(startedFiveRequests)
+      yield* Effect.yieldNow
+
+      expect(readCalls).toBe(4)
+      expect(maxActiveReads).toBe(4)
+
+      yield* Deferred.succeed(releaseReads, undefined)
+      yield* Fiber.join(fiber)
+
+      expect(readCalls).toBe(5)
+      expect(maxActiveReads).toBe(4)
+      expect(activeReads).toBe(0)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('bounds concurrent source reads while full-store eviction persists dirty chunks', () =>
+    Effect.gen(function* (): Effect.gen.Return<void, unknown, import('effect').Scope.Scope> {
+      const backing = yield* makeInMemoryStorage
+      const enteredFourSources = yield* Deferred.make<void>()
+      const startedFiveRequests = yield* Deferred.make<void>()
+      const releaseSources = yield* Deferred.make<void>()
+      let trackSourceReads = false
+      let activeSourceReads = 0
+      let maxActiveSourceReads = 0
+      let sourceReadCalls = 0
+      let startedRequests = 0
+      const gatedSource: ChunkSource = (coord) =>
+        Effect.acquireUseRelease(
+          Effect.gen(function* () {
+            if (!trackSourceReads) return false
+            activeSourceReads += 1
+            sourceReadCalls += 1
+            maxActiveSourceReads = Math.max(maxActiveSourceReads, activeSourceReads)
+            if (activeSourceReads === 4) yield* Deferred.succeed(enteredFourSources, undefined)
+            return true
+          }),
+          (tracked) =>
+            Effect.gen(function* () {
+              if (tracked) yield* Deferred.await(releaseSources)
+              return generatedChunk(coord)
+            }),
+          (tracked) =>
+            tracked
+              ? Effect.sync(() => {
+                  activeSourceReads -= 1
+                })
+              : Effect.void,
+        )
+
+      const store = yield* makeStoreWith(backing, TWO_CHUNK_CAPACITY, gatedSource)
+      const dirtyCoords = [validated.validatedChunkCoord(0, 0), validated.validatedChunkCoord(1, 0)]
+      const dirtyPositions = [
+        validated.validatedBlockPosition(0, 10, 0),
+        validated.validatedBlockPosition(16, 10, 0),
+      ]
+      yield* store.load(dirtyCoords[0]!)
+      yield* store.load(dirtyCoords[1]!)
+      yield* store.setBlock(dirtyPositions[0]!, BLOCK.SAND)
+      yield* store.setBlock(dirtyPositions[1]!, BLOCK.GRAVEL)
+
+      trackSourceReads = true
+      const coldCoords = Array.from({ length: 5 }, (_, index) => validated.validatedChunkCoord(index + 2, 0))
+      const loads = Effect.forEach(
+        coldCoords,
+        (coord) =>
+          Effect.gen(function* () {
+            startedRequests += 1
+            if (startedRequests === 5) yield* Deferred.succeed(startedFiveRequests, undefined)
+            return yield* store.load(coord)
+          }),
+        { concurrency: 'unbounded' },
+      )
+      const fiber = yield* loads.pipe(Effect.forkChild)
+
+      yield* Deferred.await(enteredFourSources)
+      yield* Deferred.await(startedFiveRequests)
+      yield* Effect.yieldNow
+
+      expect(sourceReadCalls).toBe(4)
+      expect(activeSourceReads).toBe(4)
+      expect(maxActiveSourceReads).toBe(4)
+
+      yield* Deferred.succeed(releaseSources, undefined)
+      const loaded = yield* Fiber.join(fiber)
+      expect(loaded.map(({ coord }) => `${String(coord.cx)},${String(coord.cz)}`)).toStrictEqual(
+        coldCoords.map(({ cx, cz }) => `${String(cx)},${String(cz)}`),
+      )
+      expect(new Set(loaded.map(({ coord }) => `${String(coord.cx)},${String(coord.cz)}`)).size).toBe(coldCoords.length)
+      expect(sourceReadCalls).toBe(coldCoords.length)
+      expect(maxActiveSourceReads).toBe(4)
+      expect(activeSourceReads).toBe(0)
+
+      const residents = yield* store.loadedCoords
+      const residentKeys = residents.map(({ cx, cz }) => `${String(cx)},${String(cz)}`)
+      expect(residents).toHaveLength(2)
+      expect(new Set(residentKeys).size).toBe(2)
+      expect(residentKeys.every((key) => coldCoords.some(({ cx, cz }) => key === `${String(cx)},${String(cz)}`))).toBe(true)
+      expect(yield* store.isLoaded(dirtyCoords[0]!)).toBe(false)
+      expect(yield* store.isLoaded(dirtyCoords[1]!)).toBe(false)
+      expect(Option.isSome(yield* backing.get(chunkSaveKey(context, dirtyCoords[0]!)))).toBe(true)
+      expect(Option.isSome(yield* backing.get(chunkSaveKey(context, dirtyCoords[1]!)))).toBe(true)
+
+      const restoredStore = yield* makeStoreWith(backing, TWO_CHUNK_CAPACITY)
+      const restoredFirst = yield* restoredStore.load(dirtyCoords[0]!)
+      const restoredSecond = yield* restoredStore.load(dirtyCoords[1]!)
+      expect(restoredFirst.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+      expect(restoredSecond.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.GRAVEL)
+    }).pipe(Effect.scoped),
   )
 
   it.effect('retains a resident chunk when saving during unload fails', () =>
@@ -194,7 +361,164 @@ describe('chunk persistence', () => {
     }),
   )
 
-  it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v2 on the next save', () =>
+  it.effect('returns the section-specific integrity failure from a valid envelope with a damaged chunk region', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const coord = validated.validatedChunkCoord(2, 3)
+      const key = chunkSaveKey(context, coord)
+      const persistence = yield* makeChunkPersistence(context).pipe(
+        Effect.provideService(StoragePort, storage),
+      )
+      yield* persistence.save(generatedChunk(coord))
+
+      const stored = Option.getOrThrow(yield* storage.get(key))
+      const payload = stored.payload as Record<string, unknown>
+      if (typeof payload['blocks'] !== 'string') throw new Error('saved v3 chunk has no block byte region')
+      const blockBytes = Buffer.from(payload['blocks'], 'base64')
+      blockBytes[0] = (blockBytes[0] ?? 0) ^ 1
+      const resealed = Result.getOrThrow(sealSaveEnvelope(
+        saveEnvelope(CHUNK_FORMAT.name, CHUNK_FORMAT.version, {
+          ...payload,
+          blocks: blockBytes.toString('base64'),
+        }),
+      ))
+      yield* storage.put(key, resealed)
+
+      const failure = yield* Effect.flip(persistence.load(coord))
+      expect(failure).toMatchObject({ _tag: 'ChunkIntegrityFailure', section: 'blocks' })
+    }),
+  )
+
+  it.effect('preserves an encoded block state through persistence and reload', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
+      const coord = validated.validatedChunkCoord(0, 0)
+      const position = validated.validatedBlockPosition(5, 20, 6)
+      const index = blockIndex(5, 20, 6)
+      const encoded = encodeBlockState(BLOCK.LOG, { axis: 'x' })
+      if (Result.isFailure(encoded)) throw new Error(`oak log state was rejected: ${encoded.failure._tag}`)
+
+      yield* store.load(coord)
+      const write = yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+      expect(write._tag).toBe('Written')
+      yield* store.unload(coord)
+
+      const restored = yield* store.load(coord)
+      const decoded = decodeBlockState(BLOCK.LOG, restored.blockStates[index])
+
+      expect(restored.blocks[index]).toBe(BLOCK.LOG)
+      expect(restored.blockStates[index]).toBe(encoded.success)
+      expect(Result.isSuccess(decoded)).toBe(true)
+      if (Result.isSuccess(decoded)) expect(decoded.success.axis).toBe('x')
+    }),
+  )
+
+  it.effect('reads the open door state after save, eviction, and reload', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const store = yield* makeStoreWith(storage, ONE_CHUNK_CAPACITY)
+      const coord = validated.validatedChunkCoord(0, 0)
+      const nextCoord = validated.validatedChunkCoord(1, 0)
+      const position = validated.validatedBlockPosition(5, 20, 6)
+      const openDoorState = { ...Result.getOrThrow(defaultBlockState(DOOR_BLOCK)), open: true }
+
+      yield* store.load(coord)
+      const prepared = yield* store.prepare([{ position, block: DOOR_BLOCK, state: openDoorState }])
+      yield* store.publish(prepared)
+      expect(yield* store.getBlockWithState(position)).toMatchObject({
+        _tag: 'Block',
+        block: DOOR_BLOCK,
+        state: { open: true },
+      })
+
+      yield* store.load(nextCoord)
+      expect(yield* store.isLoaded(coord)).toBe(false)
+      expect(Option.isSome(yield* storage.get(chunkSaveKey(context, coord)))).toBe(true)
+
+      yield* store.load(coord)
+      expect(yield* store.getBlockWithState(position)).toMatchObject({
+        _tag: 'Block',
+        block: DOOR_BLOCK,
+        state: { open: true },
+      })
+    }),
+  )
+
+  it.effect('reads kernel default states from migrated v1 and v2 chunks', () =>
+    Effect.gen(function* () {
+      const storage = yield* makeInMemoryStorage
+      const store = yield* makeStoreWith(storage, TEST_CAPACITY)
+      const v1Coord = validated.validatedChunkCoord(0, 0)
+      const v2Coord = validated.validatedChunkCoord(1, 0)
+      const localIndex = blockIndex(5, 20, 6)
+      const v1Blocks = new Uint8Array(CHUNK_VOLUME)
+      v1Blocks[localIndex] = BLOCK.LOG
+      const v2BlockBytes = new Uint8Array(CHUNK_VOLUME * 2)
+      new DataView(v2BlockBytes.buffer).setUint16(localIndex * 2, DOOR_BLOCK, true)
+
+      for (const legacy of [
+        { version: CHUNK_FORMAT_V1.version, coord: v1Coord, block: BLOCK.LOG, blocks: v1Blocks },
+        { version: CHUNK_FORMAT_V2.version, coord: v2Coord, block: DOOR_BLOCK, blocks: v2BlockBytes },
+      ]) {
+        yield* storage.put(
+          chunkSaveKey(context, legacy.coord),
+          Result.getOrThrow(
+            sealSaveEnvelope(
+              saveEnvelope(CHUNK_FORMAT.name, legacy.version, {
+                biomes: Array.from({ length: CHUNK_BIOME_COUNT }, () => 'PLAINS' as const),
+                blocks: Buffer.from(legacy.blocks).toString('base64'),
+                coord: { cx: legacy.coord.cx, cz: legacy.coord.cz },
+              }),
+            ),
+          ),
+        )
+
+        yield* store.load(legacy.coord)
+        const worldX = legacy.coord.cx * 16 + 5
+        const worldZ = legacy.coord.cz * 16 + 6
+        expect(yield* store.getBlockWithState(validated.validatedBlockPosition(worldX, 20, worldZ))).toStrictEqual({
+          _tag: 'Block',
+          block: legacy.block,
+          state: Result.getOrThrow(defaultBlockState(legacy.block)),
+          dimensionRevision: expect.any(Number),
+        })
+      }
+    }),
+  )
+
+  it.effect('returns missing when a legacy record disappears during migration lookup', () =>
+    Effect.gen(function* () {
+      for (const version of [CHUNK_FORMAT_V1.version, CHUNK_FORMAT_V2.version]) {
+        const backing = yield* makeInMemoryStorage
+        const coord = validated.validatedChunkCoord(version, 0)
+        const key = chunkSaveKey(context, coord)
+        const envelope = Result.getOrThrow(sealSaveEnvelope(
+          saveEnvelope(CHUNK_FORMAT.name, version, {}),
+        ))
+        yield* backing.put(key, envelope)
+
+        let reads = 0
+        const disappearingStorage: StorageService = {
+          ...backing,
+          get: (requestedKey) =>
+            Effect.gen(function* () {
+              reads += 1
+              if (reads > 1) return Option.none()
+              return yield* backing.get(requestedKey)
+            }),
+        }
+        const persistence = yield* makeChunkPersistence(context).pipe(
+          Effect.provideService(StoragePort, disappearingStorage),
+        )
+
+        expect(yield* persistence.load(coord)).toStrictEqual(Option.none())
+        expect(reads).toBe(2)
+      }
+    }),
+  )
+
+  it.effect('loads a chunk saved by the pre-widening (v1) format, widens it, and writes v3 on the next save', () =>
     Effect.gen(function* () {
       const storage = yield* makeInMemoryStorage
       const coord = validated.validatedChunkCoord(5, -9)
@@ -204,7 +528,7 @@ describe('chunk persistence', () => {
       // version rather than the current one.
       const legacyBlocks = new Uint8Array(CHUNK_VOLUME)
       legacyBlocks[blockIndex(0, 10, 0)] = BLOCK.STONE
-      legacyBlocks[blockIndex(1, 10, 0)] = 255 // the v1 ceiling itself
+      legacyBlocks[blockIndex(1, 10, 0)] = BLOCK.OBSIDIAN
 
       yield* storage.put(
         chunkSaveKey(context, coord),
@@ -227,8 +551,11 @@ describe('chunk persistence', () => {
       expect(Option.isSome(loaded)).toBe(true)
       const chunk = Option.getOrThrow(loaded)
       expect(chunk.blocks).toBeInstanceOf(Uint16Array)
+      expect(chunk.blockStates).toHaveLength(CHUNK_VOLUME)
       expect(chunk.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.STONE)
-      expect(chunk.blocks[blockIndex(1, 10, 0)]).toBe(255)
+      expect(chunk.blocks[blockIndex(1, 10, 0)]).toBe(BLOCK.OBSIDIAN)
+      expect(chunk.blockStates[blockIndex(0, 10, 0)]).toBe(Result.getOrThrow(encodeBlockState(BLOCK.STONE, {})))
+      expect(chunk.blockStates[blockIndex(1, 10, 0)]).toBe(Result.getOrThrow(encodeBlockState(BLOCK.OBSIDIAN, {})))
 
       // Saving the migrated chunk writes the CURRENT format, not v1 again —
       // the store never re-writes the retired shape.
@@ -345,10 +672,12 @@ describe('chunk persistence', () => {
     }),
   )
 
-  it.effect('retries the save when a write races the unload, and persists the newer content', () =>
+  it.effect('retries the save when a state-only write races the unload and persists the newer state', () =>
     Effect.gen(function* () {
       const backing = yield* makeInMemoryStorage
       const coord = validated.validatedChunkCoord(0, 0)
+      const position = validated.validatedBlockPosition(0, 10, 0)
+      const index = blockIndex(0, 10, 0)
       let putCount = 0
 
       // A mutable property rather than a reassigned variable, so
@@ -367,7 +696,7 @@ describe('chunk persistence', () => {
               // Races a write into the middle of the FIRST save attempt, so
               // that attempt's snapshot goes stale before its own
               // compare-and-remove runs.
-              yield* Effect.orDie(cell.store.setBlock(validated.validatedBlockPosition(0, 10, 0), BLOCK.SAND))
+              yield* Effect.orDie(cell.store.setBlock(position, BLOCK.LOG, { axis: 'z' }))
             }
             return yield* backing.put(key, envelope)
           }),
@@ -376,6 +705,7 @@ describe('chunk persistence', () => {
       const store = yield* makeStoreWith(racyDuringSave, TEST_CAPACITY)
       cell.store = store
       yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
 
       const removed = yield* store.unload(coord)
 
@@ -389,7 +719,10 @@ describe('chunk persistence', () => {
       // stale pre-race snapshot: reload from storage through a fresh store.
       const reloaded = yield* makeStoreWith(backing, TEST_CAPACITY)
       const restored = yield* reloaded.load(coord)
-      expect(restored.blocks[blockIndex(0, 10, 0)]).toBe(BLOCK.SAND)
+      expect(restored.blocks[index]).toBe(BLOCK.LOG)
+      const decoded = decodeBlockState(BLOCK.LOG, restored.blockStates[index])
+      expect(Result.isSuccess(decoded)).toBe(true)
+      if (Result.isSuccess(decoded)) expect(decoded.success.axis).toBe('z')
     }),
   )
 })

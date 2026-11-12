@@ -28,12 +28,22 @@ export * from './domain/biome.js'
 export * from './domain/biome-classifier.js'
 export * from './domain/carver.js'
 export { biomeAt, columnIndex, getBlockAt, readBlock } from './domain/chunk.js'
-export type { Chunk, ReadonlyChunk, ReadonlyUint16Array } from './domain/chunk.js'
+export type {
+  Chunk,
+  ChunkWithBlockStates,
+  ReadonlyChunk,
+  ReadonlyChunkWithBlockStates,
+  ReadonlyUint16Array,
+  ReadonlyUint32Array,
+} from './domain/chunk.js'
 export { chunkCoord } from '@nerima-games/mc-kernel'
 export { chunkKeyOf } from '@nerima-games/mc-kernel'
 export type { ChunkCoord } from '@nerima-games/mc-kernel'
+export type { BlockStateCodecFailure, BlockStateValues } from '@nerima-games/mc-kernel/domain/block-state'
 export { NoiseSeed } from '@nerima-games/mc-noise'
 export { CHUNK_FORMAT } from './domain/chunk-format.js'
+export { chunkIntegrityFailureFromSaveDecodeError } from './domain/chunk-format.js'
+export type { ChunkIntegrityFailure, ChunkIntegritySection } from './domain/chunk-format.js'
 export {
   CHUNK_NOT_LOADED,
   EMPTY_DIRTY_BATCH,
@@ -43,6 +53,7 @@ export {
   WRITE_CHUNK_NOT_LOADED,
   WRITE_OUT_OF_WORLD,
   blockAt,
+  blockWithStateAt,
   blockReading,
   chunkSnapshotOf,
   drained,
@@ -62,10 +73,14 @@ export {
 } from './domain/chunk-store-state.js'
 export type {
   BlockReading,
+  BlockWithStateReading,
   BlockWriteOutcome,
   ChunkDirtyBatch,
+  ChunkDirtyChunk,
+  ChunkLocalAabb,
   ChunkNeighbours,
   ChunkStoreState,
+  DimensionRevision,
   DirtySubscriberState,
   LightReading,
 } from './domain/chunk-store-state.js'

@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result } from 'effect'
+import { decodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import {
   ChunkCapacity,
   ChunkStore,
@@ -86,6 +87,57 @@ describe('ChunkStore.publish regression cases', () => {
       expectStaleFailure(outcomeB, '0,0')
       expect(afterB).toBe(publishedA)
       expect(afterB?.blocks[index]).toBe(BLOCK.SAND)
+    }),
+  )
+
+  it.effect('a state-only publish advances the chunk revision and rejects a competing prepared state', () =>
+    Effect.gen(function* () {
+      const store = yield* freshStore()
+      const coord = chunkCoord(0, 0)
+      const position = blockPosition(1, 64, 1)
+      const index = blockIndex(1, 64, 1)
+      yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+      const changes = yield* store.subscribeDirty
+      yield* changes.drain
+
+      const winner = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.LOG, state: { axis: 'z' } }]))
+      const stale = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.LOG, state: { axis: 'y' } }]))
+      expect(winner.changes).toStrictEqual([
+        { next: BLOCK.LOG, position, previous: BLOCK.LOG, state: { axis: 'z' } },
+      ])
+      yield* store.publish(winner)
+      const outcome = yield* capturePublish(store, stale)
+      const after = yield* store.snapshot(coord)
+      const decoded = after && decodeBlockState(BLOCK.LOG, after.blockStates[index])
+
+      expectStaleFailure(outcome, '0,0')
+      expect(after?.blocks[index]).toBe(BLOCK.LOG)
+      expect(decoded && Result.isSuccess(decoded) ? decoded.success.axis : undefined).toBe('z')
+      expect((yield* changes.drain).changed).toStrictEqual([
+        { ...coord, min: [1, 64, 1], max: [2, 65, 2] },
+      ])
+    }),
+  )
+
+  it.effect('rejects a prepared write after an intervening state-only compatibility write', () =>
+    Effect.gen(function* () {
+      const store = yield* freshStore()
+      const coord = chunkCoord(0, 0)
+      const position = blockPosition(1, 64, 1)
+      const index = blockIndex(1, 64, 1)
+      yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+
+      const stale = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.LOG, state: { axis: 'y' } }]))
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'z' })
+      const outcome = yield* capturePublish(store, stale)
+      const after = yield* store.snapshot(coord)
+      const decoded = after && decodeBlockState(BLOCK.LOG, after.blockStates[index])
+
+      expectStaleFailure(outcome, '0,0')
+      expect(after?.blocks[index]).toBe(BLOCK.LOG)
+      expect(decoded && Result.isSuccess(decoded) ? decoded.success.axis : undefined).toBe('z')
     }),
   )
 

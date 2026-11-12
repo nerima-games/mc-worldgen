@@ -48,22 +48,37 @@
  * worldgen-chunk-format-wire-shape.
  */
 import { describe, expect, it } from '@effect/vitest'
+import * as fc from 'fast-check'
 import * as validated from './fixtures/validated-inputs'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result, Schema, SchemaIssue } from 'effect'
 import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
 import {
+  chunkIntegrityFailureFromSaveDecodeError,
   CHUNK_BIOME_COUNT,
   CHUNK_FORMAT,
   CHUNK_FORMAT_NAME,
+  CHUNK_SCHEMA,
+  chunkIntegrityMetadataFor,
+  type ChunkIntegrityFailure,
+  type ChunkIntegritySection,
   type ChunkEncoded,
 } from '../src/domain/chunk-format'
 import { CHUNK_VOLUME } from '../src/domain/constants'
 import { endSurfaceHeightAt, generateEndChunk } from './helpers/unwrapped-worldgen'
-import { BLOCK_ID_MAX } from '@nerima-games/mc-kernel'
+import { AIR_BLOCK_ID, BLOCK_IDS, BLOCK_ID_MAX, blockTypeOfId } from '@nerima-games/mc-kernel'
+import {
+  BLOCK_STATE_CODEC_VERSION,
+  decodeBlockState,
+  defaultBlockState,
+  encodeBlockState,
+} from '@nerima-games/mc-kernel/domain/block-state'
+import { withDefaultBlockStates } from '../src/domain/chunk'
+import { END_FEATURE_BLOCK, type EndFeatureMarker } from '../src/domain/end-features'
 import { planEndCityForRegion, type NaturalStructureChunk } from './helpers/unwrapped-worldgen'
 import {
   decodeSave,
   encodeSave,
+  SaveDecodeError,
   saveEnvelope,
   type SaveEnvelopeDraft,
 } from '@nerima-games/mc-save'
@@ -80,53 +95,418 @@ const SEED = validated.noiseSeed(20260728)
  *
  * Memoised because a chunk is 64KB and docs/testing.md §6 says so.
  */
-const FIXTURE = generateChunk(SEED, validated.validatedChunkCoord(3, -5))
+const FIXTURE = Result.getOrThrow(withDefaultBlockStates(generateChunk(SEED, validated.validatedChunkCoord(3, -5))))
 
 /** The encoded payload of `FIXTURE`, built once and treated as read-only. */
 const ENCODED: ChunkEncoded = Effect.runSync(
   Effect.map(encodeSave(CHUNK_FORMAT, FIXTURE), (envelope) => envelope.payload as ChunkEncoded),
 )
 
-/** An envelope carrying `ENCODED` with one field replaced. */
-const envelopeWith = (patch: Partial<ChunkEncoded>) =>
-  saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, { ...ENCODED, ...patch })
+const INTEGRITY_STRUCTURE_ID = 'integrity-0'
+const INTEGRITY_MARKER: NaturalStructureChunk['naturalStructureMarkers'][number] = {
+  structureId: INTEGRITY_STRUCTURE_ID,
+  structureKind: 'village',
+  kind: 'loot-chest',
+  lootTable: 'village',
+  ...validated.validatedBlockPosition(1, 64, 1),
+}
+const INTEGRITY_ENCODED: ChunkEncoded = Effect.runSync(
+  Effect.map(encodeSave(CHUNK_FORMAT, {
+    ...FIXTURE,
+    naturalStructureIds: [INTEGRITY_STRUCTURE_ID],
+    naturalStructureMarkers: [INTEGRITY_MARKER],
+  }), (envelope) => envelope.payload as ChunkEncoded),
+)
 
-/**
- * Both outcomes of a decode, reduced to something SMALL.
- *
- * Written this way after the obvious `Effect.flip` made the suite unusable, and
- * the reason is worth keeping: `flip` on a decode that unexpectedly SUCCEEDS
- * fails with the whole `Chunk`, and vitest then formats a 65,536-element
- * `Uint16Array` into the failure message. Found by deleting the length filter
- * below and watching the run stop responding rather than go red — so the
- * mutation that proves these tests work was also the thing that could not be
- * read.
- *
- * `Accepted` carries the two lengths instead, which is exactly the information
- * wanted when a size check has been lost: the failure line reads
- * `{ _tag: 'Accepted', detail: '131072 blocks, 256 biomes' }`.
- */
-type DecodeOutcome = {
-  readonly _tag: 'Refused' | 'Accepted'
-  /** The refusal's message, or a description of what was wrongly ACCEPTED. */
-  readonly detail: string
-  /** The `ParseError` under a refusal, rendered. Empty for an acceptance. */
-  readonly cause: string
+const integrityForMarkerData = (data: {
+  readonly endFeatureIds: ReadonlyArray<string>
+  readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+  readonly naturalStructureIds: ReadonlyArray<string>
+  readonly naturalStructureMarkers: NaturalStructureChunk['naturalStructureMarkers']
+}) => chunkIntegrityMetadataFor({
+  biomes: FIXTURE.biomes,
+  blockStates: FIXTURE.blockStates,
+  blocks: FIXTURE.blocks,
+  ...data,
+})
+
+type ChunkMetadataData = {
+  readonly endFeatureIds: ReadonlyArray<string>
+  readonly endFeatureMarkers: ReadonlyArray<EndFeatureMarker>
+  readonly naturalStructureIds: ReadonlyArray<string>
+  readonly naturalStructureMarkers: NaturalStructureChunk['naturalStructureMarkers']
 }
 
+const payloadWithMetadata = (patch: Partial<ChunkMetadataData>): ChunkEncoded => {
+  const data: ChunkMetadataData = {
+    endFeatureIds: patch.endFeatureIds ?? [],
+    endFeatureMarkers: patch.endFeatureMarkers ?? [],
+    naturalStructureIds: patch.naturalStructureIds ?? [],
+    naturalStructureMarkers: patch.naturalStructureMarkers ?? [],
+  }
+  return {
+    ...ENCODED,
+    ...data,
+    integrity: integrityForMarkerData(data),
+  }
+}
+
+const MAX_CHUNK_PAYLOAD_BYTES = 1024 * 1024
+const MAX_CHUNK_METADATA_ITEMS = 512
+const MAX_CHUNK_METADATA_STRING_LENGTH = 256
+
+const makeIdentifier = (prefix: string, index: number, length: number): string => {
+  const stem = `${prefix}${index.toString(36).padStart(3, '0')}`
+  return `${stem}${'x'.repeat(length - stem.length)}`
+}
+
+const largeMetadataData = (identifierLength: number): ChunkMetadataData => {
+  const naturalStructureIds = Array.from({ length: MAX_CHUNK_METADATA_ITEMS }, (_, index) =>
+    makeIdentifier('s', index, identifierLength),
+  )
+  const endFeatureIds = Array.from({ length: MAX_CHUNK_METADATA_ITEMS }, (_, index) =>
+    makeIdentifier('e', index, identifierLength),
+  )
+  const naturalStructureMarkers = naturalStructureIds.slice(0, 400).map((structureId) => ({
+    ...INTEGRITY_MARKER,
+    structureId,
+  }))
+  const endFeatureMarkers: ReadonlyArray<EndFeatureMarker> = endFeatureIds.slice(0, 400).map((featureId) => ({
+    at: validated.validatedBlockPosition(1, 64, 1),
+    block: END_FEATURE_BLOCK.CRYSTAL,
+    featureId,
+    invulnerable: true,
+    kind: 'end-crystal',
+  }))
+  return { endFeatureIds, endFeatureMarkers, naturalStructureIds, naturalStructureMarkers }
+}
+
+const largeMetadataPayload = (identifierLength: number): ChunkEncoded =>
+  payloadWithMetadata(largeMetadataData(identifierLength))
+
+const payloadAtByteLength = (byteLength: number): ChunkEncoded => {
+  let minimumLength = 4
+  let maximumLength = MAX_CHUNK_METADATA_STRING_LENGTH
+  while (minimumLength < maximumLength) {
+    const candidateLength = Math.ceil((minimumLength + maximumLength) / 2)
+    const candidate = largeMetadataPayload(candidateLength)
+    if (Buffer.byteLength(JSON.stringify(candidate), 'utf8') <= byteLength) {
+      minimumLength = candidateLength
+    } else {
+      maximumLength = candidateLength - 1
+    }
+  }
+
+  const baseData = largeMetadataData(minimumLength)
+  const base = payloadWithMetadata(baseData)
+  let remaining = byteLength - Buffer.byteLength(JSON.stringify(base), 'utf8')
+  const naturalStructureIds = [...baseData.naturalStructureIds]
+  const endFeatureIds = [...baseData.endFeatureIds]
+  for (let index = 400; index < MAX_CHUNK_METADATA_ITEMS && remaining > 0; index += 1) {
+    const current = naturalStructureIds[index]
+    if (current === undefined) {
+      break
+    }
+    const additional = Math.min(MAX_CHUNK_METADATA_STRING_LENGTH - current.length, remaining)
+    naturalStructureIds[index] = `${current}${'x'.repeat(additional)}`
+    remaining -= additional
+  }
+  for (let index = 400; index < MAX_CHUNK_METADATA_ITEMS && remaining > 0; index += 1) {
+    const current = endFeatureIds[index]
+    if (current === undefined) {
+      break
+    }
+    const additional = Math.min(MAX_CHUNK_METADATA_STRING_LENGTH - current.length, remaining)
+    endFeatureIds[index] = `${current}${'x'.repeat(additional)}`
+    remaining -= additional
+  }
+
+  expect(remaining).toBe(0)
+  return payloadWithMetadata({
+    endFeatureIds,
+    endFeatureMarkers: baseData.endFeatureMarkers,
+    naturalStructureIds,
+    naturalStructureMarkers: baseData.naturalStructureMarkers,
+  })
+}
+
+const envelopeWithPayload = (payload: unknown) =>
+  saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, payload)
+
+/** An envelope carrying `ENCODED` with one field replaced. */
+const envelopeWith = (patch: Partial<ChunkEncoded>) => envelopeWithPayload({ ...ENCODED, ...patch })
+
+type DecodeOutcome = {
+  readonly _tag: 'Refused' | 'Accepted'
+  readonly detail: string
+  readonly cause: string
+  readonly integrityFailure: Option.Option<ChunkIntegrityFailure>
+}
+
+/** Keep unexpected successes small so failures do not print the full chunk buffers. */
 const decodeOutcome = (envelope: SaveEnvelopeDraft): Effect.Effect<DecodeOutcome> =>
   Effect.match(decodeSave(CHUNK_FORMAT, envelope), {
     onFailure: (error): DecodeOutcome => ({
       _tag: 'Refused',
-      detail: error.message,
+      detail: `${error._tag}: ${error.message}`,
       cause: String((error as { readonly cause?: unknown }).cause ?? ''),
+      integrityFailure: chunkIntegrityFailureFromSaveDecodeError(error),
     }),
     onSuccess: (chunk): DecodeOutcome => ({
       _tag: 'Accepted',
       detail: `${String(chunk.blocks.length)} blocks, ${String(chunk.biomes.length)} biomes`,
       cause: '',
+      integrityFailure: Option.none(),
     }),
   })
+
+describe('untrusted chunk payload limits', () => {
+  it.effect('measures unknown properties before schema projection', () =>
+    Effect.gen(function* () {
+      const knownByteLength = Buffer.byteLength(JSON.stringify(ENCODED), 'utf8')
+      expect(knownByteLength).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const withUnknown = (value: string) => ({ ...ENCODED, unrecognized: value })
+      const emptyUnknownByteLength = Buffer.byteLength(JSON.stringify(withUnknown('')), 'utf8')
+      const unknownValueLength = MAX_CHUNK_PAYLOAD_BYTES - emptyUnknownByteLength
+      expect(unknownValueLength).toBeGreaterThan(0)
+
+      const atLimit = withUnknown('x'.repeat(unknownValueLength))
+      expect(Buffer.byteLength(JSON.stringify(atLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES)
+      const accepted = yield* decodeOutcome(envelopeWithPayload(atLimit))
+      expect(accepted._tag).toBe('Accepted')
+
+      const overLimit = withUnknown(`${'x'.repeat(unknownValueLength)}x`)
+      expect(Buffer.byteLength(JSON.stringify(overLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES + 1)
+      const refused = yield* decodeOutcome(envelopeWithPayload(overLimit))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.cause).toContain(`expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes`)
+    }),
+  )
+
+  it.effect('rejects oversized raw payloads with a compact custom toJSON result', () =>
+    Effect.gen(function* () {
+      const oversizedRawPayload = { ...ENCODED, unrecognized: 'x'.repeat(MAX_CHUNK_PAYLOAD_BYTES + 1) }
+      expect(Buffer.byteLength(JSON.stringify(oversizedRawPayload), 'utf8')).toBeGreaterThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const compactSerialization = { ...oversizedRawPayload, toJSON: () => ENCODED }
+      expect(Buffer.byteLength(JSON.stringify(compactSerialization), 'utf8')).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const refused = yield* decodeOutcome(envelopeWithPayload(compactSerialization))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.detail).toContain('SaveDecodeError')
+
+      const inheritedSerialization = Object.assign(Object.create({ toJSON: () => ENCODED }), oversizedRawPayload)
+      expect(Buffer.byteLength(JSON.stringify(inheritedSerialization), 'utf8')).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const inheritedRefused = yield* decodeOutcome(envelopeWithPayload(inheritedSerialization))
+      expect(inheritedRefused._tag).toBe('Refused')
+      expect(inheritedRefused.detail).toContain('SaveDecodeError')
+    }),
+  )
+
+  it.effect('rejects accessor payloads that hide a nested custom toJSON result', () =>
+    Effect.gen(function* () {
+      const accessorPayload = { ...ENCODED }
+      Object.defineProperty(accessorPayload, 'unrecognized', {
+        enumerable: true,
+        get: () => ({ oversized: 'x'.repeat(MAX_CHUNK_PAYLOAD_BYTES + 1), toJSON: () => 'small' }),
+      })
+      expect(Buffer.byteLength(JSON.stringify(accessorPayload), 'utf8')).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const refused = yield* decodeOutcome(envelopeWithPayload(accessorPayload))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.detail).toContain('SaveDecodeError')
+    }),
+  )
+
+  it.effect('returns a typed failure when a raw payload is not JSON-serializable', () =>
+    Effect.gen(function* () {
+      const cyclicPayload: Record<string, unknown> = {}
+      cyclicPayload['self'] = cyclicPayload
+      const undefinedJsonPayload = { ...ENCODED, toJSON: () => undefined }
+
+      for (const payload of ['invalid', null, cyclicPayload, undefinedJsonPayload]) {
+        const refused = yield* decodeOutcome(envelopeWithPayload(payload))
+        expect(refused._tag).toBe('Refused')
+        expect(refused.detail).toContain('SaveDecodeError')
+      }
+    }),
+  )
+
+  it.effect('accepts the total JSON payload limit and refuses the next byte', () =>
+    Effect.gen(function* () {
+      const atLimit = payloadAtByteLength(MAX_CHUNK_PAYLOAD_BYTES)
+      expect(Buffer.byteLength(JSON.stringify(atLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const accepted = yield* decodeOutcome(envelopeWith(atLimit))
+      expect(accepted._tag).toBe('Accepted')
+
+      const naturalStructureIds = [...(atLimit.naturalStructureIds ?? [])]
+      const fillerIndex = naturalStructureIds.findIndex(
+        (id, index) => index >= 400 && id.length < MAX_CHUNK_METADATA_STRING_LENGTH,
+      )
+      expect(fillerIndex).toBeGreaterThanOrEqual(400)
+      const fillerId = naturalStructureIds[fillerIndex]
+      if (fillerId === undefined) throw new Error('the byte-limit fixture has no expandable identifier')
+      naturalStructureIds[fillerIndex] = `${fillerId}x`
+      const overLimit = { ...atLimit, naturalStructureIds }
+      expect(Buffer.byteLength(JSON.stringify(overLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES + 1)
+
+      const refused = yield* decodeOutcome(envelopeWith(overLimit))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.detail).toContain('SaveDecodeError')
+      expect(refused.cause).toContain(`expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes`)
+
+      const atLimitChunk = Schema.decodeUnknownSync(CHUNK_SCHEMA)(atLimit)
+      const unicodeIds = [...(atLimitChunk.naturalStructureIds ?? [])]
+      const unicodeFillerIndex = unicodeIds.findIndex(
+        (id, index) => index >= 400 && id.length < MAX_CHUNK_METADATA_STRING_LENGTH,
+      )
+      const unicodeFiller = unicodeIds[unicodeFillerIndex]
+      expect(unicodeFillerIndex).toBeGreaterThanOrEqual(400)
+      if (unicodeFiller === undefined) throw new Error('the byte-limit fixture has no expandable identifier')
+      unicodeIds[unicodeFillerIndex] = `${unicodeFiller}x`
+      const unicodeIndex = unicodeIds.findIndex((id, index) => index >= 400 && /x{9}$/u.test(id))
+      expect(unicodeIndex).toBeGreaterThanOrEqual(400)
+      const unicodeId = unicodeIds[unicodeIndex]
+      if (unicodeId === undefined) throw new Error('the byte-limit fixture has no nine-byte ASCII suffix')
+      unicodeIds[unicodeIndex] = `${unicodeId.slice(0, -9)}é中😀`
+      const unicodeOverLimit: ChunkEncoded = {
+        ...overLimit,
+        naturalStructureIds: unicodeIds,
+        integrity: chunkIntegrityMetadataFor({
+          biomes: atLimitChunk.biomes,
+          blockStates: atLimitChunk.blockStates,
+          blocks: atLimitChunk.blocks,
+          endFeatureIds: atLimitChunk.endFeatureIds ?? [],
+          endFeatureMarkers: atLimitChunk.endFeatureMarkers ?? [],
+          naturalStructureIds: unicodeIds,
+          naturalStructureMarkers: atLimitChunk.naturalStructureMarkers ?? [],
+        }),
+      }
+      expect(Buffer.byteLength(JSON.stringify(unicodeOverLimit), 'utf8')).toBe(MAX_CHUNK_PAYLOAD_BYTES + 1)
+
+      const unicodeRefused = yield* decodeOutcome(envelopeWith(unicodeOverLimit))
+      expect(unicodeRefused._tag).toBe('Refused')
+      expect(unicodeRefused.cause).toContain(`expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes`)
+    }),
+  )
+
+  it.effect('accepts each metadata array at its item limit and refuses one additional item', () =>
+    Effect.gen(function* () {
+      const ids = Array.from({ length: MAX_CHUNK_METADATA_ITEMS }, (_, index) => `id-${String(index)}`)
+      const overIds = [...ids, 'one-over']
+      const firstId = 'id-0'
+      const endMarker = (featureId: string): EndFeatureMarker => ({
+        at: validated.validatedBlockPosition(1, 64, 1),
+        block: END_FEATURE_BLOCK.CRYSTAL,
+        featureId,
+        invulnerable: true,
+        kind: 'end-crystal',
+      })
+      const naturalMarkers = ids.map((structureId) => ({ ...INTEGRITY_MARKER, structureId }))
+      const endMarkers = ids.map(endMarker)
+      const fields: ReadonlyArray<{
+        readonly name: string
+        readonly atLimit: Partial<ChunkMetadataData>
+        readonly overLimit: Partial<ChunkMetadataData>
+      }> = [
+        { name: 'endFeatureIds', atLimit: { endFeatureIds: ids }, overLimit: { endFeatureIds: overIds } },
+        { name: 'naturalStructureIds', atLimit: { naturalStructureIds: ids }, overLimit: { naturalStructureIds: overIds } },
+        { name: 'endFeatureMarkers', atLimit: { endFeatureIds: ids, endFeatureMarkers: endMarkers }, overLimit: { endFeatureIds: ids, endFeatureMarkers: [...endMarkers, endMarker(firstId)] } },
+        { name: 'naturalStructureMarkers', atLimit: { naturalStructureIds: ids, naturalStructureMarkers: naturalMarkers }, overLimit: { naturalStructureIds: ids, naturalStructureMarkers: [...naturalMarkers, { ...INTEGRITY_MARKER, structureId: firstId }] } },
+      ]
+
+      for (const field of fields) {
+        const accepted = yield* decodeOutcome(envelopeWith(payloadWithMetadata(field.atLimit)))
+        expect(accepted._tag, `${field.name} at limit`).toBe('Accepted')
+
+        const refused = yield* decodeOutcome(envelopeWith(payloadWithMetadata(field.overLimit)))
+        expect(refused._tag, `${field.name} one over`).toBe('Refused')
+        expect(refused.detail).toContain('SaveDecodeError')
+      }
+    }),
+  )
+
+  it.effect('accepts 256-character identifiers and refuses 257 characters in id arrays and markers', () =>
+    Effect.gen(function* () {
+      const atLimit = 'i'.repeat(MAX_CHUNK_METADATA_STRING_LENGTH)
+      const overLimit = `${atLimit}i`
+      const endMarker = (featureId: string): EndFeatureMarker => ({
+        at: validated.validatedBlockPosition(1, 64, 1),
+        block: END_FEATURE_BLOCK.CRYSTAL,
+        featureId,
+        invulnerable: true,
+        kind: 'end-crystal',
+      })
+      const naturalMarker = (structureId: string) => ({ ...INTEGRITY_MARKER, structureId })
+      const cases = [
+        { atLimit: payloadWithMetadata({ endFeatureIds: [atLimit] }), overLimit: payloadWithMetadata({ endFeatureIds: [overLimit] }) },
+        { atLimit: payloadWithMetadata({ naturalStructureIds: [atLimit] }), overLimit: payloadWithMetadata({ naturalStructureIds: [overLimit] }) },
+        { atLimit: payloadWithMetadata({ endFeatureIds: [atLimit], endFeatureMarkers: [endMarker(atLimit)] }), overLimit: payloadWithMetadata({ endFeatureIds: [overLimit], endFeatureMarkers: [endMarker(overLimit)] }) },
+        { atLimit: payloadWithMetadata({ naturalStructureIds: [atLimit], naturalStructureMarkers: [naturalMarker(atLimit)] }), overLimit: payloadWithMetadata({ naturalStructureIds: [overLimit], naturalStructureMarkers: [naturalMarker(overLimit)] }) },
+      ]
+
+      for (const value of cases) {
+        expect((yield* decodeOutcome(envelopeWith(value.atLimit)))._tag).toBe('Accepted')
+        const refused = yield* decodeOutcome(envelopeWith(value.overLimit))
+        expect(refused._tag).toBe('Refused')
+        expect(refused.detail).toContain('SaveDecodeError')
+        expect(refused.cause).toContain('identifier characters')
+      }
+    }),
+  )
+
+  it.effect('checks base64 string lengths before expanding block and state buffers', () =>
+    Effect.gen(function* () {
+      expect((yield* decodeOutcome(envelopeWith({ blocks: ENCODED.blocks })))._tag).toBe('Accepted')
+      expect((yield* decodeOutcome(envelopeWith({ blockStates: ENCODED.blockStates })))._tag).toBe('Accepted')
+
+      const oversizedBlocks = yield* decodeOutcome(envelopeWith({ blocks: `${ENCODED.blocks}A` }))
+      expect(oversizedBlocks._tag).toBe('Refused')
+      expect(oversizedBlocks.cause).toContain('base64 characters')
+
+      const oversizedStates = yield* decodeOutcome(envelopeWith({ blockStates: `${ENCODED.blockStates}A` }))
+      expect(oversizedStates._tag).toBe('Refused')
+      expect(oversizedStates.cause).toContain('base64 characters')
+    }),
+  )
+
+  it.effect('caps integrity checksum strings at the encoded checksum width', () =>
+    Effect.gen(function* () {
+      const sections = ENCODED.integrity.sections
+      const checksum = sections.blocks.checksum
+      expect(checksum).toHaveLength(8)
+      const oversizedIntegrity = {
+        ...ENCODED.integrity,
+        sections: {
+          ...sections,
+          blocks: { ...sections.blocks, checksum: `${checksum}x` },
+        },
+      }
+
+      const accepted = yield* decodeOutcome(envelopeWith({ integrity: ENCODED.integrity }))
+      expect(accepted._tag).toBe('Accepted')
+
+      const refused = yield* decodeOutcome(envelopeWith({ integrity: oversizedIntegrity }))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.detail).toContain('SaveDecodeError')
+      expect(refused.cause).toContain('checksum characters')
+    }),
+  )
+
+  it.effect('accepts exactly 256 biome columns and refuses one more', () =>
+    Effect.gen(function* () {
+      expect(ENCODED.biomes).toHaveLength(CHUNK_BIOME_COUNT)
+      expect((yield* decodeOutcome(envelopeWith({ biomes: ENCODED.biomes })))._tag).toBe('Accepted')
+
+      const overLimit = yield* decodeOutcome(envelopeWith({ biomes: [...ENCODED.biomes, 'PLAINS'] }))
+      expect(overLimit._tag).toBe('Refused')
+      expect(overLimit.detail).toContain('SaveDecodeError')
+    }),
+  )
+})
 
 describe('the chunk format round-trips', () => {
   it.effect('CF-1: a generated chunk survives encode then decode, byte for byte', () =>
@@ -141,6 +521,7 @@ describe('the chunk format round-trips', () => {
       expect(restored.blocks.length).toBe(FIXTURE.blocks.length)
       const differing = [...FIXTURE.blocks].findIndex((value, index) => restored.blocks[index] !== value)
       expect(differing).toBe(-1)
+      expect(restored.blockStates).toStrictEqual(FIXTURE.blockStates)
     }),
   )
 
@@ -153,10 +534,12 @@ describe('the chunk format round-trips', () => {
       // This is the whole of `domain/chunk-format.ts`'s DN-6 decision, asserted.
       expect(typeof payload.blocks).toBe('string')
       expect(payload.blocks).toMatch(/^[A-Za-z0-9+/]*={0,2}$/u)
-      // ceil(131072 / 3) * 4 — 131,072 = CHUNK_VOLUME * BYTES_PER_ELEMENT (2),
-      // the v2 widened wire width. See `domain/chunk-format.ts`'s "VERSION 2"
-      // section.
+      // The v2 widened block buffer stays two bytes per cell.
       expect(payload.blocks.length).toBe(174_764)
+      expect(typeof payload.blockStates).toBe('string')
+      expect(payload.blockStates).toMatch(/^[A-Za-z0-9+/]*={0,2}$/u)
+      expect(payload.blockStates.length).toBe(349_528)
+      expect(payload.blockStateCodecVersion).toBe(BLOCK_STATE_CODEC_VERSION)
 
       // Biome NAMES, so reordering `BIOMES` cannot corrupt a save.
       expect(payload.biomes.every((biome) => (BIOMES as ReadonlyArray<string>).includes(biome))).toBe(true)
@@ -166,6 +549,143 @@ describe('the chunk format round-trips', () => {
       expect(payload.coord).toStrictEqual({ cx: 3, cz: -5 })
     }),
   )
+
+  it.effect('CF-2a: a non-default kernel state round-trips in four little-endian bytes', () =>
+    Effect.gen(function* () {
+      const stairsId = BLOCK_IDS.find((blockId) => {
+        const blockType = blockTypeOfId(blockId)
+        return Result.isSuccess(blockType) && blockType.success === 'oak_stairs'
+      })
+      expect(stairsId).toBeDefined()
+      if (stairsId === undefined) {
+        return
+      }
+
+      const defaultState = defaultBlockState(stairsId)
+      expect(Result.isSuccess(defaultState)).toBe(true)
+      if (Result.isFailure(defaultState)) {
+        return
+      }
+      const encodedState = encodeBlockState(stairsId, { ...defaultState.success, facing: 'south' })
+      expect(Result.isSuccess(encodedState)).toBe(true)
+      if (Result.isFailure(encodedState)) {
+        return
+      }
+
+      const blocks = Uint16Array.from(FIXTURE.blocks)
+      blocks[0] = stairsId
+      const blockStates = Uint32Array.from(FIXTURE.blockStates)
+      blockStates[0] = encodedState.success
+      const chunk = { ...FIXTURE, blocks, blockStates }
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const payload = envelope.payload as ChunkEncoded
+      const wireBytes = Buffer.from(payload.blockStates, 'base64')
+
+      expect(encodedState.success).toBeGreaterThan(0)
+      expect([...wireBytes.subarray(0, 4)]).toStrictEqual([
+        encodedState.success & 0xff,
+        (encodedState.success >>> 8) & 0xff,
+        (encodedState.success >>> 16) & 0xff,
+        (encodedState.success >>> 24) & 0xff,
+      ])
+      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
+      expect(restored.blockStates[0]).toBe(encodedState.success)
+    }),
+  )
+
+  it('CF-2b: encoding a generated chunk materializes omitted default states', () => {
+    const generated = generateChunk(SEED, validated.validatedChunkCoord(6, -2))
+    const encoded = Schema.encodeUnknownResult(CHUNK_SCHEMA)(generated)
+    expect(Result.isSuccess(encoded)).toBe(true)
+    if (Result.isFailure(encoded)) {
+      return
+    }
+
+    const restored = Schema.decodeUnknownResult(CHUNK_SCHEMA)(encoded.success)
+    expect(Result.isSuccess(restored)).toBe(true)
+    if (Result.isFailure(restored)) {
+      return
+    }
+    expect(restored.success.blockStates.length).toBe(CHUNK_VOLUME)
+    expect([...restored.success.blockStates]).toStrictEqual(new Array(CHUNK_VOLUME).fill(0))
+  })
+
+  it('CF-2c: encoding accepts undefined states and rejects malformed stateful chunks', () => {
+    const generated = generateChunk(SEED, validated.validatedChunkCoord(6, -3))
+    const encodedUndefinedStates = Schema.encodeUnknownResult(CHUNK_SCHEMA)({ ...generated, blockStates: undefined })
+    expect(Result.isSuccess(encodedUndefinedStates)).toBe(true)
+
+    const malformedBlocks = Schema.encodeUnknownResult(CHUNK_SCHEMA)({
+      ...FIXTURE,
+      blocks: new Uint8Array(CHUNK_VOLUME),
+    })
+    expect(Result.isFailure(malformedBlocks)).toBe(true)
+
+    const nullStates = Schema.encodeUnknownResult(CHUNK_SCHEMA)({ ...FIXTURE, blockStates: null })
+    expect(Result.isFailure(nullStates)).toBe(true)
+
+    const unknownBlockIds = Uint16Array.from(generated.blocks)
+    unknownBlockIds[0] = BLOCK_ID_MAX
+    const unknownDefault = Schema.encodeUnknownResult(CHUNK_SCHEMA)({
+      ...generated,
+      blocks: unknownBlockIds,
+      blockStates: undefined,
+    })
+    expect(Result.isFailure(unknownDefault)).toBe(true)
+  })
+
+  it('canonicalizes marker objects and JSON scalar edge cases before checksumming', () => {
+    const unicodeMarker = { ...INTEGRITY_MARKER, structureId: '雪村' }
+    const reorderedUnicodeMarker = {
+      z: unicodeMarker.z,
+      y: unicodeMarker.y,
+      x: unicodeMarker.x,
+      lootTable: unicodeMarker.lootTable,
+      kind: unicodeMarker.kind,
+      structureKind: unicodeMarker.structureKind,
+      structureId: unicodeMarker.structureId,
+    } satisfies NaturalStructureChunk['naturalStructureMarkers'][number]
+
+    const canonical = integrityForMarkerData({
+      endFeatureIds: [],
+      endFeatureMarkers: [],
+      naturalStructureIds: ['雪村'],
+      naturalStructureMarkers: [unicodeMarker],
+    })
+    const reordered = integrityForMarkerData({
+      endFeatureIds: [],
+      endFeatureMarkers: [],
+      naturalStructureIds: ['雪村'],
+      naturalStructureMarkers: [reorderedUnicodeMarker],
+    })
+    expect(reordered.sections.structureMarkers).toStrictEqual(canonical.sections.structureMarkers)
+
+    const nullScalar = integrityForMarkerData({
+      endFeatureIds: [null as unknown as string],
+      endFeatureMarkers: [],
+      naturalStructureIds: [],
+      naturalStructureMarkers: [],
+    })
+    expect(nullScalar.sections.structureMarkers.byteLength).toBeGreaterThan(0)
+
+    const position = validated.validatedBlockPosition(1, 64, 1)
+    const nonFiniteMarker: EndFeatureMarker = {
+      kind: 'end-crystal-cage',
+      featureId: 'non-finite-radius',
+      center: position,
+      radius: Number.NaN,
+      minY: position.y,
+      maxY: position.y,
+      material: 'iron_bars',
+    }
+    const nonFinite = integrityForMarkerData({
+      endFeatureIds: [],
+      endFeatureMarkers: [nonFiniteMarker],
+      naturalStructureIds: [],
+      naturalStructureMarkers: [],
+    })
+    expect(nonFinite.sections.structureMarkers.byteLength).toBeGreaterThan(0)
+  })
 
   it.effect('CF-3: the payload survives JSON and still decodes', () =>
     Effect.gen(function* () {
@@ -181,6 +701,7 @@ describe('the chunk format round-trips', () => {
       expect(restored.coord).toStrictEqual(FIXTURE.coord)
       const differing = [...FIXTURE.blocks].findIndex((value, index) => restored.blocks[index] !== value)
       expect(differing).toBe(-1)
+      expect(restored.blockStates).toStrictEqual(FIXTURE.blockStates)
     }),
   )
 
@@ -189,7 +710,20 @@ describe('the chunk format round-trips', () => {
       const envelope = yield* encodeSave(CHUNK_FORMAT, FIXTURE)
 
       expect(envelope.format).toBe('@nerima-games/mc-worldgen/chunk')
-      expect(envelope.version).toBe(2)
+      expect(envelope.version).toBe(3)
+    }),
+  )
+
+  it.effect('CF-24: v3 refuses payloads without section integrity metadata', () =>
+    Effect.gen(function* () {
+      const payload: Record<string, unknown> = { ...ENCODED }
+      delete payload['integrity']
+      const envelope = saveEnvelope(validated.saveFormatName(CHUNK_FORMAT_NAME), CHUNK_FORMAT.version, payload)
+      const outcome = yield* decodeOutcome(envelope)
+
+      expect(outcome._tag).toBe('Refused')
+      expect(outcome.detail).toContain('SaveDecodeError')
+      expect(outcome.cause).toContain('integrity')
     }),
   )
 
@@ -202,27 +736,18 @@ describe('the chunk format round-trips', () => {
     expect(FIXTURE.biomes.length).toBe(CHUNK_BIOME_COUNT)
   })
 
-  it.effect('CF-21: a block id above the retired Uint8Array ceiling of 255 survives encode then decode', () =>
-    Effect.gen(function* () {
-      // The regression this widening exists to fix, made concrete: under the
-      // retired one-byte-per-block format a `Uint8Array` element wraps
-      // modulo 256, so a real id of 300 could only ever have been stored as
-      // 44 (300 - 256). This is impossible to pass with that storage; it
-      // passes here because `domain/chunk.ts`'s `Chunk.blocks` is now a
-      // `Uint16Array` and `domain/chunk-format.ts`'s wire format is two bytes
-      // per block.
-      const wideBlocks = new Uint16Array(FIXTURE.blocks)
-      wideBlocks[0] = 300
-      wideBlocks[1] = BLOCK_ID_MAX
-      const wideChunk = { ...FIXTURE, blocks: wideBlocks }
+  it('CF-21: every registered block has a default state code of zero', () => {
+    const defaultsEncodeToZero = BLOCK_IDS.every((blockId) => {
+      const defaultState = defaultBlockState(blockId)
+      if (Result.isFailure(defaultState)) {
+        return false
+      }
+      const encoded = encodeBlockState(blockId, defaultState.success)
+      return Result.isSuccess(encoded) && encoded.success === 0
+    })
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, wideChunk)
-      const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
-
-      expect(restored.blocks[0]).toBe(300)
-      expect(restored.blocks[1]).toBe(BLOCK_ID_MAX)
-    }),
-  )
+    expect(defaultsEncodeToZero).toBe(true)
+  })
 
   it.effect('CF-17: a minimal current-format payload without structure metadata decodes with empty arrays', () =>
     Effect.gen(function* () {
@@ -234,6 +759,9 @@ describe('the chunk format round-trips', () => {
         coord: ENCODED.coord,
         blocks: ENCODED.blocks,
         biomes: ENCODED.biomes,
+        blockStateCodecVersion: ENCODED.blockStateCodecVersion,
+        blockStates: ENCODED.blockStates,
+        integrity: ENCODED.integrity,
       }
       const restored = yield* decodeSave(
         CHUNK_FORMAT,
@@ -257,14 +785,15 @@ describe('the chunk format round-trips', () => {
         seed,
         validated.validatedChunkCoord(Math.floor(marker.x / 16), Math.floor(marker.z / 16)),
       )
+      const chunkWithStates = Result.getOrThrow(withDefaultBlockStates(chunk))
 
       expect(chunk.naturalStructureIds).toContain(plan.id)
       expect(chunk.naturalStructureMarkers.length).toBeGreaterThan(0)
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunkWithStates)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
 
-      expect(restored).toStrictEqual(chunk)
+      expect(restored).toStrictEqual(chunkWithStates)
     }),
   )
 
@@ -285,11 +814,12 @@ describe('the chunk format round-trips', () => {
         naturalStructureIds: [structureId],
         naturalStructureMarkers: [marker],
       }
+      const chunkWithStates = Result.getOrThrow(withDefaultBlockStates(chunk))
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunkWithStates)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
 
-      expect(restored).toStrictEqual(chunk)
+      expect(restored).toStrictEqual(chunkWithStates)
     }),
   )
 
@@ -405,11 +935,12 @@ describe('the chunk format round-trips', () => {
         naturalStructureIds: [structureId, junglePyramidStructureId, mineshaftStructureId, oceanMonumentStructureId, bastionRemnantStructureId, strongholdStructureId, oceanStructureId, outpostStructureId, shipwreckStructureId],
         naturalStructureMarkers: markers,
       }
+      const chunkWithStates = Result.getOrThrow(withDefaultBlockStates(chunk))
 
-      const envelope = yield* encodeSave(CHUNK_FORMAT, chunk)
+      const envelope = yield* encodeSave(CHUNK_FORMAT, chunkWithStates)
       const restored = yield* decodeSave(CHUNK_FORMAT, envelope)
 
-      expect(restored).toStrictEqual(chunk)
+      expect(restored).toStrictEqual(chunkWithStates)
     }),
   )
 })
@@ -425,7 +956,7 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
 
       expect(outcome._tag).toBe('Refused')
       expect(outcome.detail).toContain('@nerima-games/mc-worldgen/chunk')
-      expect(outcome.detail).toContain('v2')
+      expect(outcome.detail).toContain('v3')
       // The two lengths ride in the ParseError carried as `cause`, which is
       // what makes this actionable rather than merely a refusal. 131,072 =
       // CHUNK_VOLUME * BYTES_PER_ELEMENT (2), the v2 wire width; 300 is
@@ -437,7 +968,7 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
     }),
   )
 
-  it.effect('CF-6: an OVERSIZED block buffer fails too, though nothing downstream would notice', () =>
+  it.effect('CF-6: an oversized base64 block string fails before buffer expansion', () =>
     Effect.gen(function* () {
       // `readBlock` is total and answers AIR past the end, so an over-long
       // buffer is silently ignored everywhere else in this repository. The
@@ -447,7 +978,8 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
       const outcome = yield* decodeOutcome(envelopeWith({ blocks: doubled }))
 
       expect(outcome._tag).toBe('Refused')
-      expect(outcome.cause).toContain('received 262144')
+      expect(outcome.cause).toContain('expected at most 174764 base64 characters')
+      expect(outcome.cause).toContain('received 349528')
     }),
   )
 
@@ -460,6 +992,170 @@ describe('a wrong-sized payload is refused rather than regenerated', () => {
       expect(outcome.cause).toContain('received 12')
     }),
   )
+
+  it.effect('CF-7a: a wrong-sized block-state region fails', () =>
+    Effect.gen(function* () {
+      const outcome = yield* decodeOutcome(envelopeWith({ blockStates: ENCODED.blockStates.slice(0, 8) }))
+
+      expect(outcome._tag).toBe('Refused')
+      expect(outcome.cause).toContain(`expected ${String(CHUNK_VOLUME * 4)} block-state bytes`)
+    }),
+  )
+
+  it('CF-7b: integrity extraction ignores non-record nested schema issues', () => {
+    const parseResult = Schema.decodeUnknownResult(Schema.String)(0)
+    if (Result.isSuccess(parseResult)) {
+      throw new Error('Expected a schema mismatch for the malformed issue fixture')
+    }
+
+    const nestedIssue = new SchemaIssue.Pointer([], parseResult.failure.issue)
+    // Model an issue tree from an incompatible decoder with a primitive child.
+    Object.defineProperty(nestedIssue, 'issue', { value: null })
+    const error = new SaveDecodeError({
+      format: CHUNK_FORMAT_NAME,
+      version: CHUNK_FORMAT.version,
+      reason: 'malformed schema issue tree',
+      cause: new Schema.SchemaError(nestedIssue),
+    })
+
+    expect(chunkIntegrityFailureFromSaveDecodeError(error)).toEqual(Option.none())
+  })
+})
+
+describe('v3 block states are validated against each cell block id', () => {
+  it.effect('CF-22: reserved state codes at and beyond the first invalid code fail with a typed save error', () =>
+    Effect.gen(function* () {
+      const blockBytes = Buffer.from(ENCODED.blocks, 'base64')
+      new DataView(blockBytes.buffer, blockBytes.byteOffset, blockBytes.byteLength).setUint16(0, AIR_BLOCK_ID, true)
+
+      for (const invalidCode of [1, 0xffff_ffff]) {
+        const stateBytes = Buffer.from(ENCODED.blockStates, 'base64')
+        new DataView(stateBytes.buffer, stateBytes.byteOffset, stateBytes.byteLength).setUint32(0, invalidCode, true)
+        const blocks = Uint16Array.from(FIXTURE.blocks)
+        blocks[0] = AIR_BLOCK_ID
+        const blockStates = Uint32Array.from(FIXTURE.blockStates)
+        blockStates[0] = invalidCode
+        const integrity = chunkIntegrityMetadataFor({
+          biomes: FIXTURE.biomes,
+          blockStates,
+          blocks,
+          endFeatureIds: [],
+          endFeatureMarkers: [],
+          naturalStructureIds: [],
+          naturalStructureMarkers: [],
+        })
+        const outcome = yield* decodeOutcome(envelopeWith({
+          blocks: blockBytes.toString('base64'),
+          blockStates: stateBytes.toString('base64'),
+          integrity,
+        }))
+
+        expect(outcome._tag).toBe('Refused')
+        expect(outcome.detail).toContain('SaveDecodeError')
+        expect(outcome.cause).toContain('reserved-code')
+      }
+    }),
+  )
+
+  it.effect('CF-23: a codec version other than the kernel codec is refused', () =>
+    Effect.gen(function* () {
+      const outcome = yield* decodeOutcome(envelopeWith({
+        blockStateCodecVersion: 2 as unknown as ChunkEncoded['blockStateCodecVersion'],
+      }))
+
+      expect(outcome._tag).toBe('Refused')
+      expect(outcome.detail).toContain('SaveDecodeError')
+      expect(outcome.cause).toContain('blockStateCodecVersion')
+    }),
+  )
+
+  it('CF-P2: corruption at arbitrary section positions returns a typed, section-specific failure without throwing', () => {
+    const arbitraryCorruption = fc.tuple(
+      fc.integer({ min: 0, max: CHUNK_VOLUME * 2 - 1 }),
+      fc.integer({ min: 0, max: CHUNK_VOLUME * 4 - 1 }),
+      fc.integer({ min: 0, max: CHUNK_BIOME_COUNT - 1 }),
+      fc.integer({ min: 0, max: INTEGRITY_STRUCTURE_ID.length - 1 }),
+    )
+
+    const corruptBytes = (value: string, index: number): string => {
+      const decoded = Schema.decodeUnknownResult(Schema.Uint8ArrayFromBase64)(value)
+      if (Result.isFailure(decoded)) return value
+      const bytes = Uint8Array.from(decoded.success)
+      bytes[index] = (bytes[index] ?? 0) ^ 1
+      return Result.getOrThrow(Schema.encodeUnknownResult(Schema.Uint8ArrayFromBase64)(bytes))
+    }
+
+    const hasIntegrityFailureFor = (section: ChunkIntegritySection, payload: ChunkEncoded): boolean => {
+      const outcome = Effect.runSync(decodeOutcome(envelopeWith(payload)))
+      return outcome._tag === 'Refused' &&
+        outcome.detail.includes('SaveDecodeError') &&
+        Option.isSome(outcome.integrityFailure) &&
+        outcome.integrityFailure.value._tag === 'ChunkIntegrityFailure' &&
+        outcome.integrityFailure.value.section === section
+    }
+
+    fc.assert(
+      fc.property(arbitraryCorruption, ([blockIndex, stateIndex, biomeIndex, markerIndex]) => {
+        const marker = INTEGRITY_ENCODED.naturalStructureMarkers?.[0]
+        if (!marker) {
+          return false
+        }
+        const biomes = [...INTEGRITY_ENCODED.biomes]
+        biomes[biomeIndex] = biomes[biomeIndex] === 'DESERT' ? 'PLAINS' : 'DESERT'
+        const structureId = `${marker.structureId.slice(0, markerIndex)}x${marker.structureId.slice(markerIndex + 1)}`
+        const corruptions = [
+          {
+            section: 'blocks' as const,
+            payload: { ...INTEGRITY_ENCODED, blocks: corruptBytes(INTEGRITY_ENCODED.blocks, blockIndex) },
+          },
+          {
+            section: 'blockStates' as const,
+            payload: { ...INTEGRITY_ENCODED, blockStates: corruptBytes(INTEGRITY_ENCODED.blockStates, stateIndex) },
+          },
+          { section: 'biomes' as const, payload: { ...INTEGRITY_ENCODED, biomes } },
+          {
+            section: 'structureMarkers' as const,
+            payload: { ...INTEGRITY_ENCODED, naturalStructureMarkers: [{ ...marker, structureId }] },
+          },
+        ]
+        return corruptions.every(({ section, payload }) => hasIntegrityFailureFor(section, payload))
+      }),
+      { numRuns: 8, seed: 0x6c57a },
+    )
+  })
+
+  it('CF-P1: arbitrary block ids and state codes either refuse or round-trip through the exported schema without throwing', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...BLOCK_IDS),
+        fc.oneof(
+          fc.constant(0),
+          fc.integer({ min: 0, max: 0xff }),
+          fc.integer({ min: 0, max: 0xffff_ffff }),
+        ),
+        (blockId, code) => {
+          const decodedState = decodeBlockState(blockId, code)
+          const blocks = new Uint16Array(CHUNK_VOLUME)
+          blocks.fill(AIR_BLOCK_ID)
+          blocks[0] = blockId
+          const blockStates = new Uint32Array(CHUNK_VOLUME)
+          blockStates[0] = code
+          const candidate = { ...FIXTURE, blocks, blockStates }
+          const encoded = Schema.encodeUnknownResult(CHUNK_SCHEMA)(candidate)
+
+          if (Result.isFailure(decodedState)) {
+            return Result.isFailure(encoded)
+          }
+          if (Result.isFailure(encoded)) {
+            return false
+          }
+          const restored = Schema.decodeUnknownResult(CHUNK_SCHEMA)(encoded.success)
+          return Result.isSuccess(restored) && restored.success.blockStates[0] === code
+        },
+      ),
+      { numRuns: 20 },
+    )
+  })
 })
 
 describe('the biome roster is a closed save format', () => {
@@ -486,7 +1182,8 @@ describe('the biome roster is a closed save format', () => {
     // anyone splits them.
     for (const name of CHUNK_BIOMES) {
       const biomes = Array.from({ length: CHUNK_BIOME_COUNT }, () => name)
-      const outcome = yield* decodeOutcome(envelopeWith({ biomes }))
+      const envelope = yield* encodeSave(CHUNK_FORMAT, { ...FIXTURE, biomes })
+      const outcome = yield* decodeOutcome(envelope)
       expect(outcome._tag, `${name} is missing from the chunk schema`).toBe('Accepted')
     }
     }),
@@ -522,8 +1219,8 @@ describe('the format is well-formed as a definition', () => {
   // @nerima-games/mc-save 0.3.0 (Wave 0) dropped the migration-chain feature
   // (SaveFormat.migrations and validateMigrationChain no longer exist), so
   // CF-13 no longer has a chain to assert against; only the version survives.
-  it('CF-13: version 2 (the widened block buffer) has no problems', () => {
-    expect(CHUNK_FORMAT.version).toBe(2)
+  it('CF-13: version 3 (the block-state format) has no problems', () => {
+    expect(CHUNK_FORMAT.version).toBe(3)
   })
 
   it('CF-14: the format name is the permanent identity and is spelled like the tag', () => {

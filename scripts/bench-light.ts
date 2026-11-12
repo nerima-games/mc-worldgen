@@ -8,7 +8,7 @@
 import { performance } from 'node:perf_hooks'
 import { Option, Result } from 'effect'
 import { BLOCK } from '../src/domain/biome'
-import { emptyBlocks, type Chunk } from '../src/domain/chunk'
+import { emptyBlockStates, emptyBlocks, type ChunkWithBlockStates } from '../src/domain/chunk'
 import { blockIndex, CHUNK_SIZE_XZ } from '../src/domain/constants'
 import {
   emptyChunkStoreState,
@@ -28,7 +28,7 @@ const TORCH = Option.getOrThrow(blockIdOf('torch'))
 const EDITS = 8
 const RUNS = 5
 
-const roofedChunk = (coord: ChunkCoord): Chunk => {
+const roofedChunk = (coord: ChunkCoord): ChunkWithBlockStates => {
   const blocks = emptyBlocks()
   for (let x = 0; x < CHUNK_SIZE_XZ; x += 1) {
     for (let z = 0; z < CHUNK_SIZE_XZ; z += 1) {
@@ -37,7 +37,7 @@ const roofedChunk = (coord: ChunkCoord): Chunk => {
       blocks[blockIndex(x, ROOF_Y, z)] = BLOCK.STONE
     }
   }
-  return { coord, blocks, biomes: PLAINS }
+  return { coord, blockStates: emptyBlockStates(), blocks, biomes: PLAINS }
 }
 
 const makeState = (): ChunkStoreState => {
