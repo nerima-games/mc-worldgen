@@ -155,6 +155,56 @@ const literals = Schema.Literals
 /** One biome per column. `domain/chunk.ts` indexes it `lz * CHUNK_SIZE_XZ + lx`. */
 export const CHUNK_BIOME_COUNT: number = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
 
+// Keep a fixed payload budget after reserving space for the block and state regions.
+const BYTES_PER_KIBIBYTE = 1024
+const MAX_CHUNK_PAYLOAD_BYTES = BYTES_PER_KIBIBYTE * BYTES_PER_KIBIBYTE
+const MAX_CHUNK_METADATA_ITEMS = 512
+const MAX_CHUNK_METADATA_STRING_LENGTH = 256
+const FNV1A32_CHECKSUM_LENGTH = 8
+const UTF8_ASCII_MAX = 0x7f
+const UTF8_TWO_BYTE_MAX = 0x7ff
+const UTF16_SURROGATE_PAIR_LENGTH = 2
+const FIRST_CODE_UNIT_INDEX = 0
+const UTF8_BYTES_PER_ASCII_CHARACTER = 1
+const UTF8_BYTES_PER_TWO_BYTE_CHARACTER = 2
+const UTF8_BYTES_PER_THREE_BYTE_CHARACTER = 3
+const UTF8_BYTES_PER_SURROGATE_PAIR = 4
+
+const utf8ByteLength = (value: string): number => {
+  let bytes = 0
+  for (const character of value) {
+    const codeUnit = character.charCodeAt(FIRST_CODE_UNIT_INDEX)
+    if (codeUnit <= UTF8_ASCII_MAX) {
+      bytes += UTF8_BYTES_PER_ASCII_CHARACTER
+    } else if (codeUnit <= UTF8_TWO_BYTE_MAX) {
+      bytes += UTF8_BYTES_PER_TWO_BYTE_CHARACTER
+    } else if (character.length === UTF16_SURROGATE_PAIR_LENGTH) {
+      bytes += UTF8_BYTES_PER_SURROGATE_PAIR
+    } else {
+      bytes += UTF8_BYTES_PER_THREE_BYTE_CHARACTER
+    }
+  }
+  return bytes
+}
+
+const withChunkPayloadByteLimit = <Decoded, Encoded>(
+  schema: Schema.Codec<Decoded, Encoded>,
+): Schema.Codec<Decoded, Encoded> =>
+  Schema.toEncoded(schema).pipe(
+    Schema.check(Schema.makeFilter((payload: Encoded) => {
+      const serialized = Option.fromNullishOr(JSON.stringify(payload))
+      if (Option.isNone(serialized)) {
+        return 'chunk payload is not JSON encodable'
+      }
+      const byteLength = utf8ByteLength(serialized.value)
+      if (byteLength <= MAX_CHUNK_PAYLOAD_BYTES) {
+        return
+      }
+      return `expected at most ${String(MAX_CHUNK_PAYLOAD_BYTES)} chunk payload bytes, received ${String(byteLength)}`
+    })),
+    Schema.decodeTo(schema),
+  )
+
 /**
  * The format's identity in the envelope, and it is a PERMANENT string.
  *
@@ -275,6 +325,47 @@ const Uint16ArraySchema = Schema.declare(
   (value: unknown): value is Uint16Array => value instanceof Uint16Array,
 )
 
+const boundedArray = <Value, Encoded>(
+  itemSchema: Schema.Codec<Value, Encoded>,
+  maxItems = MAX_CHUNK_METADATA_ITEMS,
+) =>
+  Schema.declare<ReadonlyArray<Encoded>>(
+    (value: unknown): value is ReadonlyArray<Encoded> =>
+      Array.isArray(value) && value.length <= maxItems,
+  ).pipe(Schema.decodeTo(Schema.Array(itemSchema)))
+
+const ChunkMetadataIdSchema = Schema.String.pipe(
+  Schema.check(Schema.makeFilter((value: string) => {
+    if (value.length <= MAX_CHUNK_METADATA_STRING_LENGTH) {
+      return
+    }
+    return `expected at most ${String(MAX_CHUNK_METADATA_STRING_LENGTH)} identifier characters, received ${String(value.length)}`
+  })),
+)
+
+const BASE64_BYTES_PER_QUANTUM = 3
+const BASE64_CHARACTERS_PER_QUANTUM = 4
+
+const encodedBase64Length = (byteLength: number): number =>
+  Math.ceil(byteLength / BASE64_BYTES_PER_QUANTUM) * BASE64_CHARACTERS_PER_QUANTUM
+
+const chunkBase64BytesSchema = (expectedByteLength: number, label: string) => Schema.String.pipe(
+  Schema.check(Schema.makeFilter((encoded: string) => {
+    const maximumLength = encodedBase64Length(expectedByteLength)
+    if (encoded.length <= maximumLength) {
+      return
+    }
+    return `expected at most ${String(maximumLength)} base64 characters, received ${String(encoded.length)}`
+  })),
+  Schema.decodeTo(Schema.Uint8ArrayFromBase64),
+  Schema.check(Schema.makeFilter((bytes: Uint8Array) => {
+    if (bytes.length === expectedByteLength) {
+      return
+    }
+    return `expected ${String(expectedByteLength)} ${label} bytes, received ${String(bytes.length)}`
+  })),
+)
+
 /**
  * The v2 block buffer, base64 on the wire, with its BYTE LENGTH part of the
  * format — `CHUNK_VOLUME * BYTES_PER_ELEMENT`, not `CHUNK_VOLUME`, now that
@@ -283,15 +374,7 @@ const Uint16ArraySchema = Schema.declare(
  * rather than decode into a buffer `readBlock` will silently treat as
  * authoritative (`domain/chunk.ts`'s total `readBlock`).
  */
-const ChunkBlocksBytesSchema = Schema.Uint8ArrayFromBase64.pipe(
-  Schema.check(Schema.makeFilter((bytes: Uint8Array) => {
-    const expected = CHUNK_VOLUME * CHUNK_BLOCK_ELEMENT_BYTES
-    if (bytes.length === expected) {
-      return
-    }
-    return `expected ${String(expected)} block bytes, received ${String(bytes.length)}`
-  })),
-)
+const ChunkBlocksBytesSchema = chunkBase64BytesSchema(CHUNK_VOLUME * CHUNK_BLOCK_ELEMENT_BYTES, 'block')
 
 const ChunkBlocksSchema = ChunkBlocksBytesSchema.pipe(
   Schema.decodeTo(Uint16ArraySchema, {
@@ -306,14 +389,7 @@ const ChunkBlocksSchema = ChunkBlocksBytesSchema.pipe(
  * nothing in this package ever encodes a v1 payload again — and kept solely
  * so `CHUNK_FORMAT_V1` below can read a save written before this widening.
  */
-const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
-  Schema.check(Schema.makeFilter((blocks: Uint8Array) => {
-    if (blocks.length === CHUNK_VOLUME) {
-      return
-    }
-    return `expected ${String(CHUNK_VOLUME)} block bytes, received ${String(blocks.length)}`
-  })),
-)
+const ChunkBlocksV1Schema = chunkBase64BytesSchema(CHUNK_VOLUME, 'block')
 
 /**
  * The biome column, as a closed literal roster.
@@ -331,7 +407,7 @@ const ChunkBlocksV1Schema = Schema.Uint8ArrayFromBase64.pipe(
  * `mc-save` exists for exactly this and runs on the raw payload
  * before any schema sees it.
  */
-const ChunkBiomesSchema = Schema.Array(literals(CHUNK_BIOMES)).pipe(
+const ChunkBiomesSchema = boundedArray(literals(CHUNK_BIOMES), CHUNK_BIOME_COUNT).pipe(
   Schema.check(Schema.makeFilter((biomes: ReadonlyArray<ChunkBiomeType>) => {
     if (biomes.length === CHUNK_BIOME_COUNT) {
       return
@@ -343,7 +419,7 @@ const ChunkBiomesSchema = Schema.Array(literals(CHUNK_BIOMES)).pipe(
 const NaturalStructureKindSchema = literals(['ancient-city', 'buried-treasure', 'desert-pyramid', 'desert-well', 'igloo', 'jungle-pyramid', 'mineshaft', 'ocean-monument', 'ocean-ruin', 'pillager-outpost', 'shipwreck', 'stronghold', 'swamp-hut', 'trail-ruins', 'trial-chambers', 'village', 'woodland-mansion', 'ruined-nether-portal', 'nether-fortress', 'bastion-remnant', 'end-city'])
 
 const NaturalStructureMarkerFields = {
-  structureId: Schema.String,
+  structureId: ChunkMetadataIdSchema,
   structureKind: NaturalStructureKindSchema,
   x: BlockAxisFromNumber,
   y: BlockAxisFromNumber,
@@ -437,13 +513,13 @@ const EndFeatureMarkerSchema: Schema.Codec<EndFeatureMarker, EndFeatureMarkerEnc
   Schema.Struct({
     at: BlockPositionSchema,
     block: BlockIdFromNumber,
-    featureId: Schema.String,
+    featureId: ChunkMetadataIdSchema,
     invulnerable: Schema.Boolean,
     kind: Schema.Literal('end-crystal'),
   }),
   Schema.Struct({
     center: BlockPositionSchema,
-    featureId: Schema.String,
+    featureId: ChunkMetadataIdSchema,
     kind: Schema.Literal('end-crystal-cage'),
     material: Schema.Literal('iron_bars'),
     maxY: BlockAxisFromNumber,
@@ -485,10 +561,10 @@ const CHUNK_STRUCT_V2: Schema.Codec<
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksSchema,
   coord: ChunkCoordSchema,
-  endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureIds: boundedArray(ChunkMetadataIdSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureMarkers: boundedArray(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureIds: boundedArray(ChunkMetadataIdSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureMarkers: boundedArray(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
 
 /**
@@ -523,10 +599,10 @@ const CHUNK_STRUCT_V1: Schema.Codec<
   biomes: ChunkBiomesSchema,
   blocks: ChunkBlocksV1Schema,
   coord: ChunkCoordSchema,
-  endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureIds: boundedArray(ChunkMetadataIdSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureMarkers: boundedArray(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureIds: boundedArray(ChunkMetadataIdSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureMarkers: boundedArray(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
 
 /**
@@ -572,7 +648,7 @@ export type ChunkEncodedV2 = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V2>
  * does assert is the half with an independent definition: every value remains
  * a `Chunk`, with natural-structure metadata accepted when present.
  */
-export const CHUNK_SCHEMA_V2: Schema.Codec<PersistableChunkV2, ChunkEncodedV2> = ChunkSchemaV2
+export const CHUNK_SCHEMA_V2: Schema.Codec<PersistableChunkV2, ChunkEncodedV2> = withChunkPayloadByteLimit(ChunkSchemaV2)
 
 /**
  * Version 2, the widened block buffer without block states. `defineFormat` (`@nerima-games/mc-save`
@@ -628,7 +704,7 @@ const ChunkSchemaV1 = CHUNK_STRUCT_V1.pipe(
 
 export type ChunkEncodedV1 = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V1>
 
-const CHUNK_SCHEMA_V1: Schema.Codec<PersistableChunkV1, ChunkEncodedV1> = ChunkSchemaV1
+const CHUNK_SCHEMA_V1: Schema.Codec<PersistableChunkV1, ChunkEncodedV1> = withChunkPayloadByteLimit(ChunkSchemaV1)
 
 /**
  * Version 1, the pre-widening format, kept forever as a READ path.
@@ -697,7 +773,15 @@ type ChunkIntegrityMetadata = Readonly<{
   readonly sections: Readonly<Record<ChunkIntegritySection, ChunkSectionIntegrity>>
 }>
 
-const ChunkSectionIntegritySchema = Schema.Struct({ byteLength: Schema.Number, checksum: Schema.String })
+const ChunkChecksumSchema = Schema.String.pipe(
+  Schema.check(Schema.makeFilter((checksum: string) => {
+    if (checksum.length <= FNV1A32_CHECKSUM_LENGTH) {
+      return
+    }
+    return `expected at most ${String(FNV1A32_CHECKSUM_LENGTH)} checksum characters, received ${String(checksum.length)}`
+  })),
+)
+const ChunkSectionIntegritySchema = Schema.Struct({ byteLength: Schema.Number, checksum: ChunkChecksumSchema })
 const ChunkIntegritySchema: Schema.Codec<ChunkIntegrityMetadata, ChunkIntegrityMetadata> = Schema.Struct({
   algorithm: Schema.Literal('fnv1a32'),
   sections: Schema.Struct({
@@ -711,7 +795,6 @@ const ChunkIntegritySchema: Schema.Codec<ChunkIntegrityMetadata, ChunkIntegrityM
 const FNV1A32_OFFSET_BASIS = 0x811c9dc5
 const FNV1A32_PRIME = 0x01000193
 const HEX_RADIX = 16
-const HEX_WIDTH = 8
 const HEX_PADDING = '0'
 const CHARACTER_INDEX = 0
 const UTF16_HEX_WIDTH = 4
@@ -725,7 +808,7 @@ const checksumOf = (bytes: Uint8Array): string => {
     // oxlint-disable-next-line no-bitwise -- FNV-1a is defined over bytes.
     hash = Math.imul(hash ^ byte, FNV1A32_PRIME) >>> ZERO
   }
-  return hash.toString(HEX_RADIX).padStart(HEX_WIDTH, HEX_PADDING)
+  return hash.toString(HEX_RADIX).padStart(FNV1A32_CHECKSUM_LENGTH, HEX_PADDING)
 }
 
 type CanonicalJsonScalar = null | string | number | boolean
@@ -892,14 +975,10 @@ const Uint32ArraySchema = Schema.declare(
   (value: unknown): value is Uint32Array => value instanceof Uint32Array,
 )
 
-const ChunkBlockStatesSchema = Schema.Uint8ArrayFromBase64.pipe(
-  Schema.check(Schema.makeFilter((bytes: Uint8Array) => {
-    const expected = CHUNK_VOLUME * CHUNK_STATE_ELEMENT_BYTES
-    if (bytes.length === expected) {
-      return
-    }
-    return `expected ${String(expected)} block-state bytes, received ${String(bytes.length)}`
-  })),
+const ChunkBlockStatesSchema = chunkBase64BytesSchema(
+  CHUNK_VOLUME * CHUNK_STATE_ELEMENT_BYTES,
+  'block-state',
+).pipe(
   Schema.decodeTo(Uint32ArraySchema, {
     decode: SchemaGetter.transform<Uint32Array, Uint8Array>(unpackBlockStatesV3),
     encode: SchemaGetter.transform<Uint8Array, Uint32Array>(packBlockStatesV3),
@@ -936,11 +1015,11 @@ const CHUNK_STRUCT_V3_BASE: Schema.Codec<ChunkStructV3Type, {
   blockStates: ChunkBlockStatesSchema,
   blocks: ChunkBlocksSchema,
   coord: ChunkCoordSchema,
-  endFeatureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  endFeatureMarkers: Schema.Array(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureIds: boundedArray(ChunkMetadataIdSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  endFeatureMarkers: boundedArray(EndFeatureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   integrity: ChunkIntegritySchema,
-  naturalStructureIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  naturalStructureMarkers: Schema.Array(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureIds: boundedArray(ChunkMetadataIdSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  naturalStructureMarkers: boundedArray(AppliedNaturalStructureMarkerSchema).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 })
 
 const validateV3BlockStates = (chunk: ChunkStructV3Type): Schema.FilterOutput => {
@@ -1052,7 +1131,7 @@ const ChunkSchemaV3 = CHUNK_STRUCT_V3.pipe(
 /** The v3 wire shape, including the kernel codec version and little-endian state codes. */
 export type ChunkEncoded = Schema.Codec.Encoded<typeof CHUNK_STRUCT_V3>
 
-export const CHUNK_SCHEMA: Schema.Codec<PersistableChunkV3, ChunkEncoded> = ChunkSchemaV3
+export const CHUNK_SCHEMA: Schema.Codec<PersistableChunkV3, ChunkEncoded> = withChunkPayloadByteLimit(ChunkSchemaV3)
 
 export const CHUNK_FORMAT: SaveFormat<PersistableChunkV3, ChunkEncoded> = Result.getOrThrow(defineFormat({
   name: CHUNK_FORMAT_NAME,
