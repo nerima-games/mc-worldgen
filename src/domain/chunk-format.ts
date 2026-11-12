@@ -187,11 +187,58 @@ const utf8ByteLength = (value: string): number => {
   return bytes
 }
 
+const isCustomToJSONDescriptor = (descriptor: PropertyDescriptor): boolean =>
+  !('value' in descriptor) || typeof descriptor.value === 'function'
+
+const inheritedToJSONDescriptor = (value: object): PropertyDescriptor | null => {
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, 'toJSON')
+    if (descriptor) {
+      return descriptor
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return null
+}
+
+const addNestedObjects = (value: object, pending: Set<object>): boolean => {
+  for (const key of Object.keys(value)) {
+    const property = Object.getOwnPropertyDescriptor(value, key)
+    if (property && !('value' in property)) {
+      return true
+    }
+    if (property && 'value' in property && typeof property.value === 'object' && property.value !== null) {
+      pending.add(property.value)
+    }
+  }
+  return false
+}
+
+const hasNonJsonPayloadBehavior = (root: object): boolean => {
+  const pending = new Set<object>([root])
+  for (const value of pending) {
+    const ownToJSON = Object.getOwnPropertyDescriptor(value, 'toJSON')
+    const toJSON = ownToJSON ?? inheritedToJSONDescriptor(value)
+    if (toJSON !== null && isCustomToJSONDescriptor(toJSON)) {
+      return true
+    }
+    if (addNestedObjects(value, pending)) {
+      return true
+    }
+  }
+  return false
+}
+
 const withChunkPayloadByteLimit = <Decoded, Encoded extends object>(
   schema: Schema.Codec<Decoded, Encoded>,
 ): Schema.Codec<Decoded, Encoded> =>
   Schema.declare<Encoded>((payload: unknown): payload is Encoded => typeof payload === 'object' && payload !== null).pipe(
     Schema.check(Schema.makeFilter((payload: Encoded) => {
+      const hasCustomSerialization = Result.try(() => hasNonJsonPayloadBehavior(payload))
+      if (Result.isFailure(hasCustomSerialization) || hasCustomSerialization.success) {
+        return 'expected a chunk payload without custom JSON serialization or accessors'
+      }
       const serialized = Result.try(() => JSON.stringify(payload))
       if (Result.isFailure(serialized) || typeof serialized.success !== 'string') {
         return 'expected a JSON-serializable chunk payload'

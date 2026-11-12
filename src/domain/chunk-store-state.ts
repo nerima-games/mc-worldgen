@@ -169,6 +169,12 @@ export type ChunkBlockChange = Readonly<{
   readonly position: BlockPosition
   readonly previous: BlockId
   readonly next: BlockId
+  readonly state?: BlockStateValues
+}>
+
+type EncodedBlockState = Readonly<{
+  code: number
+  values: BlockStateValues
 }>
 
 export type ChunkWriteInvalidBatch = Readonly<{
@@ -823,7 +829,7 @@ export const blockWithStateAt = (
 const encodedStateFor = (
   block: BlockId,
   state?: BlockStateValues,
-): Result.Result<number, BlockStateCodecFailure> => {
+): Result.Result<EncodedBlockState, BlockStateCodecFailure> => {
   const values = Option.match(Option.fromNullishOr(state), {
     onNone: () => defaultBlockState(block),
     onSome: (presentState) => Result.succeed(presentState),
@@ -831,7 +837,11 @@ const encodedStateFor = (
   if (Result.isFailure(values)) {
     return Result.fail(values.failure)
   }
-  return encodeBlockState(block, values.success)
+  const encoded = encodeBlockState(block, values.success)
+  if (Result.isFailure(encoded)) {
+    return Result.fail(encoded.failure)
+  }
+  return Result.map(decodeBlockState(block, encoded.success), (decoded) => ({ code: encoded.success, values: decoded }))
 }
 
 type BlockWriteValues = Readonly<{
@@ -953,7 +963,7 @@ export const withBlockAt = (
     return Result.succeed([WRITE_CHUNK_NOT_LOADED, state])
   }
 
-  return applyBlockWrite(state, target, block, encodedState.success)
+  return applyBlockWrite(state, target, block, encodedState.success.code)
 }
 
 /**
@@ -980,6 +990,7 @@ const blockPositionKey = ({ x, y, z }: BlockPosition): string =>
 type ValidatedChunkBlockEdit = Readonly<{
   readonly edit: ChunkBlockEdit
   readonly encodedState: number
+  readonly nextState: BlockStateValues
   readonly target: LoadedChunkTarget
 }>
 
@@ -1013,18 +1024,29 @@ const writableChunkFor = (chunks: Map<ChunkKey, ChunkWithBlockStates>, target: L
   return copy
 }
 
-const recordChunkWrite = (
-  builder: ChunkWriteCandidateBuilder,
+const chunkBlockChangeFor = (
   edit: ChunkBlockEdit,
-  target: LoadedChunkTarget,
   previous: BlockId,
-  blockChanged: boolean,
-): void => {
-  builder.changes.push(Object.freeze({
+  nextState: BlockStateValues,
+): ChunkBlockChange => {
+  const change = {
     next: edit.block,
     position: Object.freeze({ ...edit.position }),
     previous,
-  }))
+  }
+  if (Object.keys(nextState).length !== EMPTY_BLOCK_STATE_PROPERTY_COUNT) {
+    return Object.freeze({ ...change, state: Object.freeze({ ...nextState }) })
+  }
+  return Object.freeze(change)
+}
+
+const recordChunkWrite = (
+  builder: ChunkWriteCandidateBuilder,
+  change: ChunkBlockChange,
+  target: LoadedChunkTarget,
+  blockChanged: boolean,
+): void => {
+  builder.changes.push(change)
   builder.changedBlocks.push({ coord: target.coord, key: target.key, local: target.local })
   if (blockChanged) {
     builder.changedLightBlocks.push({ coord: target.coord, key: target.key, local: target.local })
@@ -1051,7 +1073,10 @@ const currentChunkWriteFor = (
   return { blockChanged: previous !== edit.block, index, previous, previousState }
 }
 
-const appendChunkWrite = (builder: ChunkWriteCandidateBuilder, { edit, encodedState, target }: ValidatedChunkBlockEdit): void => {
+const appendChunkWrite = (
+  builder: ChunkWriteCandidateBuilder,
+  { edit, encodedState, nextState, target }: ValidatedChunkBlockEdit,
+): void => {
   const current = currentChunkWriteFor(builder, target, edit)
   if (!current.blockChanged && current.previousState === encodedState) {
     return
@@ -1062,7 +1087,7 @@ const appendChunkWrite = (builder: ChunkWriteCandidateBuilder, { edit, encodedSt
     setBlockAt(next.blocks, target.local.lx, target.local.ly, target.local.lz, edit.block)
   }
   next.blockStates[current.index] = encodedState
-  recordChunkWrite(builder, edit, target, current.previous, current.blockChanged)
+  recordChunkWrite(builder, chunkBlockChangeFor(edit, current.previous, nextState), target, current.blockChanged)
 }
 
 const preparedCandidateFor = (
@@ -1210,7 +1235,12 @@ const resolveLoadedBlockEdits = (
     if (Result.isFailure(encodedState)) {
       return { _tag: 'Rejected', error: encodedState.failure }
     }
-    validated.push({ edit, encodedState: encodedState.success, target })
+    validated.push({
+      edit,
+      encodedState: encodedState.success.code,
+      nextState: encodedState.success.values,
+      target,
+    })
   }
   return { _tag: 'Resolved', edits: validated }
 }
@@ -1247,16 +1277,18 @@ const prepareResolvedBlockWrite = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,
   edit: ChunkBlockEdit,
-  encodedState: number,
+  encodedState: EncodedBlockState,
 ): SingleChunkWritePreparation => {
   const previous = BlockId(getBlockAt(target.chunk, target.local.lx, target.local.ly, target.local.lz))
-  const candidate = preparedCandidateFor(state, [{ edit, encodedState, target }])
+  const candidate = preparedCandidateFor(state, [
+    { edit, encodedState: encodedState.code, nextState: encodedState.values, target },
+  ])
   const index = blockIndex(target.local.lx, target.local.ly, target.local.lz)
   const outcome = blockWriteOutcome(
     previous,
     blockStateCodeAt(target.chunk, index),
     edit.block,
-    encodedState,
+    encodedState.code,
     target.coord,
   )
   return { _tag: 'Prepared', candidate, outcome }

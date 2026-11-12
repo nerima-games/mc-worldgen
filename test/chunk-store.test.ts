@@ -1386,6 +1386,7 @@ describe('copy-on-write block transactions', () => {
             { position: secondPosition, previous: BLOCK.STONE, next: BLOCK.GRAVEL },
           ]),
         )
+        expect(prepared.changes.some((change) => 'state' in change)).toBe(false)
         expect(yield* store.peek(firstCoord)).toBe(first)
         expect(yield* store.peek(secondCoord)).toBe(second)
         expect(yield* store.peek(untouchedCoord)).toBe(untouched)

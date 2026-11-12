@@ -284,6 +284,42 @@ describe('untrusted chunk payload limits', () => {
     }),
   )
 
+  it.effect('rejects oversized raw payloads with a compact custom toJSON result', () =>
+    Effect.gen(function* () {
+      const oversizedRawPayload = { ...ENCODED, unrecognized: 'x'.repeat(MAX_CHUNK_PAYLOAD_BYTES + 1) }
+      expect(Buffer.byteLength(JSON.stringify(oversizedRawPayload), 'utf8')).toBeGreaterThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const compactSerialization = { ...oversizedRawPayload, toJSON: () => ENCODED }
+      expect(Buffer.byteLength(JSON.stringify(compactSerialization), 'utf8')).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const refused = yield* decodeOutcome(envelopeWithPayload(compactSerialization))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.detail).toContain('SaveDecodeError')
+
+      const inheritedSerialization = Object.assign(Object.create({ toJSON: () => ENCODED }), oversizedRawPayload)
+      expect(Buffer.byteLength(JSON.stringify(inheritedSerialization), 'utf8')).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const inheritedRefused = yield* decodeOutcome(envelopeWithPayload(inheritedSerialization))
+      expect(inheritedRefused._tag).toBe('Refused')
+      expect(inheritedRefused.detail).toContain('SaveDecodeError')
+    }),
+  )
+
+  it.effect('rejects accessor payloads that hide a nested custom toJSON result', () =>
+    Effect.gen(function* () {
+      const accessorPayload = { ...ENCODED }
+      Object.defineProperty(accessorPayload, 'unrecognized', {
+        enumerable: true,
+        get: () => ({ oversized: 'x'.repeat(MAX_CHUNK_PAYLOAD_BYTES + 1), toJSON: () => 'small' }),
+      })
+      expect(Buffer.byteLength(JSON.stringify(accessorPayload), 'utf8')).toBeLessThan(MAX_CHUNK_PAYLOAD_BYTES)
+
+      const refused = yield* decodeOutcome(envelopeWithPayload(accessorPayload))
+      expect(refused._tag).toBe('Refused')
+      expect(refused.detail).toContain('SaveDecodeError')
+    }),
+  )
+
   it.effect('returns a typed failure when a raw payload is not JSON-serializable', () =>
     Effect.gen(function* () {
       const cyclicPayload: Record<string, unknown> = {}

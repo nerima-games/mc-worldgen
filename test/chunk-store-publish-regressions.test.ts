@@ -103,6 +103,9 @@ describe('ChunkStore.publish regression cases', () => {
 
       const winner = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.LOG, state: { axis: 'z' } }]))
       const stale = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.LOG, state: { axis: 'y' } }]))
+      expect(winner.changes).toStrictEqual([
+        { next: BLOCK.LOG, position, previous: BLOCK.LOG, state: { axis: 'z' } },
+      ])
       yield* store.publish(winner)
       const outcome = yield* capturePublish(store, stale)
       const after = yield* store.snapshot(coord)
