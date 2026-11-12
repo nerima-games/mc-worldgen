@@ -50,7 +50,7 @@ const loadLegacyChunk = (
   storage: StorageService,
   key: SaveKey,
 ): Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError> =>
-  loadFrom(CHUNK_FORMAT_V1, key).pipe(
+  loadFrom(CHUNK_FORMAT_V1, key, { record: 'Chunk' }).pipe(
     Effect.provideService(StoragePort, storage),
     Effect.flatMap(Option.match({
       onNone: () => Effect.succeed(Option.none()),
@@ -62,7 +62,7 @@ const loadV2Chunk = (
   storage: StorageService,
   key: SaveKey,
 ): Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError> =>
-  loadFrom(CHUNK_FORMAT_V2, key).pipe(
+  loadFrom(CHUNK_FORMAT_V2, key, { record: 'Chunk' }).pipe(
     Effect.provideService(StoragePort, storage),
     Effect.flatMap(Option.match({
       onNone: () => Effect.succeed(Option.none()),
@@ -74,7 +74,7 @@ const loadChunk = (
   storage: StorageService,
   key: SaveKey,
 ): Effect.Effect<Option.Option<ChunkWithBlockStates>, ChunkPersistenceError> =>
-  loadFrom(CHUNK_FORMAT, key).pipe(
+  loadFrom(CHUNK_FORMAT, key, { record: 'Chunk' }).pipe(
     Effect.provideService(StoragePort, storage),
     Effect.catchTag('SaveDecodeError', (error) => {
       const integrityFailure = chunkIntegrityFailureFromSaveDecodeError(error)

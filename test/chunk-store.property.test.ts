@@ -56,6 +56,7 @@ const arbitraryBlockId = fc
   .oneof(fc.constant(0), fc.constant(0xffff), fc.integer({ min: 0, max: 0xffff }))
   .map((value) => Result.getOrThrow(BlockId.result(value)))
 const arbitraryLogAxis = fc.constantFrom('x', 'y', 'z')
+const arbitraryInvalidLogAxis = fc.constantFrom('', 'w', 'X', 'z ', 'north')
 const arbitraryGenerationOptions = fc.oneof(
   fc.anything().map((terrainLevels) => ({ terrainLevels })),
   fc.record({
@@ -277,6 +278,29 @@ describe('ChunkStore typed service boundaries', () => {
     }),
   )
 
+  it.effect('setBlock rejects out-of-domain log axes without changing data', () =>
+    Effect.promise(async () => {
+      const store = await freshStore()
+      const position = blockPosition(1, 20, 1)
+      await loadAt(store, position)
+      const subscription = await Effect.runPromise(store.subscribeDirty)
+      await Effect.runPromise(subscription.drain)
+      const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+
+      await fc.assert(
+        fc.asyncProperty(arbitraryInvalidLogAxis, async (axis) => {
+          const write = await capture(Reflect.apply(store.setBlock, undefined, [position, BLOCK.LOG, { axis }]))
+          expect(write.kind).toBe('failure')
+          if (write.kind === 'failure') expectErrorTag(write.error, ['BlockStateCodecFailure'])
+
+          expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
+          expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
+        }),
+        { numRuns: 12, seed: 0x6c57f },
+      )
+    }),
+  )
+
   it.effect('publish returns void or a declared write/light failure for arbitrary valid prepared writes', () =>
     Effect.promise(async () => {
       await fc.assert(
@@ -368,6 +392,29 @@ describe('ChunkStore typed service boundaries', () => {
           expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
         }),
         { numRuns: 9, seed: 0x6c57e },
+      )
+    }),
+  )
+
+  it.effect('prepare rejects out-of-domain log axes without changing data', () =>
+    Effect.promise(async () => {
+      const store = await freshStore()
+      const position = blockPosition(1, 20, 1)
+      await loadAt(store, position)
+      const subscription = await Effect.runPromise(store.subscribeDirty)
+      await Effect.runPromise(subscription.drain)
+      const before = await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))
+
+      await fc.assert(
+        fc.asyncProperty(arbitraryInvalidLogAxis, async (axis) => {
+          const prepared = await capture(Reflect.apply(store.prepare, undefined, [[{ position, block: BLOCK.LOG, state: { axis } }]]))
+          expect(prepared.kind).toBe('failure')
+          if (prepared.kind === 'failure') expectErrorTag(prepared.error, ['BlockStateCodecFailure'])
+
+          expect(await Effect.runPromise(store.snapshot(chunkCoord(0, 0)))).toStrictEqual(before)
+          expect(await Effect.runPromise(subscription.drain)).toStrictEqual({ changed: [], removed: [] })
+        }),
+        { numRuns: 12, seed: 0x6c580 },
       )
     }),
   )

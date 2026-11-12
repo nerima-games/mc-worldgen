@@ -727,42 +727,53 @@ describe('reading a block', () => {
         yield* store.load(coord)
         yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
         const initial = yield* store.getBlockWithState(position)
-        if (initial._tag !== 'Block' || initial.state?.axis !== 'x') {
+        if (initial._tag !== 'Block' || initial.block !== BLOCK.LOG || initial.state?.axis !== 'x') {
           throw new Error('the initial block state was not published')
         }
 
-        const expectedAxisByRevision = new Map<number, 'x' | 'y'>([
-          [Number(initial.dimensionRevision), 'x'],
+        const expectedSnapshotByRevision = new Map<number, { block: number; state?: { axis: 'x' | 'y' } }>([
+          [Number(initial.dimensionRevision), { block: BLOCK.LOG, state: { axis: 'x' } }],
         ])
         const writes = Effect.gen(function* () {
           for (let index = 0; index < 64; index += 1) {
-            const axis = index % 2 === 0 ? 'y' : 'x'
             const revision = Number(initial.dimensionRevision) + index + 1
-            expectedAxisByRevision.set(revision, axis)
-            const outcome = yield* store.setBlock(position, BLOCK.LOG, { axis })
+            const snapshot = index % 2 === 0
+              ? { block: BLOCK.STONE }
+              : { block: BLOCK.LOG, state: { axis: index % 4 === 1 ? 'y' as const : 'x' as const } }
+            expectedSnapshotByRevision.set(revision, snapshot)
+            const outcome = index % 2 === 0
+              ? yield* store.setBlock(position, BLOCK.STONE)
+              : yield* store.setBlock(position, BLOCK.LOG, snapshot.state)
             expect(outcome._tag).toBe('Written')
             yield* Effect.yieldNow
           }
         })
         const reads = Effect.gen(function* () {
           const observedRevisions = new Set<number>()
+          const observedBlocks = new Set<number>()
+          const observedAxes = new Set<'x' | 'y'>()
           for (let index = 0; index < 128; index += 1) {
             const reading: BlockWithStateReading = yield* store.getBlockWithState(position)
             expect(reading._tag).toBe('Block')
             if (reading._tag === 'Block') {
               const revision = Number(reading.dimensionRevision)
-              const expectedAxis = expectedAxisByRevision.get(revision)
-              expect(expectedAxis).toBeDefined()
-              expect(reading.state).toStrictEqual({ axis: expectedAxis })
+              const expectedSnapshot = expectedSnapshotByRevision.get(revision)
+              expect(expectedSnapshot).toBeDefined()
+              expect(reading.block).toBe(expectedSnapshot?.block)
+              expect(reading.state).toStrictEqual(expectedSnapshot?.state)
+              observedBlocks.add(reading.block)
+              if (reading.state?.axis === 'x' || reading.state?.axis === 'y') observedAxes.add(reading.state.axis)
               observedRevisions.add(revision)
             }
             yield* Effect.yieldNow
           }
-          return observedRevisions
+          return { observedAxes, observedBlocks, observedRevisions }
         })
 
         const results = yield* Effect.all([writes, reads], { concurrency: 'unbounded' })
-        expect(results[1].size).toBeGreaterThan(1)
+        expect(results[1].observedRevisions.size).toBeGreaterThan(1)
+        expect([...results[1].observedBlocks]).toEqual(expect.arrayContaining([BLOCK.LOG, BLOCK.STONE]))
+        expect([...results[1].observedAxes]).toEqual(expect.arrayContaining(['x', 'y']))
       }),
     ),
   )
