@@ -117,6 +117,27 @@ describe('ChunkStore.publish regression cases', () => {
     }),
   )
 
+  it.effect('rejects a prepared write after an intervening state-only compatibility write', () =>
+    Effect.gen(function* () {
+      const store = yield* freshStore()
+      const coord = chunkCoord(0, 0)
+      const position = blockPosition(1, 64, 1)
+      const index = blockIndex(1, 64, 1)
+      yield* store.load(coord)
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+
+      const stale = yield* Effect.orDie(store.prepare([{ position, block: BLOCK.LOG, state: { axis: 'y' } }]))
+      yield* store.setBlock(position, BLOCK.LOG, { axis: 'z' })
+      const outcome = yield* capturePublish(store, stale)
+      const after = yield* store.snapshot(coord)
+      const decoded = after && decodeBlockState(BLOCK.LOG, after.blockStates[index])
+
+      expectStaleFailure(outcome, '0,0')
+      expect(after?.blocks[index]).toBe(BLOCK.LOG)
+      expect(decoded && Result.isSuccess(decoded) ? decoded.success.axis : undefined).toBe('z')
+    }),
+  )
+
   it.effect('rejects a stale multi-chunk batch without publishing its other chunk', () =>
     Effect.gen(function* () {
       const store = yield* freshStore()

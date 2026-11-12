@@ -719,44 +719,50 @@ describe('reading a block', () => {
     ),
   )
 
-  it.effect('keeps the block state and dimension revision from one snapshot across a concurrent publish', () =>
+  it.effect('never pairs a block state with another publication’s dimension revision', () =>
     withStore((store) =>
       Effect.gen(function* () {
         const coord = chunkCoord(chunkAxis(0), 0)
         const position = blockPosition(blockAxis(5), 20, 6)
         yield* store.load(coord)
         yield* store.setBlock(position, BLOCK.LOG, { axis: 'x' })
+        const initial = yield* store.getBlockWithState(position)
+        if (initial._tag !== 'Block' || initial.state?.axis !== 'x') {
+          throw new Error('the initial block state was not published')
+        }
 
-        const captured = yield* Deferred.make<BlockWithStateReading>()
-        const resumeReader = yield* Deferred.make<void>()
-        // Hold the reader after it captures the result, then publish while its
-        // caller is still waiting for the read effect to finish.
-        const reader = yield* store.getBlockWithState(position).pipe(
-          Effect.tap((snapshot) => Deferred.succeed(captured, snapshot)),
-          Effect.tap(() => Deferred.await(resumeReader)),
-          Effect.forkChild,
-        )
-
-        const snapshot = yield* Deferred.await(captured)
-        yield* store.setBlock(position, BLOCK.LOG, { axis: 'y' })
-        yield* Deferred.succeed(resumeReader, undefined)
-        const returned = yield* Fiber.join(reader)
-
-        expect(returned).toStrictEqual({
-          _tag: 'Block',
-          block: BLOCK.LOG,
-          state: { axis: 'x' },
-          dimensionRevision: snapshot.dimensionRevision,
+        const expectedAxisByRevision = new Map<number, 'x' | 'y'>([
+          [Number(initial.dimensionRevision), 'x'],
+        ])
+        const writes = Effect.gen(function* () {
+          for (let index = 0; index < 64; index += 1) {
+            const axis = index % 2 === 0 ? 'y' : 'x'
+            const revision = Number(initial.dimensionRevision) + index + 1
+            expectedAxisByRevision.set(revision, axis)
+            const outcome = yield* store.setBlock(position, BLOCK.LOG, { axis })
+            expect(outcome._tag).toBe('Written')
+            yield* Effect.yieldNow
+          }
+        })
+        const reads = Effect.gen(function* () {
+          const observedRevisions = new Set<number>()
+          for (let index = 0; index < 128; index += 1) {
+            const reading: BlockWithStateReading = yield* store.getBlockWithState(position)
+            expect(reading._tag).toBe('Block')
+            if (reading._tag === 'Block') {
+              const revision = Number(reading.dimensionRevision)
+              const expectedAxis = expectedAxisByRevision.get(revision)
+              expect(expectedAxis).toBeDefined()
+              expect(reading.state).toStrictEqual({ axis: expectedAxis })
+              observedRevisions.add(revision)
+            }
+            yield* Effect.yieldNow
+          }
+          return observedRevisions
         })
 
-        const latest = yield* store.getBlockWithState(position)
-        expect(latest).toStrictEqual({
-          _tag: 'Block',
-          block: BLOCK.LOG,
-          state: { axis: 'y' },
-          dimensionRevision: expect.any(Number),
-        })
-        expect(latest.dimensionRevision).toBeGreaterThan(snapshot.dimensionRevision)
+        const results = yield* Effect.all([writes, reads], { concurrency: 'unbounded' })
+        expect(results[1].size).toBeGreaterThan(1)
       }),
     ),
   )
