@@ -11,6 +11,7 @@ import {
   TREE_MIN_SPACING,
 } from '../src/domain/tree-placement'
 import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { PLANT_IDS } from '../src/domain/vegetation'
 
 /**
  * ---------------------------------------------------------------------------
@@ -49,10 +50,12 @@ const SEED = 20260726
 const CHUNK_SPAN = 8
 
 /** A forest-rich fixture region, kept away from the origin's sparse transition area. */
-const CHUNK_ORIGIN = { cx: -16, cz: 8 } as const
+const CHUNK_ORIGIN = { cx: -28, cz: -52 } as const
+
+/** A nearby forest sample where each alternate seed reaches tree-bearing terrain. */
+const OTHER_SEED_ORIGIN = { cx: -16, cz: 8 } as const
 
 /** Trunk height in `plantTree`, so the trunk block count converts to a tree count. */
-const TRUNK_HEIGHT = 5
 
 /**
  * Columns in one crown: a square of radius `TREE_CROWN_RADIUS` with its four
@@ -168,8 +171,23 @@ const countBlock = (region: Region, block: number): number => {
   return count
 }
 
+const countTrunks = (region: Region): number => {
+  let count = 0
+  for (let x = 0; x < region.width; x += 1) {
+    for (let z = 0; z < region.width; z += 1) {
+      for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+        if (at(region, x, z, y) === BLOCK.LOG) {
+          count += 1
+          break
+        }
+      }
+    }
+  }
+  return count
+}
+
 const region = stitch(SEED, CHUNK_SPAN, CHUNK_ORIGIN)
-const trees = countBlock(region, BLOCK.LOG) / TRUNK_HEIGHT
+const trees = countTrunks(region)
 const leaves = countBlock(region, BLOCK.LEAVES)
 
 describe('the canopy in generated block data', () => {
@@ -222,11 +240,47 @@ describe('the canopy in generated block data', () => {
     }),
   )
 
+  it.effect('plants never occupy a generated trunk column', () =>
+    Effect.sync(() => {
+      let trunks = 0
+      const collisions: Array<string> = []
+
+      for (let x = 0; x < region.width; x += 1) {
+        for (let z = 0; z < region.width; z += 1) {
+          let hasTrunk = false
+          let hasPlant = false
+          for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+            const id = at(region, x, z, y)
+            hasTrunk ||= id === BLOCK.LOG
+            hasPlant ||= PLANT_IDS.includes(id)
+          }
+          if (hasTrunk) {
+            trunks += 1
+            if (hasPlant) collisions.push(`(${String(x)}, ${String(z)})`)
+          }
+        }
+      }
+
+      expect(trunks).toBeGreaterThan(50)
+      expect(collisions, 'columns holding both a trunk and a plant').toStrictEqual([])
+    }),
+  )
+
   it.effect('holds for other seeds, so it is the grid and not this world', () =>
     Effect.sync(() => {
       for (const seed of [1, 4242, 999983]) {
-        const other = stitch(seed, 4)
-        const otherTrees = countBlock(other, BLOCK.LOG) / TRUNK_HEIGHT
+        let other: Region | undefined
+        for (let cx = OTHER_SEED_ORIGIN.cx; cx < OTHER_SEED_ORIGIN.cx + 4 && other === undefined; cx += 1) {
+          for (let cz = OTHER_SEED_ORIGIN.cz; cz < OTHER_SEED_ORIGIN.cz + 4; cz += 1) {
+            const candidate = stitch(seed, 1, { cx, cz })
+            if (countBlock(candidate, BLOCK.LOG) > 0) {
+              other = candidate
+              break
+            }
+          }
+        }
+        if (other === undefined) throw new Error(`seed ${String(seed)} produced no tree in the bounded sample region`)
+        const otherTrees = countTrunks(other)
 
         expect(otherTrees).toBeGreaterThan(0)
         expect(largestLeafPatch(other)).toBe(CROWN_LEAF_BLOCKS)

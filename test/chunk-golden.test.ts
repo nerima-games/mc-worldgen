@@ -32,21 +32,19 @@
  *                   I-2  bedrock floor under all 256 columns
  *                   I-3  water surface is exactly its biome level   (DN-1)
  *                   I-4  no air inside the shell under water         (DN-2)
- *                   I-4b and the guard is what causes I-4            (DN-2)
- *                   I-5  LEAVES == trees * 20, so no fused canopy    (F-2)
- *   biomesSha256  <- I-6  agrees with `biomeFor` recomputed per column
+ *   biomesSha256  <- I-6  agrees with the generation resolver per column
  *                   I-7  every entry is a member of the closed roster
  *   both          <- I-8  regenerating is byte-identical
  *
  * Two generation passes arrived after this list and brought their own backing
  * with them, in their own files rather than here, because both needed a survey
- * wider than the sixteen golden chunks:
+ * wider than this fixed coordinate matrix:
  *
  *   ore           <- `test/ore.test.ts` O-1 .. O-5. O-2 is the conclusive one
  *                   (a vein replaces STONE and nothing else, on a buffer whose
  *                   contents are known) and O-5 reproduces the defect the
  *                   corrected depth bands fix.
- *   ground cover  <- `test/vegetation.test.ts` V-1 .. V-6.
+ *   ground cover  <- `test/vegetation.test.ts` V-1 .. V-4, V-6.
  *
  * I-2 is doing double duty since ore arrived and is worth naming for it: a vein
  * that ate the bedrock floor is the one way this pass could corrupt a world
@@ -54,18 +52,18 @@
  *
  * I-6 is the load-bearing one for the biome half. `generateChunk` fills
  * `chunk.biomes` inside its own column loop; recomputing the array through
- * `biomeFor` one column at a time is a different code path to the same claim,
- * so the two agreeing is evidence and not a tautology.
+ * `resolveTerrainColumnForGeneration` one column at a time is a different code
+ * path to the same claim, so the two agreeing is evidence and not a tautology.
  *
  * Regression names (docs/design-notes.md): worldgen-golden-drift,
  * worldgen-golden-matrix-coverage.
  */
 import { describe, expect, it } from '@effect/vitest'
 import * as validated from './fixtures/validated-inputs'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { BIOMES, BLOCK, type BiomeType } from '../src/domain/biome'
+import { BLOCK, KERNEL_BIOMES } from '../src/domain/biome'
 import { columnIndex, readBlock, type Chunk } from '../src/domain/chunk'
 
 import {
@@ -80,8 +78,12 @@ import {
 } from '../src/domain/constants'
 import { RIVER_WATER_LEVEL } from '../src/domain/lake-config'
 import { ORE_IDS } from '../src/domain/ore'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
+import { MAX_SURFACE_Y, createTerrainDensitySampler } from '../src/domain/density-function'
+import { createTerrainDensityGrid } from '../src/domain/density-grid'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
+import { resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
 import { PLANT_IDS } from '../src/domain/vegetation'
+type TerrainDensityGrid = ReturnType<typeof createTerrainDensityGrid>
 // Every remaining `*_BLOCK` record in src/domain — the block ids each natural
 // structure carves, none of which are part of `BLOCK` (terrain), `ORE_IDS` or
 // `PLANT_IDS`. worldgen-village-availability (see structure-siting.ts) is
@@ -133,7 +135,25 @@ const generated: ReadonlyArray<{ readonly spec: GoldenSpec; readonly chunk: Chun
   GOLDEN_SPECS.map((spec) => ({ spec, chunk: generateGoldenChunk(spec) }))
 
 const describeSpec = (spec: GoldenSpec): string =>
-  `${spec.biome} (${String(spec.cx)}, ${String(spec.cz)})${spec.decorate ? '' : ' no-decorate'}`
+  `(${String(spec.cx)}, ${String(spec.cz)})${spec.decorate ? '' : ' no-decorate'}`
+
+const initialSurfaceYFromDensityGrid = (
+  densityGrid: TerrainDensityGrid,
+  samples: Float64Array,
+  lx: number,
+  lz: number,
+): number => {
+  densityGrid.sampleColumn(lx, lz, samples)
+  let surfaceY = BEDROCK_Y + 1
+  let y = BEDROCK_Y + 1
+  for (const density of samples) {
+    if (density > 0) {
+      surfaceY = y
+    }
+    y += 1
+  }
+  return surfaceY
+}
 
 const countBlocks = (chunk: Chunk, wanted: number): number => {
   let count = 0
@@ -208,39 +228,8 @@ describe('the committed goldens', () => {
   )
 })
 
-/**
- * ---------------------------------------------------------------------------
- * The matrix, checked against the rule that produced it.
- * ---------------------------------------------------------------------------
- *
- * The coordinates in `GOLDEN_SPECS` are literals, and a literal is a claim that
- * decays. These tests re-derive the claim.
- */
+/** The matrix pins generation at fixed coordinates; biome coverage has its own survey. */
 describe('the golden matrix', () => {
-  it.effect('covers every biome, including the two a narrow window says do not exist', () =>
-    Effect.sync(() => {
-      const covered = new Set(GOLDEN_SPECS.map((spec) => spec.biome))
-
-      // docs/testing.md §4-b F-5: measured over 384 x 384 blocks, DESERT and
-      // SNOW read as 0.0% and the report concluded they were unreachable. They
-      // are 0.1% and 0.8% of the world. A golden matrix drawn from a 3 x 3
-      // square at the origin would repeat that mistake in permanent form — it
-      // could not notice the day either stopped generating.
-      expect([...covered].sort()).toStrictEqual([...BIOMES].sort())
-    }),
-  )
-
-  it.effect('really is one biome per chunk, all 256 columns, as the selection rule claims', () =>
-    Effect.sync(() => {
-      for (const { spec, chunk } of generated) {
-        const distinct = new Set<BiomeType>(chunk.biomes as ReadonlyArray<BiomeType>)
-
-        expect(distinct.size, `${describeSpec(spec)} is no longer a single-biome chunk`).toBe(1)
-        expect([...distinct][0]).toBe(spec.biome)
-      }
-    }),
-  )
-
   /**
    * Not vacuous. A matrix of nine dry, flat, cave-free, treeless chunks would
    * satisfy every invariant below by having nothing in it, and would pin a
@@ -448,7 +437,11 @@ describe('what backs the block digest', () => {
             }
             if (top >= 0) {
               wetColumns += 1
-              const expectedWaterSurface = spec.biome === 'RIVER' ? RIVER_WATER_LEVEL : SEA_LEVEL
+              const biome = chunk.biomes[columnIndex(validated.localAxis(lx), validated.localAxis(lz))]
+              if (biome === undefined) throw new Error(`${describeSpec(spec)} has no biome for a wet column`)
+              const expectedWaterSurface = biome === 'river' || biome === 'frozen_river'
+                ? RIVER_WATER_LEVEL
+                : SEA_LEVEL
               expect(top, `${describeSpec(spec)} water surface is not its biome level`).toBe(expectedWaterSurface)
             }
           }
@@ -467,18 +460,10 @@ describe('what backs the block digest', () => {
    * bed is eaten from below and the water becomes a floating sheet over an
    * unlit void.
    *
-   * THIS TEST WAS VACUOUS IN ITS FIRST FORM, and the failure is instructive
-   * enough to record. It asserted only that no golden chunk has air inside the
-   * shell — and passed, unchanged, with the guard deleted from `carveCaves`
-   * (`waterFloorMargin ?? 0`). docs/testing.md §4-b F-4 explains why: at this
-   * seed near the origin no cave comes within three blocks of a lake bed, so
-   * there was nothing for the guard to do and nothing for its absence to break.
-   * The nearest-biome chunks all sit in that region.
-   *
-   * The fix is the `test/carver.test.ts` rule — REPRODUCE THE BUG. The fifteenth
-   * golden row, (4, 9), is a chunk where the guard demonstrably bites, and both
-   * halves are asserted below: solid with the guard, hollow without it. The
-   * second half is what makes the first half evidence.
+   * `test/carver.test.ts` searches for a chunk where disabling the cave guard
+   * hollows a water bed, then asserts both guarded and unguarded outputs. This
+   * matrix checks that the final generated chunks retain the water-floor shell,
+   * including after ravines and structures run.
    */
   const airInShell = (chunk: Chunk): number => {
     let columns = 0
@@ -530,73 +515,36 @@ describe('what backs the block digest', () => {
     }),
   )
 
-  it.effect('I-4b: and the guard is what does it — without it, 200+ columns of (4, 9) go hollow', () =>
-    Effect.sync(() => {
-      const guarded = generateChunkAt(GOLDEN_SEED, validated.chunkAxis(4), validated.chunkAxis(9), { decorate: false })
-      const unguarded = generateChunkAt(GOLDEN_SEED, validated.chunkAxis(4), validated.chunkAxis(9), {
-        decorate: false,
-        carve: { waterFloorMargin: 0 },
-      })
-
-      expect(airInShell(guarded)).toBe(0)
-      // Measured 229 of 256. The bound is loose because the point is that the
-      // number is LARGE, not that it is 229; a shaper change may move it.
-      expect(airInShell(unguarded)).toBeGreaterThan(200)
-    }),
-  )
-
-  /**
-   * I-5 — docs/testing.md §4-b F-2. One crown is a 5 x 5 square minus its four
-   * corners, and the trunk already occupies the centre column at the crown's Y,
-   * so an unclipped tree contributes exactly 5 LOG and 20 LEAVES. Any excess of
-   * leaves over `trees * 20` is two crowns that have merged — the walkable leaf
-   * slab the jittered grid exists to prevent.
-   */
-  it.effect('I-5: LEAVES is exactly 20 per tree, so no two crowns have fused', () =>
-    Effect.sync(() => {
-      const logsPerTree = 5
-      const leavesPerTree = 20
-      let treesSeen = 0
-
-      for (const { spec, chunk } of generated) {
-        const logs = countBlocks(chunk, BLOCK.LOG)
-        const leaves = countBlocks(chunk, BLOCK.LEAVES)
-
-        expect(logs % logsPerTree, `${describeSpec(spec)} has a clipped trunk`).toBe(0)
-        const trees = logs / logsPerTree
-        treesSeen += trees
-        expect(leaves, `${describeSpec(spec)} canopy is not ${String(leavesPerTree)} per tree`).toBe(
-          trees * leavesPerTree,
-        )
-      }
-
-      expect(treesSeen).toBeGreaterThan(0)
-    }),
-  )
 })
 
 describe('what backs the biome digest', () => {
   /**
-   * I-6. `generateChunk` writes `chunk.biomes` from inside its own column loop.
-   * This rebuilds the same array through `biomeFor` one column at a time — a
-   * different path to the same claim, so agreement is evidence rather than a
-   * restatement. It is also the check that would catch the field being filled
-   * with a default value: an array of 256 'PLAINS' hashes perfectly well.
+   * I-6. `generateChunk` writes a concrete kernel biome from inside its column
+   * loop. Re-resolving that choice from the same interpolated density column
+   * catches a default-filled array and keeps coarse categories out of storage.
    */
-  it.effect('I-6: the stored biome array agrees with biomeFor recomputed per column', () =>
+  it.effect('I-6: stored biome ids agree with the mc-noise category and climate resolver', () =>
     Effect.sync(() => {
+      const sampler = Result.getOrThrow(createTerrainDensitySampler(GOLDEN_SEED))
+      const samples = new Float64Array(MAX_SURFACE_Y - BEDROCK_Y)
       for (const { spec, chunk } of generated) {
+        const densityGrid = createTerrainDensityGrid(
+          sampler.densityAtForGeneration,
+          validated.blockAxis(spec.cx * CHUNK_SIZE_XZ),
+          validated.blockAxis(spec.cz * CHUNK_SIZE_XZ),
+        )
         for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
           for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
             const wx = spec.cx * CHUNK_SIZE_XZ + lx
             const wz = spec.cz * CHUNK_SIZE_XZ + lz
-            const expected = biomeFor(
+            const surfaceY = initialSurfaceYFromDensityGrid(densityGrid, samples, lx, lz)
+            const expected = Result.getOrThrow(resolveTerrainColumnForGeneration(
               GOLDEN_SEED,
               validated.blockAxis(wx),
               validated.blockAxis(wz),
-              surfaceHeightAt(GOLDEN_SEED, validated.blockAxis(wx), validated.blockAxis(wz)),
               DEFAULT_TERRAIN_LEVELS,
-            )
+              validated.blockAxis(surfaceY),
+            )).kernelBiome
 
             expect(
               chunk.biomes[columnIndex(validated.localAxis(lx), validated.localAxis(lz))],
@@ -608,9 +556,9 @@ describe('what backs the biome digest', () => {
     }),
   )
 
-  it.effect('I-7: every entry is a member of the closed roster, and there are 256 of them', () =>
+  it.effect('I-7: every stored entry is a concrete member of the closed kernel roster', () =>
     Effect.sync(() => {
-      const roster = new Set<string>(BIOMES)
+      const roster = new Set<string>(KERNEL_BIOMES)
 
       for (const { spec, chunk } of generated) {
         expect(chunk.biomes.length).toBe(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)

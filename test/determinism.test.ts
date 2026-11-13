@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
 import * as validated from './fixtures/validated-inputs'
 import { Effect } from 'effect'
-import { CHUNK_VOLUME } from '../src/domain/constants'
+import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, CHUNK_VOLUME, BEDROCK_Y, blockIndex } from '../src/domain/constants'
+import { BLOCK, KERNEL_BIOMES } from '../src/domain/biome'
+import { readBlock } from '../src/domain/chunk'
 import { generateChunk, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
 
 /**
@@ -79,6 +81,22 @@ describe('generateChunk is deterministic', () => {
 
       expect(negative.blocks).toStrictEqual(again.blocks)
       expect(negative.blocks).not.toStrictEqual(generateChunk(SEED, validated.validatedChunkCoord(0, 0)).blocks)
+    }),
+  )
+
+  it.effect('keeps generated chunks in the 0..255 vertical range with bedrock at Y 0', () =>
+    Effect.sync(() => {
+      const chunk = generateChunkAt(SEED, validated.chunkAxis(-2), validated.chunkAxis(4), { decorate: false })
+
+      expect(CHUNK_HEIGHT).toBe(256)
+      expect(chunk.blocks.length).toBe(CHUNK_VOLUME)
+      expect(chunk.biomes.length).toBe(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
+      for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+        for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+          expect(readBlock(chunk.blocks, blockIndex(lx, BEDROCK_Y, lz))).toBe(BLOCK.BEDROCK)
+          expect(KERNEL_BIOMES).toContain(chunk.biomes[lz * CHUNK_SIZE_XZ + lx])
+        }
+      }
     }),
   )
 })

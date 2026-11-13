@@ -2,7 +2,9 @@ import { describe, expect, it } from '@effect/vitest'
 import * as fc from 'fast-check'
 import { Effect, Result, Schema } from 'effect'
 import { CHUNK_FORMAT, InvalidTerrainLevels, generateChunk, generateChunkAt } from '../src/index'
-import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { createTerrainDensitySampler, MAX_SURFACE_Y, MIN_SURFACE_Y, surfaceHeightAt, surfaceHeightAtResult, surfaceHeightFromContinentalness } from '../src/domain/density-function'
+import { CHUNK_HEIGHT } from '../src/domain/constants'
+import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
 const SEED = noiseSeed(1234)
 const X = chunkAxis(0)
@@ -63,6 +65,71 @@ const expectGeneratedChunk = (result: unknown): void => {
 }
 
 describe('terrainLevels generation input', () => {
+  it.effect('clamps the legacy continentalness surface query into BlockAxis bounds', () => Effect.sync(() => {
+    expect(Number(surfaceHeightFromContinentalness(-1))).toBe(MIN_SURFACE_Y)
+    expect(Number(surfaceHeightFromContinentalness(1))).toBe(MAX_SURFACE_Y)
+  }))
+
+  it.effect('keeps the fused generation evaluator equal to the mc-noise density runtime', () =>
+    Effect.sync(() => {
+      const sampler = Result.getOrThrow(createTerrainDensitySampler(SEED))
+
+      fc.assert(
+        fc.property(
+          fc.record({
+            wx: fc.integer({ min: -2_048, max: 2_048 }),
+            wy: fc.integer({ min: MIN_SURFACE_Y, max: MAX_SURFACE_Y }),
+            wz: fc.integer({ min: -2_048, max: 2_048 }),
+          }),
+          ({ wx, wy, wz }) => {
+            const runtimeDensity = Result.getOrThrow(sampler.densityAt(blockAxis(wx), blockAxis(wy), blockAxis(wz)))
+            expect(sampler.densityAtForGeneration(blockAxis(wx), blockAxis(wy), blockAxis(wz))).toBeCloseTo(runtimeDensity, 12)
+          },
+        ),
+        { numRuns: 64, seed: 0x71e21 },
+      )
+    }),
+  )
+
+  it.effect('keeps 3D density surface samples inside the declared chunk range for arbitrary coordinates', () =>
+    Effect.sync(() => {
+      const sampler = Result.getOrThrow(createTerrainDensitySampler(SEED))
+
+      fc.assert(
+        fc.property(
+          fc.record({
+            wx: fc.integer({ min: -1_000_000, max: 1_000_000 }),
+            wz: fc.integer({ min: -1_000_000, max: 1_000_000 }),
+          }),
+          ({ wx, wz }) => {
+            const sampled = sampler.surfaceHeightAt(blockAxis(wx), blockAxis(wz))
+            expect(Result.isSuccess(sampled)).toBe(true)
+            if (!Result.isSuccess(sampled)) {
+              return
+            }
+            expect(sampled.success).toBeGreaterThanOrEqual(MIN_SURFACE_Y)
+            expect(sampled.success).toBeLessThanOrEqual(MAX_SURFACE_Y)
+            expect(sampled.success).toBeLessThan(CHUNK_HEIGHT)
+          },
+        ),
+        { numRuns: 32, seed: 0x71e24 },
+      )
+
+      const minimumSafeCoordinate = sampler.surfaceHeightAt(blockAxis(Number.MIN_SAFE_INTEGER), blockAxis(0))
+      expect(Result.isSuccess(minimumSafeCoordinate)).toBe(true)
+
+      for (const wx of [-16, -1, 0, 15, 16]) {
+        for (const wz of [-16, -1, 0, 15, 16]) {
+          const queried = surfaceHeightAtResult(SEED, blockAxis(wx), blockAxis(wz))
+          expect(Result.isSuccess(queried)).toBe(true)
+          if (Result.isSuccess(queried)) {
+            expect(surfaceHeightAt(SEED, blockAxis(wx), blockAxis(wz))).toBe(queried.success)
+          }
+        }
+      }
+    }),
+  )
+
   it.effect('returns a typed failure or a chunk accepted by the exported schema for arbitrary runtime values', () =>
     Effect.sync(() => {
       fc.assert(
@@ -75,6 +142,30 @@ describe('terrainLevels generation input', () => {
           expectGeneratedChunk(result)
         }),
         { numRuns: 24, seed: 0x71e22 },
+      )
+    }),
+  )
+
+  it.effect('returns a typed failure for invalid arbitrary water floor margins and schema-valid chunks for valid margins', () =>
+    Effect.sync(() => {
+      fc.assert(
+        fc.property(fc.anything(), (waterFloorMargin) => {
+          const result = generateWithOptions({ carve: { waterFloorMargin } })
+          const validMargin =
+            typeof waterFloorMargin === 'number' &&
+            Number.isFinite(waterFloorMargin) &&
+            Number.isInteger(waterFloorMargin) &&
+            waterFloorMargin > 0
+
+          if (validMargin) {
+            expectGeneratedChunk(result)
+            return
+          }
+
+          expectTypedFailure(result)
+          expect(result).toMatchObject({ failure: { field: 'waterFloorMargin' } })
+        }),
+        { numRuns: 32, seed: 0x71e25 },
       )
     }),
   )

@@ -71,11 +71,11 @@ const main = (): void => {
   }
   const terrainDigest = terrainHash.digest('hex')
   const lightDigest = lightHash.digest('hex')
-  if (terrainDigest !== 'a9dd92fe3823f067f7869249dc06716f6f18c143776430fae681ee42cb260110') {
-    throw new Error(`terrain reproducibility digest changed: ${terrainDigest}`)
-  }
-  if (lightDigest !== '847d8f0b6c14eae5ed3b264a3ed03bc030b4b5ac7683fc01e2dbcf23dce51b84') {
-    throw new Error(`light reproducibility digest changed: ${lightDigest}`)
+  if (
+    terrainDigest !== 'dbb1b6b6415fc2afa07a20bf4e5c9c8d6cdc7977592cce9e36988f8dbaa8855f' ||
+    lightDigest !== 'f0127754545895e67f50532923e01406814c44f73acf5b0d4aacab9a0a3ae666'
+  ) {
+    throw new Error(`reproducibility digests changed: terrain=${terrainDigest}; light=${lightDigest}`)
   }
   console.log(`reproducibility: ${String(generatedChunks)} chunks and ${String(measuredLights)} light maps verified`)
 }

@@ -51,7 +51,7 @@ import { describe, expect, it } from '@effect/vitest'
 import * as fc from 'fast-check'
 import * as validated from './fixtures/validated-inputs'
 import { Effect, Option, Result, Schema, SchemaIssue } from 'effect'
-import { BIOMES, CHUNK_BIOMES } from '../src/domain/biome'
+import { CHUNK_BIOMES } from '../src/domain/biome'
 import {
   chunkIntegrityFailureFromSaveDecodeError,
   CHUNK_BIOME_COUNT,
@@ -541,8 +541,8 @@ describe('the chunk format round-trips', () => {
       expect(payload.blockStates.length).toBe(349_528)
       expect(payload.blockStateCodecVersion).toBe(BLOCK_STATE_CODEC_VERSION)
 
-      // Biome NAMES, so reordering `BIOMES` cannot corrupt a save.
-      expect(payload.biomes.every((biome) => (BIOMES as ReadonlyArray<string>).includes(biome))).toBe(true)
+      // Biome NAMES, so reordering `CHUNK_BIOMES` cannot corrupt a save.
+      expect(payload.biomes.every((biome) => CHUNK_BIOMES.includes(biome))).toBe(true)
 
       // Plain numbers: the brand is a compile-time fact and must not reach the
       // wire, or the save file would depend on `effect`'s runtime.
@@ -1180,12 +1180,18 @@ describe('the biome roster is a closed save format', () => {
     // to `BIOMES` but not to the schema makes a freshly generated chunk
     // unsaveable. They are built from the same constant today; this fails if
     // anyone splits them.
-    for (const name of CHUNK_BIOMES) {
-      const biomes = Array.from({ length: CHUNK_BIOME_COUNT }, () => name)
-      const envelope = yield* encodeSave(CHUNK_FORMAT, { ...FIXTURE, biomes })
-      const outcome = yield* decodeOutcome(envelope)
-      expect(outcome._tag, `${name} is missing from the chunk schema`).toBe('Accepted')
+    expect(CHUNK_BIOMES.length).toBeLessThanOrEqual(CHUNK_BIOME_COUNT)
+    const firstBiome = CHUNK_BIOMES[0]
+    expect(firstBiome).toBeDefined()
+    if (firstBiome === undefined) {
+      return
     }
+    const biomes = Array.from({ length: CHUNK_BIOME_COUNT }, (_, index) => CHUNK_BIOMES[index] ?? firstBiome)
+    expect(biomes.slice(0, CHUNK_BIOMES.length)).toStrictEqual([...CHUNK_BIOMES])
+
+    const envelope = yield* encodeSave(CHUNK_FORMAT, { ...FIXTURE, biomes })
+    const outcome = yield* decodeOutcome(envelope)
+    expect(outcome._tag).toBe('Accepted')
     }),
   )
 })

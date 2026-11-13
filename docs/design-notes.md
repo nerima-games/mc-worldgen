@@ -502,101 +502,52 @@ mc-worldgen は文字列キーで導出する（`channelSeed`）。
 
 ---
 
-## DN-8 ✅ 地形パイプラインの順序
+## DN-8: Terrain pipeline order
 
-参照実装の順序は非自明であり、理由がソースに書いてある。
+The reference pipeline order is non-obvious, and its comments explain why.
 
-| 段階 | 位置 | 理由 |
+| Pass | Order | Reason |
 | --- | --- | --- |
-| 水の充填 | 地形生成時 | カーバーのガードが水を探すため（DN-2） |
-| 洞窟 | 装飾の**前**（`generator.ts:102`） | |
-| 木・草 | | |
-| 渓谷 | 木・草の**後**（`generator.ts:155`） | `:141-142`「壁が鉱石と表層をきれいに切るように」。**移植済み** — ただし `decorate` フラグの**外**。`decorate` は「植生の有無」であって「地形の有無」ではなく、`chunk-golden.test.ts` が「装飾は足すだけで掘らない」を固定しているため |
-| ライト | 最後（`terrain-generation-utils.ts:49-52`） | 全ブロックが確定してから |
+| Water fill | During terrain generation | The carver's guard checks the generated blocks (DN-2). |
+| Caves | Before decoration (`generator.ts:102`) | |
+| Trees and plants | Decoration pass | |
+| Ravines | After decoration (`generator.ts:155`) | The reference cuts through ores and surface cover. This pass stays outside the `decorate` flag, which controls vegetation rather than terrain. |
+| Lighting | Last (`terrain-generation-utils.ts:49-52`) | All blocks are final. |
 
-| テスト名 | 主張 |
+| Test | Claim |
 | --- | --- |
-| ✅ `carving runs after water has been filled, so the water-floor guard has something to find` | `test/carver.test.ts` の guarded/unguarded 生成比較で、水域先行の順序と carve の水面ガードを固定 |
-| ✅ `R-6: decoration cannot change what the ravine carves` | 渓谷が装飾の後であること。水ガードが読む `surfaceY + 1` に装飾は届かない（3 ファイルにまたがる主張なので実測してある） |
-| 🟡 `R-8: floating trunks over ravines are rare, and stay rare` | 装飾の**後**に彫る代償。参照実装にも同じ欠陥がある。**直していない**（樹冠の所有者を記録する機構が要る）ので、増えないことだけを固定した — 最悪の窓で LOG 580 セル中 14 |
+| `carving runs after water has been filled, so the water-floor guard has something to find` | `test/carver.test.ts` compares guarded and unguarded generated chunks. |
+| `R-6: decoration cannot change what the ravine carves` | `test/ravine.test.ts` compares the ravine result with decoration enabled and disabled. The guard treats water, ice, seagrass, and kelp as water occupants. |
+| `R-8: floating trunks over ravines are rare, and stay rare` | Trees can remain suspended because the carver does not track canopy ownership. The current rate is measured and pinned; removing them requires a separate placement or ownership mechanism. |
 
 ---
 
 <a id="dn-9"></a>
-## DN-9 ✅ シード固定ゴールデン — ハッシュは**ドリフト検出器であって正しさの証明ではない**
+## DN-9 Seed-fixed goldens detect drift, not correctness
 
-plan.md §3.7 の検証要求と docs/testing.md §3 の完了条件 3。
-`test/golden/chunk-goldens.json` に固定シード × 座標行列の SHA-256 を置き、
-`test/chunk-golden.test.ts` が `toBe` で比較する。
+This implements the validation requirement in `plan.md` §3.7 and completion criterion 3 in `docs/testing.md` §3. The committed `test/golden/chunk-goldens.json` stores SHA-256 digests for fixed seed and coordinate samples. `test/chunk-golden.test.ts` compares them with explicit assertions.
 
-### なぜスナップショットではないのか
+### Why these are not snapshots
 
-mc-noise は凍結契約を `toMatchInlineSnapshot` で固定している
-（`test/public-api.test.ts:60`）。あちらは**人間が読める 9 個のスカラ**なので妥当である。
-こちらは 64 文字の 16 進数であり、目視で健全性を判断できない。
-そして docs/testing.md §3 は「`pnpm test -u` で黙って通るようにしない」と明示している。
-スナップショットは `-u` が無言で書き換える、まさにその成果物である。
+mc-noise freezes its public contract with `toMatchInlineSnapshot` (`test/public-api.test.ts:60`). Those values are readable scalars; these digests are not. `docs/testing.md` §3 also requires an explicit golden update. The only update path is `pnpm goldens:update`, which prints the changed summaries. A silent rewrite would remove the review signal that makes a golden useful.
 
-したがって更新経路は `pnpm goldens:update` 一本だけであり、
-このスクリプトは**何が動いたかを必ず印字する**。黙って上書きするゴールデンは、
-ゴールデンを削除するのと同じである（§7 の baseline と同じ理屈）。
+### A golden can agree with a bug
 
-### ゴールデンは「今日のバグ」に同意する
+mc-noise's `buildPermutation` name was pinned by the API lock and its output by goldens, yet neither check detected a non-bijective table. The goldens recorded whatever that implementation produced (`mc-noise/test/permutation.test.ts:5-26`). Each digest therefore needs an independent check that does not read the committed JSON.
 
-これはこの組織で実際に起きた。mc-noise の `buildPermutation` は
-API ロックで名前を、ゴールデンで出力を固定していたが、
-**どちらもテーブルが全単射でない可能性を見られなかった** —
-ゴールデンはテーブルが出すものそのものだからである
-（`mc-noise/test/permutation.test.ts:5-26`）。
-気づける最初の瞬間はゴールデンを再生成した日で、その時点で再生成が祝福を済ませている。
-
-そこで各ダイジェストには**独立した裏付け**を付ける。
-`test/chunk-golden.test.ts` が I-1〜I-8 として列挙し、
-**いずれもコミット済み JSON を読まない**。
-祝福された再生成はここで落ちる。
-
-| ダイジェスト | 裏付け |
+| Digest | Independent checks |
 | --- | --- |
-| `blocksSha256` | I-1 全バイトが宣言済み `BLOCK` id / I-2 全柱の床が岩盤 / I-3 水面がちょうど `SEA_LEVEL`（DN-1）/ I-4・I-4b 水域下のシェルが中実、かつ**ガードを外すと実際に抜ける**（DN-2）/ I-5 `LEAVES == 木 × 20`（F-2） |
-| `biomesSha256` | I-6 `biomeFor` を柱ごとに再計算した配列と一致 / I-7 閉じたロスターの要素のみ |
-| 両方 | I-8 再生成がバイト一致 |
+| `blocksSha256` | I-1 generated block IDs are declared; I-2 every column has only the floor bedrock; I-3 water reaches its resolved level (DN-1); I-4 water-floor shells remain solid after the full pipeline (DN-2). |
+| `biomesSha256` | I-6 stored biome IDs agree with a separate per-column resolver; I-7 every ID belongs to the supported kernel roster. |
+| Both | I-8 regenerating a chunk produces identical bytes. |
 
-I-6 が要である。`generateChunk` は自分の柱ループの中で `chunk.biomes` を埋めるので、
-**別経路で組み直した配列と一致すること**が証拠になる。
-256 個の `'PLAINS'` で埋めたプレースホルダでも、ハッシュは完璧に安定する。
+Other generator properties have their own checks: `test/carver.test.ts` finds a chunk where disabling the cave guard recreates the hollow-bed defect; `test/ravine.test.ts` reproduces the ravine water-guard failure modes; and `test/tree-canopy.test.ts` measures generated canopy connectivity and trunk/plant collisions. Ore and ground-cover behavior are covered in `test/ore.test.ts` and `test/vegetation.test.ts`.
 
-### 座標行列は規則で選ぶ
+### The coordinate matrix is a spatial sample
 
-`BIOMES` の各要素について、**256 柱すべてがその バイオームに分類される、原点に最も近いチャンク**
-（チェビシェフ環で探索、つまり答えはシードの関数でありスキャン順に依らない）。
+The retained fixed coordinates came from an earlier coarse-biome matrix. They still pin generated blocks and concrete kernel biome IDs, but they do not claim one golden per biome. `test/biome-distribution.test.ts` and `test/terrain-distribution.test.ts` survey category distribution separately. The biome digest check also resolves each stored ID independently, so a default-filled biome array cannot pass merely because it is stable.
 
-規則のほうが座標より重要である。原点付近の 3×3 を手で選ぶのは F-5 の裏返しであり、
-DESERT の最寄りは (33, 48)、SNOW は (22, -60) — **原点近傍の行列には物理的に入らない**。
-その 2 つを落とした行列は、両者が生成されなくなった日に何も言えない。
-
-9 行目は FOREST を `decorate: false` で再生成する。
-これが無いと全ダイジェストが装飾パスを通っており、
-木の配置器を丸ごと削っても「他のどんな変更とも同じように」不一致になるだけで、差分が局在しない。
-
-### 10 行目は**空虚な合格**の結果として足した
-
-最初の 9 行では I-4（水域下のシェルが中実）が**空虚に成立していた**。
-`carveCaves` からガードを削って（`waterFloorMargin ?? 0`）実行しても 15 件すべて green になる。
-理由は docs/testing.md §4-b **F-4 に既に書いてある**:
-このシードの原点付近では洞窟が湖底の 3 ブロック以内に来ないので、
-ガードには仕事が無く、その不在にも壊すものが無い。
-
-(4, 9) は原点から 40 チャンク以内で最も強い反例で、
-マージン 0 にすると 256 柱中 **229 柱**が水底シェルを失い、ガード有りでは **0** である。
-I-4b がこの両側を主張する。`test/carver.test.ts` の規則
-——**バグを再現せよ、不在を主張するな**——のゴールデン版である。
-
-| テスト名 | 主張 |
-| --- | --- |
-| ✅ `reproduce their digests exactly, chunk for chunk` | 生成地形のバージョン間ドリフト |
-| ✅ `covers every biome, including the two a narrow window says do not exist` | 行列が DESERT / SNOW を含む |
-| ✅ `isolates the decoration pass: the two FOREST rows differ only in vegetation` | 装飾が基礎パスに漏れていない |
-| ✅ `I-4b: and the guard is what does it` | ガードを外すと実際に 200 柱以上が抜ける |
+The matrix includes a decorated and undecorated version of one coordinate, a water-bearing sample, and a ravine sample. The separate survey checks generated categories over a broader fixed multi-seed grid; it does not claim that every registered kernel biome is reachable.
 
 ---
 

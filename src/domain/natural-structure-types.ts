@@ -1,8 +1,13 @@
 import type { BlockAxis, ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { BlockId, Dimension } from '@nerima-games/mc-kernel'
+import type {
+  OverworldTerrainResultSampler,
+  OverworldTerrainSampler,
+  OverworldTerrainSamplingFailure,
+} from './structure-siting.js'
 import type { Chunk } from './chunk.js'
 import type { CompactStructureKind } from './compact-structure-data.js'
-import type { OverworldTerrainSampler } from './structure-siting.js'
+import type { InvalidNaturalStructureCoordinate } from './natural-structure-plan-builder.js'
 
 export type NaturalStructureKind = CompactStructureKind | 'desert-pyramid' | 'desert-well' | 'igloo' | 'jungle-pyramid' | 'mineshaft' | 'ocean-monument' | 'ocean-ruin' | 'pillager-outpost' | 'shipwreck' | 'stronghold' | 'village' | 'ruined-nether-portal' | 'nether-fortress' | 'bastion-remnant' | 'end-city'
 
@@ -82,7 +87,10 @@ export type NaturalStructureSamplers = {
   readonly nether?: NetherStructureTerrainSampler
   readonly end?: EndStructureTerrainSampler
   readonly overworld?: OverworldTerrainSampler
+  readonly overworldResult?: OverworldTerrainResultSampler
 }
+
+export type NaturalStructurePlanFailure = InvalidNaturalStructureCoordinate | OverworldTerrainSamplingFailure
 
 export type NetherStructureTerrainSample = {
   readonly surfaceY: BlockAxis

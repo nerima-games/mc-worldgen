@@ -8,10 +8,15 @@ import type {
   NaturalStructureMarkerDraft,
   NaturalStructurePositionDraft,
 } from './natural-structure-types.js'
+import { Option, Result } from 'effect'
+import {
+  type OverworldTerrainResultSampler,
+  type OverworldTerrainSampler,
+  type OverworldTerrainSamplingFailure,
+  sampleOverworldTerrainPoints,
+} from './structure-siting.js'
 import type { BlockId } from '@nerima-games/mc-kernel'
 import { CHUNK_SIZE_XZ } from './constants.js'
-import { Option } from 'effect'
-import type { OverworldTerrainSampler } from './structure-siting.js'
 import { blockAxis } from './coordinate-compatibility.js'
 
 type CompactStructureCandidate = Readonly<{
@@ -189,4 +194,35 @@ export const planCompactStructureForCandidate = (
       origin,
     }),
   )
+}
+
+// eslint-disable-next-line max-statements -- The result path checks all terrain before constructing the unchanged draft.
+export const planCompactStructureForCandidateWithResultSampler = (
+  kind: CompactStructureKind,
+  candidate: CompactStructureCandidate,
+  sampleTerrain: OverworldTerrainResultSampler,
+): Result.Result<Option.Option<CompactStructureDraft>, OverworldTerrainSamplingFailure> => {
+  const placementCandidate = placementCandidateFor(kind, candidate)
+  const originSample = sampleTerrain(blockAxis(placementCandidate.x), blockAxis(placementCandidate.z))
+  if (Result.isFailure(originSample)) {return Result.fail(originSample.failure)}
+  const samples = sampleOverworldTerrainPoints(sampleTerrain, [
+    ...PROBE_OFFSETS.slice(STRUCTURE_STEP).map((offset) => ({
+      x: blockAxis(placementCandidate.x + offset.x),
+      z: blockAxis(placementCandidate.z + offset.z),
+    })),
+  ])
+  if (Result.isFailure(samples)) {return Result.fail(samples.failure)}
+  const terrainSamples = [originSample.success, ...samples.success]
+  if (!siteIsValid(kind, terrainSamples)) {return Result.succeed(Option.none())}
+
+  const descriptor = COMPACT_STRUCTURE_DESCRIPTORS[kind]
+  const baseY = originSample.success.surfaceY + descriptor.baseOffset
+  const blocks = structureBlocksForCandidate(kind, placementCandidate, baseY)
+  const marker = addLootChest(blocks, kind, placementCandidate, baseY)
+  const origin = Object.freeze({ x: placementCandidate.x, y: baseY, z: placementCandidate.z })
+  return Result.succeed(Option.some(Object.freeze({
+    blocks: Object.freeze([...blocks.values()]),
+    markers: Object.freeze([marker]),
+    origin,
+  })))
 }

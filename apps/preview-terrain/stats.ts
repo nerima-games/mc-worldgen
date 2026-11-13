@@ -574,7 +574,7 @@ const blockReport = (
   // three is a property of the reference implementation
   // (`CAVE_WATER_FLOOR_MARGIN = 3`), not of how this run was configured.
   const shellWindow = WATER_FLOOR_MARGIN
-  const configuredMargin = params.carve.waterFloorMargin ?? WATER_FLOOR_MARGIN
+  const configuredMargin = params.guard ? WATER_FLOOR_MARGIN : 0
   const observationWindow = 8
 
   const originChunkX = Math.floor(options.originX / CHUNK_SIZE_XZ)
@@ -679,7 +679,7 @@ const blockReport = (
   lines.push('hollow-lake check (docs/design-notes.md DN-2)')
   lines.push(
     `  carver waterFloorMargin in effect: ${String(configuredMargin)}` +
-      `${params.carve.waterFloorMargin === undefined ? ' (WATER_FLOOR_MARGIN)' : ' (--no-guard: the bug is switched ON)'}`,
+      `${params.guard ? ' (WATER_FLOOR_MARGIN)' : ' (--no-guard: the bug is switched ON)'}`,
   )
   lines.push(
     `  water blocks sitting directly on air: ${String(waterOverAir)}   (expected 0 — the floating-sheet signature)`,

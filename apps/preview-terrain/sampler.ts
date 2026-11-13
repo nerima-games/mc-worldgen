@@ -26,7 +26,6 @@
  */
 import type { BiomeType } from '../../src/domain/biome'
 import { BLOCK } from '../../src/domain/biome'
-import type { CarveOptions } from '../../src/domain/carver'
 import type { Chunk } from '../../src/domain/chunk'
 import { readBlock } from '../../src/domain/chunk'
 import { BlockId, type BlockId as BlockIdValue, chunkCoord } from '@nerima-games/mc-kernel'
@@ -36,13 +35,19 @@ import type { TerrainLevels } from '../../src/domain/constants'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../src/domain/constants'
 import { ravineDepthAt, ravineDistanceAt } from '../../src/domain/ravine'
 import { biomeFor, generateChunk, surfaceHeightAt } from '../../src/domain/terrain'
-import { shouldPlaceTree } from '../../src/domain/tree-placement'
+import {
+  cellOf,
+  shouldPlaceTreeWithKnownConfiguration,
+  treeCellCandidate,
+  treeConfigurationForKnownBiome,
+} from '../../src/domain/tree-placement'
 import { blockAxis, chunkAxis, localAxis } from '../../src/domain/coordinate-compatibility'
+import { carveCavesWithoutWaterFloorMarginForTesting } from '../../src/testing'
 
 export type WorldParams = {
   readonly seed: NoiseSeed
   readonly levels: TerrainLevels
-  readonly carve: CarveOptions
+  readonly guard: boolean
   readonly decorate: boolean
 }
 
@@ -82,6 +87,11 @@ export const sampleColumn = (params: WorldParams, wx: number, wz: number): Colum
   const biome = biomeFor(params.seed, worldX, worldZ, surfaceY, params.levels)
   const submerged = surfaceY < params.levels.seaLevel
   const ravineDepth = ravineDepthAt(ravineDistanceAt(params.seed, wx, wz))
+  const hasTree = params.decorate && shouldPlaceTreeWithKnownConfiguration(
+    { worldX, worldZ, surfaceY: blockAxis(surfaceY), terrainLevels: params.levels },
+    treeConfigurationForKnownBiome(biome),
+    treeCellCandidate(cellOf(worldX), cellOf(worldZ)),
+  )
 
   return {
     ravineDepth,
@@ -97,15 +107,7 @@ export const sampleColumn = (params: WorldParams, wx: number, wz: number): Colum
     biome,
     submerged,
     waterDepth: submerged ? params.levels.seaLevel - surfaceY : 0,
-    hasTree:
-      params.decorate &&
-      shouldPlaceTree({
-        worldX,
-        worldZ,
-        surfaceY,
-        biome,
-        terrainLevels: params.levels,
-      }),
+    hasTree,
   }
 }
 
@@ -119,7 +121,7 @@ const paramsKey = (params: WorldParams): string =>
     String(params.seed),
     String(params.levels.seaLevel),
     String(params.levels.lakeLevel),
-    String(params.carve.waterFloorMargin ?? 'default'),
+    String(params.guard),
     String(params.decorate),
   ].join('|')
 
@@ -153,13 +155,18 @@ export const chunkFor = (
     return cached
   }
 
+  const coord = chunkCoord(chunkAxis(chunkX), chunkAxis(chunkZ))
   const chunk = Result.getOrThrow(
-    generateChunk(params.seed, chunkCoord(chunkAxis(chunkX), chunkAxis(chunkZ)), {
+    generateChunk(params.seed, coord, {
       terrainLevels: params.levels,
-      carve: params.carve,
+      carve: {},
       decorate: params.decorate,
     }),
   )
+  if (!params.guard) {
+    // This diagnostic preview uses the same zero-margin regression path as the tests.
+    carveCavesWithoutWaterFloorMarginForTesting(chunk.blocks, params.seed, coord)
+  }
 
   if (cache.entries.size >= MAX_CACHED_CHUNKS) {
     const oldest = cache.entries.keys().next()

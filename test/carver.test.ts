@@ -1,11 +1,15 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import * as fc from 'fast-check'
 import { BLOCK } from '../src/domain/biome'
-import { CAVE_CEILING_Y, computeWaterFloorYs } from '../src/domain/carver'
+import { CAVE_CEILING_Y, CAVE_FLOOR_Y, computeWaterFloorYs } from '../src/domain/carver'
 import { biomeAt, readBlock } from '../src/domain/chunk'
-import { blockIndex, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../src/domain/constants'
+import { blockIndex, CHUNK_SIZE_XZ, CHUNK_VOLUME, WATER_FLOOR_MARGIN } from '../src/domain/constants'
+import { carveCaves, InvalidWaterFloorMargin } from '../src/index'
+import * as PublicWorldgen from '../src/index'
+import { carveCavesWithoutWaterFloorMarginForTesting } from '../src/testing'
 import { generateChunkAt } from './helpers/unwrapped-worldgen'
-import { chunkAxis, localAxis, noiseSeed } from './fixtures/validated-inputs'
+import { chunkAxis, localAxis, noiseSeed, validatedChunkCoord } from './fixtures/validated-inputs'
 
 /**
  * ---------------------------------------------------------------------------
@@ -30,6 +34,63 @@ import { chunkAxis, localAxis, noiseSeed } from './fixtures/validated-inputs'
  */
 
 const SEED = 4242
+const LOW_SURFACE_Y = 45
+
+const carveCavesSuccessfully = (
+  blocks: Uint16Array,
+  seed: number,
+  coord: ReturnType<typeof validatedChunkCoord>,
+  options: { readonly waterFloorMargin?: number } = {},
+): void => {
+  expect(carveCaves(blocks, noiseSeed(seed), coord, options)).toMatchObject({ _tag: 'Success' })
+}
+
+const solidSurfaceBlocks = (surfaceY: number = LOW_SURFACE_Y): Uint16Array => {
+  const blocks = new Uint16Array(CHUNK_VOLUME).fill(BLOCK.AIR)
+
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+      for (let y = 0; y <= surfaceY; y += 1) {
+        blocks[blockIndex(lx, y, lz)] = y <= CAVE_FLOOR_Y ? BLOCK.BEDROCK : BLOCK.STONE
+      }
+    }
+  }
+
+  return blocks
+}
+
+const countCarvedVoxels = (blocks: Uint16Array, surfaceY: number): number => {
+  let count = 0
+
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+      for (let y = CAVE_FLOOR_Y + 1; y <= Math.min(surfaceY, CAVE_CEILING_Y); y += 1) {
+        if (readBlock(blocks, blockIndex(lx, y, lz)) === BLOCK.AIR) {
+          count += 1
+        }
+      }
+    }
+  }
+
+  return count
+}
+
+const firstCarvedVoxel = (blocks: Uint16Array, surfaceY: number): { readonly lx: number; readonly y: number; readonly lz: number } | undefined => {
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+      for (let y = CAVE_FLOOR_Y + 1; y <= Math.min(surfaceY - 3, CAVE_CEILING_Y); y += 1) {
+        if (readBlock(blocks, blockIndex(lx, y, lz)) === BLOCK.AIR) {
+          return { lx, y, lz }
+        }
+      }
+    }
+  }
+
+  return undefined
+}
+
+const isCarvedAt = (blocks: Uint16Array, lx: number, y: number, lz: number): boolean =>
+  readBlock(blocks, blockIndex(lx, y, lz)) === BLOCK.AIR
 
 /** Every world column where water sits directly on a solid bed. */
 const submergedColumns = (blocks: Uint16Array): ReadonlyArray<{ lx: number; lz: number; waterFloorY: number }> => {
@@ -101,10 +162,8 @@ const submergedFixture = (): SubmergedFixture => {
         continue
       }
 
-      const unguarded = generateChunkAt(noiseSeed(SEED), chunkAxis(cx), chunkAxis(cz), {
-        decorate: false,
-        carve: { waterFloorMargin: 0 },
-      }).blocks
+      const unguarded = guarded.slice()
+      carveCavesWithoutWaterFloorMarginForTesting(unguarded, noiseSeed(SEED), validatedChunkCoord(cx, cz))
 
       if (hollowUnderWater(unguarded, columns) > 0) {
         cachedFixture = { coord: [cx, cz], guarded, unguarded, columns }
@@ -120,6 +179,85 @@ const submergedFixture = (): SubmergedFixture => {
 }
 
 describe('carver water-floor guard', () => {
+  it.effect('rejects invalid public margins before mutating the chunk and keeps the zero route under testing', () =>
+    Effect.sync(() => {
+      for (const waterFloorMargin of [-1, 0, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        const blocks = solidSurfaceBlocks()
+        const before = blocks.slice()
+        const result = carveCaves(blocks, noiseSeed(SEED), validatedChunkCoord(0, 0), { waterFloorMargin })
+
+        expect(result).toMatchObject({ _tag: 'Failure', failure: { _tag: 'InvalidWaterFloorMargin' } })
+        expect(result._tag === 'Failure' && result.failure).toBeInstanceOf(InvalidWaterFloorMargin)
+        expect(blocks).toStrictEqual(before)
+      }
+
+      const validMargin = carveCaves(
+        solidSurfaceBlocks(),
+        noiseSeed(SEED),
+        validatedChunkCoord(0, 0),
+        { waterFloorMargin: 1 },
+      )
+      expect(validMargin._tag).toBe('Success')
+
+      const explicitUndefined = carveCaves(
+        solidSurfaceBlocks(),
+        noiseSeed(SEED),
+        validatedChunkCoord(0, 0),
+        { waterFloorMargin: undefined } as never,
+      )
+      expect(explicitUndefined).toMatchObject({ _tag: 'Failure', failure: { _tag: 'InvalidWaterFloorMargin' } })
+
+      const accessor = Object.defineProperty({}, 'waterFloorMargin', {
+        get: () => {
+          throw new Error('waterFloorMargin accessor must not run')
+        },
+      })
+      const accessorResult = carveCaves(
+        solidSurfaceBlocks(),
+        noiseSeed(SEED),
+        validatedChunkCoord(0, 0),
+        accessor,
+      )
+      expect(accessorResult).toMatchObject({ _tag: 'Failure', failure: { _tag: 'InvalidWaterFloorMargin' } })
+
+      const malformedOptions = carveCaves(
+        solidSurfaceBlocks(),
+        noiseSeed(SEED),
+        validatedChunkCoord(0, 0),
+        null as never,
+      )
+      expect(malformedOptions).toMatchObject({ _tag: 'Failure', failure: { _tag: 'InvalidWaterFloorMargin' } })
+    }),
+  )
+
+  it.effect('returns a typed failure for arbitrary public margin values without throwing', () =>
+    Effect.sync(() =>
+      fc.assert(
+        fc.property(fc.anything(), (margin) => {
+          const result = carveCaves(
+            solidSurfaceBlocks(),
+            noiseSeed(SEED),
+            validatedChunkCoord(0, 0),
+            { waterFloorMargin: margin as number },
+          )
+          const valid = typeof margin === 'number' && Number.isFinite(margin) && Number.isInteger(margin) && margin > 0
+
+          if (valid) {
+            expect(result._tag).toBe('Success')
+          } else {
+            expect(result).toMatchObject({ _tag: 'Failure', failure: { _tag: 'InvalidWaterFloorMargin' } })
+          }
+        }),
+      ),
+    ),
+  )
+
+  it.effect('does not expose the zero-margin regression helper from the package root', () =>
+    Effect.sync(() => {
+      expect('carveCavesWithoutWaterFloorMarginForTesting' in PublicWorldgen).toBe(false)
+    }),
+  )
+
   it.effect('finds submerged columns to test against, so the rest is not vacuous', () =>
     Effect.sync(() => {
       const { columns } = submergedFixture()
@@ -199,6 +337,100 @@ describe('computeWaterFloorYs', () => {
 
       const floors = computeWaterFloorYs(blocks, WATER_FLOOR_MARGIN)
       expect(floors[0]).toBe(40)
+    }),
+  )
+})
+
+describe('3D noise caves', () => {
+  it.effect('keeps openings out of the exposed surface while carving underground pockets', () =>
+    Effect.sync(() => {
+      const seeds = [SEED, 1977, 99173]
+      let openings = 0
+      let surfaceColumns = 0
+      let carvedVoxels = 0
+
+      for (const seed of seeds) {
+        const blocks = solidSurfaceBlocks()
+        carveCavesSuccessfully(blocks, seed, validatedChunkCoord(0, 0))
+        carvedVoxels += countCarvedVoxels(blocks, LOW_SURFACE_Y)
+
+        for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+          for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+            surfaceColumns += 1
+            if (readBlock(blocks, blockIndex(lx, LOW_SURFACE_Y, lz)) === BLOCK.AIR) {
+              openings += 1
+            }
+          }
+        }
+      }
+
+      expect(openings / surfaceColumns).toBeLessThanOrEqual(0.01)
+      expect(carvedVoxels).toBeGreaterThan(0)
+    }),
+  )
+
+  it.effect('preserves the bedrock floor and any bedrock block inside the carving band', () =>
+    Effect.sync(() => {
+      const blocks = solidSurfaceBlocks()
+      carveCavesSuccessfully(blocks, SEED, validatedChunkCoord(0, 0))
+      const caveCandidate = firstCarvedVoxel(blocks, LOW_SURFACE_Y)
+
+      expect(caveCandidate).toBeDefined()
+
+      if (caveCandidate !== undefined) {
+        const bedrockBlocks = solidSurfaceBlocks()
+        const bedrockIndex = blockIndex(caveCandidate.lx, caveCandidate.y, caveCandidate.lz)
+        bedrockBlocks[bedrockIndex] = BLOCK.BEDROCK
+        carveCavesSuccessfully(bedrockBlocks, SEED, validatedChunkCoord(0, 0))
+
+        expect(readBlock(bedrockBlocks, bedrockIndex)).toBe(BLOCK.BEDROCK)
+      }
+
+      for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
+        for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+          for (let y = 0; y <= CAVE_FLOOR_Y; y += 1) {
+            expect(readBlock(blocks, blockIndex(lx, y, lz))).toBe(BLOCK.BEDROCK)
+          }
+        }
+      }
+    }),
+  )
+
+  it.effect('keeps cave noise continuous and deterministic across adjacent chunk coordinates', () =>
+    Effect.sync(() => {
+      const leftCoord = validatedChunkCoord(0, -1)
+      const rightCoord = validatedChunkCoord(1, -1)
+      const left = solidSurfaceBlocks()
+      const right = solidSurfaceBlocks()
+      const leftAgain = solidSurfaceBlocks()
+      const rightAgain = solidSurfaceBlocks()
+
+      carveCavesSuccessfully(left, SEED, leftCoord)
+      carveCavesSuccessfully(right, SEED, rightCoord)
+      carveCavesSuccessfully(leftAgain, SEED, leftCoord)
+      carveCavesSuccessfully(rightAgain, SEED, rightCoord)
+
+      expect(leftAgain).toStrictEqual(left)
+      expect(rightAgain).toStrictEqual(right)
+      expect(countCarvedVoxels(left, LOW_SURFACE_Y) + countCarvedVoxels(right, LOW_SURFACE_Y)).toBeGreaterThan(0)
+
+      let boundaryTransitions = 0
+      let interiorTransitions = 0
+      const firstCaveY = CAVE_FLOOR_Y + 1
+      const lastCaveY = LOW_SURFACE_Y - 3
+
+      for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+        for (let y = firstCaveY; y <= lastCaveY; y += 1) {
+          if (isCarvedAt(left, CHUNK_SIZE_XZ - 1, y, lz) !== isCarvedAt(right, 0, y, lz)) {
+            boundaryTransitions += 1
+          }
+          if (isCarvedAt(left, 7, y, lz) !== isCarvedAt(left, 8, y, lz)) {
+            interiorTransitions += 1
+          }
+        }
+      }
+
+      expect(boundaryTransitions).toBeLessThanOrEqual(interiorTransitions * 2 + 12)
     }),
   )
 })

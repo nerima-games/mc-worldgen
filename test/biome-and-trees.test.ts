@@ -1,10 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import * as fc from 'fast-check'
 import { blockAxis } from './fixtures/validated-inputs'
-import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, classifyBiome } from '../src/domain/biome'
+import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, KERNEL_BIOMES, classifyBiome } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
 import {
   cellOf,
+  AVAILABLE_TREE_SPECIES,
+  KERNEL_BIOME_TREE_DENSITY,
   shouldPlaceTree,
   treeCellCandidate,
   TREE_CELL_JITTER_ORIGIN,
@@ -12,7 +15,52 @@ import {
   TREE_GRID_AREA,
   TREE_GRID_SIZE,
   TREE_MIN_SPACING,
+  UNAVAILABLE_TREE_SPECIES,
+  treeConfigurationForBiome,
+  treeTrunkHeightForConfiguration,
 } from '../src/domain/tree-placement'
+
+const EXPECTED_OAK_SHAPE_BY_BIOME: Readonly<Record<string, 'dense' | 'sparse' | 'low'>> = {
+  FLOWER_FOREST: 'dense',
+  FOREST: 'dense',
+  MOUNTAINS: 'low',
+  PLAINS: 'sparse',
+  SWAMP: 'sparse',
+  dappled_forest: 'dense',
+  flower_forest: 'dense',
+  forest: 'dense',
+  meadow: 'sparse',
+  plains: 'sparse',
+  sparse_jungle: 'sparse',
+  swamp: 'sparse',
+  sunflower_plains: 'sparse',
+  windswept_forest: 'sparse',
+  windswept_gravelly_hills: 'low',
+  windswept_hills: 'low',
+  wooded_badlands: 'low',
+}
+
+const EXPECTED_TREE_RANGES = {
+  dense: { density: [0.01, 0.012], height: [5, 7] },
+  low: { density: [0.002, 0.004], height: [2, 3] },
+  none: { density: [0, 0], height: [0, 0] },
+  sparse: { density: [0.003, 0.006], height: [4, 5] },
+} as const
+
+const EXPECTED_PLACEMENT_DENSITY_RANGES = {
+  dense: [0.011, 0.013],
+  low: [0.0025, 0.0045],
+  none: [0, 0],
+  sparse: [0.0025, 0.0065],
+} as const
+
+const treeCell = (cellIndex: number) => cellOf(blockAxis(cellIndex * TREE_GRID_SIZE))
+
+const shouldPlaceTreeSuccessfully = (input: Parameters<typeof shouldPlaceTree>[0]): boolean => {
+  const result = shouldPlaceTree(input)
+  expect(result).toMatchObject({ _tag: 'Success' })
+  return result._tag === 'Success' && result.success
+}
 
 describe('classifyBiome', () => {
   it.effect('is total: every climate in the unit square maps to a biome', () =>
@@ -51,6 +99,167 @@ describe('classifyBiome', () => {
     Effect.sync(() => {
       expect(Object.keys(BIOME_SURFACES).sort()).toStrictEqual([...BIOMES].sort())
       expect(Object.keys(BIOME_TREE_DENSITY).sort()).toStrictEqual([...BIOMES].sort())
+    }),
+  )
+
+  it.effect('has a bounded oak-tree density for every concrete kernel biome', () =>
+    Effect.sync(() => {
+      expect(Object.keys(KERNEL_BIOME_TREE_DENSITY).sort()).toStrictEqual([...KERNEL_BIOMES].sort())
+      for (const [biome, density] of Object.entries(KERNEL_BIOME_TREE_DENSITY)) {
+        expect(Number.isFinite(density), `${biome} density should be finite`).toBe(true)
+        expect(density, `${biome} density should be a probability`).toBeGreaterThanOrEqual(0)
+        expect(density, `${biome} density should be a probability`).toBeLessThanOrEqual(1)
+      }
+      expect(AVAILABLE_TREE_SPECIES).toStrictEqual(['oak'])
+      expect(UNAVAILABLE_TREE_SPECIES).toContain('birch')
+      expect(UNAVAILABLE_TREE_SPECIES).toContain('spruce')
+      expect(UNAVAILABLE_TREE_SPECIES).toContain('poplar')
+    }),
+  )
+
+  it.effect('maps every biome to its specified oak shape, density, and height range', () =>
+    Effect.sync(() => {
+      for (const biome of [...BIOMES, ...KERNEL_BIOMES]) {
+        const shape = EXPECTED_OAK_SHAPE_BY_BIOME[biome] ?? 'none'
+        const expected = EXPECTED_TREE_RANGES[shape]
+        const result = treeConfigurationForBiome(biome)
+
+        expect(result._tag, `${biome} must have an explicit configuration`).toBe('Success')
+        if (result._tag === 'Success') {
+          expect(result.success.shape, biome).toBe(shape)
+          expect(result.success.species, biome).toBe(shape === 'none' ? null : 'oak')
+          expect(result.success.density, biome).toBeGreaterThanOrEqual(expected.density[0])
+          expect(result.success.density, biome).toBeLessThanOrEqual(expected.density[1])
+          expect(result.success.trunkHeightMin, biome).toBe(expected.height[0])
+          expect(result.success.trunkHeightMax, biome).toBe(expected.height[1])
+        }
+      }
+    }),
+  )
+
+  it.effect('returns a typed failure for a biome without a configuration', () =>
+    Effect.sync(() => {
+      const result = treeConfigurationForBiome('unlisted_biome')
+      const nonStringBiome = treeConfigurationForBiome(42)
+      const placement = shouldPlaceTree({
+        biome: 'unlisted_biome',
+        surfaceY: blockAxis(70),
+        terrainLevels: DEFAULT_TERRAIN_LEVELS,
+        worldX: blockAxis(0),
+        worldZ: blockAxis(0),
+      })
+
+      expect(result).toMatchObject({ _tag: 'Failure', failure: { _tag: 'UnsupportedTreeBiome' } })
+      expect(nonStringBiome).toMatchObject({ _tag: 'Failure', failure: { _tag: 'UnsupportedTreeBiome' } })
+      expect(placement).toMatchObject({ _tag: 'Failure', failure: { _tag: 'UnsupportedTreeBiome' } })
+    }),
+  )
+
+  it.effect('returns a typed result for arbitrary biome values and branded coordinates', () =>
+    Effect.sync(() => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: -1_000_000, max: 1_000_000 }),
+          fc.integer({ min: -1_000_000, max: 1_000_000 }),
+          fc.integer({ min: -128, max: 512 }),
+          fc.anything(),
+          (worldX, worldZ, surfaceY, biome) => {
+            const result = shouldPlaceTree({
+              biome,
+              surfaceY: blockAxis(surfaceY),
+              terrainLevels: DEFAULT_TERRAIN_LEVELS,
+              worldX: blockAxis(worldX),
+              worldZ: blockAxis(worldZ),
+            })
+
+            if (result._tag === 'Failure') {
+              expect(result.failure._tag).toBe('UnsupportedTreeBiome')
+            } else {
+              expect(typeof result.success).toBe('boolean')
+            }
+          },
+        ),
+      )
+    }),
+  )
+
+  it.effect('does not substitute oak in biomes whose vanilla tree species is unavailable', () =>
+    Effect.sync(() => {
+      for (const biome of [
+        'birch_forest',
+        'old_growth_birch_forest',
+        'taiga',
+        'old_growth_spruce_taiga',
+        'jungle',
+        'savanna',
+        'dark_forest',
+        'mangrove_swamp',
+        'cherry_grove',
+        'pale_garden',
+      ]) {
+        const result = treeConfigurationForBiome(biome)
+        expect(result).toMatchObject({ _tag: 'Success', success: { species: null, density: 0, shape: 'none' } })
+      }
+    }),
+  )
+
+  it.effect('places trees only where expected and within the specified density for every biome', () =>
+    Effect.sync(() => {
+      const cellSpan = 40
+      const sampleArea = cellSpan * cellSpan * TREE_GRID_AREA
+
+      for (const biome of [...BIOMES, ...KERNEL_BIOMES]) {
+        const shape = EXPECTED_OAK_SHAPE_BY_BIOME[biome] ?? 'none'
+        const expectedDensity = EXPECTED_PLACEMENT_DENSITY_RANGES[shape]
+        let treeCount = 0
+
+        for (let cellX = 0; cellX < cellSpan; cellX += 1) {
+          for (let cellZ = 0; cellZ < cellSpan; cellZ += 1) {
+            const candidate = treeCellCandidate(treeCell(cellX), treeCell(cellZ))
+            const result = shouldPlaceTree({
+              worldX: blockAxis(candidate.worldX),
+              worldZ: blockAxis(candidate.worldZ),
+              surfaceY: blockAxis(70),
+              biome,
+              terrainLevels: DEFAULT_TERRAIN_LEVELS,
+            })
+
+            expect(result._tag, biome).toBe('Success')
+            if (result._tag === 'Success' && result.success) {
+              treeCount += 1
+            }
+          }
+        }
+
+        if (shape === 'none') {
+          expect(treeCount, biome).toBe(0)
+        } else {
+          const density = treeCount / sampleArea
+          expect(treeCount, biome).toBeGreaterThan(0)
+          expect(density, biome).toBeGreaterThanOrEqual(expectedDensity[0])
+          expect(density, biome).toBeLessThanOrEqual(expectedDensity[1])
+        }
+      }
+    }),
+  )
+
+  it.effect('chooses deterministic trunk heights inside each biome shape range', () =>
+    Effect.sync(() => {
+      for (const biome of [...BIOMES, ...KERNEL_BIOMES]) {
+        const shape = EXPECTED_OAK_SHAPE_BY_BIOME[biome] ?? 'none'
+        const expected = EXPECTED_TREE_RANGES[shape]
+        const result = treeConfigurationForBiome(biome)
+        expect(result._tag).toBe('Success')
+        if (result._tag === 'Success') {
+          for (let cellX = -12; cellX <= 12; cellX += 3) {
+            const candidate = treeCellCandidate(treeCell(cellX), treeCell(-cellX))
+            const height = treeTrunkHeightForConfiguration(result.success, candidate.cellRng)
+            expect(height).toBeGreaterThanOrEqual(expected.height[0])
+            expect(height).toBeLessThanOrEqual(expected.height[1])
+            expect(treeTrunkHeightForConfiguration(result.success, candidate.cellRng)).toBe(height)
+          }
+        }
+      }
     }),
   )
 
@@ -95,7 +304,7 @@ describe('tree placement', () => {
     const placed: Array<readonly [number, number]> = []
     for (let wx = 0; wx < span; wx += 1) {
       for (let wz = 0; wz < span; wz += 1) {
-        if (shouldPlaceTree({ worldX: blockAxis(wx), worldZ: blockAxis(wz), surfaceY: blockAxis(70), biome, terrainLevels: DEFAULT_TERRAIN_LEVELS })) {
+        if (shouldPlaceTreeSuccessfully({ worldX: blockAxis(wx), worldZ: blockAxis(wz), surfaceY: blockAxis(70), biome, terrainLevels: DEFAULT_TERRAIN_LEVELS })) {
           placed.push([wx, wz])
         }
       }
@@ -158,10 +367,10 @@ describe('tree placement', () => {
     Effect.sync(() => {
       for (let cellX = -20; cellX <= 20; cellX += 1) {
         for (let cellZ = -20; cellZ <= 20; cellZ += 3) {
-          const candidate = treeCellCandidate(cellX, cellZ)
+          const candidate = treeCellCandidate(treeCell(cellX), treeCell(cellZ))
 
-          expect(cellOf(candidate.worldX)).toBe(cellX)
-          expect(cellOf(candidate.worldZ)).toBe(cellZ)
+          expect(cellOf(blockAxis(candidate.worldX))).toBe(treeCell(cellX))
+          expect(cellOf(blockAxis(candidate.worldZ))).toBe(treeCell(cellZ))
 
           // Tighter than "inside its cell": inside the WINDOW. The gutter
           // between the window and the cell edge is the minimum-spacing
@@ -178,7 +387,7 @@ describe('tree placement', () => {
 
   it.effect('is deterministic: the same cell always yields the same candidate', () =>
     Effect.sync(() => {
-      expect(treeCellCandidate(7, -3)).toStrictEqual(treeCellCandidate(7, -3))
+      expect(treeCellCandidate(treeCell(7), treeCell(-3))).toStrictEqual(treeCellCandidate(treeCell(7), treeCell(-3)))
     }),
   )
 
@@ -227,15 +436,15 @@ describe('tree placement', () => {
    */
   it.effect('never plants on a submerged column, whatever the biome says', () =>
     Effect.sync(() => {
-      const candidate = treeCellCandidate(0, 0)
+      const candidate = treeCellCandidate(treeCell(0), treeCell(0))
       const submerged = {
-        worldX: candidate.worldX,
-        worldZ: candidate.worldZ,
+        worldX: blockAxis(candidate.worldX),
+        worldZ: blockAxis(candidate.worldZ),
         biome: 'FOREST' as const,
         terrainLevels: DEFAULT_TERRAIN_LEVELS,
       }
 
-      expect(shouldPlaceTree({ ...submerged, surfaceY: blockAxis(DEFAULT_TERRAIN_LEVELS.seaLevel - 1) })).toBe(false)
+      expect(shouldPlaceTreeSuccessfully({ ...submerged, surfaceY: blockAxis(DEFAULT_TERRAIN_LEVELS.seaLevel - 1) })).toBe(false)
     }),
   )
 

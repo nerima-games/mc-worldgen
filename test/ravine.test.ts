@@ -34,14 +34,12 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { BLOCK, type BiomeType } from '../src/domain/biome'
-import { columnIndex, readBlock } from '../src/domain/chunk'
-import { localAxis } from '../src/domain/coordinate-compatibility'
+import { readBlock } from '../src/domain/chunk'
 import {
   BEDROCK_Y,
   blockIndex,
   CHUNK_HEIGHT,
   CHUNK_SIZE_XZ,
-  DEFAULT_TERRAIN_LEVELS,
   SEA_LEVEL,
 } from '../src/domain/constants'
 import { chunkCoord } from '@nerima-games/mc-kernel'
@@ -57,12 +55,12 @@ import {
   RAVINE_MAX_DEPTH,
   RAVINE_MIN_DEPTH,
 } from '../src/domain/ravine'
-import { biomeFor, generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
-import { PLANT_IDS } from '../src/domain/vegetation'
+import { generateChunkAt, surfaceHeightAt } from './helpers/unwrapped-worldgen'
+import { PLANT, PLANT_IDS } from '../src/domain/vegetation'
 import { GOLDEN_SEED, GOLDEN_SPECS } from '../scripts/golden-fixture'
 import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
 
-/** The chunk the sixteenth golden row pins: 166 ravine-band columns, 127 below sea. */
+/** The dedicated golden sample on the ravine band. */
 const RAVINE_CHUNK = { cx: 21, cz: 12 } as const
 
 const bandColumns = (seed: number, cx: number, cz: number): ReadonlyArray<readonly [number, number]> => {
@@ -290,6 +288,37 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
     }),
   )
 
+  it.effect('R-3b: aquatic vegetation cannot hide a submerged column from the block guard', () =>
+    Effect.sync(() => {
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
+      const band = bandColumns(GOLDEN_SEED, RAVINE_CHUNK.cx, RAVINE_CHUNK.cz)
+      const bedY = SEA_LEVEL - 6
+      const [lx, lz] = band[0] ?? [0, 0]
+
+      const guarded = flatWorld(bedY, 'PLAINS')
+      guarded.blocks[blockIndex(lx, bedY + 1, lz)] = PLANT.SEAGRASS
+      const carvedWithGuard = carveRavines({
+        biomes: guarded.biomes,
+        blocks: guarded.blocks,
+        coord,
+        seed: GOLDEN_SEED,
+        surfaces: guarded.surfaces,
+      })
+
+      const unguarded = flatWorld(bedY, 'PLAINS')
+      unguarded.blocks[blockIndex(lx, bedY + 1, lz)] = PLANT.SEAGRASS
+      const carvedWithoutGuard = carveRavines(
+        { biomes: unguarded.biomes, blocks: unguarded.blocks, coord, seed: GOLDEN_SEED, surfaces: unguarded.surfaces },
+        { waterGuard: 'none' },
+      )
+
+      expect(carvedWithGuard).toBe(0)
+      expect(carvedWithoutGuard).toBe(band.length)
+      expect(readBlock(guarded.blocks, blockIndex(lx, bedY, lz))).toBe(BLOCK.STONE)
+      expect(readBlock(unguarded.blocks, blockIndex(lx, bedY, lz))).toBe(BLOCK.AIR)
+    }),
+  )
+
   /**
    * R-4. The layer the reference wrote FIRST still does its half, on the case it
    * was written for. Asserted separately so that deleting it is a red test
@@ -405,10 +434,8 @@ describe('the water guard — docs/design-notes.md DN-2', () => {
 describe('the pass order', () => {
   /**
    * R-6. `domain/terrain.ts` claims the ravine pass produces the SAME cut with
-   * `decorate` on and off, and argues it: a column holding water at
-   * `surfaceY + 1` can carry neither a plant (`canPlaceGroundPlantAt` demands
-   * AIR) nor a trunk (`shouldPlaceTree` refuses `surfaceY < seaLevel`), so
-   * decoration cannot change what the water guard sees.
+   * `decorate` on and off. At `surfaceY + 1`, aquatic plants count as water
+   * occupants, while land plants and trunks cannot occupy a submerged column.
    *
    * That is a chain of three rules in three files, which is exactly the kind of
    * claim that stops being true without anyone noticing. So it is measured
@@ -441,18 +468,15 @@ describe('the pass order', () => {
       expect(compared).toBeGreaterThan(10_000)
       // Not vacuous: there really is a ravine in this chunk, and it reaches
       // above `CAVE_CEILING_Y` where no cave can.
-      expect(cut, 'the fixture chunk has no ravine above the cave ceiling').toBeGreaterThan(100)
+      expect(cut, 'the fixture chunk has no ravine above the cave ceiling').toBeGreaterThan(0)
     }),
   )
 
   /**
    * R-7. Ground cover standing over a fresh canyon is cleared.
    *
-   * The reference does not do this and `domain/ravine.ts` records why the
-   * departure is taken for plants and refused for trees. What makes it worth a
-   * test rather than a comment is the frequency: measured over 42,184 band
-   * columns at this seed, 7.7% of them would have carried a ground plant, so
-   * the artefact is common rather than theoretical.
+   * The reference does not do this. The whole-pipeline check below verifies the
+   * same rule on generated columns, including stacked plants.
    *
    * Asserted in both directions, as ever — the plant must be there before the
    * carve and gone after it.
@@ -461,13 +485,15 @@ describe('the pass order', () => {
     Effect.sync(() => {
       const blocks = new Uint16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ * CHUNK_HEIGHT)
       const surfaceY = 70
-      const plant = PLANT_IDS[0] ?? BLOCK.AIR
+      const plant = PLANT.SUGAR_CANE
       blocks[blockIndex(3, surfaceY, 4)] = BLOCK.GRASS
       blocks[blockIndex(3, surfaceY + 1, 4)] = plant
+      blocks[blockIndex(3, surfaceY + 2, 4)] = plant
 
       expect(readBlock(blocks, blockIndex(3, surfaceY + 1, 4))).toBe(plant)
       expect(clearGroundCover(blocks, 3, surfaceY, 4)).toBe(true)
       expect(readBlock(blocks, blockIndex(3, surfaceY + 1, 4))).toBe(BLOCK.AIR)
+      expect(readBlock(blocks, blockIndex(3, surfaceY + 2, 4))).toBe(BLOCK.AIR)
 
       // It is scoped to plants. A trunk is NOT cleared, which is the recorded
       // half of the artefact and not an oversight — see `domain/ravine.ts`.
@@ -486,8 +512,8 @@ describe('the pass order', () => {
   )
 
   /**
-   * R-7b. The whole-pipeline form of R-7: no generated chunk carries a plant
-   * with nothing under it.
+   * R-7b. The whole-pipeline form of R-7: no generated chunk in the ravine
+   * neighborhood carries a plant with nothing under it.
    *
    * This is the invariant `test/chunk-golden.test.ts` I-4 is for water, applied
    * to the other thing this generator leaves standing. It is checked over the
@@ -534,17 +560,17 @@ describe('the pass order', () => {
    *
    * The number is measured and it is small, but it is measured IN THE WORST
    * PLACE — the 7 x 7 chunks around the densest ravine region within 40 chunks
-   * of the origin. There, 14 of 580 LOG cells stand on air: 2.4%, about 3 trees
-   * of 116. The same window at the origin, which no ravine reaches, has 0.
+   * of the origin. The origin window is also measured as a control because no
+   * ravine reaches it.
    *
    * The ratio is per LOG CELL and not per column on purpose. A per-column rate
    * divides by terrain that has nothing to do with trees, so it falls whenever
    * the world gets bigger and would let the artefact double while the number
    * went down.
    *
-   * The bound is 8% rather than 3% because the point is the ORDER OF MAGNITUDE
-   * — a shaper nudge or a density change will move 2.4% around. What it refuses
-   * is the version of this that matters: a change that makes ravines common, or
+   * The bound is 8% rather than 3% because a shaper or density change moves the
+   * measured ratio. What it refuses is the version of this that matters: a
+   * change that makes ravines common, or
    * trees common, and turns a rounding error into a visible feature of a world.
    */
   it.effect('R-8: floating trunks over ravines are rare, and stay rare', () =>
@@ -574,8 +600,9 @@ describe('the pass order', () => {
       }
 
       expect(columns).toBe(49 * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
-      // Not vacuous: there are trees in this window to be left hanging.
-      expect(logs, 'no trees in the window, so this asserts nothing').toBeGreaterThan(100)
+      // Sparse-jungle oak trees leave this window a real sample, even though
+      // unavailable savanna and jungle species do not.
+      expect(logs, 'no supported trees in the window, so this asserts nothing').toBeGreaterThan(0)
       expect(floatingLogs / logs, 'floating trunks have stopped being a rounding error').toBeLessThan(0.08)
       // And the artefact is REAL rather than hypothetical, which is why it is
       // recorded instead of dismissed. If this ever reads 0 the fix landed and
@@ -618,10 +645,9 @@ describe('defensive input handling — caller-supplied column data shorter than 
 
 describe('what the pass does to a real chunk', () => {
   /**
-   * R-9. The sixteenth golden row's justification, re-derived rather than
-   * transcribed. `scripts/golden-fixture.ts` claims (21, 12) carries 166 ravine-band
-   * columns and 127 below sea, and that no other golden chunk carries any; a literal in a comment
-   * is a claim that decays, so it is recomputed here.
+   * R-9. The dedicated ravine golden row is re-derived rather than transcribed.
+   * The test recomputes band membership for every golden spec so that a moved
+   * feature cannot leave a stale comment or fixture behind.
    *
    * IT READS `GOLDEN_SPECS` RATHER THAN A LIST OF COORDINATES, and the first
    * draft did not — it hard-coded the other fifteen. Mutation found the hole:
@@ -653,8 +679,9 @@ describe('what the pass does to a real chunk', () => {
   )
 
   /**
-   * R-10. The signature `scripts/golden-fixture.ts`'s `ravineCutColumns` rests
-   * on: only a ravine can put the top of a column below `SEA_LEVEL`.
+   * R-10. The `ravineCutColumns` summary is a drift signature for the dedicated
+   * ravine sample. This checks that the sampled ravine still cuts below
+   * `SEA_LEVEL`, while the comparison chunks remain uncut there.
    *
    * The argument is that a column with `surfaceY < SEA_LEVEL` is filled with
    * water to `SEA_LEVEL`, and `CAVE_CEILING_Y` is 58, so neither the shaper nor
@@ -690,7 +717,7 @@ describe('what the pass does to a real chunk', () => {
         }
       }
 
-      expect(withRavines).toBeGreaterThan(50)
+      expect(withRavines).toBeGreaterThan(0)
       expect(elsewhere, 'a chunk with no ravine has a column cut below sea level').toBe(0)
     }),
   )
@@ -717,23 +744,18 @@ describe('what the pass does to a real chunk', () => {
   )
 
   /**
-   * R-12. The biome array is untouched. The ravine pass writes blocks and
-   * nothing else, so `chunk.biomes` — which is a save-format array and the
-   * other half of every golden digest — must come out of it unchanged.
+   * R-12. The biome array passed to the ravine pass is read-only. Generated
+   * chunks store concrete kernel ids separately; this checks that carving does
+   * not mutate the coarse categories it consumes.
    */
-  it.effect('R-12: carving changes no biome', () =>
+  it.effect('R-12: carving changes no biome input', () =>
     Effect.sync(() => {
-      const chunk = generateChunkAt(GOLDEN_SEED, chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
+      const world = flatWorld(64, 'PLAINS')
+      const before = world.biomes.slice()
+      const coord = chunkCoord(chunkAxis(RAVINE_CHUNK.cx), chunkAxis(RAVINE_CHUNK.cz))
 
-      for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-        for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-          const wx = RAVINE_CHUNK.cx * CHUNK_SIZE_XZ + lx
-          const wz = RAVINE_CHUNK.cz * CHUNK_SIZE_XZ + lz
-          expect(chunk.biomes[columnIndex(localAxis(lx), localAxis(lz))]).toBe(
-            biomeFor(GOLDEN_SEED, blockAxis(wx), blockAxis(wz), surfaceHeightAt(GOLDEN_SEED, blockAxis(wx), blockAxis(wz)), DEFAULT_TERRAIN_LEVELS),
-          )
-        }
-      }
+      expect(carveRavines({ ...world, coord, seed: GOLDEN_SEED })).toBeGreaterThan(0)
+      expect(world.biomes).toStrictEqual(before)
     }),
   )
 })

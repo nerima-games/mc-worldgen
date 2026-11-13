@@ -53,30 +53,29 @@
  * Why the margin is a parameter
  * ---------------------------------------------------------------------------
  *
- * `waterFloorMargin: 0` disables the guard, which is not a feature — it is a
- * test affordance. `test/carver.test.ts` generates the same chunk with the
- * guard on and off and asserts that the unguarded run really does hollow out a
- * lake bed. A regression test that cannot demonstrate the regression is only
- * asserting that today's code does what today's code does.
+ * Both public carving entry points reject zero and every other non-positive,
+ * non-finite, or non-integer margin. The zero-margin regression uses the
+ * `./testing` export, which is excluded from the package root.
  */
+import { Brand, Data, Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
-import { channelSeed, valueNoise2D } from './noise-compatibility.js'
+import { type NoiseFn3D, type NoiseSeed, createNoiseField } from '@nerima-games/mc-noise'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import type { NoiseSeed } from '@nerima-games/mc-noise'
-import { Option } from 'effect'
+import { channelSeed } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
 
 /** Vertical band caves may occupy. Above bedrock, below the surface layer. */
 export const CAVE_FLOOR_Y = 6
 export const CAVE_CEILING_Y = 58
 
-/** Above this noise value a column is carved. Higher = fewer caves. */
+/** Above this noise value a voxel is carved. Higher = fewer caves. */
 export const CAVE_THRESHOLD = 0.62
 
 /** Sentinel meaning "this column holds no water" — see `computeWaterFloorYs`. */
 const NO_WATER_FLOOR = -1
+const NO_SURFACE_Y = -1
 
 /** Single-block iteration step for the per-voxel scans below. */
 const AXIS_STEP = 1
@@ -96,22 +95,54 @@ type IndexedValues<Value> = {
 
 const readRequired = <Value>(values: IndexedValues<Value>, index: number): Value => Option.getOrThrow(Option.fromNullishOr(values[index]))
 
-/** Cave noise field wavelength, in blocks: one full density cycle every this many blocks. */
-const CAVE_NOISE_WAVELENGTH_BLOCKS = 24
+/** Horizontal cave wavelength in blocks. */
+const CAVE_NOISE_XZ_WAVELENGTH_BLOCKS = 40
 
-/** A single noise cycle, used to turn the wavelength above into the frequency `valueNoise2D` expects. */
-const NOISE_FREQUENCY_NUMERATOR = 1
+/** Vertical cave wavelength in blocks. */
+const CAVE_NOISE_Y_WAVELENGTH_BLOCKS = 20
 
-/** Scales how much a cave's half-height grows per unit the density exceeds `CAVE_THRESHOLD` by. */
-const CAVE_HEIGHT_DENSITY_SCALE = 40
+/** Keep three exposed solid blocks above dry caves to limit surface openings. */
+const CAVE_SURFACE_MARGIN_BLOCKS = 3
+const MIN_WATER_FLOOR_MARGIN = 1
+const TEST_WATER_FLOOR_MARGIN = 0
+
+const CAVE_NOISE_FREQUENCY_NUMERATOR = 1
+const CAVE_NOISE_XZ_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_XZ_WAVELENGTH_BLOCKS
+const CAVE_NOISE_Y_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_Y_WAVELENGTH_BLOCKS
 
 export type CarveOptions = {
   /**
    * Solid blocks to preserve beneath the lowest water block in a column.
-   * Defaults to `WATER_FLOOR_MARGIN` (3, matching the reference). Zero disables
-   * the guard and reproduces the hollow-lake bug — for tests only.
+   * Defaults to `WATER_FLOOR_MARGIN` (3, matching the reference). Public APIs
+   * require a positive finite integer.
    */
   readonly waterFloorMargin?: number
+}
+
+const taggedError = Data.TaggedError
+
+type InvalidWaterFloorMarginFields = { readonly field: 'waterFloorMargin' }
+
+export const InvalidWaterFloorMargin: new (
+  args: InvalidWaterFloorMarginFields,
+) => Error & { readonly _tag: 'InvalidWaterFloorMargin' } & Readonly<InvalidWaterFloorMarginFields> =
+  taggedError('InvalidWaterFloorMargin')<InvalidWaterFloorMarginFields>
+
+export type InvalidWaterFloorMargin = InstanceType<typeof InvalidWaterFloorMargin>
+
+export type ValidatedWaterFloorMargin = number & Brand.Brand<'ValidatedWaterFloorMargin'>
+const waterFloorMarginFromNumber = Brand.nominal<ValidatedWaterFloorMargin>()
+
+export const validateWaterFloorMargin = (margin: unknown): Result.Result<ValidatedWaterFloorMargin, InvalidWaterFloorMargin> => {
+  if (
+    typeof margin !== 'number' ||
+    !Number.isFinite(margin) ||
+    !Number.isInteger(margin) ||
+    margin < MIN_WATER_FLOOR_MARGIN
+  ) {
+    return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
+  }
+  return Result.succeed(waterFloorMarginFromNumber(margin))
 }
 
 /**
@@ -158,29 +189,37 @@ const carveVoxelIfClearable = (blocks: Uint16Array, index: number): void => {
 type CarveContext = {
   readonly blocks: Uint16Array
   readonly margin: number
-  readonly caveSeed: NoiseSeed
+  readonly caveNoise: NoiseFn3D
   readonly coord: ChunkCoord
+  readonly surfaceYs: Int16Array
 }
 
-type CaveBand = {
-  readonly from: number
-  readonly to: number
-}
+/** Highest non-air, non-water block in each column. */
+const computeSurfaceYs = (blocks: Uint16Array): Int16Array => {
+  const surfaces = new Int16Array(CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(NO_SURFACE_Y)
+  const scanTop = CHUNK_HEIGHT - TOP_Y_INDEX_OFFSET
 
-/** The vertical [from, to] band a cave occupies at this density. Taller where the field is stronger. */
-const caveBandForDensity = (density: number): CaveBand => {
-  const halfHeight = Math.floor((density - CAVE_THRESHOLD) * CAVE_HEIGHT_DENSITY_SCALE)
-  const centre = Math.floor(CAVE_FLOOR_Y + (CAVE_CEILING_Y - CAVE_FLOOR_Y) * density)
-
-  return {
-    from: Math.max(CAVE_FLOOR_Y, centre - halfHeight),
-    to: Math.min(CAVE_CEILING_Y, centre + halfHeight),
+  for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
+    for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
+      for (let y = scanTop; y > CAVE_FLOOR_Y; y -= AXIS_STEP) {
+        const block = readBlock(blocks, blockIndex(lx, y, lz))
+        if (block !== BLOCK.AIR && block !== BLOCK.WATER) {
+          surfaces[lz * CHUNK_SIZE_XZ + lx] = y
+          break
+        }
+      }
+    }
   }
+
+  return surfaces
 }
+
+/** Whether `y` is within the exposed solid shell above a dry cave. */
+const isWithinSurfaceShell = (y: number, surfaceY: number): boolean =>
+  surfaceY !== NO_SURFACE_Y && y > surfaceY - CAVE_SURFACE_MARGIN_BLOCKS
 
 /**
- * Carve one column, from its noise-derived cave band down to the
- * water-floor-shell guard on each voxel.
+ * Carve the 3D noise pocket in one column, respecting water and surface shells.
  *
  * ────────────────────────────────────────────────────────────────
  * THE GUARD. Leave a solid shell under any water body, or the bed
@@ -190,23 +229,23 @@ const caveBandForDensity = (density: number): CaveBand => {
  * ────────────────────────────────────────────────────────────────
  */
 const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz: number): void => {
-  const { blocks, margin, caveSeed, coord } = context
-  const density = valueNoise2D(
-    caveSeed,
-    worldX(coord, lx),
-    worldZ(coord, lz),
-    NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_WAVELENGTH_BLOCKS,
-  )
+  const { blocks, margin, caveNoise, coord, surfaceYs } = context
+  const surfaceY = readRequired(surfaceYs, lz * CHUNK_SIZE_XZ + lx)
+  const protectsSurface = waterFloorY === NO_WATER_FLOOR
+  const sampleX = worldX(coord, lx) * CAVE_NOISE_XZ_FREQUENCY
+  const sampleZ = worldZ(coord, lz) * CAVE_NOISE_XZ_FREQUENCY
 
-  if (density <= CAVE_THRESHOLD) {
-    return
-  }
-
-  const { from, to } = caveBandForDensity(density)
-
-  for (let y = from; y <= to; y += AXIS_STEP) {
-    if (!isWithinWaterFloorShell(y, waterFloorY, margin)) {
-      carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
+  for (let y = CAVE_FLOOR_Y; y <= CAVE_CEILING_Y; y += AXIS_STEP) {
+    if (
+      !(
+        (protectsSurface && isWithinSurfaceShell(y, surfaceY)) ||
+        isWithinWaterFloorShell(y, waterFloorY, margin)
+      )
+    ) {
+      const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
+      if (density > CAVE_THRESHOLD) {
+        carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
+      }
     }
   }
 }
@@ -221,16 +260,33 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
  * confined to a buffer this function's caller has just allocated and not yet
  * shared, so it is unobservable from outside `generateChunk`.
  */
-export const carveCaves = (
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const waterFloorMarginFromOptions = (options: unknown): Result.Result<ValidatedWaterFloorMargin, InvalidWaterFloorMargin> => {
+  if (!isRecord(options)) {
+    return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
+  }
+  const descriptor = Option.fromNullishOr(Object.getOwnPropertyDescriptor(options, 'waterFloorMargin'))
+  if (Option.isNone(descriptor)) {
+    return Result.succeed(waterFloorMarginFromNumber(WATER_FLOOR_MARGIN))
+  }
+  if (!('value' in descriptor.value)) {
+    return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
+  }
+  return validateWaterFloorMargin(descriptor.value.value)
+}
+
+const carveCavesWithMargin = (
   blocks: Uint16Array,
   seed: NoiseSeed,
   coord: ChunkCoord,
-  options: CarveOptions = {},
+  margin: ValidatedWaterFloorMargin,
 ): void => {
-  const margin = options.waterFloorMargin ?? WATER_FLOOR_MARGIN
   const waterFloors = computeWaterFloorYs(blocks, margin)
-  const caveSeed = channelSeed(seed, 'caves')
-  const context: CarveContext = { blocks, caveSeed, coord, margin }
+  const surfaceYs = computeSurfaceYs(blocks)
+  const caveNoise = createNoiseField(channelSeed(seed, 'caves')).noise3d
+  const context: CarveContext = { blocks, caveNoise, coord, margin, surfaceYs }
 
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
@@ -239,3 +295,31 @@ export const carveCaves = (
     }
   }
 }
+
+/** Carve caves into `blocks` after validating the public water-floor margin. */
+export const carveCaves = (
+  blocks: Uint16Array,
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  options: CarveOptions = {},
+): Result.Result<void, InvalidWaterFloorMargin> => {
+  const margin = waterFloorMarginFromOptions(options)
+  return Result.map(margin, (validatedMargin) => {
+    carveCavesWithMargin(blocks, seed, coord, validatedMargin)
+  })
+}
+
+/** Carve using a margin validated at the caller's public boundary. */
+export const carveCavesWithValidatedMargin = (
+  blocks: Uint16Array,
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  margin: ValidatedWaterFloorMargin = waterFloorMarginFromNumber(WATER_FLOOR_MARGIN),
+): void => carveCavesWithMargin(blocks, seed, coord, margin)
+
+/** Recreates the hollow-lake regression without exposing a zero-margin API at the package root. */
+export const carveCavesWithoutWaterFloorMarginForTesting = (
+  blocks: Uint16Array,
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+): void => carveCavesWithMargin(blocks, seed, coord, waterFloorMarginFromNumber(TEST_WATER_FLOOR_MARGIN))

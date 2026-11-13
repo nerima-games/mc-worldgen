@@ -1,14 +1,19 @@
 /* oxlint-disable no-magic-numbers */
+import * as fc from 'fast-check'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 
 // eslint-disable-next-line sort-imports -- The external imports precede the project module.
 import {
   type ClimateSample,
   classifyBiomeFromClimate,
+  biomeCategoryFromNoise,
+  refineBiomeCategoryForKernel,
   peaksAndValleysFromWeirdness,
   refineBeachBiome,
 } from '../src/domain/biome-classifier'
+import { BIOMES, KERNEL_BIOMES } from '../src/domain/biome'
+import { blockAxis } from './fixtures/validated-inputs'
 
 const climate = (overrides: Partial<ClimateSample> = {}): ClimateSample => ({
   continentalness: 0,
@@ -21,6 +26,21 @@ const climate = (overrides: Partial<ClimateSample> = {}): ClimateSample => ({
 })
 
 describe('biome classifier', () => {
+  it.effect('refines mountain, snow, and mangrove variants and rejects unknown categories', () => Effect.sync(() => {
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('MOUNTAINS', climate({ temperature: 0.2 }), blockAxis(180)))).toBe('frozen_peaks')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('MOUNTAINS', climate({ temperature: 0.5 }), blockAxis(180)))).toBe('jagged_peaks')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('SNOW', climate(), blockAxis(180)))).toBe('frozen_peaks')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('SNOW', climate(), blockAxis(150)))).toBe('snowy_slopes')
+    expect(Result.getOrThrow(refineBiomeCategoryForKernel('SWAMP', climate({ temperature: 0.9, humidity: 0.9 }), blockAxis(70)))).toBe('mangrove_swamp')
+    expect(Result.getOrThrow(biomeCategoryFromNoise('PLAINS'))).toBe('PLAINS')
+
+    const unsupported = biomeCategoryFromNoise('NOT_A_BIOME')
+    expect(Result.isFailure(unsupported)).toBe(true)
+    if (Result.isFailure(unsupported)) {
+      expect(unsupported.failure).toMatchObject({ _tag: 'UnsupportedBiomeCategory', category: 'NOT_A_BIOME' })
+    }
+  }))
+
   it.effect('converts weirdness to peaks and valleys', () =>
     Effect.sync(() => {
       expect(peaksAndValleysFromWeirdness(0)).toBe(-1)
@@ -76,6 +96,129 @@ describe('biome classifier', () => {
           }),
         ),
       ).toBe('FLOWER_FOREST')
+    }),
+  )
+
+  it.effect('refines swamp and mountain climates on each climate boundary', () => Effect.sync(() => {
+    const wetSwamp = climate({
+      continentalness: 0.4,
+      erosion: 0.2,
+      humidity: 0.9,
+      temperature: 0.6,
+    })
+    const erodedSwamp = climate({
+      continentalness: 0.3,
+      erosion: 0.1,
+      humidity: 0.9,
+      temperature: 0.6,
+    })
+    const unchangedSwamp = climate({
+      continentalness: 0.3,
+      erosion: 0.2,
+      humidity: 0.9,
+      temperature: 0.6,
+    })
+    const lowMountaininess = climate({
+      continentalness: 0.5,
+      erosion: 0.1,
+      humidity: 0.5,
+      pv: 0,
+      riverNoise: 0.1,
+      temperature: 0.2,
+    })
+    const moderateMountaininess = { ...lowMountaininess, pv: 0.3 }
+
+    expect(classifyBiomeFromClimate(wetSwamp)).toBe('FOREST')
+    expect(classifyBiomeFromClimate(erodedSwamp)).toBe('FOREST')
+    expect(classifyBiomeFromClimate(unchangedSwamp)).toBe('SWAMP')
+    expect(classifyBiomeFromClimate(lowMountaininess)).toBe('TAIGA')
+    expect(classifyBiomeFromClimate(moderateMountaininess)).toBe('MOUNTAINS')
+  }))
+
+  it.effect('refines every mc-noise category to a registered kernel biome', () =>
+    Effect.sync(() => {
+      for (const category of BIOMES) {
+        const result = refineBiomeCategoryForKernel(category, climate(), blockAxis(100))
+        expect(Result.isSuccess(result), `${category} should be supported`).toBe(true)
+        if (Result.isSuccess(result)) {
+          expect(KERNEL_BIOMES).toContain(result.success)
+        }
+      }
+    }),
+  )
+
+  it.effect('refines mountain categories to concrete height and climate variants', () =>
+    Effect.sync(() => {
+      const cases: ReadonlyArray<readonly [ClimateSample, number, string]> = [
+        [climate({ temperature: 0.2 }), 190, 'frozen_peaks'],
+        [climate({ temperature: 0.2 }), 160, 'snowy_slopes'],
+        [climate({ erosion: 0.2 }), 160, 'windswept_gravelly_hills'],
+        [climate({ erosion: 0.8 }), 160, 'stony_peaks'],
+        [climate({ humidity: 0.8, temperature: 0.8 }), 130, 'cherry_grove'],
+        [climate({ humidity: 0.6 }), 130, 'windswept_forest'],
+        [climate({ temperature: 0.2 }), 130, 'grove'],
+        [climate(), 130, 'windswept_hills'],
+      ]
+
+      for (const [sample, surfaceY, expected] of cases) {
+        const result = refineBiomeCategoryForKernel('MOUNTAINS', sample, blockAxis(surfaceY))
+        expect(Result.isSuccess(result)).toBe(true)
+        if (Result.isSuccess(result)) {
+          expect(result.success).toBe(expected)
+          expect(KERNEL_BIOMES).toContain(result.success)
+        }
+      }
+    }),
+  )
+
+  it.effect('fails with a tagged error for unknown runtime classifier values', () =>
+    Effect.sync(() => {
+      const result = refineBiomeCategoryForKernel('UNRECOGNIZED_CATEGORY', climate(), blockAxis(80))
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: 'UnsupportedBiomeCategory',
+          category: 'UNRECOGNIZED_CATEGORY',
+          receivedType: 'string',
+        })
+      }
+    }),
+  )
+
+  it.effect('returns a registered biome or a tagged failure for arbitrary runtime categories and climates', () =>
+    Effect.sync(() => {
+      const categories = new Set<string>(BIOMES)
+      fc.assert(
+        fc.property(
+          fc.anything(),
+          fc.record({
+            continentalness: fc.integer({ min: -1000, max: 1000 }),
+            erosion: fc.integer({ min: -1000, max: 1000 }),
+            humidity: fc.integer({ min: -1000, max: 1000 }),
+            pv: fc.integer({ min: -1000, max: 1000 }),
+            riverNoise: fc.integer({ min: -1000, max: 1000 }),
+            temperature: fc.integer({ min: -1000, max: 1000 }),
+          }),
+          fc.integer({ min: -64, max: 511 }),
+          (category, climateSample, surfaceY) => {
+            const result = refineBiomeCategoryForKernel(category, climateSample, blockAxis(surfaceY))
+            if (typeof category === 'string' && categories.has(category)) {
+              expect(Result.isSuccess(result)).toBe(true)
+              if (Result.isSuccess(result)) {
+                expect(KERNEL_BIOMES).toContain(result.success)
+              }
+              return
+            }
+
+            expect(Result.isFailure(result)).toBe(true)
+            if (Result.isFailure(result)) {
+              expect(result.failure._tag).toBe('UnsupportedBiomeCategory')
+            }
+          },
+        ),
+        { numRuns: 128, seed: 0x71e29 },
+      )
     }),
   )
 })

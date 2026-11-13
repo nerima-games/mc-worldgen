@@ -30,7 +30,7 @@ import {
 const rootDir = process.cwd()
 
 const label = (entry: GoldenEntry): string =>
-  `${entry.biome.padEnd(8, ' ')} (${String(entry.cx)}, ${String(entry.cz)})${entry.decorate ? '' : ' no-decorate'}`
+  `(${String(entry.cx)}, ${String(entry.cz)})${entry.decorate ? '' : ' no-decorate'}`
 
 const readExisting = async (file: string): Promise<GoldenFile | undefined> => {
   const raw = await readFile(file, 'utf8').catch(() => undefined)
@@ -44,7 +44,7 @@ const readExisting = async (file: string): Promise<GoldenFile | undefined> => {
   }
 }
 
-/** Match by identity — biome plus coordinate plus decoration — never by position. */
+/** Match by coordinate and decoration, never by position. */
 const findPrevious = (
   previous: GoldenFile | undefined,
   entry: GoldenEntry,

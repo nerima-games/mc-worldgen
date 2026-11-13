@@ -1,202 +1,167 @@
-/**
- * Ore veins.
- *
- * `domain/ore.ts` transcribes the reference's vein-growth algorithm and
- * RE-DERIVES three of its seven depth bands, and that second half is the part
- * that needs evidence rather than assertion. This repository's own
- * `CONTINENTALNESS_CONTRAST` obituary (`domain/terrain.ts`) is about a constant
- * justified by a measurement of the wrong population, and a transcribed ore band
- * is exactly that shape of risk: the numbers are real, they are cited, and they
- * describe somebody else's terrain.
- *
- * So the load-bearing test here is `O-5`, which does what `test/carver.test.ts`
- * does for the water-floor guard — it REPRODUCES THE DEFECT. It runs the
- * reference's bands verbatim against this repository's stone and measures the
- * shortfall, so the claim in `domain/ore.ts`'s header is checked by the suite
- * rather than by a comment. A correction that cannot demonstrate what it
- * corrected is only asserting that today's code does what today's code does.
- *
- * `O-1` .. `O-4` are the independent properties that back the ore half of the
- * regenerated goldens (docs/testing.md §3). None reads the committed digests.
- */
 import { describe, expect, it } from '@effect/vitest'
+import * as fc from 'fast-check'
 import { Effect } from 'effect'
-import { BLOCK } from '../src/domain/biome'
-import { readBlock, type Chunk } from '../src/domain/chunk'
-import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../src/domain/constants'
-import { worldX, worldZ } from '../src/domain/generator-coordinates'
+import type { BiomeType } from '@nerima-games/mc-kernel/domain/biome'
 import type { ChunkCoord } from '@nerima-games/mc-kernel/domain/coordinates'
+import { BLOCK } from '../src/domain/biome'
+import { BEDROCK_Y, blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEEPSLATE_CEILING } from '../src/domain/constants'
 import {
   DEEPSLATE_ORE_BLOCK,
-  MAX_SEED_ATTEMPTS,
+  EMERALD_MOUNTAIN_BIOME_IDS,
   ORE_BLOCK,
   ORE_CONFIGS,
   ORE_IDS,
   ORE_MAX_Y,
   ORE_MIN_Y_FLOOR,
+  UNAVAILABLE_ORE_FEATURES,
   growVein,
   oreStreamSeed,
+  placeOres,
   sampleOreY,
   type OreConfig,
   type OreName,
 } from '../src/domain/ore'
-import { mulberry32, type NoiseSeed } from '@nerima-games/mc-noise'
-import { MAX_SURFACE_Y, generateChunkAt, terrainColumnAt } from './helpers/unwrapped-worldgen'
-import { GOLDEN_SEED } from '../scripts/golden-fixture'
-import { blockAxis, chunkAxis, noiseSeed } from './fixtures/validated-inputs'
-import type { ChunkAxis } from '@nerima-games/mc-kernel/domain/coordinates'
+import { mulberry32 } from '@nerima-games/mc-noise'
+import { chunkAxis, noiseSeed } from './fixtures/validated-inputs'
+import { generateChunkAt } from './helpers/unwrapped-worldgen'
 
-const ORE_ID_SET = new Set<number>(ORE_IDS)
+const COLUMN_COUNT = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
+const BLOCK_COUNT = CHUNK_HEIGHT * COLUMN_COUNT
+const FALLBACK_ORE_MIN_Y = 10
+const FALLBACK_ORE_MAX_Y = 20
+const FALLBACK_ORE_EXPECTED_Y = 16
+const BIOME_FILTER_SEED = 1234
+const ORE_SAMPLE_SEED_SEARCH_LIMIT = 128
+const ORE_NAMES: ReadonlyArray<OreName> = ['COAL', 'COPPER', 'DIAMOND', 'EMERALD', 'GOLD', 'IRON', 'LAPIS', 'REDSTONE']
+const EMERALD_MOUNTAIN_BIOME_SET: ReadonlySet<string> = new Set(EMERALD_MOUNTAIN_BIOME_IDS)
 
-/**
- * The reference's `ORE_CONFIGS`, verbatim from
- * `packages/world/domain/terrain/constants.ts:72-78`.
- *
- * Restated here rather than imported so the comparison remains explicit: the
- * reference is not a dependency, and the point of the comparison is that a
- * reviewer can check the transcription against the source without running
- * anything.
- */
-const REFERENCE_CONFIGS: ReadonlyArray<OreConfig> = [
-  { name: 'COAL', minY: 12, maxY: 180, peakY: 96, avgVeins: 18, minSize: 6, maxSize: 14, saltX: 10007, saltZ: 20011 },
-  { name: 'IRON', minY: 8, maxY: 128, peakY: 48, avgVeins: 12, minSize: 4, maxSize: 9, saltX: 30013, saltZ: 40013 },
-  { name: 'GOLD', minY: 5, maxY: 48, peakY: 24, avgVeins: 4, minSize: 3, maxSize: 7, saltX: 50021, saltZ: 60029 },
-  { name: 'DIAMOND', minY: 5, maxY: 16, peakY: 8, avgVeins: 2, minSize: 2, maxSize: 6, saltX: 70037, saltZ: 80039 },
-  { name: 'REDSTONE', minY: 5, maxY: 20, peakY: 8, avgVeins: 5, minSize: 3, maxSize: 7, saltX: 90043, saltZ: 100049 },
-  { name: 'LAPIS', minY: 8, maxY: 72, peakY: 28, avgVeins: 3, minSize: 3, maxSize: 6, saltX: 110059, saltZ: 120071 },
-  { name: 'EMERALD', minY: 24, maxY: 160, peakY: 96, avgVeins: 2, minSize: 1, maxSize: 3, saltX: 130081, saltZ: 140089 },
-]
-
-/** The rate a row's own tuning asks for: veins per chunk times mean vein size. */
-const intendedRate = (config: OreConfig): number => config.avgVeins * ((config.minSize + config.maxSize) / 2)
-
-/** A survey block. 36 chunks is enough for a 4-per-chunk ore to have ~144 samples. */
-const SURVEY = 3
-const SURVEY_CHUNK_AXES: ReadonlyArray<ChunkAxis> = [
-  chunkAxis(-3),
-  chunkAxis(-2),
-  chunkAxis(-1),
-  chunkAxis(0),
-  chunkAxis(1),
-  chunkAxis(2),
-]
-
-const surveyChunks = (seed: number): ReadonlyArray<Chunk> => {
-  const chunks: Array<Chunk> = []
-  for (let cx = -SURVEY; cx < SURVEY; cx += 1) {
-    for (let cz = -SURVEY; cz < SURVEY; cz += 1) {
-      chunks.push(generateChunkAt(noiseSeed(seed), chunkAxis(cx), chunkAxis(cz)))
-    }
+const allPlainsBiomes = (): ReadonlyArray<BiomeType> => {
+  const biomes: Array<BiomeType> = []
+  for (let index = 0; index < COLUMN_COUNT; index += 1) {
+    biomes.push('plains')
   }
-  return chunks
+  return biomes
 }
 
-const countOre = (chunks: ReadonlyArray<Chunk>): ReadonlyMap<number, number> => {
-  const counts = new Map<number, number>()
-  for (const chunk of chunks) {
-    for (const value of chunk.blocks) {
-      if (ORE_ID_SET.has(value)) {
-        counts.set(value, (counts.get(value) ?? 0) + 1)
+const allMountainBiomes = (): ReadonlyArray<BiomeType> => {
+  const biomes: Array<BiomeType> = []
+  for (let index = 0; index < COLUMN_COUNT; index += 1) {
+    biomes.push('meadow')
+  }
+  return biomes
+}
+
+const solidOverworldBlocks = (): Uint16Array => {
+  const blocks = new Uint16Array(BLOCK_COUNT)
+  for (let x = 0; x < CHUNK_SIZE_XZ; x += 1) {
+    for (let z = 0; z < CHUNK_SIZE_XZ; z += 1) {
+      for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+        const block = y === BEDROCK_Y
+          ? BLOCK.BEDROCK
+          : y < DEEPSLATE_CEILING
+            ? BLOCK.DEEPSLATE
+            : BLOCK.STONE
+        blocks[blockIndex(x, y, z)] = block
       }
     }
   }
-  return counts
+  return blocks
 }
 
-/**
- * Run an arbitrary band table over real generated stone.
- *
- * The chunk is generated normally and its ore is reverted to STONE first, so the
- * input is the post-carve stone the shipped pass actually sees. That is what
- * makes the O-5 comparison fair: both band tables are scored against the same
- * rock.
- */
-const placeWithBands = (
-  configs: ReadonlyArray<OreConfig>,
-  seed: NoiseSeed,
-  chunkX: ChunkAxis,
-  chunkZ: ChunkAxis,
-): number => {
-  const chunk = generateChunkAt(seed, chunkX, chunkZ, { decorate: false })
-  for (let index = 0; index < chunk.blocks.length; index += 1) {
-    if (ORE_ID_SET.has(readBlock(chunk.blocks, index))) {
-      chunk.blocks[index] = BLOCK.STONE
-    }
+const oreNameById = (): ReadonlyMap<number, OreName> => {
+  const entries = new Map<number, OreName>()
+  for (const name of ORE_NAMES) {
+    entries.set(ORE_BLOCK[name], name)
+    entries.set(DEEPSLATE_ORE_BLOCK[name], name)
   }
-
-  const coord: ChunkCoord = { cx: chunkX, cz: chunkZ }
-  const baseWorldX = coord.cx * CHUNK_SIZE_XZ
-  const baseWorldZ = coord.cz * CHUNK_SIZE_XZ
-  let placed = 0
-
-  for (const config of configs) {
-    const next = mulberry32(oreStreamSeed(seed, config, baseWorldX, baseWorldZ))
-    const count = Math.max(0, Math.round(config.avgVeins - 1 + next() * 2))
-    const yMin = Math.max(config.minY, ORE_MIN_Y_FLOOR)
-    const yMax = Math.min(config.maxY, CHUNK_HEIGHT - 1)
-    if (yMax < yMin) {
-      continue
-    }
-    const ore = ORE_BLOCK[config.name]
-
-    for (let vein = 0; vein < count; vein += 1) {
-      const veinSize = config.minSize + Math.floor(next() * (config.maxSize - config.minSize + 1))
-      for (let attempt = 0; attempt < MAX_SEED_ATTEMPTS; attempt += 1) {
-        const seedX = Math.floor(next() * CHUNK_SIZE_XZ)
-        const seedY = sampleOreY(config, yMin, yMax, next)
-        const seedZ = Math.floor(next() * CHUNK_SIZE_XZ)
-        if (readBlock(chunk.blocks, blockIndex(seedX, seedY, seedZ)) !== BLOCK.STONE) {
-          continue
-        }
-        placed += growVein({
-          blocks: chunk.blocks,
-          host: BLOCK.STONE,
-          next,
-          ore,
-          seedX,
-          seedY,
-          seedZ,
-          targetSize: veinSize,
-          yMax,
-          yMin,
-        })
-        break
-      }
-    }
-  }
-
-  return placed
+  return entries
 }
 
-const ratePerChunk = (configs: ReadonlyArray<OreConfig>, config: OreConfig, seed: NoiseSeed): number => {
-  let total = 0
-  let chunks = 0
-  for (const chunkX of SURVEY_CHUNK_AXES) {
-    for (const chunkZ of SURVEY_CHUNK_AXES) {
-      chunks += 1
-      total += placeWithBands([config], seed, chunkX, chunkZ)
-    }
+const ORE_NAME_BY_ID = oreNameById()
+
+const orePlacementsIn = (blocks: Uint16Array): ReadonlyArray<Readonly<{ id: number; index: number; name: OreName; y: number }>> => {
+  const placements: Array<Readonly<{ id: number; index: number; name: OreName; y: number }>> = []
+  for (let index = 0; index < blocks.length; index += 1) {
+    const id = blocks[index]
+    if (id === undefined) continue
+    const name = ORE_NAME_BY_ID.get(id)
+    if (name === undefined) continue
+    placements.push({ id, index, name, y: index % CHUNK_HEIGHT })
   }
-  void configs
-  return total / chunks
+  return placements
 }
 
-describe('the ore id table', () => {
-  it.effect('carries kernel’s seven stone and seven deepslate ore ids', () =>
+// Independent Java Edition 26.3 expectations from the Minecraft Wiki:
+// https://minecraft.wiki/w/Copper_ore and https://minecraft.wiki/w/Ore_%28feature%29
+// https://minecraft.wiki/w/Deepslate_Emerald_Ore
+const expectedFeatureRows = [
+  { feature: 'coal-lower', name: 'COAL', minY: 0, maxY: 192, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 20, size: 17, biomeRule: null },
+  { feature: 'coal-upper', name: 'COAL', minY: 136, maxY: 319, distribution: 'uniform', plateau: 0, attemptsPerChunk: 30, size: 17, biomeRule: null },
+  { feature: 'iron-small', name: 'IRON', minY: -64, maxY: 72, distribution: 'uniform', plateau: 0, attemptsPerChunk: 10, size: 4, biomeRule: null },
+  { feature: 'iron-middle', name: 'IRON', minY: -24, maxY: 56, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 10, size: 9, biomeRule: null },
+  { feature: 'iron-upper', name: 'IRON', minY: 80, maxY: 384, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 90, size: 9, biomeRule: null },
+  { feature: 'copper-small', name: 'COPPER', minY: -16, maxY: 112, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 16, size: 10, biomeRule: 'not-dripstone-caves' },
+  { feature: 'redstone', name: 'REDSTONE', minY: -64, maxY: 15, distribution: 'uniform', plateau: 0, attemptsPerChunk: 4, size: 8, biomeRule: null },
+  { feature: 'redstone-lower', name: 'REDSTONE', minY: -64, maxY: -32, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 8, size: 8, biomeRule: null },
+  { feature: 'lapis', name: 'LAPIS', minY: -32, maxY: 32, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 2, size: 7, biomeRule: null },
+  { feature: 'lapis-buried', name: 'LAPIS', minY: -64, maxY: 64, distribution: 'uniform', plateau: 0, attemptsPerChunk: 4, size: 7, biomeRule: null },
+  { feature: 'gold', name: 'GOLD', minY: -64, maxY: 32, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 4, size: 9, biomeRule: null },
+  { feature: 'gold-lower', name: 'GOLD', minY: -64, maxY: -48, distribution: 'uniform', plateau: 0, attemptsPerChunk: 0.5, size: 9, biomeRule: null },
+  { feature: 'gold-extra', name: 'GOLD', minY: 32, maxY: 256, distribution: 'uniform', plateau: 0, attemptsPerChunk: 50, size: 9, biomeRule: 'badlands' },
+  { feature: 'diamond-small', name: 'DIAMOND', minY: -64, maxY: 16, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 7, size: 4, biomeRule: null },
+  { feature: 'diamond-buried', name: 'DIAMOND', minY: -64, maxY: 16, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 4, size: 8, biomeRule: null },
+  { feature: 'diamond-large', name: 'DIAMOND', minY: -64, maxY: 16, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 1 / 9, size: 12, biomeRule: null },
+  { feature: 'diamond-medium', name: 'DIAMOND', minY: -64, maxY: -4, distribution: 'uniform', plateau: 0, attemptsPerChunk: 2, size: 8, biomeRule: null },
+  { feature: 'emerald', name: 'EMERALD', minY: -16, maxY: 480, distribution: 'trapezoid', plateau: 0, attemptsPerChunk: 100, size: 3, biomeRule: 'mountain' },
+] as const
+
+const rowOf = (config: OreConfig) => ({
+  feature: config.feature,
+  name: config.name,
+  minY: config.minY,
+  maxY: config.maxY,
+  distribution: config.distribution,
+  plateau: config.plateau ?? 0,
+  attemptsPerChunk: config.attemptsPerChunk,
+  size: config.size,
+  biomeRule: config.biomeRule ?? null,
+})
+
+describe('the vanilla ore feature table', () => {
+  it.effect('matches Java Edition feature ranges, attempts, sizes, distributions and biome filters', () =>
     Effect.sync(() => {
-      // `mc-kernel/domain/block-registry.ts:1367-1444`; the implementation
-      // obtains these values through `blockIdOf`, rather than mirroring them.
+      expect(ORE_CONFIGS.map(rowOf)).toStrictEqual(expectedFeatureRows)
+      expect(UNAVAILABLE_ORE_FEATURES).toStrictEqual([{
+        feature: 'copper-large',
+        reason: 'Tracked in the facilitator W6 FIX list: "Y で決まる洞窟のバイオームと copper-large".',
+      }])
+      expect(ORE_MIN_Y_FLOOR).toBe(0)
+      expect(ORE_MAX_Y).toBe(255)
+
+      const clippedDiamondMedium = ORE_CONFIGS.find((config) => config.feature === 'diamond-medium')
+      expect(clippedDiamondMedium).toBeDefined()
+      if (clippedDiamondMedium === undefined) return
+      expect(Math.min(clippedDiamondMedium.maxY, ORE_MAX_Y)).toBeLessThan(
+        Math.max(clippedDiamondMedium.minY, ORE_MIN_Y_FLOOR),
+      )
+    }),
+  )
+
+  it.effect('uses only the supported stone and deepslate ore ids, including kernel copper ids', () =>
+    Effect.sync(() => {
       expect(ORE_BLOCK).toStrictEqual({
         COAL: 50,
-        IRON: 51,
-        GOLD: 52,
+        COPPER: 123,
         DIAMOND: 53,
-        REDSTONE: 54,
-        LAPIS: 55,
         EMERALD: 56,
+        GOLD: 52,
+        IRON: 51,
+        LAPIS: 55,
+        REDSTONE: 54,
       })
       expect(DEEPSLATE_ORE_BLOCK).toStrictEqual({
         COAL: 57,
+        COPPER: 124,
         DIAMOND: 60,
         EMERALD: 63,
         GOLD: 59,
@@ -204,423 +169,422 @@ describe('the ore id table', () => {
         LAPIS: 62,
         REDSTONE: 61,
       })
-      expect(ORE_IDS).toHaveLength(14)
-      expect(new Set(ORE_IDS).size).toBe(ORE_IDS.length)
+      expect(ORE_IDS).toHaveLength(16)
+      expect(new Set(ORE_IDS).size).toBe(16)
     }),
   )
 
-  it.effect('does not collide with any terrain id', () =>
+  it.effect('keeps the documented mountain biome set for emerald', () =>
     Effect.sync(() => {
-      const terrain = new Set<number>(Object.values(BLOCK))
-      for (const id of ORE_IDS) {
-        expect(terrain.has(id), `ore id ${String(id)} collides with a BLOCK id`).toBe(false)
-      }
+      expect(EMERALD_MOUNTAIN_BIOME_IDS).toStrictEqual([
+        'meadow',
+        'cherry_grove',
+        'grove',
+        'snowy_slopes',
+        'jagged_peaks',
+        'frozen_peaks',
+        'stony_peaks',
+        'windswept_hills',
+        'windswept_gravelly_hills',
+        'windswept_forest',
+      ])
     }),
   )
 })
 
-describe('the depth bands', () => {
-  /**
-   * `ORE_MAX_Y` is written as a literal in `domain/ore.ts` because importing
-   * `MAX_SURFACE_Y` from `domain/terrain.ts` would close an import cycle. This
-   * is where the derivation is checked instead — and then checked again,
-   * empirically, against real terrain in the test below it.
-   */
-  it.effect('derive ORE_MAX_Y from the terrain shaper, not from a guess', () =>
+describe('ore height providers', () => {
+  it.effect('samples uniform endpoints and the vanilla trapezoid formula at boundaries', () =>
     Effect.sync(() => {
-      // `fillColumn` writes STONE over [BEDROCK_Y + 1, surfaceY - FILLER_DEPTH)
-      // with FILLER_DEPTH = 4, so the topmost possible stone cell is
-      // MAX_SURFACE_Y - 4 - 1.
-      const fillerDepth = 4
-      expect(ORE_MAX_Y).toBe(MAX_SURFACE_Y - fillerDepth - 1)
-      expect(ORE_MIN_Y_FLOOR).toBe(BEDROCK_Y + 1)
+      const uniformRow = expectedFeatureRows.find((row) => row.distribution === 'uniform')
+      const trapezoidRow = expectedFeatureRows.find((row) => row.distribution === 'trapezoid')
+      const uniform = ORE_CONFIGS.find((config) => config.feature === uniformRow?.feature)
+      const trapezoid = ORE_CONFIGS.find((config) => config.feature === trapezoidRow?.feature)
+      expect(uniform).toBeDefined()
+      expect(trapezoid).toBeDefined()
+      expect(uniformRow).toBeDefined()
+      expect(trapezoidRow).toBeDefined()
+      if (uniform === undefined || trapezoid === undefined || uniformRow === undefined || trapezoidRow === undefined) return
+
+      expect(sampleOreY(uniform, 10, 18, () => 0)).toBe(10)
+      expect(sampleOreY(uniform, 10, 18, () => 0.999999)).toBe(18)
+
+      const ironSmallRow = expectedFeatureRows.find((row) => row.feature === 'iron-small')
+      const ironUpperRow = expectedFeatureRows.find((row) => row.feature === 'iron-upper')
+      const ironSmall = ORE_CONFIGS.find((config) => config.feature === ironSmallRow?.feature)
+      const ironUpper = ORE_CONFIGS.find((config) => config.feature === ironUpperRow?.feature)
+      expect(ironSmall).toBeDefined()
+      expect(ironUpper).toBeDefined()
+      expect(ironSmallRow).toBeDefined()
+      expect(ironUpperRow).toBeDefined()
+      if (ironSmall === undefined || ironUpper === undefined || ironSmallRow === undefined || ironUpperRow === undefined) return
+      expect(sampleOreY(ironSmall, ironSmallRow.minY, ironSmallRow.maxY, () => 0)).toBe(ironSmallRow.minY)
+      expect(sampleOreY(ironUpper, ironUpperRow.minY, ironUpperRow.maxY, () => 0.999999)).toBe(ironUpperRow.maxY)
+
+      let trapezoidDraws = 0
+      const edgeTrapezoid = sampleOreY(trapezoid, 10, 18, () => {
+        trapezoidDraws += 1
+        return trapezoidDraws === 1 ? 0 : 0.999999
+      })
+      expect(edgeTrapezoid).toBe(14)
+      expect(trapezoidDraws).toBe(2)
+
+      expect(sampleOreY(trapezoid, 40, 40, () => 0.5)).toBe(40)
+
+      const copper = ORE_CONFIGS.find((config) => config.feature === 'copper-small')
+      const emerald = ORE_CONFIGS.find((config) => config.feature === 'emerald')
+      expect(copper).toBeDefined()
+      expect(emerald).toBeDefined()
+      if (copper === undefined || emerald === undefined) return
+
+      expect(sampleOreY(copper, -16, 112, () => 0.5)).toBe(48)
+      expect(sampleOreY(emerald, -16, 480, () => 0.5)).toBe(232)
+
+      const trapezoidWithoutPlateau: OreConfig = {
+        attemptsPerChunk: 1,
+        distribution: 'trapezoid',
+        feature: 'coal-lower',
+        maxY: FALLBACK_ORE_MAX_Y,
+        minY: FALLBACK_ORE_MIN_Y,
+        name: 'COAL',
+        size: 1,
+      }
+      expect(sampleOreY(trapezoidWithoutPlateau, FALLBACK_ORE_MIN_Y, FALLBACK_ORE_MAX_Y, () => 0.5)).toBe(FALLBACK_ORE_EXPECTED_Y)
     }),
   )
 
-  it.effect('O-1: no generated chunk holds stone above ORE_MAX_Y, so nothing above it is reachable', () =>
+  it.effect('samples the original vanilla range even when its levels are outside the stored Y interval', () =>
     Effect.sync(() => {
-      let highestStone = -1
+      let outsideStoredYDraws = 0
+      for (const expected of expectedFeatureRows) {
+        const config = ORE_CONFIGS.find((row) => row.feature === expected.feature)
+        if (config === undefined) throw new Error(`missing configured ore feature ${expected.feature}`)
+        const next = mulberry32(noiseSeed(expected.feature.length))
+        for (let draw = 0; draw < 50; draw += 1) {
+          const y = sampleOreY(config, expected.minY, expected.maxY, next)
+          expect(y).toBeGreaterThanOrEqual(expected.minY)
+          expect(y).toBeLessThanOrEqual(expected.maxY)
+          if (y < ORE_MIN_Y_FLOOR || y > ORE_MAX_Y) {
+            outsideStoredYDraws += 1
+          }
+        }
+      }
+      expect(outsideStoredYDraws).toBeGreaterThan(0)
+    }),
+  )
 
-      for (const chunk of surveyChunks(GOLDEN_SEED)) {
-        for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-          for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            for (let y = CHUNK_HEIGHT - 1; y >= 0; y -= 1) {
-              if (readBlock(chunk.blocks, blockIndex(lx, y, lz)) === BLOCK.STONE) {
-                highestStone = Math.max(highestStone, y)
-                break
-              }
-            }
+  it.effect('skips an off-buffer iron sample instead of redistributing it into the chunk', () =>
+    Effect.sync(() => {
+      const expected = expectedFeatureRows.find((row) => row.feature === 'iron-small')
+      const config = ORE_CONFIGS.find((row) => row.feature === expected?.feature)
+      expect(config).toBeDefined()
+      expect(expected).toBeDefined()
+      if (config === undefined || expected === undefined) return
+
+      const coord: ChunkCoord = { cx: chunkAxis(0), cz: chunkAxis(0) }
+      let foundSkippedSample = false
+      for (let seedValue = 0; seedValue < ORE_SAMPLE_SEED_SEARCH_LIMIT && !foundSkippedSample; seedValue += 1) {
+        const seed = noiseSeed(seedValue)
+        const fullRangeNext = mulberry32(oreStreamSeed(seed, config, 0, 0))
+        const seedX = Math.floor(fullRangeNext() * CHUNK_SIZE_XZ)
+        const vanillaY = sampleOreY(config, expected.minY, expected.maxY, fullRangeNext)
+        const seedZ = Math.floor(fullRangeNext() * CHUNK_SIZE_XZ)
+
+        const clippedRangeNext = mulberry32(oreStreamSeed(seed, config, 0, 0))
+        const clippedX = Math.floor(clippedRangeNext() * CHUNK_SIZE_XZ)
+        const clippedY = sampleOreY(
+          config,
+          Math.max(expected.minY, ORE_MIN_Y_FLOOR),
+          Math.min(expected.maxY, ORE_MAX_Y),
+          clippedRangeNext,
+        )
+        const clippedZ = Math.floor(clippedRangeNext() * CHUNK_SIZE_XZ)
+
+        if (vanillaY >= ORE_MIN_Y_FLOOR || clippedY < DEEPSLATE_CEILING) continue
+
+        expect(seedX).toBe(clippedX)
+        expect(seedZ).toBe(clippedZ)
+        const blocks = new Uint16Array(BLOCK_COUNT)
+        blocks[blockIndex(clippedX, clippedY, clippedZ)] = BLOCK.STONE
+        placeOres(blocks, seed, coord, allPlainsBiomes())
+        foundSkippedSample = !blocks.some((block) => ORE_IDS.includes(block))
+      }
+
+      expect(foundSkippedSample).toBe(true)
+    }),
+  )
+})
+
+describe('ore placement', () => {
+  it.effect('fails closed when biome-filtered features have missing or unrecognized biome ids', () =>
+    Effect.sync(() => {
+      const coord: ChunkCoord = { cx: chunkAxis(0), cz: chunkAxis(0) }
+      const missingBiomeBlocks = solidOverworldBlocks()
+      placeOres(missingBiomeBlocks, noiseSeed(BIOME_FILTER_SEED), coord, [])
+      expect(missingBiomeBlocks).not.toContain(ORE_BLOCK.EMERALD)
+      expect(missingBiomeBlocks).not.toContain(DEEPSLATE_ORE_BLOCK.EMERALD)
+
+      const goldExtra = ORE_CONFIGS.find((config) => config.feature === 'gold-extra')
+      if (goldExtra === undefined) throw new Error('gold-extra feature is required by the vanilla table')
+      const previousRule = goldExtra.biomeRule
+      expect(Reflect.set(goldExtra, 'biomeRule', 'unregistered')).toBe(true)
+      try {
+        placeOres(solidOverworldBlocks(), noiseSeed(BIOME_FILTER_SEED), coord, allPlainsBiomes())
+      } finally {
+        Reflect.set(goldExtra, 'biomeRule', previousRule)
+      }
+      expect(goldExtra.biomeRule).toBe(previousRule)
+    }),
+  )
+
+  it.effect('skips off-buffer samples and keeps every placed ore inside its clipped feature band', () =>
+    Effect.sync(() => {
+      const blocks = solidOverworldBlocks()
+      const biomes = allPlainsBiomes()
+      const coord: ChunkCoord = { cx: chunkAxis(-2), cz: chunkAxis(3) }
+      placeOres(blocks, noiseSeed(20261109), coord, biomes)
+
+      let placed = 0
+      const placedNames = new Set<OreName>()
+      for (let x = 0; x < CHUNK_SIZE_XZ; x += 1) {
+        for (let z = 0; z < CHUNK_SIZE_XZ; z += 1) {
+          for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+            const block = blocks[blockIndex(x, y, z)]
+            if (block === undefined) continue
+            const name = ORE_NAME_BY_ID.get(block)
+            if (name === undefined) continue
+
+            placed += 1
+            placedNames.add(name)
+            expect(ORE_IDS).toContain(block)
+            expect(
+              expectedFeatureRows.some((expected) =>
+                expected.name === name &&
+                y >= Math.max(expected.minY, ORE_MIN_Y_FLOOR) &&
+                y <= Math.min(expected.maxY, ORE_MAX_Y),
+              ),
+              `${name} at Y=${String(y)} has no vanilla feature range`,
+            ).toBe(true)
           }
         }
       }
 
-      expect(highestStone).toBeGreaterThan(0)
-      expect(highestStone, 'stone exists above the declared ore ceiling').toBeLessThan(ORE_MAX_Y + 1)
+      expect(placed).toBeGreaterThan(0)
+      expect(placedNames).toContain('COPPER')
     }),
   )
 
-  it.effect('keep every peak inside its own band, which is the failure COAL and EMERALD had', () =>
+  it.effect('places every supported ore kind across fixed deterministic seed and chunk samples', () =>
     Effect.sync(() => {
-      for (const config of ORE_CONFIGS) {
-        expect(config.peakY, `${config.name} peak is below its floor`).toBeGreaterThan(config.minY - 1)
-        expect(config.peakY, `${config.name} peak is above its ceiling`).toBeLessThan(config.maxY + 1)
-        expect(config.maxY, `${config.name} reaches above the stone ceiling`).toBeLessThan(ORE_MAX_Y + 1)
-        expect(config.minY).toBeGreaterThan(BEDROCK_Y)
+      const samples = [
+        { cx: 0, cz: 0, seed: 1 },
+        { cx: -2, cz: 3, seed: 42 },
+        { cx: 4, cz: -7, seed: 1337 },
+        { cx: -4, cz: 5, seed: 77 },
+        { cx: 3, cz: -2, seed: 20261109 },
+      ] as const
+      const found = new Set<OreName>()
+      const biomes = allMountainBiomes()
+
+      for (const sample of samples) {
+        const blocks = solidOverworldBlocks()
+        placeOres(blocks, noiseSeed(sample.seed), { cx: chunkAxis(sample.cx), cz: chunkAxis(sample.cz) }, biomes)
+        for (const { name } of orePlacementsIn(blocks)) {
+          found.add(name)
+        }
       }
 
-      // The reference's table fails this on exactly two rows, which is the whole
-      // content of the correction. Spelled out so that "three rows were edited"
-      // is checkable rather than a claim in a header.
-      const offending = REFERENCE_CONFIGS.filter((config) => config.peakY > ORE_MAX_Y).map((config) => config.name)
-      expect(offending).toStrictEqual(['COAL', 'EMERALD'])
+      expect([...found].sort()).toStrictEqual([...ORE_NAMES].sort())
+    }),
+  )
 
-      const overCeiling = REFERENCE_CONFIGS.filter((config) => config.maxY > ORE_MAX_Y).map((config) => config.name)
-      expect(overCeiling).toStrictEqual(['COAL', 'IRON', 'EMERALD'])
+  it.effect('integrates ore ids and feature bands in generated chunks, independent of decoration', () =>
+    Effect.sync(() => {
+      const seed = noiseSeed(20261109)
+      const chunkX = chunkAxis(-2)
+      const chunkZ = chunkAxis(3)
+      const undecorated = generateChunkAt(seed, chunkX, chunkZ, { decorate: false })
+      const decorated = generateChunkAt(seed, chunkX, chunkZ)
+      const placements = orePlacementsIn(undecorated.blocks)
+
+      expect(placements.length).toBeGreaterThan(0)
+      expect(orePlacementsIn(decorated.blocks).map(({ id, index }) => [index, id])).toStrictEqual(
+        placements.map(({ id, index }) => [index, id]),
+      )
+      for (const placement of placements) {
+        expect(ORE_IDS).toContain(placement.id)
+        expect(
+          expectedFeatureRows.some((expected) =>
+            expected.name === placement.name &&
+            placement.y >= Math.max(expected.minY, ORE_MIN_Y_FLOOR) &&
+            placement.y <= Math.min(expected.maxY, ORE_MAX_Y),
+          ),
+          `${placement.name} at Y=${String(placement.y)} has no eligible generated feature`,
+        ).toBe(true)
+      }
+    }),
+  )
+
+  it.effect('is deterministic for the same seed, coordinate and biome columns', () =>
+    Effect.sync(() => {
+      const biomes = allPlainsBiomes()
+      const coord: ChunkCoord = { cx: chunkAxis(-4), cz: chunkAxis(5) }
+      const first = solidOverworldBlocks()
+      const second = solidOverworldBlocks()
+      placeOres(first, noiseSeed(77), coord, biomes)
+      placeOres(second, noiseSeed(77), coord, biomes)
+      expect(first).toStrictEqual(second)
+    }),
+  )
+
+  it.effect('changes stream by feature, world seed and chunk origin', () =>
+    Effect.sync(() => {
+      const config = ORE_CONFIGS[0]
+      expect(config).toBeDefined()
+      if (config === undefined) return
+      expect(oreStreamSeed(noiseSeed(1), config, 0, 0)).not.toBe(oreStreamSeed(noiseSeed(2), config, 0, 0))
+      expect(oreStreamSeed(noiseSeed(1), config, 0, 0)).not.toBe(oreStreamSeed(noiseSeed(1), config, 16, 0))
+      expect(oreStreamSeed(noiseSeed(1), config, 0, 0)).not.toBe(oreStreamSeed(noiseSeed(1), ORE_CONFIGS[1] ?? config, 0, 0))
+    }),
+  )
+
+  it.effect('generates emerald on each of the ten listed mountain biomes', () =>
+    Effect.sync(() => {
+      for (const biome of EMERALD_MOUNTAIN_BIOME_IDS) {
+        const biomes: ReadonlyArray<BiomeType> = Array.from({ length: COLUMN_COUNT }, () => biome)
+        const blocks = solidOverworldBlocks()
+        placeOres(blocks, noiseSeed(4242), { cx: chunkAxis(0), cz: chunkAxis(0) }, biomes)
+        const emeraldPlacements = orePlacementsIn(blocks).filter(({ name }) => name === 'EMERALD')
+
+        expect(emeraldPlacements.length, `no emeralds generated in ${biome}`).toBeGreaterThan(0)
+        for (const { y } of emeraldPlacements) {
+          expect(y, `emerald outside the stored Y=0..255 range in ${biome}`).toBeGreaterThanOrEqual(0)
+          expect(y, `emerald outside the stored Y=0..255 range in ${biome}`).toBeLessThanOrEqual(255)
+        }
+      }
+    }),
+  )
+
+  it.effect('never grows emerald into a non-mountain biome column for generated seeds and coordinates', () =>
+    Effect.sync(() => {
+      const arbitraryBiomes = fc.array(fc.boolean(), { minLength: COLUMN_COUNT, maxLength: COLUMN_COUNT }).map((mask) =>
+        mask.map((isMountain, index): BiomeType => {
+          if (index === 0) return 'meadow'
+          if (index === 1) return 'plains'
+          return isMountain ? 'jagged_peaks' : 'plains'
+        }),
+      )
+
+      fc.assert(
+        fc.property(
+          fc.nat(0xffff_ffff),
+          fc.integer({ min: -8, max: 8 }),
+          fc.integer({ min: -8, max: 8 }),
+          arbitraryBiomes,
+          (seed, cx, cz, biomes) => {
+            const blocks = solidOverworldBlocks()
+            placeOres(blocks, noiseSeed(seed), { cx: chunkAxis(cx), cz: chunkAxis(cz) }, biomes)
+
+            for (let x = 0; x < CHUNK_SIZE_XZ; x += 1) {
+              for (let z = 0; z < CHUNK_SIZE_XZ; z += 1) {
+                const biome = biomes[z * CHUNK_SIZE_XZ + x]
+                const allowed = biome !== undefined && EMERALD_MOUNTAIN_BIOME_SET.has(biome)
+                if (allowed) continue
+                for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+                  const block = blocks[blockIndex(x, y, z)]
+                  expect(block === ORE_BLOCK.EMERALD || block === DEEPSLATE_ORE_BLOCK.EMERALD).toBe(false)
+                }
+              }
+            }
+          },
+        ),
+        { numRuns: 12 },
+      )
+    }),
+  )
+
+  it.effect('keeps an emerald-free chunk when all columns are non-mountain biomes', () =>
+    Effect.sync(() => {
+      const blocks = solidOverworldBlocks()
+      placeOres(blocks, noiseSeed(123), { cx: chunkAxis(0), cz: chunkAxis(0) }, allPlainsBiomes())
+      expect(blocks).not.toContain(ORE_BLOCK.EMERALD)
+      expect(blocks).not.toContain(DEEPSLATE_ORE_BLOCK.EMERALD)
     }),
   )
 })
 
 describe('vein growth', () => {
-  /**
-   * The conclusive "replaces STONE only" check, on a buffer whose contents are
-   * known. In real terrain this cannot be proved by inspection — an ore cell
-   * carries no record of what it used to be.
-   */
-  it.effect('O-2: replaces STONE and refuses every other block, including bedrock and water', () =>
+  it.effect('replaces stone only and obeys the supplied Y bounds', () =>
     Effect.sync(() => {
-      const blocks = new Uint16Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ)
-      const others: ReadonlyArray<number> = [BLOCK.BEDROCK, BLOCK.WATER, BLOCK.DIRT, BLOCK.GRAVEL, BLOCK.AIR]
-
-      // A solid slab of stone with a checkerboard of other blocks through it.
-      for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-        for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-          for (let y = 1; y < 40; y += 1) {
-            const other = others[(lx + y + lz) % others.length] ?? BLOCK.AIR
-            blocks[blockIndex(lx, y, lz)] = (lx + y + lz) % 3 === 0 ? other : BLOCK.STONE
-          }
-        }
-      }
-
-      // The seed cell must itself be STONE or the vein never starts — which is
-      // what `MAX_SEED_ATTEMPTS` exists to retry around in `placeOres`. (8+21+8)
-      // is 37, so this cell is on the stone side of the checkerboard.
-      expect(readBlock(blocks, blockIndex(8, 21, 8))).toBe(BLOCK.STONE)
-
-      const before = Uint16Array.from(blocks)
+      const blocks = new Uint16Array(BLOCK_COUNT).fill(BLOCK.STONE)
       const placed = growVein({
         blocks,
         host: BLOCK.STONE,
         next: mulberry32(noiseSeed(12345)),
         ore: ORE_BLOCK.COAL,
         seedX: 8,
-        seedY: 21,
-        seedZ: 8,
-        targetSize: 400,
-        yMax: 39,
-        yMin: 1,
-      })
-
-      expect(placed).toBeGreaterThan(0)
-
-      let changed = 0
-      for (let index = 0; index < blocks.length; index += 1) {
-        const was = readBlock(before, index)
-        const now = readBlock(blocks, index)
-        if (was === now) {
-          continue
-        }
-        changed += 1
-        expect(was, `a non-STONE cell was replaced (was ${String(was)})`).toBe(BLOCK.STONE)
-        expect(now).toBe(ORE_BLOCK.COAL)
-      }
-      expect(changed).toBe(placed)
-    }),
-  )
-
-  it.effect('respects the vertical band it is given, at both ends', () =>
-    Effect.sync(() => {
-      const blocks = new Uint16Array(CHUNK_HEIGHT * CHUNK_SIZE_XZ * CHUNK_SIZE_XZ).fill(BLOCK.STONE)
-      growVein({
-        blocks,
-        host: BLOCK.STONE,
-        next: mulberry32(noiseSeed(999)),
-        ore: ORE_BLOCK.IRON,
-        seedX: 8,
         seedY: 30,
         seedZ: 8,
-        targetSize: 2000,
+        targetSize: 200,
         yMax: 35,
         yMin: 25,
       })
-
-      for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-        for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
+      expect(placed).toBeGreaterThan(0)
+      for (let x = 0; x < CHUNK_SIZE_XZ; x += 1) {
+        for (let z = 0; z < CHUNK_SIZE_XZ; z += 1) {
           for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
-            if (readBlock(blocks, blockIndex(lx, y, lz)) !== ORE_BLOCK.IRON) {
-              continue
-            }
-            expect(y).toBeGreaterThan(24)
-            expect(y).toBeLessThan(36)
+            if (blocks[blockIndex(x, y, z)] !== ORE_BLOCK.COAL) continue
+            expect(y).toBeGreaterThanOrEqual(25)
+            expect(y).toBeLessThanOrEqual(35)
           }
         }
       }
     }),
   )
 
-  it.effect('draws its Y from a triangle that stays inside the band and peaks at the mode', () =>
+  it.effect('preserves a mixed buffer and replaces only stone hosts', () =>
     Effect.sync(() => {
-      const config = ORE_CONFIGS.find((candidate) => candidate.name === 'DIAMOND')
-      expect(config).toBeDefined()
-      if (config === undefined) {
-        return
-      }
-
-      const next = mulberry32(noiseSeed(42))
-      const histogram = new Map<number, number>()
-      for (let draw = 0; draw < 20000; draw += 1) {
-        const y = sampleOreY(config, config.minY, config.maxY, next)
-        expect(y).toBeGreaterThan(config.minY - 1)
-        expect(y).toBeLessThan(config.maxY + 1)
-        histogram.set(y, (histogram.get(y) ?? 0) + 1)
-      }
-
-      // The modal bucket is the peak, which is what makes the distribution a
-      // depth preference rather than a uniform scatter.
-      const modal = [...histogram.entries()].sort((a, b) => b[1] - a[1])[0]
-      expect(modal?.[0]).toBe(config.peakY)
-      expect(histogram.get(config.peakY) ?? 0).toBeGreaterThan((histogram.get(config.maxY) ?? 0) * 2)
-    }),
-  )
-
-  /**
-   * A zero-span band (`yMin === yMax`) is not hypothetical: it is what
-   * `placeOres` would hand `sampleOreY` for any ore whose config were ever
-   * tuned to a single-block band, or whatever floor/ceiling clamping produces
-   * at the edges of `CHUNK_HEIGHT`. The triangular inverse-CDF divides by
-   * `span`, so without this guard a zero-span band would draw `NaN` instead
-   * of the only Y the band actually contains.
-   */
-  it.effect('returns the band floor without dividing by zero when the band has no span', () =>
-    Effect.sync(() => {
-      const config = ORE_CONFIGS.find((candidate) => candidate.name === 'DIAMOND')
-      expect(config).toBeDefined()
-      if (config === undefined) {
-        return
-      }
-
-      const next = mulberry32(noiseSeed(7))
-      for (let draw = 0; draw < 50; draw += 1) {
-        expect(sampleOreY(config, 40, 40, next)).toBe(40)
-      }
-    }),
-  )
-})
-
-/**
- * ---------------------------------------------------------------------------
- * O-3 .. O-5: what backs the ore half of the golden move.
- * ---------------------------------------------------------------------------
- */
-describe('what backs the ore half of the golden move', () => {
-  const chunks = surveyChunks(GOLDEN_SEED)
-
-  it.effect('O-3: every ore cell sits inside the stone band of its own column', () =>
-    Effect.sync(() => {
-      let seen = 0
-      // Collected, not asserted per cell — see `test/chunk-golden.test.ts` I-1.
-      const outOfBand: Array<string> = []
-
-      for (const chunk of chunks) {
-        for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-          for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            const wx = worldX(chunk.coord, lx)
-            const wz = worldZ(chunk.coord, lz)
-            const column = terrainColumnAt(GOLDEN_SEED, blockAxis(wx), blockAxis(wz))
-            const stoneTop = column.surface.top === BLOCK.STONE
-              ? column.surfaceY
-              : column.surface.filler === BLOCK.STONE
-                ? column.surfaceY - 1
-                : column.surfaceY - column.surface.fillerDepth - 1
-
-            for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
-              if (!ORE_ID_SET.has(readBlock(chunk.blocks, blockIndex(lx, y, lz)))) {
-                continue
-              }
-              seen += 1
-              if (y <= BEDROCK_Y || y > stoneTop || y > ORE_MAX_Y) {
-                outOfBand.push(`(${String(lx)}, ${String(y)}, ${String(lz)}) stoneTop ${String(stoneTop)}`)
-              }
-            }
+      const blocks = new Uint16Array(BLOCK_COUNT).fill(BLOCK.DIRT)
+      for (let x = 6; x <= 10; x += 1) {
+        for (let y = 28; y <= 32; y += 1) {
+          for (let z = 6; z <= 10; z += 1) {
+            blocks[blockIndex(x, y, z)] = BLOCK.STONE
           }
         }
       }
+      blocks[blockIndex(7, 30, 8)] = BLOCK.BEDROCK
+      blocks[blockIndex(9, 30, 8)] = BLOCK.WATER
+      blocks[blockIndex(8, 29, 8)] = BLOCK.DIRT
+      blocks[blockIndex(8, 31, 8)] = BLOCK.GRAVEL
+      blocks[blockIndex(8, 30, 7)] = BLOCK.AIR
+      const before = blocks.slice()
 
-      expect(outOfBand, 'ore outside its column’s stone band').toStrictEqual([])
-      expect(seen).toBeGreaterThan(0)
-    }),
-  )
+      const placed = growVein({
+        blocks,
+        host: BLOCK.STONE,
+        next: mulberry32(noiseSeed(12345)),
+        ore: ORE_BLOCK.COAL,
+        seedX: 8,
+        seedY: 30,
+        seedZ: 8,
+        targetSize: 40,
+        yMax: 32,
+        yMin: 28,
+      })
 
-  it.effect('O-3b: every ore cell is inside its own declared depth band', () =>
-    Effect.sync(() => {
-      const bands = new Map<number, OreConfig>()
-      for (const config of ORE_CONFIGS) {
-        bands.set(ORE_BLOCK[config.name], config)
-        bands.set(DEEPSLATE_ORE_BLOCK[config.name], config)
+      expect(placed).toBeGreaterThan(0)
+      for (let index = 0; index < BLOCK_COUNT; index += 1) {
+        const original = before[index]
+        const after = blocks[index]
+        if (original === undefined || after === undefined) continue
+        if (after === original) continue
+        expect(original).toBe(BLOCK.STONE)
+        expect(after).toBe(ORE_BLOCK.COAL)
       }
-      const seen = new Set<number>()
-      const seenNames = new Set<OreName>()
-      const violations: Array<string> = []
-
-      for (const chunk of chunks) {
-        for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += 1) {
-          for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += 1) {
-            for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
-              const id = readBlock(chunk.blocks, blockIndex(lx, y, lz))
-              const config = bands.get(id)
-              if (config === undefined) {
-                continue
-              }
-              seen.add(id)
-              seenNames.add(config.name)
-              if (y < Math.max(config.minY, ORE_MIN_Y_FLOOR) || y > config.maxY) {
-                violations.push(`${config.name} at y=${String(y)}, band ${String(config.minY)}..${String(config.maxY)}`)
-              }
-            }
-          }
-        }
-      }
-
-      expect(violations, 'ore outside its own declared depth band').toStrictEqual([])
-      // All seven appear, so no band is being silently skipped.
-      expect(seenNames.size).toBe(ORE_CONFIGS.length)
-      expect(seen.size).toBeGreaterThanOrEqual(ORE_CONFIGS.length)
-    }),
-  )
-
-  it.effect('O-4: ore is not decoration — `decorate: false` still carries it', () =>
-    Effect.sync(() => {
-      const bare = generateChunkAt(GOLDEN_SEED, chunkAxis(1), chunkAxis(0), { decorate: false })
-      const decorated = generateChunkAt(GOLDEN_SEED, chunkAxis(1), chunkAxis(0), { decorate: true })
-
-      expect(countOre([bare]).size).toBeGreaterThan(0)
-      // And the two agree on every ore cell: decoration must not move a vein.
-      for (let index = 0; index < bare.blocks.length; index += 1) {
-        const value = readBlock(bare.blocks, index)
-        if (ORE_ID_SET.has(value)) {
-          expect(readBlock(decorated.blocks, index)).toBe(value)
-        }
-      }
-    }),
-  )
-
-  /**
-   * O-5. THE ONE THAT REPRODUCES THE DEFECT.
-   *
-   * `domain/ore.ts` claims the reference's bands lose a fifth to a third of the
-   * coal and a quarter to two fifths of the emerald in this repository's
-   * terrain, and that the five untouched rows are unaffected. Both halves are
-   * measured here against the same rock, because a correction whose effect
-   * cannot be demonstrated is indistinguishable from a preference.
-   *
-   * Note the second assertion in particular: if the edit had ALSO moved gold or
-   * diamond, the shipped bands would be doing something the header does not
-   * account for, and this is what would say so.
-   */
-  it.effect('O-5: the reference’s own bands starve COAL and EMERALD here, and nothing else', () =>
-    Effect.sync(() => {
-      const seed = noiseSeed(GOLDEN_SEED)
-      for (const shipped of ORE_CONFIGS) {
-        const reference = REFERENCE_CONFIGS.find((candidate) => candidate.name === shipped.name)
-        expect(reference).toBeDefined()
-        if (reference === undefined) {
-          continue
-        }
-
-        const intended = intendedRate(shipped)
-        const withShipped = ratePerChunk(ORE_CONFIGS, shipped, seed) / intended
-        const withReference = ratePerChunk(REFERENCE_CONFIGS, reference, seed) / intended
-
-        // The shipped bands hit the rate the tuning asks for, every row.
-        expect(withShipped, `${shipped.name} shipped bands realise ${String(withShipped)} of intended`).toBeGreaterThan(
-          0.9,
-        )
-
-        if (shipped.name === 'COAL' || shipped.name === 'EMERALD') {
-          // Measured 0.68-0.82 for coal and 0.57-0.74 for emerald across three
-          // seeds. The bound is loose because the point is that the shortfall is
-          // LARGE, not that it is any particular number.
-          expect(withReference, `${shipped.name} was expected to fall short`).toBeLessThan(0.88)
-        } else {
-          // The five untouched rows: identical under both tables, to noise.
-          expect(Math.abs(withShipped - withReference), `${shipped.name} moved and should not have`).toBeLessThan(0.05)
-        }
-      }
-    }),
-  )
-})
-
-describe('determinism', () => {
-  it.effect('places identical ore for the same seed and coordinate', () =>
-    Effect.sync(() => {
-      const first = generateChunkAt(GOLDEN_SEED, chunkAxis(2), chunkAxis(-3))
-      const second = generateChunkAt(GOLDEN_SEED, chunkAxis(2), chunkAxis(-3))
-      expect(first.blocks).toStrictEqual(second.blocks)
-    }),
-  )
-
-  /**
-   * The reference's `seedFromChunk` (`math.ts:20-28`) takes no world seed, so
-   * every world would carry its ore in the same cells. `oreStreamSeed` folds the
-   * seed in; this is what says so.
-   */
-  it.effect('places different ore in different worlds, which the reference’s stream would not', () =>
-    Effect.sync(() => {
-      const config = ORE_CONFIGS[0]
-      expect(config).toBeDefined()
-      if (config === undefined) {
-        return
-      }
-      expect(oreStreamSeed(noiseSeed(1), config, 0, 0)).not.toBe(oreStreamSeed(noiseSeed(2), config, 0, 0))
-
-      const a = generateChunkAt(noiseSeed(1), chunkAxis(0), chunkAxis(0), { decorate: false })
-      const b = generateChunkAt(noiseSeed(2), chunkAxis(0), chunkAxis(0), { decorate: false })
-
-      const oreCells = (chunk: Chunk): string => {
-        const parts: Array<string> = []
-        for (let index = 0; index < chunk.blocks.length; index += 1) {
-          const value = readBlock(chunk.blocks, index)
-          if (ORE_ID_SET.has(value)) {
-            parts.push(`${String(index)}:${String(value)}`)
-          }
-        }
-        return parts.join(',')
-      }
-
-      expect(oreCells(a)).not.toBe(oreCells(b))
-    }),
-  )
-
-  it.effect('decorrelates the seven ore streams from each other', () =>
-    Effect.sync(() => {
-      const seeds = ORE_CONFIGS.map((config) => oreStreamSeed(GOLDEN_SEED, config, 0, 0))
-      expect(new Set(seeds).size).toBe(ORE_CONFIGS.length)
-    }),
-  )
-
-  it.effect('decorrelates adjacent chunks of one ore, which is what the salts are for', () =>
-    Effect.sync(() => {
-      const config = ORE_CONFIGS[0]
-      expect(config).toBeDefined()
-      if (config === undefined) {
-        return
-      }
-      const seeds = [
-        oreStreamSeed(GOLDEN_SEED, config, 0, 0),
-        oreStreamSeed(GOLDEN_SEED, config, 16, 0),
-        oreStreamSeed(GOLDEN_SEED, config, 0, 16),
-        oreStreamSeed(GOLDEN_SEED, config, -16, -16),
-      ]
-      expect(new Set(seeds).size).toBe(seeds.length)
+      expect(blocks[blockIndex(7, 30, 8)]).toBe(BLOCK.BEDROCK)
+      expect(blocks[blockIndex(9, 30, 8)]).toBe(BLOCK.WATER)
+      expect(blocks[blockIndex(8, 29, 8)]).toBe(BLOCK.DIRT)
+      expect(blocks[blockIndex(8, 31, 8)]).toBe(BLOCK.GRAVEL)
+      expect(blocks[blockIndex(8, 30, 7)]).toBe(BLOCK.AIR)
     }),
   )
 })

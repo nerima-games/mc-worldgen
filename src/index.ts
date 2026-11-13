@@ -26,7 +26,15 @@
 // --- Domain: pure values and transitions -----------------------------------
 export * from './domain/biome.js'
 export * from './domain/biome-classifier.js'
-export * from './domain/carver.js'
+export {
+  CAVE_CEILING_Y,
+  CAVE_FLOOR_Y,
+  CAVE_THRESHOLD,
+  InvalidWaterFloorMargin,
+  carveCaves,
+  computeWaterFloorYs,
+} from './domain/carver.js'
+export type { CarveOptions } from './domain/carver.js'
 export { biomeAt, columnIndex, getBlockAt, readBlock } from './domain/chunk.js'
 export type {
   Chunk,
@@ -183,7 +191,28 @@ export type {
 } from './domain/structure-siting.js'
 export * from './domain/stronghold.js'
 export * from './domain/terrain.js'
-export * from './domain/tree-placement.js'
+export {
+  AVAILABLE_TREE_SPECIES,
+  KERNEL_BIOME_TREE_DENSITY,
+  TREE_CELL_JITTER_ORIGIN,
+  TREE_CELL_JITTER_SPAN,
+  TREE_CELL_JITTER_X_SCALE,
+  TREE_CELL_JITTER_Z_SCALE,
+  TREE_CROWN_RADIUS,
+  TREE_DENSITY_ROLL_RNG_SCALE,
+  TREE_GRID_AREA,
+  TREE_GRID_SIZE,
+  TREE_MIN_SPACING,
+  TREE_RNG_AMPLITUDE,
+  TREE_RNG_X_SCALE,
+  TREE_RNG_Z_SCALE,
+  UNAVAILABLE_TREE_SPECIES,
+  UnsupportedTreeBiome,
+  cellOf,
+  shouldPlaceTree,
+  treeCellCandidate,
+} from './domain/tree-placement.js'
+export type { TreeCandidate } from './domain/tree-placement.js'
 export {
   VILLAGE_BLOCK,
   villageBlockAt,

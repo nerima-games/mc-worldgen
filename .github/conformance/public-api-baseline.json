@@ -186,14 +186,8 @@
     "text": "number"
   },
   {
-    "count": 4,
+    "count": 2,
     "file": "src/domain/terrain-column.ts",
-    "ruleId": "no-raw-exported-function-parameter",
-    "text": "number"
-  },
-  {
-    "count": 6,
-    "file": "src/domain/tree-placement.ts",
     "ruleId": "no-raw-exported-function-parameter",
     "text": "number"
   },
@@ -290,12 +284,6 @@
   {
     "count": 4,
     "file": "src/domain/ravine.ts",
-    "ruleId": "no-raw-exported-function-return",
-    "text": "number"
-  },
-  {
-    "count": 1,
-    "file": "src/domain/tree-placement.ts",
     "ruleId": "no-raw-exported-function-return",
     "text": "number"
   },
@@ -408,7 +396,7 @@
     "text": "string"
   },
   {
-    "count": 15,
+    "count": 12,
     "file": "src/domain/ore.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"
@@ -432,7 +420,7 @@
     "text": "number"
   },
   {
-    "count": 3,
+    "count": 2,
     "file": "src/domain/tree-placement.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"
