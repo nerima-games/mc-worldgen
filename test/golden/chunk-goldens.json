@@ -6,11 +6,11 @@
       "cx": 5,
       "cz": 7,
       "decorate": true,
-      "blocksSha256": "3408386d62f3a62bbeb64b9a44cd366212ffd5d2880b68c9166223c0b58290ff",
+      "blocksSha256": "578eb9a9bdef498908788aace1c377331ade2350cf8b4f703df7f249dc8e2536",
       "biomesSha256": "f51194f9b769b94921097577340142d0feba5684459b82cc7f68cd9d4675c5a0",
       "summary": {
         "blockCounts": {
-          "AIR": 55572,
+          "AIR": 55622,
           "BEDROCK": 256,
           "DEEPSLATE": 1613,
           "DIRT": 0,
@@ -18,8 +18,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 40,
-          "LOG": 10,
+          "LEAVES": 0,
+          "LOG": 0,
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
@@ -138,11 +138,11 @@
       "cx": 3,
       "cz": 5,
       "decorate": true,
-      "blocksSha256": "6731cdc7c8840ca9a9fa158d28c1b81d9bd33239ee1979bd85ccedd1c248b4e7",
+      "blocksSha256": "9c55278eafc44498b534ed326beabba461a0628f7a1a9ffd207adc17b2241661",
       "biomesSha256": "75a5016a547d13bef23b2433d8db43086f073dd14c8e2464691e519b3e2f0235",
       "summary": {
         "blockCounts": {
-          "AIR": 44870,
+          "AIR": 44895,
           "BEDROCK": 256,
           "DEEPSLATE": 3756,
           "DIRT": 1024,
@@ -150,8 +150,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 20,
-          "LOG": 5,
+          "LEAVES": 0,
+          "LOG": 0,
           "OBSIDIAN": 0,
           "SAND": 0,
           "SNOW": 256,
@@ -257,7 +257,7 @@
         "waterSurfaceY": null,
         "topBlockY": {
           "min": 82,
-          "max": 89
+          "max": 84
         },
         "caveBandAir": 931,
         "ravineCutColumns": 0
@@ -396,11 +396,11 @@
       "cx": 11,
       "cz": -1,
       "decorate": true,
-      "blocksSha256": "d7c42506c80105214efd971c76c80166679a2c0c2db40ed1c1f938de1e5ef083",
+      "blocksSha256": "2d49ef2b870d15ccfbbe9e670d5e6e642dee9d8a052384704cf53cc60e606bbd",
       "biomesSha256": "3830b57f5014b509eafe55e951320d0fda36d2d35719b6d03a5251607e6a34c4",
       "summary": {
         "blockCounts": {
-          "AIR": 49548,
+          "AIR": 49573,
           "BEDROCK": 256,
           "DEEPSLATE": 1434,
           "DIRT": 936,
@@ -408,8 +408,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 20,
-          "LOG": 5,
+          "LEAVES": 0,
+          "LOG": 0,
           "OBSIDIAN": 0,
           "SAND": 66,
           "SNOW": 0,
@@ -515,7 +515,7 @@
         "waterSurfaceY": null,
         "topBlockY": {
           "min": 79,
-          "max": 85
+          "max": 83
         },
         "caveBandAir": 5135,
         "ravineCutColumns": 0
@@ -525,11 +525,11 @@
       "cx": 5,
       "cz": -6,
       "decorate": true,
-      "blocksSha256": "3aa47c6a141304ac01c3340ff5e2d97553231e7b6fa3764b3c937caca1423b0a",
+      "blocksSha256": "cc3d94b4a8c361d1272e3283900a94a73c597efe9d722a0ae2348cdaa8cf9679",
       "biomesSha256": "9d6ee08a0adc277cfc2dbc1c15a3944f4b1edb0c96080fb726e20ef03d5f85c7",
       "summary": {
         "blockCounts": {
-          "AIR": 55466,
+          "AIR": 55469,
           "BEDROCK": 256,
           "DEEPSLATE": 1263,
           "DIRT": 1012,
@@ -537,8 +537,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 18,
-          "LOG": 5,
+          "LEAVES": 15,
+          "LOG": 4,
           "OBSIDIAN": 0,
           "SAND": 0,
           "SNOW": 0,
@@ -570,7 +570,7 @@
           "RED_MUSHROOM": 0,
           "SEAGRASS": 0,
           "SUGAR_CANE": 0,
-          "TALL_GRASS": 44
+          "TALL_GRASS": 45
         },
         "biomeCounts": {
           "badlands": 0,
@@ -918,11 +918,11 @@
       "cx": 0,
       "cz": 0,
       "decorate": true,
-      "blocksSha256": "936b8160131f215d6c217e0f149acbc3db7b93b69a1cea0e3a7194321c3bcd77",
+      "blocksSha256": "f96202ca472a5fbf92bb73734b1ae1d9e0c0a1366fd2aeebe93325ba30ec1fbd",
       "biomesSha256": "24ab352a5965b24ab7151a0d9d9e05bcca840e622f5453a9902546655e5ea274",
       "summary": {
         "blockCounts": {
-          "AIR": 55358,
+          "AIR": 55383,
           "BEDROCK": 256,
           "DEEPSLATE": 2541,
           "DIRT": 316,
@@ -930,8 +930,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 20,
-          "LOG": 5,
+          "LEAVES": 0,
+          "LOG": 0,
           "OBSIDIAN": 0,
           "SAND": 875,
           "SNOW": 79,
@@ -1040,7 +1040,7 @@
         },
         "topBlockY": {
           "min": 63,
-          "max": 70
+          "max": 67
         },
         "caveBandAir": 6485,
         "ravineCutColumns": 0
@@ -1314,11 +1314,11 @@
       "cx": -28,
       "cz": -52,
       "decorate": true,
-      "blocksSha256": "99c9fe87390d1bcb4ab962437c7d28625eb30a0d37b996f82df49cfab19f9919",
+      "blocksSha256": "2f1eb7b0aba433dbdd7a2799c3b23b56c7cf11992c9ccd3c634329d73ede33aa",
       "biomesSha256": "b7a32ae7b3256f5972f64444c945db68355939b466481d1a539cc0dd6e082c95",
       "summary": {
         "blockCounts": {
-          "AIR": 50873,
+          "AIR": 50923,
           "BEDROCK": 256,
           "DEEPSLATE": 3542,
           "DIRT": 1024,
@@ -1326,8 +1326,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 60,
-          "LOG": 15,
+          "LEAVES": 20,
+          "LOG": 5,
           "OBSIDIAN": 0,
           "SAND": 0,
           "SNOW": 0,
@@ -1839,11 +1839,11 @@
       "cx": 4,
       "cz": 9,
       "decorate": true,
-      "blocksSha256": "66cdba9c27a2d156b50a621f57092a94110b122834eb1b634dbf1422059c30ce",
+      "blocksSha256": "71b8705117af9ded7a0d087ebf533055234c94145ace7ec2772527fe4de08fc6",
       "biomesSha256": "22b97b0d6b5e9cf227b0b8c5218b564e55145d58061d0b64c4f3ea7b691d1d48",
       "summary": {
         "blockCounts": {
-          "AIR": 51162,
+          "AIR": 51212,
           "BEDROCK": 256,
           "DEEPSLATE": 3776,
           "DIRT": 0,
@@ -1851,8 +1851,8 @@
           "GRAVEL": 0,
           "ICE": 0,
           "LAVA": 0,
-          "LEAVES": 40,
-          "LOG": 10,
+          "LEAVES": 0,
+          "LOG": 0,
           "OBSIDIAN": 0,
           "SAND": 768,
           "SNOW": 0,
