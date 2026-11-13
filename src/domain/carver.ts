@@ -130,10 +130,10 @@ export const InvalidWaterFloorMargin: new (
 
 export type InvalidWaterFloorMargin = InstanceType<typeof InvalidWaterFloorMargin>
 
-type WaterFloorMargin = number & Brand.Brand<'WaterFloorMargin'>
-const waterFloorMarginFromNumber = Brand.nominal<WaterFloorMargin>()
+export type ValidatedWaterFloorMargin = number & Brand.Brand<'ValidatedWaterFloorMargin'>
+const waterFloorMarginFromNumber = Brand.nominal<ValidatedWaterFloorMargin>()
 
-export const validateWaterFloorMargin = (margin: unknown): Result.Result<WaterFloorMargin, InvalidWaterFloorMargin> => {
+export const validateWaterFloorMargin = (margin: unknown): Result.Result<ValidatedWaterFloorMargin, InvalidWaterFloorMargin> => {
   if (
     typeof margin !== 'number' ||
     !Number.isFinite(margin) ||
@@ -263,13 +263,13 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const waterFloorMarginFromOptions = (options: unknown): Result.Result<number, InvalidWaterFloorMargin> => {
+const waterFloorMarginFromOptions = (options: unknown): Result.Result<ValidatedWaterFloorMargin, InvalidWaterFloorMargin> => {
   if (!isRecord(options)) {
     return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
   }
   const descriptor = Option.fromNullishOr(Object.getOwnPropertyDescriptor(options, 'waterFloorMargin'))
   if (Option.isNone(descriptor)) {
-    return Result.succeed(WATER_FLOOR_MARGIN)
+    return Result.succeed(waterFloorMarginFromNumber(WATER_FLOOR_MARGIN))
   }
   if (!('value' in descriptor.value)) {
     return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
@@ -281,7 +281,7 @@ const carveCavesWithMargin = (
   blocks: Uint16Array,
   seed: NoiseSeed,
   coord: ChunkCoord,
-  margin: number,
+  margin: ValidatedWaterFloorMargin,
 ): void => {
   const waterFloors = computeWaterFloorYs(blocks, margin)
   const surfaceYs = computeSurfaceYs(blocks)
@@ -304,16 +304,22 @@ export const carveCaves = (
   options: CarveOptions = {},
 ): Result.Result<void, InvalidWaterFloorMargin> => {
   const margin = waterFloorMarginFromOptions(options)
-  if (Result.isFailure(margin)) {
-    return Result.fail(margin.failure)
-  }
-  carveCavesWithMargin(blocks, seed, coord, margin.success)
-  return Result.void
+  return Result.map(margin, (validatedMargin) => {
+    carveCavesWithMargin(blocks, seed, coord, validatedMargin)
+  })
 }
+
+/** Carve using a margin validated at the caller's public boundary. */
+export const carveCavesWithValidatedMargin = (
+  blocks: Uint16Array,
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  margin: ValidatedWaterFloorMargin = waterFloorMarginFromNumber(WATER_FLOOR_MARGIN),
+): void => carveCavesWithMargin(blocks, seed, coord, margin)
 
 /** Recreates the hollow-lake regression without exposing a zero-margin API at the package root. */
 export const carveCavesWithoutWaterFloorMarginForTesting = (
   blocks: Uint16Array,
   seed: NoiseSeed,
   coord: ChunkCoord,
-): void => carveCavesWithMargin(blocks, seed, coord, TEST_WATER_FLOOR_MARGIN)
+): void => carveCavesWithMargin(blocks, seed, coord, waterFloorMarginFromNumber(TEST_WATER_FLOOR_MARGIN))

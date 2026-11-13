@@ -35,7 +35,12 @@ import type { TerrainLevels } from '../../src/domain/constants'
 import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ } from '../../src/domain/constants'
 import { ravineDepthAt, ravineDistanceAt } from '../../src/domain/ravine'
 import { biomeFor, generateChunk, surfaceHeightAt } from '../../src/domain/terrain'
-import { shouldPlaceTreeForKnownBiome } from '../../src/domain/tree-placement'
+import {
+  cellOf,
+  shouldPlaceTreeWithKnownConfiguration,
+  treeCellCandidate,
+  treeConfigurationForKnownBiome,
+} from '../../src/domain/tree-placement'
 import { blockAxis, chunkAxis, localAxis } from '../../src/domain/coordinate-compatibility'
 import { carveCavesWithoutWaterFloorMarginForTesting } from '../../src/testing'
 
@@ -82,6 +87,11 @@ export const sampleColumn = (params: WorldParams, wx: number, wz: number): Colum
   const biome = biomeFor(params.seed, worldX, worldZ, surfaceY, params.levels)
   const submerged = surfaceY < params.levels.seaLevel
   const ravineDepth = ravineDepthAt(ravineDistanceAt(params.seed, wx, wz))
+  const hasTree = params.decorate && shouldPlaceTreeWithKnownConfiguration(
+    { worldX, worldZ, surfaceY: blockAxis(surfaceY), terrainLevels: params.levels },
+    treeConfigurationForKnownBiome(biome),
+    treeCellCandidate(cellOf(worldX), cellOf(worldZ)),
+  )
 
   return {
     ravineDepth,
@@ -97,15 +107,7 @@ export const sampleColumn = (params: WorldParams, wx: number, wz: number): Colum
     biome,
     submerged,
     waterDepth: submerged ? params.levels.seaLevel - surfaceY : 0,
-    hasTree:
-      params.decorate &&
-      shouldPlaceTreeForKnownBiome({
-        worldX,
-        worldZ,
-        surfaceY,
-        biome,
-        terrainLevels: params.levels,
-      }),
+    hasTree,
   }
 }
 

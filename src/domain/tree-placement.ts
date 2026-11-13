@@ -393,6 +393,10 @@ const TREE_CONFIG_BY_KNOWN_BIOME: Readonly<Record<BiomeType | KernelBiomeType, T
   ...KERNEL_TREE_CONFIGURATIONS,
 }
 
+export const treeConfigurationForKnownBiome = (
+  biome: BiomeType | KernelBiomeType,
+): TreeBiomeConfiguration => TREE_CONFIG_BY_KNOWN_BIOME[biome]
+
 type UnsupportedTreeBiomeFields = { readonly field: 'biome' }
 
 const taggedError = Data.TaggedError
@@ -523,17 +527,6 @@ export const shouldPlaceTree = (input: {
   return Result.map(treeConfigurationForBiome(input.biome), (configuration) =>
     shouldPlaceTreeWithConfiguration(input, configuration, candidate),
   )
-}
-
-export const shouldPlaceTreeForKnownBiome = (input: {
-  readonly worldX: BlockAxis
-  readonly worldZ: BlockAxis
-  readonly surfaceY: BlockAxis
-  readonly biome: BiomeType | KernelBiomeType
-  readonly terrainLevels: TerrainLevels
-}): boolean => {
-  const candidate = treeCellCandidate(cellOf(input.worldX), cellOf(input.worldZ))
-  return shouldPlaceTreeWithConfiguration(input, TREE_CONFIG_BY_KNOWN_BIOME[input.biome], candidate)
 }
 
 export const shouldPlaceTreeWithKnownConfiguration = (
