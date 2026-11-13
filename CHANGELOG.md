@@ -1,5 +1,21 @@
 # @nerima-games/mc-worldgen
 
+## 0.9.0
+
+### Minor Changes
+
+- Generate terrain from 3D density, select oak tree forms and densities by biome without substituting for unavailable species, carve 3D caves, and add vanilla ore features with mountain-restricted emeralds. Resolve generated tree profiles from the exhaustive biome table, type tree-placement coordinates and grid-cell inputs with their coordinate brands, and retain typed failures for unknown lookup biomes. Make `carveCaves` return a typed failure for invalid water-floor margins and validate positive finite integer margins at both public generation entry points. Keep the zero-margin regression hook under the `./testing` export. Align village rate metadata with the runtime setting.
+
+- Persist block states and section integrity checks in chunk format v3, accumulate dirty AABBs, and limit concurrent chunk loads to four.
+
+- Update runtime dependencies to `@nerima-games/mc-kernel` 0.17.0, `@nerima-games/mc-noise` 0.7.0, and `@nerima-games/mc-save` 0.8.0.
+
+- Use the registered kernel copper ore block IDs for the new copper generation features.
+
+- Represent terrain validation and lighting queue failures in public return types.
+
+- Pin mc-kernel 0.17.0, mc-noise 0.7.0, and mc-save 0.8.0.
+
 ## 0.8.0
 
 ### Minor Changes
