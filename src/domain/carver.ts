@@ -53,16 +53,16 @@
  * Why the margin is a parameter
  * ---------------------------------------------------------------------------
  *
- * The low-level carver accepts zero so its regression test can demonstrate the
- * hollow-lake bug. The public `generateChunk` boundary rejects zero and every
- * other non-positive or non-integer margin.
+ * Both public carving entry points reject zero and every other non-positive,
+ * non-finite, or non-integer margin. The zero-margin regression uses the
+ * `./testing` export, which is excluded from the package root.
  */
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
+import { Data, Option, Result } from 'effect'
 import { type NoiseFn3D, type NoiseSeed, createNoiseField } from '@nerima-games/mc-noise'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
 import type { ChunkCoord } from '@nerima-games/mc-kernel'
-import { Option } from 'effect'
 import { channelSeed } from './noise-compatibility.js'
 import { readBlock } from './chunk.js'
 
@@ -103,6 +103,8 @@ const CAVE_NOISE_Y_WAVELENGTH_BLOCKS = 20
 
 /** Keep three exposed solid blocks above dry caves to limit surface openings. */
 const CAVE_SURFACE_MARGIN_BLOCKS = 3
+const MIN_WATER_FLOOR_MARGIN = 1
+const TEST_WATER_FLOOR_MARGIN = 0
 
 const CAVE_NOISE_FREQUENCY_NUMERATOR = 1
 const CAVE_NOISE_XZ_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_XZ_WAVELENGTH_BLOCKS
@@ -111,10 +113,33 @@ const CAVE_NOISE_Y_FREQUENCY = CAVE_NOISE_FREQUENCY_NUMERATOR / CAVE_NOISE_Y_WAV
 export type CarveOptions = {
   /**
    * Solid blocks to preserve beneath the lowest water block in a column.
-   * Defaults to `WATER_FLOOR_MARGIN` (3, matching the reference). The public
-   * `generateChunk` API requires a positive finite integer.
+   * Defaults to `WATER_FLOOR_MARGIN` (3, matching the reference). Public APIs
+   * require a positive finite integer.
    */
   readonly waterFloorMargin?: number
+}
+
+const taggedError = Data.TaggedError
+
+type InvalidWaterFloorMarginFields = { readonly field: 'waterFloorMargin' }
+
+export const InvalidWaterFloorMargin: new (
+  args: InvalidWaterFloorMarginFields,
+) => Error & { readonly _tag: 'InvalidWaterFloorMargin' } & Readonly<InvalidWaterFloorMarginFields> =
+  taggedError('InvalidWaterFloorMargin')<InvalidWaterFloorMarginFields>
+
+export type InvalidWaterFloorMargin = InstanceType<typeof InvalidWaterFloorMargin>
+
+export const validateWaterFloorMargin = (margin: unknown): Result.Result<number, InvalidWaterFloorMargin> => {
+  if (
+    typeof margin !== 'number' ||
+    !Number.isFinite(margin) ||
+    !Number.isInteger(margin) ||
+    margin < MIN_WATER_FLOOR_MARGIN
+  ) {
+    return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
+  }
+  return Result.succeed(margin)
 }
 
 /**
@@ -232,13 +257,29 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
  * confined to a buffer this function's caller has just allocated and not yet
  * shared, so it is unobservable from outside `generateChunk`.
  */
-export const carveCaves = (
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const waterFloorMarginFromOptions = (options: unknown): Result.Result<number, InvalidWaterFloorMargin> => {
+  if (!isRecord(options)) {
+    return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
+  }
+  const descriptor = Option.fromNullishOr(Object.getOwnPropertyDescriptor(options, 'waterFloorMargin'))
+  if (Option.isNone(descriptor)) {
+    return Result.succeed(WATER_FLOOR_MARGIN)
+  }
+  if (!('value' in descriptor.value)) {
+    return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
+  }
+  return validateWaterFloorMargin(descriptor.value.value)
+}
+
+const carveCavesWithMargin = (
   blocks: Uint16Array,
   seed: NoiseSeed,
   coord: ChunkCoord,
-  options: CarveOptions = {},
+  margin: number,
 ): void => {
-  const margin = options.waterFloorMargin ?? WATER_FLOOR_MARGIN
   const waterFloors = computeWaterFloorYs(blocks, margin)
   const surfaceYs = computeSurfaceYs(blocks)
   const caveNoise = createNoiseField(channelSeed(seed, 'caves')).noise3d
@@ -251,3 +292,25 @@ export const carveCaves = (
     }
   }
 }
+
+/** Carve caves into `blocks` after validating the public water-floor margin. */
+export const carveCaves = (
+  blocks: Uint16Array,
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+  options: CarveOptions = {},
+): Result.Result<void, InvalidWaterFloorMargin> => {
+  const margin = waterFloorMarginFromOptions(options)
+  if (Result.isFailure(margin)) {
+    return Result.fail(margin.failure)
+  }
+  carveCavesWithMargin(blocks, seed, coord, margin.success)
+  return Result.void
+}
+
+/** Recreates the hollow-lake regression without exposing a zero-margin API at the package root. */
+export const carveCavesWithoutWaterFloorMarginForTesting = (
+  blocks: Uint16Array,
+  seed: NoiseSeed,
+  coord: ChunkCoord,
+): void => carveCavesWithMargin(blocks, seed, coord, TEST_WATER_FLOOR_MARGIN)

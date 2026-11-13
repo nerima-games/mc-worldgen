@@ -312,7 +312,10 @@ const carveOnly = (): void => {
   if (entry === undefined) {
     return
   }
-  carveCaves(entry.blocks, SEED, entry.coord, {})
+  const result = carveCaves(entry.blocks, SEED, entry.coord, {})
+  if (Result.isFailure(result)) {
+    throw new Error('carveCaves rejected its default water-floor margin')
+  }
   sink += entry.blocks[0] ?? 0
 }
 

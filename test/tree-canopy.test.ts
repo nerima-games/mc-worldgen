@@ -56,7 +56,6 @@ const CHUNK_ORIGIN = { cx: -28, cz: -52 } as const
 const OTHER_SEED_ORIGIN = { cx: -16, cz: 8 } as const
 
 /** Trunk height in `plantTree`, so the trunk block count converts to a tree count. */
-const TRUNK_HEIGHT = 5
 
 /**
  * Columns in one crown: a square of radius `TREE_CROWN_RADIUS` with its four
@@ -172,8 +171,23 @@ const countBlock = (region: Region, block: number): number => {
   return count
 }
 
+const countTrunks = (region: Region): number => {
+  let count = 0
+  for (let x = 0; x < region.width; x += 1) {
+    for (let z = 0; z < region.width; z += 1) {
+      for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
+        if (at(region, x, z, y) === BLOCK.LOG) {
+          count += 1
+          break
+        }
+      }
+    }
+  }
+  return count
+}
+
 const region = stitch(SEED, CHUNK_SPAN, CHUNK_ORIGIN)
-const trees = countBlock(region, BLOCK.LOG) / TRUNK_HEIGHT
+const trees = countTrunks(region)
 const leaves = countBlock(region, BLOCK.LEAVES)
 
 describe('the canopy in generated block data', () => {
@@ -266,7 +280,7 @@ describe('the canopy in generated block data', () => {
           }
         }
         if (other === undefined) throw new Error(`seed ${String(seed)} produced no tree in the bounded sample region`)
-        const otherTrees = countBlock(other, BLOCK.LOG) / TRUNK_HEIGHT
+        const otherTrees = countTrunks(other)
 
         expect(otherTrees).toBeGreaterThan(0)
         expect(largestLeafPatch(other)).toBe(CROWN_LEAF_BLOCKS)

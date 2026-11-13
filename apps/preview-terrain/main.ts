@@ -99,7 +99,7 @@ const levelsFor = (options: PreviewOptions): TerrainLevels =>
 const worldParams = (state: State): WorldParams => ({
   seed: state.seed,
   levels: state.levels,
-  carve: state.guard ? {} : { waterFloorMargin: 0 },
+  guard: state.guard,
   decorate: state.decorate,
 })
 

@@ -147,7 +147,7 @@ export const ORE_CONFIGS: ReadonlyArray<OreConfig> = [
 export const UNAVAILABLE_ORE_FEATURES = [
   {
     feature: 'copper-large',
-    reason: 'Requires dripstone-caves biome classification, which is deferred beyond WG2.',
+    reason: 'Tracked in the facilitator W6 FIX list: "Y で決まる洞窟のバイオームと copper-large".',
   },
 ] as const
 

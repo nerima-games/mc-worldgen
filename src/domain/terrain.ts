@@ -68,7 +68,7 @@ import {
   createTerrainDensitySampler,
   surfaceHeightAt,
 } from './density-function.js'
-import { type CarveOptions, carveCaves } from './carver.js'
+import { type CarveOptions, carveCaves, validateWaterFloorMargin } from './carver.js'
 import {
   type Chunk,
   biomeAt,
@@ -83,7 +83,16 @@ import {
   naturalStructurePlansForValidatedChunk,
 } from './natural-structure.js'
 import type { OverworldTerrainResultSampler, OverworldTerrainSample } from './structure-siting.js'
-import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
+import {
+  TREE_CROWN_RADIUS,
+  type TreeBiomeConfiguration,
+  UnsupportedTreeBiome,
+  cellOf,
+  shouldPlaceTreeWithKnownConfiguration,
+  treeCellCandidate,
+  treeConfigurationForBiome,
+  treeTrunkHeightForConfiguration,
+} from './tree-placement.js'
 import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGenerationValue, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
 import {
   type ValidatedNaturalStructureChunkCoordinates,
@@ -119,7 +128,6 @@ export type { SurfaceBiome, TerrainColumn } from './terrain-column.js'
 /** Single-block iteration step for the per-voxel/per-column loops below. */
 const AXIS_STEP = 1
 const DENSITY_SURFACE_THRESHOLD = 0
-const MIN_WATER_FLOOR_MARGIN = 1
 /** Sentinel stored for columns whose terrain has no water surface. */
 const NO_WATER_LEVEL = -1
 const LOCAL_COLUMN_MIN = 0
@@ -143,7 +151,7 @@ export const InvalidTerrainLevels: new (
 export type TerrainGenerationError = TerrainDensityFailure | UnsupportedBiomeCategory
 
 /** Keeps the existing ChunkSource error channel while exposing new generation failures. */
-export type InvalidTerrainLevels = InstanceType<typeof InvalidTerrainLevels> | TerrainGenerationError
+export type InvalidTerrainLevels = InstanceType<typeof InvalidTerrainLevels> | TerrainGenerationError | UnsupportedTreeBiome
 
 const TERRAIN_LEVELS_SCHEMA = Schema.Struct({
   lakeLevel: Schema.Number.pipe(Schema.fromBrand('BlockAxis', BlockAxis)),
@@ -210,11 +218,8 @@ const fillColumn = (blocks: Uint16Array, column: ColumnFill, initialSurfaceY: nu
   return { surfaceY, waterLevel }
 }
 
-/** Trunk height for a planted tree, in blocks above the surface. */
-const TREE_TRUNK_HEIGHT = 5
-
-const plantTrunk = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number): void => {
-  for (let offset = ONE_BLOCK_ABOVE; offset <= TREE_TRUNK_HEIGHT; offset += AXIS_STEP) {
+const plantTrunk = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number, trunkHeight: number): void => {
+  for (let offset = ONE_BLOCK_ABOVE; offset <= trunkHeight; offset += AXIS_STEP) {
     const y = surfaceY + offset
     // The density profile caps the exposed surface at MAX_SURFACE_Y (210), leaving room for the trunk and crown below CHUNK_HEIGHT (256).
     blocks[blockIndex(lx, y, lz)] = BLOCK.LOG
@@ -273,9 +278,9 @@ const plantCanopy = (blocks: Uint16Array, lx: number, lz: number, crownY: number
   }
 }
 
-const plantTree = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number): void => {
-  plantTrunk(blocks, lx, lz, surfaceY)
-  plantCanopy(blocks, lx, lz, surfaceY + TREE_TRUNK_HEIGHT)
+const plantTree = (blocks: Uint16Array, lx: number, lz: number, surfaceY: number, trunkHeight: number): void => {
+  plantTrunk(blocks, lx, lz, surfaceY, trunkHeight)
+  plantCanopy(blocks, lx, lz, surfaceY + trunkHeight)
 }
 
 type ChunkBuffers = {
@@ -345,16 +350,11 @@ const marginOptionsForGeneration = (carve: Record<string, unknown>): Result.Resu
     return Result.fail(new InvalidTerrainLevels({ field: 'waterFloorMargin' }))
   }
 
-  const margin: unknown = marginDescriptor.value
-  if (
-    typeof margin !== 'number' ||
-    !Number.isFinite(margin) ||
-    !Number.isInteger(margin) ||
-    margin < MIN_WATER_FLOOR_MARGIN
-  ) {
+  const margin = validateWaterFloorMargin(marginDescriptor.value)
+  if (Result.isFailure(margin)) {
     return Result.fail(new InvalidTerrainLevels({ field: 'waterFloorMargin' }))
   }
-  return Result.succeed({ waterFloorMargin: margin })
+  return Result.succeed({ waterFloorMargin: margin.success })
 }
 
 const carveOptionsFromValue = (carve: unknown): Result.Result<CarveOptions, InvalidTerrainLevels> => {
@@ -548,24 +548,43 @@ const generateColumns = (
   }
 }
 
-const plantTreesPass = (context: ChunkGenerationContext): void => {
+const plantTreeForColumn = (
+  context: ChunkGenerationContext,
+  lx: number,
+  lz: number,
+  configuration: TreeBiomeConfiguration,
+): void => {
+  if (configuration.species === null) {
+    return
+  }
+  const surfaceY = columnSurfaceY(context, lx, lz)
+  const worldX = context.minBlockX + lx
+  const worldZ = context.minBlockZ + lz
+  const candidate = treeCellCandidate(cellOf(worldX), cellOf(worldZ))
+  if (
+    shouldPlaceTreeWithKnownConfiguration(
+      { surfaceY, terrainLevels: context.levels, worldX, worldZ },
+      configuration,
+      candidate,
+    )
+  ) {
+    const trunkHeight = treeTrunkHeightForConfiguration(configuration, candidate.cellRng)
+    plantTree(context.blocks, lx, lz, surfaceY, trunkHeight)
+  }
+}
+
+const plantTreesPass = (context: ChunkGenerationContext): Result.Result<void, UnsupportedTreeBiome> => {
   for (let lx = 0; lx < CHUNK_SIZE_XZ; lx += AXIS_STEP) {
     for (let lz = 0; lz < CHUNK_SIZE_XZ; lz += AXIS_STEP) {
-      const surfaceY = columnSurfaceY(context, lx, lz)
-
-      if (
-        shouldPlaceTree({
-          biome: readRequired(context.biomes, columnIndexForKnownLocalRange(lx, lz)),
-          surfaceY,
-          terrainLevels: context.levels,
-          worldX: context.minBlockX + lx,
-          worldZ: context.minBlockZ + lz,
-        })
-      ) {
-        plantTree(context.blocks, lx, lz, surfaceY)
+      const biome = readRequired(context.biomes, columnIndexForKnownLocalRange(lx, lz))
+      const configuration = treeConfigurationForBiome(biome)
+      if (Result.isFailure(configuration)) {
+        return Result.fail(configuration.failure)
       }
+      plantTreeForColumn(context, lx, lz, configuration.success)
     }
   }
+  return Result.void
 }
 
 const plantSpecialVegetationPass = (context: ChunkGenerationContext): void => {
@@ -616,10 +635,14 @@ const plantGroundCoverPass = (context: ChunkGenerationContext): void => {
   }
 }
 
-const decorateChunk = (context: ChunkGenerationContext): void => {
-  plantTreesPass(context)
+const decorateChunk = (context: ChunkGenerationContext): Result.Result<void, UnsupportedTreeBiome> => {
+  const trees = plantTreesPass(context)
+  if (Result.isFailure(trees)) {
+    return Result.fail(trees.failure)
+  }
   plantSpecialVegetationPass(context)
   plantGroundCoverPass(context)
+  return Result.void
 }
 
 type TerrainSampleResult = Result.Result<OverworldTerrainSample, TerrainGenerationError>
@@ -721,13 +744,19 @@ const writeStructures = (
 /**
  * Generate a chunk. Total, pure, and a function of `(seed, coord)` alone.
  */
-const placeOresAndDecorate = (context: ChunkGenerationContext, options: GenerateOptions): void => {
+const placeOresAndDecorate = (
+  context: ChunkGenerationContext,
+  options: GenerateOptions,
+): Result.Result<void, UnsupportedTreeBiome> => {
   // Ore goes in AFTER carving, so that a cave wall can expose a vein, and it is
   // NOT behind `decorate` — ore is stone, not decoration. See `domain/ore.ts`.
   placeOres(context.blocks, context.seed, context.coord, context.biomes)
 
   if (options.decorate !== false) {
-    decorateChunk(context)
+    const decoration = decorateChunk(context)
+    if (Result.isFailure(decoration)) {
+      return Result.fail(decoration.failure)
+    }
   }
 
   // Ravines LAST, after ore and after decoration, so their walls cut cleanly through both — the reference's ordering and its stated reason (`generator.ts:141-142`). See the module header for why this is outside the `decorate` block rather than at the end of it.
@@ -738,6 +767,7 @@ const placeOresAndDecorate = (context: ChunkGenerationContext, options: Generate
     seed: context.seed,
     surfaces: context.surfaces,
   })
+  return Result.void
 }
 
 const runTerrainPassesBeforeStructures = (
@@ -745,10 +775,13 @@ const runTerrainPassesBeforeStructures = (
   options: GenerateOptions,
   carveOptions: CarveOptions,
   sampler: TerrainDensitySampler,
-): void => {
+): Result.Result<void, InvalidTerrainLevels> => {
   generateColumns(context, sampler)
-  carveCaves(context.blocks, context.seed, context.coord, carveOptions)
-  placeOresAndDecorate(context, options)
+  const caves = carveCaves(context.blocks, context.seed, context.coord, carveOptions)
+  if (Result.isFailure(caves)) {
+    return Result.fail(new InvalidTerrainLevels({ field: 'waterFloorMargin' }))
+  }
+  return placeOresAndDecorate(context, options)
 }
 
 const generateValidatedChunk = (
@@ -758,7 +791,10 @@ const generateValidatedChunk = (
   sampler: TerrainDensitySampler,
 ): Result.Result<NaturalStructureChunk, InvalidNaturalStructureCoordinate | InvalidTerrainLevels> => {
   const context = createChunkGenerationContext(seed, validatedChunk, options.terrainLevels, sampler)
-  runTerrainPassesBeforeStructures(context, options.generation, options.carve, sampler)
+  const passes = runTerrainPassesBeforeStructures(context, options.generation, options.carve, sampler)
+  if (Result.isFailure(passes)) {
+    return Result.fail(passes.failure)
+  }
   return writeStructures({ biomes: context.biomes, blocks: context.blocks, coord: validatedChunk.coord }, context)
 }
 

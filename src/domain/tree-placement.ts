@@ -17,6 +17,11 @@
  * forest density they cluster hard enough that neighbouring canopies merge into
  * a continuous surface the player can walk on.
  *
+ * Oak-compatible biomes use an explicit shape, density, and trunk-height
+ * profile. Biomes whose vanilla species is not registered have no tree profile;
+ * they do not silently receive oak as a substitute. A missing biome profile is
+ * a typed failure.
+ *
  * The conversion is `density × TREE_GRID_AREA`: a per-column probability
  * becomes a per-cell probability by multiplying by the cell's area, so the
  * expected number of trees per unit area is preserved and the density figure
@@ -67,20 +72,19 @@
  * world and not in the placement function.
  *
  * ---------------------------------------------------------------------------
- * The geometry caps density, and two biomes were over the cap
+ * The geometry caps density, so oak profiles stay below its ceiling
  * ---------------------------------------------------------------------------
  *
  * One tree per cell means the per-column density can never exceed
  * `1 / TREE_GRID_AREA`. More fundamentally, a minimum spacing of 6 caps ANY
  * non-fusing layout at 1/36 = 0.0278 trees per column, whatever the grid.
- * `BIOME_TREE_DENSITY` asked for 0.04 in FOREST and 0.03 in TAIGA. Both are
- * above 0.0278: those two biomes were requesting a canopy that cannot exist
- * without fusing, and the leaf slab was the generator honestly delivering it.
- * They came down to 0.012 and 0.009; the biomes that were already under the cap
- * did not move, and because the density conversion is per unit AREA, growing the
- * cell from 4×4 to 8×8 does not change their tree counts at all.
+ * The oak profiles use lower per-column targets than either bound. Biomes whose
+ * vanilla tree species is not registered have no-tree profiles instead of an
+ * oak substitute. Because density is converted by cell AREA, the grid size does
+ * not change the target tree count per unit area.
  */
 import { BIOME_TREE_DENSITY, type BiomeType, type KernelBiomeType } from './biome.js'
+import { Data, Result } from 'effect'
 import type { TerrainLevels } from './constants.js'
 
 /**
@@ -105,6 +109,14 @@ export const TREE_RNG_AMPLITUDE = 43758.5453
 export const TREE_CELL_JITTER_X_SCALE = 3.97
 export const TREE_CELL_JITTER_Z_SCALE = 5.23
 export const TREE_DENSITY_ROLL_RNG_SCALE = 2.61
+const TREE_HEIGHT_RNG_SCALE = 8.31
+const TREE_HEIGHT_RANGE_INCLUSIVE_OFFSET = 1
+const DENSE_OAK_TRUNK_HEIGHT_MIN = 5
+const DENSE_OAK_TRUNK_HEIGHT_MAX = 7
+const SPARSE_OAK_TRUNK_HEIGHT_MIN = 4
+const SPARSE_OAK_TRUNK_HEIGHT_MAX = 5
+const LOW_OAK_TRUNK_HEIGHT_MIN = 2
+const LOW_OAK_TRUNK_HEIGHT_MAX = 3
 
 /**
  * How many columns of its cell a candidate may land on, per axis.
@@ -171,15 +183,15 @@ export const UNAVAILABLE_TREE_SPECIES = [
 
 export const KERNEL_BIOME_TREE_DENSITY: Readonly<Record<KernelBiomeType, number>> = {
   badlands: 0,
-  bamboo_jungle: 0.012,
+  bamboo_jungle: 0,
   basalt_deltas: 0,
   beach: 0,
-  birch_forest: 0.012,
-  cherry_grove: 0.008,
+  birch_forest: 0,
+  cherry_grove: 0,
   cold_ocean: 0,
   crimson_forest: 0,
   dappled_forest: 0.012,
-  dark_forest: 0.012,
+  dark_forest: 0,
   deep_cold_ocean: 0,
   deep_dark: 0,
   deep_frozen_ocean: 0,
@@ -196,52 +208,199 @@ export const KERNEL_BIOME_TREE_DENSITY: Readonly<Record<KernelBiomeType, number>
   frozen_ocean: 0,
   frozen_peaks: 0,
   frozen_river: 0,
-  grove: 0.009,
-  ice_spikes: 0.004,
+  grove: 0,
+  ice_spikes: 0,
   jagged_peaks: 0,
-  jungle: 0.012,
+  jungle: 0,
   lukewarm_ocean: 0,
   lush_caves: 0,
-  mangrove_swamp: 0.012,
-  meadow: 0.008,
+  mangrove_swamp: 0,
+  meadow: 0.006,
   mushroom_fields: 0,
   nether_wastes: 0,
   ocean: 0,
-  old_growth_birch_forest: 0.012,
-  old_growth_pine_taiga: 0.009,
-  old_growth_spruce_taiga: 0.009,
-  pale_garden: 0.008,
+  old_growth_birch_forest: 0,
+  old_growth_pine_taiga: 0,
+  old_growth_spruce_taiga: 0,
+  pale_garden: 0,
   plains: 0.006,
   river: 0,
-  savanna: 0.008,
-  savanna_plateau: 0.008,
+  savanna: 0,
+  savanna_plateau: 0,
   small_end_islands: 0,
   snowy_beach: 0,
-  snowy_plains: 0.004,
+  snowy_plains: 0,
   snowy_slopes: 0,
-  snowy_taiga: 0.006,
+  snowy_taiga: 0,
   soul_sand_valley: 0,
-  sparse_jungle: 0.006,
+  sparse_jungle: 0.004,
   stony_peaks: 0,
   stony_shore: 0,
   sulfur_caves: 0,
   sunflower_plains: 0.006,
-  swamp: 0.012,
-  taiga: 0.009,
+  swamp: 0.006,
+  taiga: 0,
   the_end: 0,
   the_void: 0,
   warm_ocean: 0,
   warped_forest: 0,
-  windswept_forest: 0.009,
+  windswept_forest: 0.006,
   windswept_gravelly_hills: 0.003,
-  windswept_hills: 0.006,
-  windswept_savanna: 0.006,
-  wooded_badlands: 0.006,
+  windswept_hills: 0.004,
+  windswept_savanna: 0,
+  wooded_badlands: 0.003,
 }
 
-const ALL_BIOME_TREE_DENSITY: Readonly<Record<BiomeType | KernelBiomeType, number>> = {
-  ...BIOME_TREE_DENSITY,
-  ...KERNEL_BIOME_TREE_DENSITY,
+type TreeBiomeShape = 'none' | 'dense' | 'sparse' | 'low'
+
+export type TreeBiomeConfiguration = Readonly<{
+  readonly species: 'oak' | null
+  readonly shape: TreeBiomeShape
+  readonly density: number
+  readonly trunkHeightMin: number
+  readonly trunkHeightMax: number
+}>
+
+const noTreeConfiguration: TreeBiomeConfiguration = {
+  density: 0,
+  shape: 'none',
+  species: null,
+  trunkHeightMax: 0,
+  trunkHeightMin: 0,
+}
+
+const oakConfiguration = (
+  shape: Exclude<TreeBiomeShape, 'none'>,
+  density: number,
+  trunkHeightMin: number,
+  trunkHeightMax: number,
+): TreeBiomeConfiguration => ({ density, shape, species: 'oak', trunkHeightMax, trunkHeightMin })
+
+const denseOak = (density: number): TreeBiomeConfiguration =>
+  oakConfiguration('dense', density, DENSE_OAK_TRUNK_HEIGHT_MIN, DENSE_OAK_TRUNK_HEIGHT_MAX)
+const sparseOak = (density: number): TreeBiomeConfiguration =>
+  oakConfiguration('sparse', density, SPARSE_OAK_TRUNK_HEIGHT_MIN, SPARSE_OAK_TRUNK_HEIGHT_MAX)
+const lowOak = (density: number): TreeBiomeConfiguration =>
+  oakConfiguration('low', density, LOW_OAK_TRUNK_HEIGHT_MIN, LOW_OAK_TRUNK_HEIGHT_MAX)
+
+const LEGACY_TREE_CONFIGURATIONS: Readonly<Record<BiomeType, TreeBiomeConfiguration>> = {
+  BEACH: noTreeConfiguration,
+  DESERT: noTreeConfiguration,
+  FLOWER_FOREST: denseOak(BIOME_TREE_DENSITY.FLOWER_FOREST),
+  FOREST: denseOak(BIOME_TREE_DENSITY.FOREST),
+  JUNGLE: noTreeConfiguration,
+  MOUNTAINS: lowOak(BIOME_TREE_DENSITY.MOUNTAINS),
+  OCEAN: noTreeConfiguration,
+  PLAINS: sparseOak(BIOME_TREE_DENSITY.PLAINS),
+  RIVER: noTreeConfiguration,
+  SAVANNA: noTreeConfiguration,
+  SNOW: noTreeConfiguration,
+  SWAMP: sparseOak(BIOME_TREE_DENSITY.SWAMP),
+  TAIGA: noTreeConfiguration,
+}
+
+const KERNEL_TREE_CONFIGURATIONS: Readonly<Record<KernelBiomeType, TreeBiomeConfiguration>> = {
+  badlands: noTreeConfiguration,
+  bamboo_jungle: noTreeConfiguration,
+  basalt_deltas: noTreeConfiguration,
+  beach: noTreeConfiguration,
+  birch_forest: noTreeConfiguration,
+  cherry_grove: noTreeConfiguration,
+  cold_ocean: noTreeConfiguration,
+  crimson_forest: noTreeConfiguration,
+  dappled_forest: denseOak(KERNEL_BIOME_TREE_DENSITY.dappled_forest),
+  dark_forest: noTreeConfiguration,
+  deep_cold_ocean: noTreeConfiguration,
+  deep_dark: noTreeConfiguration,
+  deep_frozen_ocean: noTreeConfiguration,
+  deep_lukewarm_ocean: noTreeConfiguration,
+  deep_ocean: noTreeConfiguration,
+  desert: noTreeConfiguration,
+  dripstone_caves: noTreeConfiguration,
+  end_barrens: noTreeConfiguration,
+  end_highlands: noTreeConfiguration,
+  end_midlands: noTreeConfiguration,
+  eroded_badlands: noTreeConfiguration,
+  flower_forest: denseOak(KERNEL_BIOME_TREE_DENSITY.flower_forest),
+  forest: denseOak(KERNEL_BIOME_TREE_DENSITY.forest),
+  frozen_ocean: noTreeConfiguration,
+  frozen_peaks: noTreeConfiguration,
+  frozen_river: noTreeConfiguration,
+  grove: noTreeConfiguration,
+  ice_spikes: noTreeConfiguration,
+  jagged_peaks: noTreeConfiguration,
+  jungle: noTreeConfiguration,
+  lukewarm_ocean: noTreeConfiguration,
+  lush_caves: noTreeConfiguration,
+  mangrove_swamp: noTreeConfiguration,
+  meadow: sparseOak(KERNEL_BIOME_TREE_DENSITY.meadow),
+  mushroom_fields: noTreeConfiguration,
+  nether_wastes: noTreeConfiguration,
+  ocean: noTreeConfiguration,
+  old_growth_birch_forest: noTreeConfiguration,
+  old_growth_pine_taiga: noTreeConfiguration,
+  old_growth_spruce_taiga: noTreeConfiguration,
+  pale_garden: noTreeConfiguration,
+  plains: sparseOak(KERNEL_BIOME_TREE_DENSITY.plains),
+  river: noTreeConfiguration,
+  savanna: noTreeConfiguration,
+  savanna_plateau: noTreeConfiguration,
+  small_end_islands: noTreeConfiguration,
+  snowy_beach: noTreeConfiguration,
+  snowy_plains: noTreeConfiguration,
+  snowy_slopes: noTreeConfiguration,
+  snowy_taiga: noTreeConfiguration,
+  soul_sand_valley: noTreeConfiguration,
+  sparse_jungle: sparseOak(KERNEL_BIOME_TREE_DENSITY.sparse_jungle),
+  stony_peaks: noTreeConfiguration,
+  stony_shore: noTreeConfiguration,
+  sulfur_caves: noTreeConfiguration,
+  sunflower_plains: sparseOak(KERNEL_BIOME_TREE_DENSITY.sunflower_plains),
+  swamp: sparseOak(KERNEL_BIOME_TREE_DENSITY.swamp),
+  taiga: noTreeConfiguration,
+  the_end: noTreeConfiguration,
+  the_void: noTreeConfiguration,
+  warm_ocean: noTreeConfiguration,
+  warped_forest: noTreeConfiguration,
+  windswept_forest: sparseOak(KERNEL_BIOME_TREE_DENSITY.windswept_forest),
+  windswept_gravelly_hills: lowOak(KERNEL_BIOME_TREE_DENSITY.windswept_gravelly_hills),
+  windswept_hills: lowOak(KERNEL_BIOME_TREE_DENSITY.windswept_hills),
+  windswept_savanna: noTreeConfiguration,
+  wooded_badlands: lowOak(KERNEL_BIOME_TREE_DENSITY.wooded_badlands),
+}
+
+/** All accepted biome IDs have an explicit oak or no-tree configuration. */
+const TREE_CONFIG_BY_KNOWN_BIOME: Readonly<Record<BiomeType | KernelBiomeType, TreeBiomeConfiguration>> = {
+  ...LEGACY_TREE_CONFIGURATIONS,
+  ...KERNEL_TREE_CONFIGURATIONS,
+}
+
+type UnsupportedTreeBiomeFields = { readonly field: 'biome' }
+
+const taggedError = Data.TaggedError
+
+export const UnsupportedTreeBiome: new (
+  args: UnsupportedTreeBiomeFields,
+) => Error & { readonly _tag: 'UnsupportedTreeBiome' } & Readonly<UnsupportedTreeBiomeFields> =
+  taggedError('UnsupportedTreeBiome')<UnsupportedTreeBiomeFields>
+
+export type UnsupportedTreeBiome = InstanceType<typeof UnsupportedTreeBiome>
+
+const TREE_CONFIGURATION_RESULTS_BY_BIOME = new Map<string, Result.Result<TreeBiomeConfiguration, UnsupportedTreeBiome>>(
+  Object.entries(TREE_CONFIG_BY_KNOWN_BIOME).map(([biome, configuration]) => [
+    biome,
+    Result.succeed(configuration),
+  ]),
+)
+
+export const treeConfigurationForBiome = (
+  biome: unknown,
+): Result.Result<TreeBiomeConfiguration, UnsupportedTreeBiome> => {
+  if (typeof biome !== 'string') {
+    return Result.fail(new UnsupportedTreeBiome({ field: 'biome' }))
+  }
+  return TREE_CONFIGURATION_RESULTS_BY_BIOME.get(biome) ??
+    Result.fail(new UnsupportedTreeBiome({ field: 'biome' }))
 }
 
 const fract = (value: number): number => value - Math.floor(value)
@@ -282,6 +441,41 @@ export const treeCellCandidate = (cellX: number, cellZ: number): TreeCandidate =
 
 export const cellOf = (worldCoordinate: number): number => Math.floor(worldCoordinate / TREE_GRID_SIZE)
 
+export const treeTrunkHeightForConfiguration = (
+  configuration: TreeBiomeConfiguration,
+  cellRng: number,
+): number => {
+  const heightRange =
+    configuration.trunkHeightMax - configuration.trunkHeightMin + TREE_HEIGHT_RANGE_INCLUSIVE_OFFSET
+  return configuration.trunkHeightMin + Math.floor(fract(cellRng * TREE_HEIGHT_RNG_SCALE) * heightRange)
+}
+
+const shouldPlaceTreeWithConfiguration = (
+  input: {
+    readonly worldX: number
+    readonly worldZ: number
+    readonly surfaceY: number
+    readonly terrainLevels: TerrainLevels
+  },
+  configuration: TreeBiomeConfiguration,
+  candidate: TreeCandidate,
+): boolean => {
+  if (configuration.species === null) {
+    return false
+  }
+
+  if (candidate.worldX !== input.worldX || candidate.worldZ !== input.worldZ) {
+    return false
+  }
+
+  // Submerged columns never grow trees: the trunk would rise out of the water.
+  if (input.surfaceY < input.terrainLevels.seaLevel) {
+    return false
+  }
+
+  return fract(candidate.cellRng * TREE_DENSITY_ROLL_RNG_SCALE) < configuration.density * TREE_GRID_AREA
+}
+
 /**
  * Whether a tree grows at this world column.
  *
@@ -299,21 +493,33 @@ export const shouldPlaceTree = (input: {
   readonly worldX: number
   readonly worldZ: number
   readonly surfaceY: number
+  readonly biome: string
+  readonly terrainLevels: TerrainLevels
+}): Result.Result<boolean, UnsupportedTreeBiome> => {
+  const candidate = treeCellCandidate(cellOf(input.worldX), cellOf(input.worldZ))
+  return Result.map(treeConfigurationForBiome(input.biome), (configuration) =>
+    shouldPlaceTreeWithConfiguration(input, configuration, candidate),
+  )
+}
+
+export const shouldPlaceTreeForKnownBiome = (input: {
+  readonly worldX: number
+  readonly worldZ: number
+  readonly surfaceY: number
   readonly biome: BiomeType | KernelBiomeType
   readonly terrainLevels: TerrainLevels
 }): boolean => {
   const candidate = treeCellCandidate(cellOf(input.worldX), cellOf(input.worldZ))
-
-  if (candidate.worldX !== input.worldX || candidate.worldZ !== input.worldZ) {
-    return false
-  }
-
-  // Submerged columns never grow trees: the trunk would rise out of the water.
-  if (input.surfaceY < input.terrainLevels.seaLevel) {
-    return false
-  }
-
-  const density = ALL_BIOME_TREE_DENSITY[input.biome]
-
-  return fract(candidate.cellRng * TREE_DENSITY_ROLL_RNG_SCALE) < density * TREE_GRID_AREA
+  return shouldPlaceTreeWithConfiguration(input, TREE_CONFIG_BY_KNOWN_BIOME[input.biome], candidate)
 }
+
+export const shouldPlaceTreeWithKnownConfiguration = (
+  input: {
+    readonly worldX: number
+    readonly worldZ: number
+    readonly surfaceY: number
+    readonly terrainLevels: TerrainLevels
+  },
+  configuration: TreeBiomeConfiguration,
+  candidate: TreeCandidate,
+): boolean => shouldPlaceTreeWithConfiguration(input, configuration, candidate)

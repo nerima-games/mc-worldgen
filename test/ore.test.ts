@@ -133,7 +133,7 @@ describe('the vanilla ore feature table', () => {
       expect(ORE_CONFIGS.map(rowOf)).toStrictEqual(expectedFeatureRows)
       expect(UNAVAILABLE_ORE_FEATURES).toStrictEqual([{
         feature: 'copper-large',
-        reason: 'Requires dripstone-caves biome classification, which is deferred beyond WG2.',
+        reason: 'Tracked in the facilitator W6 FIX list: "Y で決まる洞窟のバイオームと copper-large".',
       }])
       expect(ORE_MIN_Y_FLOOR).toBe(0)
       expect(ORE_MAX_Y).toBe(255)

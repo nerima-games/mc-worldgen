@@ -3,6 +3,7 @@
  * `node --expose-gc --import tsx scripts/wg2-profile.ts <before-root> <after-root> [output-dir]`.
  */
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { resolve } from 'node:path'
@@ -32,6 +33,7 @@ const TIMING_BATCH = [
   { seed: SEED_BASE + SEED_STEP, cx: -2, cz: -1 },
   { seed: SEED_BASE + SEED_STEP, cx: -1, cz: -1 },
 ] as const
+const PROFILE_OUTPUT_DIRECTORY = 'artifacts/wg2-profile/'
 
 type ChunkCoordinate = Readonly<{ cx: number; cz: number }>
 type ChunkData = Readonly<{ blocks: Uint16Array; biomes: ReadonlyArray<string> }>
@@ -63,6 +65,36 @@ type Profile = Readonly<{
 }>
 type SurfaceMetrics = Readonly<{ min: number; median: number; p95: number; max: number }>
 type TimingSample = Readonly<{ milliseconds: number; signature: string }>
+type SourceIdentity = Readonly<{ commitSha: string; sourceTreeHash: string }>
+
+const sourceIdentity = (root: string): SourceIdentity => {
+  const dirtyTrackedFiles = execFileSync(
+    'git',
+    ['-C', root, 'status', '--porcelain', '--untracked-files=no'],
+    { encoding: 'utf8' },
+  )
+  if (dirtyTrackedFiles.length > 0) {
+    throw new Error(`cannot identify a dirty tracked source tree: ${root}`)
+  }
+
+  const commitSha = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  const treeEntries = execFileSync('git', ['-C', root, 'ls-tree', '-r', '-z', 'HEAD'], { encoding: 'utf8' })
+  const hash = createHash('sha256')
+
+  for (const entry of treeEntries.split('\0').sort()) {
+    if (entry.length === 0) {
+      continue
+    }
+    const separator = entry.indexOf('\t')
+    const metadata = entry.slice(0, separator)
+    const path = entry.slice(separator + 1)
+    if (!path.startsWith(PROFILE_OUTPUT_DIRECTORY)) {
+      hash.update(metadata).update('\t').update(path).update('\0')
+    }
+  }
+
+  return { commitSha, sourceTreeHash: hash.digest('hex') }
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -464,17 +496,32 @@ const reportProfile = (profile: Profile): Readonly<{
 })
 
 const main = async (): Promise<void> => {
-  const [beforeRootArg, afterRootArg, outputDirArg] = process.argv.slice(2)
-  if (!beforeRootArg || !afterRootArg || process.argv.length > 5) {
+  const args = process.argv.slice(2)
+  if (args[0] === '--identity') {
+    process.stdout.write(`${JSON.stringify(sourceIdentity(resolve(args[1] ?? '.')), null, 2)}\n`)
+    return
+  }
+
+  const [beforeRootArg, afterRootArg, outputDirArg] = args
+  if (!beforeRootArg || !afterRootArg || args.length > 3) {
     throw new Error('usage: node --expose-gc --import tsx scripts/wg2-profile.ts <before-root> <after-root> [output-dir]')
   }
   const outputDir = resolve(outputDirArg ?? 'wg2-profile-output')
+  const beforeIdentity = sourceIdentity(resolve(beforeRootArg))
+  const afterIdentity = sourceIdentity(resolve(afterRootArg))
   const [before, after] = await Promise.all([
     loadWorldgen(resolve(beforeRootArg)),
     loadWorldgen(resolve(afterRootArg)),
   ])
 
   const timing = pairedTiming(before, after)
+  const afterIdentityAfterMeasurement = sourceIdentity(resolve(afterRootArg))
+  if (
+    afterIdentityAfterMeasurement.commitSha !== afterIdentity.commitSha ||
+    afterIdentityAfterMeasurement.sourceTreeHash !== afterIdentity.sourceTreeHash
+  ) {
+    throw new Error('the after source tree changed during the performance measurement')
+  }
   const [beforeProfile, afterProfile] = [summarizeWorld(before), summarizeWorld(after)]
   const [beforeRegion, afterRegion] = [representativeRegion(before), representativeRegion(after)]
   const svg = comparisonSvg(beforeRegion, afterRegion, before, after)
@@ -490,6 +537,11 @@ const main = async (): Promise<void> => {
       seedStep: SEED_STEP,
       columnsPerChunk: before.constants.CHUNK_SIZE_XZ ** 2,
       surfaceHeightMethod: 'highest generated non-water terrain block; excludes ice, logs, leaves, bedrock',
+    },
+    sourceIdentity: {
+      before: beforeIdentity,
+      after: afterIdentity,
+      hashDescription: 'SHA-256 of sorted HEAD tree entries (mode, path, blob object ID), excluding artifacts/wg2-profile/',
     },
     timing: {
       armOutputHashesStable: true,
