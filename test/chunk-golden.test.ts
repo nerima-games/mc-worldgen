@@ -79,10 +79,11 @@ import {
 import { RIVER_WATER_LEVEL } from '../src/domain/lake-config'
 import { ORE_IDS } from '../src/domain/ore'
 import { MAX_SURFACE_Y, createTerrainDensitySampler } from '../src/domain/density-function'
-import { createTerrainDensityGrid, type TerrainDensityGrid } from '../src/domain/density-grid'
+import { createTerrainDensityGrid } from '../src/domain/density-grid'
 import { generateChunkAt } from './helpers/unwrapped-worldgen'
 import { resolveTerrainColumnForGeneration } from '../src/domain/terrain-column'
 import { PLANT_IDS } from '../src/domain/vegetation'
+type TerrainDensityGrid = ReturnType<typeof createTerrainDensityGrid>
 // Every remaining `*_BLOCK` record in src/domain — the block ids each natural
 // structure carves, none of which are part of `BLOCK` (terrain), `ORE_IDS` or
 // `PLANT_IDS`. worldgen-village-availability (see structure-siting.ts) is

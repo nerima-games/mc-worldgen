@@ -18,7 +18,7 @@ const GRID_Y_NODE_COUNT = (GRID_MAX_Y - GRID_MIN_Y) / TERRAIN_DENSITY_GRID_CELL_
 const GRID_SAMPLE_COUNT = GRID_XZ_NODE_COUNT * GRID_Y_NODE_COUNT * GRID_XZ_NODE_COUNT
 const LAST_SAFE_BLOCK_COORDINATE = Number.MAX_SAFE_INTEGER
 
-export type TerrainDensityGrid = Readonly<{
+type TerrainDensityGrid = Readonly<{
   readonly sampleColumn: (lx: number, lz: number, samples: Float64Array) => void
 }>
 
