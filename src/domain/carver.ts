@@ -57,8 +57,8 @@
  * non-finite, or non-integer margin. The zero-margin regression uses the
  * `./testing` export, which is excluded from the package root.
  */
+import { Brand, Data, Option, Result } from 'effect'
 import { CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN, blockIndex } from './constants.js'
-import { Data, Option, Result } from 'effect'
 import { type NoiseFn3D, type NoiseSeed, createNoiseField } from '@nerima-games/mc-noise'
 import { worldX, worldZ } from './generator-coordinates.js'
 import { BLOCK } from './biome.js'
@@ -130,7 +130,10 @@ export const InvalidWaterFloorMargin: new (
 
 export type InvalidWaterFloorMargin = InstanceType<typeof InvalidWaterFloorMargin>
 
-export const validateWaterFloorMargin = (margin: unknown): Result.Result<number, InvalidWaterFloorMargin> => {
+type WaterFloorMargin = number & Brand.Brand<'WaterFloorMargin'>
+const waterFloorMarginFromNumber = Brand.nominal<WaterFloorMargin>()
+
+export const validateWaterFloorMargin = (margin: unknown): Result.Result<WaterFloorMargin, InvalidWaterFloorMargin> => {
   if (
     typeof margin !== 'number' ||
     !Number.isFinite(margin) ||
@@ -139,7 +142,7 @@ export const validateWaterFloorMargin = (margin: unknown): Result.Result<number,
   ) {
     return Result.fail(new InvalidWaterFloorMargin({ field: 'waterFloorMargin' }))
   }
-  return Result.succeed(margin)
+  return Result.succeed(waterFloorMarginFromNumber(margin))
 }
 
 /**

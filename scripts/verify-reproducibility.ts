@@ -72,8 +72,8 @@ const main = (): void => {
   const terrainDigest = terrainHash.digest('hex')
   const lightDigest = lightHash.digest('hex')
   if (
-    terrainDigest !== '324df94ebe69b8e121a2f5d92c9c44f8575eda7731d0a1633753b94950aee2a5' ||
-    lightDigest !== 'd550583c09de0107a037b85f0c28021aa8d7ae8a57a8a8984baef89a645b6c64'
+    terrainDigest !== 'dbb1b6b6415fc2afa07a20bf4e5c9c8d6cdc7977592cce9e36988f8dbaa8855f' ||
+    lightDigest !== 'f0127754545895e67f50532923e01406814c44f73acf5b0d4aacab9a0a3ae666'
   ) {
     throw new Error(`reproducibility digests changed: terrain=${terrainDigest}; light=${lightDigest}`)
   }

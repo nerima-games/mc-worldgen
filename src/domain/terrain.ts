@@ -560,10 +560,18 @@ const plantTreeForColumn = (
   const surfaceY = columnSurfaceY(context, lx, lz)
   const worldX = context.minBlockX + lx
   const worldZ = context.minBlockZ + lz
-  const candidate = treeCellCandidate(cellOf(worldX), cellOf(worldZ))
+  const candidate = treeCellCandidate(
+    cellOf(blockAxisFromKnownSafeInteger(worldX)),
+    cellOf(blockAxisFromKnownSafeInteger(worldZ)),
+  )
   if (
     shouldPlaceTreeWithKnownConfiguration(
-      { surfaceY, terrainLevels: context.levels, worldX, worldZ },
+      {
+        surfaceY: blockAxisFromKnownSafeInteger(surfaceY),
+        terrainLevels: context.levels,
+        worldX: blockAxisFromKnownSafeInteger(worldX),
+        worldZ: blockAxisFromKnownSafeInteger(worldZ),
+      },
       configuration,
       candidate,
     )

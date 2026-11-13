@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import * as fc from 'fast-check'
 import { blockAxis } from './fixtures/validated-inputs'
 import { BIOMES, BIOME_SURFACES, BIOME_TREE_DENSITY, KERNEL_BIOMES, classifyBiome } from '../src/domain/biome'
 import { DEFAULT_TERRAIN_LEVELS } from '../src/domain/constants'
@@ -52,6 +53,8 @@ const EXPECTED_PLACEMENT_DENSITY_RANGES = {
   none: [0, 0],
   sparse: [0.0025, 0.0065],
 } as const
+
+const treeCell = (cellIndex: number) => cellOf(blockAxis(cellIndex * TREE_GRID_SIZE))
 
 const shouldPlaceTreeSuccessfully = (input: Parameters<typeof shouldPlaceTree>[0]): boolean => {
   const result = shouldPlaceTree(input)
@@ -142,13 +145,41 @@ describe('classifyBiome', () => {
         biome: 'unlisted_biome',
         surfaceY: blockAxis(70),
         terrainLevels: DEFAULT_TERRAIN_LEVELS,
-        worldX: 0,
-        worldZ: 0,
+        worldX: blockAxis(0),
+        worldZ: blockAxis(0),
       })
 
       expect(result).toMatchObject({ _tag: 'Failure', failure: { _tag: 'UnsupportedTreeBiome' } })
       expect(nonStringBiome).toMatchObject({ _tag: 'Failure', failure: { _tag: 'UnsupportedTreeBiome' } })
       expect(placement).toMatchObject({ _tag: 'Failure', failure: { _tag: 'UnsupportedTreeBiome' } })
+    }),
+  )
+
+  it.effect('returns a typed result for arbitrary biome values and branded coordinates', () =>
+    Effect.sync(() => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: -1_000_000, max: 1_000_000 }),
+          fc.integer({ min: -1_000_000, max: 1_000_000 }),
+          fc.integer({ min: -128, max: 512 }),
+          fc.anything(),
+          (worldX, worldZ, surfaceY, biome) => {
+            const result = shouldPlaceTree({
+              biome,
+              surfaceY: blockAxis(surfaceY),
+              terrainLevels: DEFAULT_TERRAIN_LEVELS,
+              worldX: blockAxis(worldX),
+              worldZ: blockAxis(worldZ),
+            })
+
+            if (result._tag === 'Failure') {
+              expect(result.failure._tag).toBe('UnsupportedTreeBiome')
+            } else {
+              expect(typeof result.success).toBe('boolean')
+            }
+          },
+        ),
+      )
     }),
   )
 
@@ -184,7 +215,7 @@ describe('classifyBiome', () => {
 
         for (let cellX = 0; cellX < cellSpan; cellX += 1) {
           for (let cellZ = 0; cellZ < cellSpan; cellZ += 1) {
-            const candidate = treeCellCandidate(cellX, cellZ)
+            const candidate = treeCellCandidate(treeCell(cellX), treeCell(cellZ))
             const result = shouldPlaceTree({
               worldX: blockAxis(candidate.worldX),
               worldZ: blockAxis(candidate.worldZ),
@@ -221,7 +252,7 @@ describe('classifyBiome', () => {
         expect(result._tag).toBe('Success')
         if (result._tag === 'Success') {
           for (let cellX = -12; cellX <= 12; cellX += 3) {
-            const candidate = treeCellCandidate(cellX, -cellX)
+            const candidate = treeCellCandidate(treeCell(cellX), treeCell(-cellX))
             const height = treeTrunkHeightForConfiguration(result.success, candidate.cellRng)
             expect(height).toBeGreaterThanOrEqual(expected.height[0])
             expect(height).toBeLessThanOrEqual(expected.height[1])
@@ -336,10 +367,10 @@ describe('tree placement', () => {
     Effect.sync(() => {
       for (let cellX = -20; cellX <= 20; cellX += 1) {
         for (let cellZ = -20; cellZ <= 20; cellZ += 3) {
-          const candidate = treeCellCandidate(cellX, cellZ)
+          const candidate = treeCellCandidate(treeCell(cellX), treeCell(cellZ))
 
-          expect(cellOf(candidate.worldX)).toBe(cellX)
-          expect(cellOf(candidate.worldZ)).toBe(cellZ)
+          expect(cellOf(blockAxis(candidate.worldX))).toBe(treeCell(cellX))
+          expect(cellOf(blockAxis(candidate.worldZ))).toBe(treeCell(cellZ))
 
           // Tighter than "inside its cell": inside the WINDOW. The gutter
           // between the window and the cell edge is the minimum-spacing
@@ -356,7 +387,7 @@ describe('tree placement', () => {
 
   it.effect('is deterministic: the same cell always yields the same candidate', () =>
     Effect.sync(() => {
-      expect(treeCellCandidate(7, -3)).toStrictEqual(treeCellCandidate(7, -3))
+      expect(treeCellCandidate(treeCell(7), treeCell(-3))).toStrictEqual(treeCellCandidate(treeCell(7), treeCell(-3)))
     }),
   )
 
@@ -405,10 +436,10 @@ describe('tree placement', () => {
    */
   it.effect('never plants on a submerged column, whatever the biome says', () =>
     Effect.sync(() => {
-      const candidate = treeCellCandidate(0, 0)
+      const candidate = treeCellCandidate(treeCell(0), treeCell(0))
       const submerged = {
-        worldX: candidate.worldX,
-        worldZ: candidate.worldZ,
+        worldX: blockAxis(candidate.worldX),
+        worldZ: blockAxis(candidate.worldZ),
         biome: 'FOREST' as const,
         terrainLevels: DEFAULT_TERRAIN_LEVELS,
       }

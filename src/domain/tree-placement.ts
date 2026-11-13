@@ -84,7 +84,8 @@
  * not change the target tree count per unit area.
  */
 import { BIOME_TREE_DENSITY, type BiomeType, type KernelBiomeType } from './biome.js'
-import { Data, Result } from 'effect'
+import { Brand, Data, Result } from 'effect'
+import type { BlockAxis } from '@nerima-games/mc-kernel/domain/coordinates'
 import type { TerrainLevels } from './constants.js'
 
 /**
@@ -253,20 +254,31 @@ export const KERNEL_BIOME_TREE_DENSITY: Readonly<Record<KernelBiomeType, number>
 
 type TreeBiomeShape = 'none' | 'dense' | 'sparse' | 'low'
 
+type TreeDensity = number & Brand.Brand<'TreeDensity'>
+type TreeGridCell = number & Brand.Brand<'TreeGridCell'>
+type TreeTrunkHeight = number & Brand.Brand<'TreeTrunkHeight'>
+type TreeCellRandom = number & Brand.Brand<'TreeCellRandom'>
+const NO_TREE_DENSITY = 0
+const NO_TREE_TRUNK_HEIGHT = 0
+const treeDensityFromNumber = Brand.nominal<TreeDensity>()
+const treeGridCellFromNumber = Brand.nominal<TreeGridCell>()
+const treeTrunkHeightFromNumber = Brand.nominal<TreeTrunkHeight>()
+const treeCellRandomFromNumber = Brand.nominal<TreeCellRandom>()
+
 export type TreeBiomeConfiguration = Readonly<{
   readonly species: 'oak' | null
   readonly shape: TreeBiomeShape
-  readonly density: number
-  readonly trunkHeightMin: number
-  readonly trunkHeightMax: number
+  readonly density: TreeDensity
+  readonly trunkHeightMin: TreeTrunkHeight
+  readonly trunkHeightMax: TreeTrunkHeight
 }>
 
 const noTreeConfiguration: TreeBiomeConfiguration = {
-  density: 0,
+  density: treeDensityFromNumber(NO_TREE_DENSITY),
   shape: 'none',
   species: null,
-  trunkHeightMax: 0,
-  trunkHeightMin: 0,
+  trunkHeightMax: treeTrunkHeightFromNumber(NO_TREE_TRUNK_HEIGHT),
+  trunkHeightMin: treeTrunkHeightFromNumber(NO_TREE_TRUNK_HEIGHT),
 }
 
 const oakConfiguration = (
@@ -274,7 +286,13 @@ const oakConfiguration = (
   density: number,
   trunkHeightMin: number,
   trunkHeightMax: number,
-): TreeBiomeConfiguration => ({ density, shape, species: 'oak', trunkHeightMax, trunkHeightMin })
+): TreeBiomeConfiguration => ({
+  density: treeDensityFromNumber(density),
+  shape,
+  species: 'oak',
+  trunkHeightMax: treeTrunkHeightFromNumber(trunkHeightMax),
+  trunkHeightMin: treeTrunkHeightFromNumber(trunkHeightMin),
+})
 
 const denseOak = (density: number): TreeBiomeConfiguration =>
   oakConfiguration('dense', density, DENSE_OAK_TRUNK_HEIGHT_MIN, DENSE_OAK_TRUNK_HEIGHT_MAX)
@@ -408,7 +426,7 @@ const fract = (value: number): number => value - Math.floor(value)
 export type TreeCandidate = {
   readonly worldX: number
   readonly worldZ: number
-  readonly cellRng: number
+  readonly cellRng: TreeCellRandom
 }
 
 /**
@@ -429,8 +447,10 @@ const jitterOffset = (cellRng: number, scale: number): number =>
  * are derived from the *same* `cellRng` by different multipliers — one hash
  * evaluation per cell rather than three.
  */
-export const treeCellCandidate = (cellX: number, cellZ: number): TreeCandidate => {
-  const cellRng = Math.sin(cellX * TREE_RNG_X_SCALE + cellZ * TREE_RNG_Z_SCALE) * TREE_RNG_AMPLITUDE
+export const treeCellCandidate = (cellX: TreeGridCell, cellZ: TreeGridCell): TreeCandidate => {
+  const cellRng = treeCellRandomFromNumber(
+    Math.sin(cellX * TREE_RNG_X_SCALE + cellZ * TREE_RNG_Z_SCALE) * TREE_RNG_AMPLITUDE,
+  )
 
   return {
     cellRng,
@@ -439,15 +459,18 @@ export const treeCellCandidate = (cellX: number, cellZ: number): TreeCandidate =
   }
 }
 
-export const cellOf = (worldCoordinate: number): number => Math.floor(worldCoordinate / TREE_GRID_SIZE)
+export const cellOf = (worldCoordinate: BlockAxis): TreeGridCell =>
+  treeGridCellFromNumber(Math.floor(worldCoordinate / TREE_GRID_SIZE))
 
 export const treeTrunkHeightForConfiguration = (
   configuration: TreeBiomeConfiguration,
-  cellRng: number,
-): number => {
+  cellRng: TreeCellRandom,
+): TreeTrunkHeight => {
   const heightRange =
     configuration.trunkHeightMax - configuration.trunkHeightMin + TREE_HEIGHT_RANGE_INCLUSIVE_OFFSET
-  return configuration.trunkHeightMin + Math.floor(fract(cellRng * TREE_HEIGHT_RNG_SCALE) * heightRange)
+  return treeTrunkHeightFromNumber(
+    configuration.trunkHeightMin + Math.floor(fract(cellRng * TREE_HEIGHT_RNG_SCALE) * heightRange),
+  )
 }
 
 const shouldPlaceTreeWithConfiguration = (
@@ -490,10 +513,10 @@ const shouldPlaceTreeWithConfiguration = (
  * or sea bed, and a trunk placed there rises through the water.
  */
 export const shouldPlaceTree = (input: {
-  readonly worldX: number
-  readonly worldZ: number
-  readonly surfaceY: number
-  readonly biome: string
+  readonly worldX: BlockAxis
+  readonly worldZ: BlockAxis
+  readonly surfaceY: BlockAxis
+  readonly biome: unknown
   readonly terrainLevels: TerrainLevels
 }): Result.Result<boolean, UnsupportedTreeBiome> => {
   const candidate = treeCellCandidate(cellOf(input.worldX), cellOf(input.worldZ))
@@ -503,9 +526,9 @@ export const shouldPlaceTree = (input: {
 }
 
 export const shouldPlaceTreeForKnownBiome = (input: {
-  readonly worldX: number
-  readonly worldZ: number
-  readonly surfaceY: number
+  readonly worldX: BlockAxis
+  readonly worldZ: BlockAxis
+  readonly surfaceY: BlockAxis
   readonly biome: BiomeType | KernelBiomeType
   readonly terrainLevels: TerrainLevels
 }): boolean => {
@@ -515,9 +538,9 @@ export const shouldPlaceTreeForKnownBiome = (input: {
 
 export const shouldPlaceTreeWithKnownConfiguration = (
   input: {
-    readonly worldX: number
-    readonly worldZ: number
-    readonly surfaceY: number
+    readonly worldX: BlockAxis
+    readonly worldZ: BlockAxis
+    readonly surfaceY: BlockAxis
     readonly terrainLevels: TerrainLevels
   },
   configuration: TreeBiomeConfiguration,
