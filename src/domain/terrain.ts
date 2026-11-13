@@ -85,7 +85,6 @@ import {
 import type { OverworldTerrainResultSampler, OverworldTerrainSample } from './structure-siting.js'
 import { TREE_CROWN_RADIUS, shouldPlaceTree } from './tree-placement.js'
 import { type TerrainColumnForGeneration, biomeFor, climateAt, resolveTerrainColumnForGenerationValue, surfaceBiomeAt, terrainColumnAt } from './terrain-column.js'
-import { createTerrainDensityGrid } from './density-grid.js'
 import {
   type ValidatedNaturalStructureChunkCoordinates,
   validateNaturalStructureChunkCoordinates,
@@ -103,6 +102,7 @@ import type { NoiseSeed } from '@nerima-games/mc-noise'
 import type { UnsupportedBiomeCategory } from './biome-classifier.js'
 import { blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { carveRavines } from './ravine.js'
+import { createTerrainDensityGrid } from './density-grid.js'
 import { placeOres } from './ore.js'
 type TerrainDensityGrid = ReturnType<typeof createTerrainDensityGrid>
 
