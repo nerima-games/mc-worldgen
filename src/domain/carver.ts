@@ -230,14 +230,12 @@ const isWithinSurfaceShell = (y: number, surfaceY: number): boolean =>
  */
 const carveNoiseVoxel = (
   context: CarveContext,
-  lx: number,
+  index: number,
   y: number,
-  lz: number,
   sampleX: number,
   sampleZ: number,
 ): void => {
   const { blocks, caveNoise } = context
-  const index = blockIndex(lx, y, lz)
   const current = readBlock(blocks, index)
   if (current !== BLOCK.AIR && current !== BLOCK.WATER && current !== BLOCK.BEDROCK) {
     const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
@@ -261,7 +259,7 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
         isWithinWaterFloorShell(y, waterFloorY, margin)
       )
     ) {
-      carveNoiseVoxel(context, lx, y, lz, sampleX, sampleZ)
+      carveNoiseVoxel(context, blockIndex(lx, y, lz), y, sampleX, sampleZ)
     }
   }
 }

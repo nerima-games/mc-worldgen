@@ -133,7 +133,9 @@ const fillDefaultBlockStateRuns = (
     const blockIdValue = readBlock(blocks, runStart)
     const runEnd = blockIdRunEnd(blocks, runStart, blockIdValue)
     const filled = fillDefaultStateRun(encodedDefaults, blockStates, blockIdValue, runStart, runEnd)
-    if (Result.isFailure(filled)) return filled
+    if (Result.isFailure(filled)) {
+      return filled
+    }
     runStart = runEnd
   }
   return Result.succeed(blockStates)
