@@ -93,7 +93,7 @@ if (baseHeadChecksums.size !== 1) {
 const ratio = headSummary.median / baseSummary.median
 const profileDir = resolve('.perf/chunk-store-cpu-profile')
 const profiles = {}
-let profileError
+let profileError = null
 try {
   mkdirSync(profileDir, { recursive: true })
   for (const version of ['base', 'head']) {
@@ -133,7 +133,7 @@ let profileMarkdown = [
   '',
   'Each profile came from a separate fresh process after the timing samples. Profiling covered only the 36 sequential `ChunkStore.load` calls and did not contribute to the reported medians.',
   '',
-  ...(profileError === undefined ? [] : ['Profile collection unavailable (' + profileError + ').']),
+  ...(profileError === null ? [] : ['Profile collection unavailable (' + profileError + ').']),
   ...profileSections,
 ].join('\n')
 try {
