@@ -69,8 +69,7 @@ export const readBlock = (blocks: ArrayLike<number>, index: number): number => b
 
 /**
  * Build the encoded default state for each block id in a chunk buffer. The map
- * avoids repeating kernel codec work for the same block id, and adjacent runs
- * let one cache lookup fill several state entries at once.
+ * avoids repeating kernel codec work for the same block id.
  */
 const encodedDefaultStateFor = (blockIdValue: number): Result.Result<number, BlockStateCodecFailure> => {
   // Uint16Array constrains every value to BlockId's representable range.
@@ -123,6 +122,9 @@ const blockIdRunEnd = (blocks: Uint16Array, runStart: number, blockIdValue: numb
   return runEnd
 }
 
+/**
+ * Fill adjacent block-id runs so one cached lookup writes several state entries.
+ */
 const fillDefaultBlockStateRuns = (
   blocks: Uint16Array,
   blockStates: Uint32Array,
