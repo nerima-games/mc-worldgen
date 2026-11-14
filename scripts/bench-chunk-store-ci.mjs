@@ -17,7 +17,7 @@ const roots = {
 const runSample = (name) => {
   const root = roots[name]
   const runner = resolve(root, 'node_modules/.bin/tsx')
-  const script = resolve(root, 'scripts/bench-chunk-store-load.ts')
+  const script = resolve(root, 'apps/chunk-store-perf/main.ts')
   const child = spawnSync(runner, [script], { cwd: root, encoding: 'utf8' })
 
   if (child.error) throw child.error

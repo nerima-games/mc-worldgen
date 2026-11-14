@@ -83,9 +83,10 @@ jobs:
 
       - name: Copy benchmark runners to baseline checkouts
         run: |
-          cp scripts/bench-chunk-store-load.ts .perf/v0.9.0/scripts/bench-chunk-store-load.ts
-          cp scripts/bench-chunk-store-load.ts .perf/v0.8.0/scripts/bench-chunk-store-load.ts
-          cp scripts/capture-worldgen-perf-goldens.ts .perf/v0.9.0/scripts/capture-worldgen-perf-goldens.ts
+          mkdir -p .perf/v0.9.0/apps/chunk-store-perf .perf/v0.9.0/apps/worldgen-golden-capture .perf/v0.8.0/apps/chunk-store-perf
+          cp apps/chunk-store-perf/main.ts .perf/v0.9.0/apps/chunk-store-perf/main.ts
+          cp apps/chunk-store-perf/main.ts .perf/v0.8.0/apps/chunk-store-perf/main.ts
+          cp apps/worldgen-golden-capture/main.ts .perf/v0.9.0/apps/worldgen-golden-capture/main.ts
 
       - name: Install head dependencies
         run: pnpm install --frozen-lockfile
@@ -102,7 +103,7 @@ jobs:
       - name: Capture v0.9.0 worldgen performance goldens
         run: |
           mkdir -p .ci-output
-          pnpm --dir .perf/v0.9.0 exec tsx scripts/capture-worldgen-perf-goldens.ts > .ci-output/worldgen-perf-v0.9.0.json
+          pnpm --dir .perf/v0.9.0 exec tsx apps/worldgen-golden-capture/main.ts > .ci-output/worldgen-perf-v0.9.0.json
 
       - name: Upload v0.9.0 worldgen performance goldens
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

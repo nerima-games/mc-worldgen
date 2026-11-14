@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import { Effect, Result } from 'effect'
-import { ChunkCapacity, ChunkStore, GeneratedChunkStoreLayer } from '../src/application/chunk-store.js'
+import { ChunkCapacity, ChunkStore, GeneratedChunkStoreLayer } from '../../src/application/chunk-store.js'
 import { NoiseSeed } from '@nerima-games/mc-noise'
-import { CHUNK_SIZE_XZ } from '../src/domain/constants.js'
-import { chunkAxis } from '../src/domain/coordinate-compatibility.js'
+import { CHUNK_SIZE_XZ } from '../../src/domain/constants.js'
+import { chunkAxis } from '../../src/domain/coordinate-compatibility.js'
 
 const SPAWN_BLOCK = 0.5
 const SEARCH_RADIUS_BLOCKS = 40

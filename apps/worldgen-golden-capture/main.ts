@@ -7,13 +7,13 @@ import {
   packBlockStatesV3,
   packBlocksV2,
   type ChunkEncoded,
-} from '../src/domain/chunk-format'
-import { withDefaultBlockStates } from '../src/domain/chunk'
-import { CAVE_CEILING_Y, CAVE_FLOOR_Y, computeWaterFloorYs } from '../src/domain/carver'
-import { BLOCK } from '../src/domain/biome'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, WATER_FLOOR_MARGIN } from '../src/domain/constants'
-import { blockAxis, chunkAxis } from '../src/domain/coordinate-compatibility'
-import { generateChunkAt, surfaceBiomeAt } from '../src/domain/terrain'
+} from '../../src/domain/chunk-format'
+import { withDefaultBlockStates } from '../../src/domain/chunk'
+import { CAVE_CEILING_Y, CAVE_FLOOR_Y, computeWaterFloorYs } from '../../src/domain/carver'
+import { BLOCK } from '../../src/domain/biome'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, WATER_FLOOR_MARGIN } from '../../src/domain/constants'
+import { blockAxis, chunkAxis } from '../../src/domain/coordinate-compatibility'
+import { generateChunkAt, surfaceBiomeAt } from '../../src/domain/terrain'
 
 const SEEDS = [1, 20260726, 4242] as const
 
