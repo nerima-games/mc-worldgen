@@ -175,17 +175,6 @@ export const computeWaterFloorYs = (blocks: Uint16Array, margin: number): Int16A
 const isWithinWaterFloorShell = (y: number, waterFloorY: number, margin: number): boolean =>
   waterFloorY !== NO_WATER_FLOOR && y >= waterFloorY - margin && y < waterFloorY
 
-/** Clears one voxel, unless it is one of the blocks a cave must never remove. */
-const carveVoxelIfClearable = (blocks: Uint16Array, index: number): void => {
-  const current = readBlock(blocks, index)
-
-  if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
-    return
-  }
-
-  blocks[index] = BLOCK.AIR
-}
-
 type CarveContext = {
   readonly blocks: Uint16Array
   readonly margin: number
@@ -240,7 +229,7 @@ const carveNoiseVoxel = (
   if (current !== BLOCK.AIR && current !== BLOCK.WATER && current !== BLOCK.BEDROCK) {
     const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
     if (density > CAVE_THRESHOLD) {
-      carveVoxelIfClearable(blocks, index)
+      blocks[index] = BLOCK.AIR
     }
   }
 }
