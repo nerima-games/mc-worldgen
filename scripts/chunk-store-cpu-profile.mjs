@@ -29,8 +29,9 @@ const PROFILE_CATEGORIES = [
   ['noise', (source) => /mc-noise/.test(source)],
   ['other', () => true],
 ]
+const PROFILER_CONTROL_CATEGORY = 'profiler control'
 
-const sourceLocation = (url, lineNumber) => {
+const sourcePath = (url) => {
   if (url === '') return '[native]'
 
   const source = url.startsWith('file://') ? decodeURIComponent(url.slice('file://'.length)) : url
@@ -38,14 +39,52 @@ const sourceLocation = (url, lineNumber) => {
   const packageIndex = source.lastIndexOf('/node_modules/')
   const normalized =
     srcIndex >= 0 ? source.slice(srcIndex + 1) : packageIndex >= 0 ? source.slice(packageIndex + 1) : source
-  return `${normalized}:${lineNumber + 1}`
+  return normalized
 }
 
-const categoryFor = (source, name) => {
-  for (const [category, matches] of PROFILE_CATEGORIES) {
-    if (matches(source, name)) return category
+const sourceLocation = (url, lineNumber) => url === '' ? '[native]' : `${sourcePath(url)}:${lineNumber + 1}`
+
+const isProfilerControl = (url) => url.startsWith('node:inspector')
+
+const isStateMaterializationFrame = (node, nodesById, parentById) => {
+  let current = node
+  while (current) {
+    if (current.callFrame.url.includes('/src/domain/chunk.ts')) {
+      const parent = nodesById.get(parentById.get(current.id))
+      if (parent?.callFrame.url.includes('/src/application/chunk-store.ts')) return true
+    }
+    current = nodesById.get(parentById.get(current.id))
   }
-  throw new Error(`CPU profile frame was not assigned to a category: ${name} at ${source}`)
+  return false
+}
+
+const categoryFor = (node, nodesById, parentById) => {
+  const { url, functionName } = node.callFrame
+  if (isProfilerControl(url)) return PROFILER_CONTROL_CATEGORY
+
+  const source = sourcePath(url)
+  const name = functionName || '(anonymous)'
+  for (const [category, matches] of PROFILE_CATEGORIES) {
+    if (category !== 'other' && matches(source, name)) return category
+  }
+  if (isStateMaterializationFrame(node, nodesById, parentById)) return 'block-state materialization'
+  return 'other'
+}
+
+const noiseCallerCategory = (node, nodesById, parentById) => {
+  let current = nodesById.get(parentById.get(node.id))
+  while (current) {
+    const source = sourcePath(current.callFrame.url)
+    if (!source.includes('mc-noise')) {
+      const name = current.callFrame.functionName || '(anonymous)'
+      for (const [category, matches] of PROFILE_CATEGORIES) {
+        if (category !== 'noise' && category !== 'other' && matches(source, name)) return category
+      }
+      if (isStateMaterializationFrame(current, nodesById, parentById)) return 'block-state materialization'
+    }
+    current = nodesById.get(parentById.get(current.id))
+  }
+  return 'other'
 }
 
 const validateProfile = (profile) => {
@@ -64,18 +103,35 @@ const profileFrame = (node) => {
     key: `${scriptId}\0${name}\0${url}\0${lineNumber}\0${columnNumber}`,
     name,
     source: sourceLocation(url, lineNumber),
-    category: categoryFor(url, name),
   }
 }
 
-const createAggregate = (profile) => ({
-  nodesById: new Map(profile.nodes.map((node) => [node.id, node])),
-  functionsByFrame: new Map(),
-  categories: new Map(PROFILE_CATEGORIES.map(([category]) => [category, 0])),
-  totalMicros: 0,
-  negativeDeltaCount: 0,
-  normalizedNegativeMicros: 0,
-})
+const createAggregate = (profile) => {
+  const nodesById = new Map(profile.nodes.map((node) => [node.id, node]))
+  const parentById = new Map()
+  for (const node of profile.nodes) {
+    for (const childId of node.children ?? []) {
+      if (parentById.has(childId)) throw new Error(`CPU profile node ${childId} has multiple parents`)
+      parentById.set(childId, node.id)
+    }
+  }
+
+  return {
+    nodesById,
+    parentById,
+    functionsByFrame: new Map(),
+    categories: new Map(PROFILE_CATEGORIES.map(([category]) => [category, 0])),
+    noiseCallers: new Map(PROFILE_CATEGORIES.filter(([category]) => category !== 'noise').map(([category]) => [category, 0])),
+    workloadMicros: 0,
+    sampledMicros: 0,
+    profilerControlMicros: 0,
+    noiseMicros: 0,
+    profilerControlSampleCount: 0,
+    workloadSampleCount: 0,
+    negativeDeltaCount: 0,
+    normalizedNegativeMicros: 0,
+  }
+}
 
 const addSample = (aggregate, nodeId, deltaMicros, index) => {
   const node = aggregate.nodesById.get(nodeId)
@@ -89,17 +145,34 @@ const addSample = (aggregate, nodeId, deltaMicros, index) => {
     throw new Error(`CPU profile sample ${index} regresses by more than one sampling interval`)
   }
 
-  const details = profileFrame(node)
-  const frame = aggregate.functionsByFrame.get(details.key) ?? { ...details, selfMicros: 0 }
   const selfMicros = Math.max(0, deltaMicros)
   if (deltaMicros < 0) {
     aggregate.negativeDeltaCount += 1
     aggregate.normalizedNegativeMicros -= deltaMicros
   }
+
+  const category = categoryFor(node, aggregate.nodesById, aggregate.parentById)
+  aggregate.sampledMicros += selfMicros
+  if (category === PROFILER_CONTROL_CATEGORY) {
+    aggregate.profilerControlMicros += selfMicros
+    aggregate.profilerControlSampleCount += 1
+    return
+  }
+
+  const details = profileFrame(node)
+  details.category = category
+  details.key += `\0${category}`
+  const frame = aggregate.functionsByFrame.get(details.key) ?? { ...details, selfMicros: 0 }
+  aggregate.workloadSampleCount += 1
   frame.selfMicros += selfMicros
   aggregate.functionsByFrame.set(details.key, frame)
   aggregate.categories.set(details.category, aggregate.categories.get(details.category) + selfMicros)
-  aggregate.totalMicros += selfMicros
+  if (category === 'noise') {
+    const caller = noiseCallerCategory(node, aggregate.nodesById, aggregate.parentById)
+    aggregate.noiseCallers.set(caller, aggregate.noiseCallers.get(caller) + selfMicros)
+    aggregate.noiseMicros += selfMicros
+  }
+  aggregate.workloadMicros += selfMicros
 }
 
 const aggregateSamples = (profile) => {
@@ -110,7 +183,7 @@ const aggregateSamples = (profile) => {
   return aggregate
 }
 
-const summarizeFunctions = ({ functionsByFrame, totalMicros }) =>
+const summarizeFunctions = ({ functionsByFrame, workloadMicros }) =>
   [...functionsByFrame.values()]
     .sort((left, right) => right.selfMicros - left.selfMicros)
     .slice(0, TOP_FUNCTION_LIMIT)
@@ -119,26 +192,35 @@ const summarizeFunctions = ({ functionsByFrame, totalMicros }) =>
       source,
       category,
       selfMs: selfMicros / MICROSECONDS_PER_MILLISECOND,
-      percent: (selfMicros / totalMicros) * PERCENT_FACTOR,
+      percent: (selfMicros / workloadMicros) * PERCENT_FACTOR,
     }))
 
-const summarizeCategories = ({ categories, totalMicros }) =>
+const summarizeCategories = ({ categories, workloadMicros }) =>
   Object.fromEntries(
     PROFILE_CATEGORIES.map(([category]) => {
       const selfMicros = categories.get(category)
       return [category, {
         selfMs: selfMicros / MICROSECONDS_PER_MILLISECOND,
-        percent: (selfMicros / totalMicros) * PERCENT_FACTOR,
+        percent: (selfMicros / workloadMicros) * PERCENT_FACTOR,
       }]
     }),
+  )
+
+const summarizeNoiseCallers = ({ noiseCallers, noiseMicros, workloadMicros }) =>
+  Object.fromEntries(
+    [...noiseCallers].map(([category, selfMicros]) => [category, {
+      selfMs: selfMicros / MICROSECONDS_PER_MILLISECOND,
+      percentOfWorkload: (selfMicros / workloadMicros) * PERCENT_FACTOR,
+      percentOfNoise: (selfMicros / noiseMicros) * PERCENT_FACTOR,
+    }]),
   )
 
 export const summarizeCpuProfile = (profile) => {
   validateProfile(profile)
   const aggregate = aggregateSamples(profile)
-  if (aggregate.totalMicros <= 0) throw new Error('CPU profile contains no sampled self time')
+  if (aggregate.workloadMicros <= 0) throw new Error('CPU profile contains no sampled workload self time')
   const negativeDeltaSampleRatio = aggregate.negativeDeltaCount / profile.samples.length
-  const normalizedTimeRatio = aggregate.normalizedNegativeMicros / aggregate.totalMicros
+  const normalizedTimeRatio = aggregate.normalizedNegativeMicros / aggregate.workloadMicros
   if (
     negativeDeltaSampleRatio > MAX_NEGATIVE_DELTA_SAMPLE_RATIO ||
     normalizedTimeRatio > MAX_NORMALIZED_TIME_RATIO
@@ -147,12 +229,20 @@ export const summarizeCpuProfile = (profile) => {
   }
   return {
     sampleCount: profile.samples.length,
-    selfMs: aggregate.totalMicros / MICROSECONDS_PER_MILLISECOND,
+    workloadSampleCount: aggregate.workloadSampleCount,
+    profilerControlSampleCount: aggregate.profilerControlSampleCount,
+    sampledSelfMs: aggregate.sampledMicros / MICROSECONDS_PER_MILLISECOND,
+    profilerControl: {
+      selfMs: aggregate.profilerControlMicros / MICROSECONDS_PER_MILLISECOND,
+      percentOfSampledTime: (aggregate.profilerControlMicros / aggregate.sampledMicros) * PERCENT_FACTOR,
+    },
+    selfMs: aggregate.workloadMicros / MICROSECONDS_PER_MILLISECOND,
     timeDeltaNormalization: {
       negativeDeltaCount: aggregate.negativeDeltaCount,
       normalizedNegativeMicros: aggregate.normalizedNegativeMicros,
     },
     categories: summarizeCategories(aggregate),
+    noiseCallers: summarizeNoiseCallers(aggregate),
     functions: summarizeFunctions(aggregate),
   }
 }
@@ -168,16 +258,30 @@ export const renderCpuProfileMarkdown = (version, summary) => {
     ({ name, source, selfMs, percent }, index) =>
       `| ${index + 1} | ${selfMs.toFixed(2)} ms | ${percent.toFixed(2)}% | \`${name}\` | \`${source}\` |`,
   )
+  const noiseCallerRows = Object.entries(summary.noiseCallers).map(
+    ([category, { selfMs, percentOfWorkload, percentOfNoise }]) =>
+      `| ${category} | ${selfMs.toFixed(2)} ms | ${percentOfWorkload.toFixed(2)}% | ${percentOfNoise.toFixed(2)}% |`,
+  )
 
   return [
     `### ${version} CPU profile`,
     '',
-    `Self-sampled time: ${summary.selfMs.toFixed(2)} ms across ${summary.sampleCount} samples.`,
+    `Sampled self time: ${summary.sampledSelfMs.toFixed(2)} ms across ${summary.sampleCount} samples.`,
+    `Profiler-control frames: ${summary.profilerControl.selfMs.toFixed(2)} ms (${summary.profilerControl.percentOfSampledTime.toFixed(2)}% of sampled self time; excluded from workload percentages and function ranking).`,
+    `Workload self time: ${summary.selfMs.toFixed(2)} ms across ${summary.workloadSampleCount} samples.`,
     normalizationNote,
+    '',
+    'Category rows use sampled frame source; percentages use workload self time after profiler-control frames were excluded.',
     '',
     '| Category | Self time | Share |',
     '| --- | ---: | ---: |',
     ...categoryRows,
+    '',
+    'Noise package self time by nearest worldgen caller (this table is a breakdown of the noise row above).',
+    '',
+    '| Caller | Noise self time | Share of workload | Share of noise |',
+    '| --- | ---: | ---: | ---: |',
+    ...noiseCallerRows,
     '',
     '| Rank | Self time | Share | Function | Source |',
     '| ---: | ---: | ---: | --- | --- |',

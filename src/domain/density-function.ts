@@ -20,7 +20,12 @@ import {
   densityYClampedGradient,
 } from '@nerima-games/mc-noise'
 import { MAX_SURFACE_Y, MIN_SURFACE_Y } from './constants.js'
-import { type TerrainDensitySurfaceSampler, createTerrainDensitySurfaceSampler } from './density-grid.js'
+import {
+  TERRAIN_DENSITY_GRID_CELL_XZ,
+  TERRAIN_DENSITY_GRID_CELL_Y,
+  type TerrainDensitySurfaceSampler,
+  createTerrainDensitySurfaceSampler,
+} from './density-grid.js'
 import { blockAxis, blockAxisFromKnownSafeInteger } from './coordinate-compatibility.js'
 import { channelSeedValue, fbm2D } from './noise-compatibility.js'
 
@@ -51,6 +56,28 @@ const UNIT_INTERVAL_MIN = 0
 const UNIT_INTERVAL_MAX = 1
 const UNIT_INTERVAL_MIDPOINT = 0.5
 const CONTINENTALNESS_WAVELENGTH_BLOCKS = 180
+const DENSITY_SAMPLE_CACHE_MAX_ENTRIES = 2048
+const densitySampleCache = new Map<string, DensityValueType>()
+
+const isDensityGridNode = (wx: BlockAxisValue, wy: BlockAxisValue, wz: BlockAxisValue): boolean =>
+  Number(wx) % TERRAIN_DENSITY_GRID_CELL_XZ === 0 &&
+  Number(wy) % TERRAIN_DENSITY_GRID_CELL_Y === 0 &&
+  Number(wz) % TERRAIN_DENSITY_GRID_CELL_XZ === 0
+
+const densitySampleCacheKey = (
+  seed: NoiseSeed,
+  wx: BlockAxisValue,
+  wy: BlockAxisValue,
+  wz: BlockAxisValue,
+): string | undefined => isDensityGridNode(wx, wy, wz) ? `${seed}:${wx}:${wy}:${wz}` : undefined
+
+const cacheDensitySample = (key: string, value: DensityValueType): void => {
+  densitySampleCache.set(key, value)
+  if (densitySampleCache.size > DENSITY_SAMPLE_CACHE_MAX_ENTRIES) {
+    const oldestKey = densitySampleCache.keys().next().value
+    if (oldestKey !== undefined) densitySampleCache.delete(oldestKey)
+  }
+}
 
 const stretch = (value: number): number =>
   Math.min(
@@ -171,17 +198,29 @@ export const createTerrainDensitySampler = (seed: NoiseSeed): Result.Result<Terr
         )
 
       // This fuses the same mc-noise density tree as buildTerrainDensity for the hot voxel loop.
-      const densityAtForGeneration = (wx: BlockAxisValue, wy: BlockAxisValue, wz: BlockAxisValue): DensityValueType => {
+      const densityAtForGeneration = (
+        wx: BlockAxisValue,
+        wy: BlockAxisValue,
+        wz: BlockAxisValue,
+      ): DensityValueType => {
+        const cacheKey = densitySampleCacheKey(seed, wx, wy, wz)
+        if (cacheKey !== undefined) {
+          const cached = densitySampleCache.get(cacheKey)
+          if (cached !== undefined) return cached
+        }
+
         const gradientRatio = Math.max(
           UNIT_INTERVAL_MIN,
           Math.min(UNIT_INTERVAL_MAX, (wy - DENSITY_GRADIENT_START_Y) / DENSITY_GRADIENT_TOP_Y),
         )
-        return densityValue(
+        const sampledDensity = densityValue(
           DENSITY_BASE_MAGNITUDE + DENSITY_GRADIENT_VALUE_DELTA * gradientRatio +
           field.raw3d(wx / CONTINENTAL_XZ_WAVELENGTH_BLOCKS, wy / CONTINENTAL_Y_WAVELENGTH_BLOCKS, wz / CONTINENTAL_XZ_WAVELENGTH_BLOCKS) * CONTINENTAL_AMPLITUDE +
           field.raw3d(wx / REGIONAL_XZ_WAVELENGTH_BLOCKS, wy / REGIONAL_Y_WAVELENGTH_BLOCKS, wz / REGIONAL_XZ_WAVELENGTH_BLOCKS) * REGIONAL_AMPLITUDE +
           field.raw3d(wx / OVERHANG_XZ_WAVELENGTH_BLOCKS, wy / OVERHANG_Y_WAVELENGTH_BLOCKS, wz / OVERHANG_XZ_WAVELENGTH_BLOCKS) * OVERHANG_AMPLITUDE,
         )
+        if (cacheKey !== undefined) cacheDensitySample(cacheKey, sampledDensity)
+        return sampledDensity
       }
 
       const sampleDensitySurface: TerrainDensitySurfaceSampler = createTerrainDensitySurfaceSampler(densityAtForGeneration)
