@@ -20,7 +20,9 @@ const runSample = (name, profilePath) => {
   const runner = resolve(root, 'node_modules/.bin/tsx')
   const script = resolve(root, 'apps/chunk-store-perf/main.ts')
   const env = profilePath === undefined ? process.env : { ...process.env, WORLDGEN_CPU_PROFILE_PATH: profilePath }
-  const child = spawnSync(runner, [script], { cwd: root, encoding: 'utf8', env })
+  const options = { cwd: root, encoding: 'utf8', env }
+  if (profilePath !== undefined) options.timeout = 5 * 60 * 1000
+  const child = spawnSync(runner, [script], options)
 
   if (child.error) throw child.error
   if (child.status !== 0) {
@@ -36,6 +38,24 @@ const runSample = (name, profilePath) => {
     throw new Error(`${name} loaded ${result.statefulChunks} chunks with materialized block states`)
   }
   return result
+}
+
+const profileSample = (version, profileDir, expectedChecksum) => {
+  const path = resolve(profileDir, version + '.cpuprofile')
+  const result = runSample(version, path)
+  if (result.checksum !== expectedChecksum) {
+    throw new Error(version + ' profile run checksum differs from timing samples')
+  }
+  if (!existsSync(path) || readFileSync(path).length === 0) {
+    throw new Error(version + ' CPU profile was not written')
+  }
+
+  const profile = JSON.parse(readFileSync(path, 'utf8'))
+  process.stdout.write(version + ' profile checksum matched timing samples (' + result.checksum + ')\n')
+  return {
+    checksum: result.checksum,
+    ...summarizeCpuProfile(profile),
+  }
 }
 
 const samples = { base: [], head: [], legacy: [] }
@@ -72,25 +92,15 @@ if (baseHeadChecksums.size !== 1) {
 
 const ratio = headSummary.median / baseSummary.median
 const profileDir = resolve('.perf/chunk-store-cpu-profile')
-mkdirSync(profileDir, { recursive: true })
-
 const profiles = {}
-for (const version of ['base', 'head']) {
-  const path = resolve(profileDir, `${version}.cpuprofile`)
-  const result = runSample(version, path)
-  if (result.checksum !== samples[version][0].checksum) {
-    throw new Error(`${version} profile run checksum differs from timing samples`)
+let profileError
+try {
+  mkdirSync(profileDir, { recursive: true })
+  for (const version of ['base', 'head']) {
+    profiles[version] = profileSample(version, profileDir, samples[version][0].checksum)
   }
-  if (!existsSync(path) || readFileSync(path).length === 0) {
-    throw new Error(`${version} CPU profile was not written`)
-  }
-
-  const profile = JSON.parse(readFileSync(path, 'utf8'))
-  profiles[version] = {
-    checksum: result.checksum,
-    ...summarizeCpuProfile(profile),
-  }
-  process.stdout.write(`${version} profile checksum matched timing samples (${result.checksum})\n`)
+} catch (error) {
+  profileError = error instanceof Error ? error.name : 'unknown error'
 }
 
 const profileReport = {
@@ -107,16 +117,32 @@ const profileReport = {
     head: profiles.head,
   },
 }
-const profileMarkdown = [
+const profileSections = []
+for (const [version, label] of [['base', 'v0.9.0'], ['head', 'head']]) {
+  const profile = profiles[version]
+  if (profile !== undefined) {
+    try {
+      profileSections.push(renderCpuProfileMarkdown(label, profile))
+    } catch (error) {
+      profileError = error instanceof Error ? error.name : 'unknown error'
+    }
+  }
+}
+let profileMarkdown = [
   '## ChunkStore CPU profile',
   '',
   'Each profile came from a separate fresh process after the timing samples. Profiling covered only the 36 sequential `ChunkStore.load` calls and did not contribute to the reported medians.',
   '',
-  renderCpuProfileMarkdown('v0.9.0', profiles.base),
-  renderCpuProfileMarkdown('head', profiles.head),
+  ...(profileError === undefined ? [] : ['Profile collection unavailable (' + profileError + ').']),
+  ...profileSections,
 ].join('\n')
-writeFileSync(resolve(profileDir, 'profile-report.json'), `${JSON.stringify(profileReport, null, 2)}\n`)
-writeFileSync(resolve(profileDir, 'profile-report.md'), `${profileMarkdown}\n`)
+try {
+  writeFileSync(resolve(profileDir, 'profile-report.json'), `${JSON.stringify(profileReport, null, 2)}\n`)
+  writeFileSync(resolve(profileDir, 'profile-report.md'), `${profileMarkdown}\n`)
+} catch (error) {
+  profileError = error instanceof Error ? error.name : 'unknown error'
+  profileMarkdown += '\n\nProfile artifact unavailable (' + profileError + ').'
+}
 
 const markdown = [
   '## ChunkStore sequential load performance',

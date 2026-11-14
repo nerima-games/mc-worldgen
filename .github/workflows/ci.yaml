@@ -99,8 +99,10 @@ jobs:
       - name: Measure sequential ChunkStore.load
         run: node scripts/bench-chunk-store-ci.mjs .perf/v0.9.0 .perf/v0.8.0
 
+      # Profiling and its artifact are advisory; timing and checksum failures remain required.
       - name: Upload ChunkStore CPU profiles
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chunk-store-cpu-profile
