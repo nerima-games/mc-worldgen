@@ -228,8 +228,27 @@ const isWithinSurfaceShell = (y: number, surfaceY: number): boolean =>
  * PLAINS basin is submerged and is not an OCEAN.
  * ────────────────────────────────────────────────────────────────
  */
+const carveNoiseVoxel = (
+  context: CarveContext,
+  lx: number,
+  y: number,
+  lz: number,
+  sampleX: number,
+  sampleZ: number,
+): void => {
+  const { blocks, caveNoise } = context
+  const index = blockIndex(lx, y, lz)
+  const current = readBlock(blocks, index)
+  if (current !== BLOCK.AIR && current !== BLOCK.WATER && current !== BLOCK.BEDROCK) {
+    const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
+    if (density > CAVE_THRESHOLD) {
+      carveVoxelIfClearable(blocks, index)
+    }
+  }
+}
+
 const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz: number): void => {
-  const { blocks, margin, caveNoise, coord, surfaceYs } = context
+  const { margin, coord, surfaceYs } = context
   const surfaceY = readRequired(surfaceYs, lz * CHUNK_SIZE_XZ + lx)
   const protectsSurface = waterFloorY === NO_WATER_FLOOR
   const sampleX = worldX(coord, lx) * CAVE_NOISE_XZ_FREQUENCY
@@ -242,16 +261,7 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
         isWithinWaterFloorShell(y, waterFloorY, margin)
       )
     ) {
-      const index = blockIndex(lx, y, lz)
-      const current = readBlock(blocks, index)
-      if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
-        continue
-      }
-
-      const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
-      if (density > CAVE_THRESHOLD) {
-        carveVoxelIfClearable(blocks, index)
-      }
+      carveNoiseVoxel(context, lx, y, lz, sampleX, sampleZ)
     }
   }
 }

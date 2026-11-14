@@ -53,6 +53,20 @@ export type ChunkWithBlockStates = Chunk & { readonly blockStates: Uint32Array }
 export const emptyBlocks = (): Uint16Array => new Uint16Array(CHUNK_VOLUME)
 export const emptyBlockStates = (): Uint32Array => new Uint32Array(CHUNK_VOLUME)
 
+const BLOCK_INDEX_START = 0
+const BLOCK_INDEX_STEP = 1
+
+/**
+ * Read a block, treating out-of-range as air.
+ *
+ * `noUncheckedIndexedAccess` makes every `blocks[i]` a `number | undefined`,
+ * and this is the single place that fact is handled. The reference solved the
+ * same problem with `chunkBlockIndexUnchecked`
+ * (`packages/world/domain/terrain/ravine-carver.ts:46` among others); the
+ * difference is that this version is total rather than merely unchecked.
+ */
+export const readBlock = (blocks: ArrayLike<number>, index: number): number => blocks[index] ?? AIR_BLOCK_ID
+
 /**
  * Build the encoded default state for each block id in a chunk buffer. The map
  * avoids repeating kernel codec work for the same block id, and adjacent runs
@@ -89,45 +103,50 @@ const blockStateCodeFor = (
   return encoded
 }
 
+const fillDefaultStateRun = (
+  encodedDefaults: Map<number, number>,
+  blockStates: Uint32Array,
+  blockIdValue: number,
+  runStart: number,
+  runEnd: number,
+): Result.Result<Uint32Array, BlockStateCodecFailure> =>
+  Result.map(blockStateCodeFor(encodedDefaults, blockIdValue), (encoded) => {
+    blockStates.fill(encoded, runStart, runEnd)
+    return blockStates
+  })
+
+const blockIdRunEnd = (blocks: Uint16Array, runStart: number, blockIdValue: number): number => {
+  let runEnd = runStart + BLOCK_INDEX_STEP
+  while (runEnd < blocks.length && readBlock(blocks, runEnd) === blockIdValue) {
+    runEnd += BLOCK_INDEX_STEP
+  }
+  return runEnd
+}
+
+const fillDefaultBlockStateRuns = (
+  blocks: Uint16Array,
+  blockStates: Uint32Array,
+  encodedDefaults: Map<number, number>,
+): Result.Result<Uint32Array, BlockStateCodecFailure> => {
+  let runStart = BLOCK_INDEX_START
+  while (runStart < blocks.length) {
+    const blockIdValue = readBlock(blocks, runStart)
+    const runEnd = blockIdRunEnd(blocks, runStart, blockIdValue)
+    const filled = fillDefaultStateRun(encodedDefaults, blockStates, blockIdValue, runStart, runEnd)
+    if (Result.isFailure(filled)) return filled
+    runStart = runEnd
+  }
+  return Result.succeed(blockStates)
+}
+
 export const defaultBlockStatesFor = (
   blocks: Uint16Array,
-): Result.Result<Uint32Array, BlockStateCodecFailure> => {
-  const encodedDefaults = new Map<number, number>()
-  const blockStates = new Uint32Array(blocks.length)
-
-  const fillRun = (
-    blockIdValue: number,
-    runStart: number,
-    runEnd: number,
-  ): Result.Result<void, BlockStateCodecFailure> => {
-    const encoded = blockStateCodeFor(encodedDefaults, blockIdValue)
-    if (Result.isFailure(encoded)) {
-      return Result.fail(encoded.failure)
-    }
-    blockStates.fill(encoded.success, runStart, runEnd)
-    return Result.succeed(undefined)
-  }
-
-  if (blocks.length === 0) {
-    return Result.succeed(blockStates)
-  }
-
-  let runStart = 0
-  let blockIdValue = readBlock(blocks, 0)
-  for (let index = 1; index < blocks.length; index += 1) {
-    const nextBlockIdValue = readBlock(blocks, index)
-    if (nextBlockIdValue !== blockIdValue) {
-      const filled = fillRun(blockIdValue, runStart, index)
-      if (Result.isFailure(filled)) {
-        return Result.fail(filled.failure)
-      }
-      runStart = index
-      blockIdValue = nextBlockIdValue
-    }
-  }
-
-  return Result.map(fillRun(blockIdValue, runStart, blocks.length), () => blockStates)
-}
+): Result.Result<Uint32Array, BlockStateCodecFailure> =>
+  fillDefaultBlockStateRuns(
+    blocks,
+    new Uint32Array(blocks.length),
+    new Map<number, number>(),
+  )
 
 /** Materialize omitted generated-terrain states using each block's kernel default. */
 const hasBlockStates = <ChunkValue extends Chunk>(
@@ -145,17 +164,6 @@ export const withDefaultBlockStates = <ChunkValue extends Chunk>(
   }
   return Result.map(defaultBlockStatesFor(chunk.blocks), (blockStates) => ({ ...chunk, blockStates }))
 }
-
-/**
- * Read a block, treating out-of-range as air.
- *
- * `noUncheckedIndexedAccess` makes every `blocks[i]` a `number | undefined`,
- * and this is the single place that fact is handled. The reference solved the
- * same problem with `chunkBlockIndexUnchecked`
- * (`packages/world/domain/terrain/ravine-carver.ts:46` among others); the
- * difference is that this version is total rather than merely unchecked.
- */
-export const readBlock = (blocks: ArrayLike<number>, index: number): number => blocks[index] ?? AIR_BLOCK_ID
 
 export const getBlockAt = (chunk: ReadonlyChunk, lx: LocalAxis, y: BlockAxis, lz: LocalAxis): number =>
   readBlock(chunk.blocks, blockIndex(lx, y, lz))
