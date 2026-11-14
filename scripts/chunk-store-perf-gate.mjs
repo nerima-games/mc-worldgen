@@ -17,8 +17,12 @@ export const evaluatePairs = (pairs) => {
   if (pairs.length !== PAIRS) throw new Error(`Expected ${PAIRS} pairs`)
   const base = pairs.map((pair) => pair.base.elapsedMs)
   const head = pairs.map((pair) => pair.head.elapsedMs)
-  const checksums = new Set(pairs.flatMap((pair) => [pair.base.checksum, pair.head.checksum]))
-  if (checksums.size !== 1) throw new Error('Base/head output checksums differ')
+  const checksums = {}
+  for (const version of ['base', 'head']) {
+    const values = new Set(pairs.map((pair) => pair[version].checksum))
+    if (values.size !== 1) throw new Error(`${version} output checksums differ between samples`)
+    checksums[version] = pairs[0][version].checksum
+  }
   const ratio = median(head) / median(base)
   const envelope = [Math.min(...head) / Math.max(...base), Math.max(...head) / Math.min(...base)]
   const pairRatios = pairs.map((pair) => pair.head.elapsedMs / pair.base.elapsedMs)
@@ -35,13 +39,20 @@ export const evaluatePairs = (pairs) => {
     baseMedianMs: median(base),
     headMedianMs: median(head),
     highLoad,
+    checksums,
+    outputChanged: checksums.base !== checksums.head,
   }
 }
 
 export const measureWithRetries = (measure, report) => {
+  let checksums = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     const pairs = measure(attempt)
     const result = evaluatePairs(pairs)
+    if (checksums && (checksums.base !== result.checksums.base || checksums.head !== result.checksums.head)) {
+      throw new Error('Output checksums changed between attempts')
+    }
+    checksums = result.checksums
     report({ attempt: attempt + 1, pairs, ...result })
     if (result.status !== 'INCONCLUSIVE') return result.status
   }

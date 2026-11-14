@@ -44,6 +44,7 @@ try {
       return pairs
     }, (result) => {
       attempts.push({ workload, ...result })
+      process.stdout.write(`${mode}/${workload} checksums: base ${result.checksums.base}; head ${result.checksums.head}; output changed: ${result.outputChanged}\n`)
       process.stdout.write(`${mode}/${workload} attempt ${result.attempt}: ${result.status}, median ratio ${result.ratio.toFixed(4)}, observed envelope ${result.envelope.map((x) => x.toFixed(4)).join('..')}, pair ratios ${result.pairRatios.map((x) => x.toFixed(4)).join(', ')}\n`)
     })
     summaries.push({ workload, status })
@@ -55,12 +56,16 @@ try {
     `## ChunkStore performance ${mode}`,
     '',
     `Threshold: ${REGRESSION_RATIO}; five alternating fresh-process pairs per attempt; at most ${MAX_RETRIES} retries for inconclusive timing. No warmup. Imports and setup excluded. Load and consumer measured separately.`,
-    'Consumer: seed 7, 36 sequential cold loads, first light calculation, one changed block, second light read. Output checksums must match in every pair.',
+    'Consumer: seed 7, 36 sequential cold loads, first light calculation, one changed block, second light read. Each version must produce the same checksum across samples and attempts. Different base/head outputs are recorded without affecting the performance verdict.',
     'Envelope is min(head)/max(base)..max(head)/min(base), an observed range, not a confidence interval. An envelope crossing the threshold or 1-minute load >=30 is inconclusive. The threshold never adapts to A/A.',
     '',
     '| Workload | Attempt | Verdict | Median ratio | Observed envelope | Pair ratios |',
     '|---|---:|---|---:|---|---|',
     ...attempts.map((r) => `| ${r.workload} | ${r.attempt} | ${r.status} | ${r.ratio.toFixed(4)} | ${r.envelope.map((x) => x.toFixed(4)).join('..')} | ${r.pairRatios.map((x) => x.toFixed(4)).join(', ')} |`),
+    '',
+    '| Workload | Attempt | Base checksum | Head checksum | Output changed |',
+    '|---|---:|---|---|---|',
+    ...attempts.map((r) => `| ${r.workload} | ${r.attempt} | ${r.checksums.base} | ${r.checksums.head} | ${r.outputChanged} |`),
   ].join('\n')
   process.stdout.write(`${markdown}\n`)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n`)

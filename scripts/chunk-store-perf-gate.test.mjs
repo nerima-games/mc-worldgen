@@ -44,15 +44,40 @@ test('only inconclusive attempts retry and exhaust after three attempts', () => 
   assert.equal(regressions[0].status, 'REGRESSED')
 })
 
-test('checksum mismatch and incomplete pairs fail without retry', () => {
+test('different deterministic base/head outputs do not affect equal timing', () => {
   const measurements = stable(100)
-  measurements[2].head.checksum = 'b'.repeat(64)
+  for (const pair of measurements) pair.head.checksum = 'b'.repeat(64)
+  const result = evaluatePairs(measurements)
+  assert.equal(result.status, 'PASS')
+  assert.equal(result.ratio, 1)
+  assert.deepEqual(result.checksums, { base: 'a'.repeat(64), head: 'b'.repeat(64) })
+  assert.equal(result.outputChanged, true)
+})
+
+test('per-version nondeterminism and incomplete pairs fail without retry', () => {
+  for (const version of ['base', 'head']) {
+    const measurements = stable(100)
+    measurements[2][version].checksum = 'b'.repeat(64)
+    let calls = 0
+    const reports = []
+    assert.throws(() => measureWithRetries(() => { calls += 1; return measurements }, (r) => reports.push(r)), /checksums differ/)
+    assert.equal(calls, 1)
+    assert.equal(reports.length, 0)
+    assert.throws(() => evaluatePairs(measurements.slice(1)), /Expected 5 pairs/)
+  }
+})
+
+test('a version changing output between inconclusive attempts fails', () => {
   let calls = 0
   const reports = []
-  assert.throws(() => measureWithRetries(() => { calls += 1; return measurements }, (r) => reports.push(r)), /checksums differ/)
-  assert.equal(calls, 1)
-  assert.equal(reports.length, 0)
-  assert.throws(() => evaluatePairs(measurements.slice(1)), /Expected 5 pairs/)
+  assert.throws(() => measureWithRetries((attempt) => {
+    calls += 1
+    const measurements = noisy()
+    for (const pair of measurements) pair.head.checksum = (attempt === 0 ? 'a' : 'b').repeat(64)
+    return measurements
+  }, (r) => reports.push(r)), /checksums changed between attempts/)
+  assert.equal(calls, 2)
+  assert.equal(reports.length, 1)
 })
 
 test('workload validation rejects missing lighting, incorrect chunk counts, and invalid timing', () => {
