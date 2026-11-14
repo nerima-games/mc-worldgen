@@ -242,9 +242,15 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
         isWithinWaterFloorShell(y, waterFloorY, margin)
       )
     ) {
+      const index = blockIndex(lx, y, lz)
+      const current = readBlock(blocks, index)
+      if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
+        continue
+      }
+
       const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
       if (density > CAVE_THRESHOLD) {
-        carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
+        carveVoxelIfClearable(blocks, index)
       }
     }
   }

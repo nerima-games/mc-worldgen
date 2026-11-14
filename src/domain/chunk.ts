@@ -55,7 +55,8 @@ export const emptyBlockStates = (): Uint32Array => new Uint32Array(CHUNK_VOLUME)
 
 /**
  * Build the encoded default state for each block id in a chunk buffer. The map
- * avoids repeating kernel codec work for the same block id.
+ * avoids repeating kernel codec work for the same block id, and adjacent runs
+ * let one cache lookup fill several state entries at once.
  */
 const encodedDefaultStateFor = (blockIdValue: number): Result.Result<number, BlockStateCodecFailure> => {
   // Uint16Array constrains every value to BlockId's representable range.
@@ -93,14 +94,39 @@ export const defaultBlockStatesFor = (
 ): Result.Result<Uint32Array, BlockStateCodecFailure> => {
   const encodedDefaults = new Map<number, number>()
   const blockStates = new Uint32Array(blocks.length)
-  for (const [index, blockIdValue] of blocks.entries()) {
+
+  const fillRun = (
+    blockIdValue: number,
+    runStart: number,
+    runEnd: number,
+  ): Result.Result<void, BlockStateCodecFailure> => {
     const encoded = blockStateCodeFor(encodedDefaults, blockIdValue)
     if (Result.isFailure(encoded)) {
       return Result.fail(encoded.failure)
     }
-    blockStates[index] = encoded.success
+    blockStates.fill(encoded.success, runStart, runEnd)
+    return Result.succeed(undefined)
   }
-  return Result.succeed(blockStates)
+
+  if (blocks.length === 0) {
+    return Result.succeed(blockStates)
+  }
+
+  let runStart = 0
+  let blockIdValue = readBlock(blocks, 0)
+  for (let index = 1; index < blocks.length; index += 1) {
+    const nextBlockIdValue = readBlock(blocks, index)
+    if (nextBlockIdValue !== blockIdValue) {
+      const filled = fillRun(blockIdValue, runStart, index)
+      if (Result.isFailure(filled)) {
+        return Result.fail(filled.failure)
+      }
+      runStart = index
+      blockIdValue = nextBlockIdValue
+    }
+  }
+
+  return Result.map(fillRun(blockIdValue, runStart, blocks.length), () => blockStates)
 }
 
 /** Materialize omitted generated-terrain states using each block's kernel default. */
