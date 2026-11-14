@@ -11,11 +11,11 @@ import {
 import { withDefaultBlockStates } from '../src/domain/chunk'
 import { CAVE_CEILING_Y, CAVE_FLOOR_Y, computeWaterFloorYs } from '../src/domain/carver'
 import { BLOCK } from '../src/domain/biome'
-import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, WATER_FLOOR_MARGIN } from '../src/domain/constants'
-import { chunkAxis } from '../src/domain/coordinate-compatibility'
-import { generateChunkAt } from '../src/domain/terrain'
+import { blockIndex, CHUNK_HEIGHT, CHUNK_SIZE_XZ, DEFAULT_TERRAIN_LEVELS, WATER_FLOOR_MARGIN } from '../src/domain/constants'
+import { blockAxis, chunkAxis } from '../src/domain/coordinate-compatibility'
+import { generateChunkAt, surfaceBiomeAt } from '../src/domain/terrain'
 
-const SEEDS = [7, 20260726, 4242] as const
+const SEEDS = [1, 20260726, 4242] as const
 
 type ScenarioCategory = 'surface' | 'cave' | 'water-bottom' | 'mountain' | 'structure'
 
@@ -25,16 +25,36 @@ type CoordinateSpec = Readonly<{
   readonly cz: number
 }>
 
+const findMountainCoordinates = (): ReadonlyArray<CoordinateSpec> => {
+  const seed = Result.getOrThrow(NoiseSeed.result(20260726))
+  const coordinates = new Map<string, CoordinateSpec>()
+
+  for (let wz = -4096; wz < 4096 && coordinates.size < 3; wz += 128) {
+    for (let wx = -4096; wx < 4096 && coordinates.size < 3; wx += 128) {
+      if (surfaceBiomeAt(seed, blockAxis(wx), blockAxis(wz), DEFAULT_TERRAIN_LEVELS).biome !== 'MOUNTAINS') {
+        continue
+      }
+
+      const coordinate = { category: 'mountain' as const, cx: Math.floor(wx / CHUNK_SIZE_XZ), cz: Math.floor(wz / CHUNK_SIZE_XZ) }
+      coordinates.set(`${coordinate.cx},${coordinate.cz}`, coordinate)
+    }
+  }
+
+  if (coordinates.size !== 3) {
+    throw new Error(`expected three mountain chunks, found ${String(coordinates.size)}`)
+  }
+
+  return [...coordinates.values()]
+}
+
 const COORDINATES: ReadonlyArray<CoordinateSpec> = [
   { category: 'surface', cx: 5, cz: 7 },
   { category: 'cave', cx: 11, cz: 3 },
   { category: 'cave', cx: 5, cz: -6 },
   { category: 'water-bottom', cx: 4, cz: 9 },
   { category: 'water-bottom', cx: -8, cz: 8 },
-  { category: 'structure', cx: -6, cz: -6 },
-  { category: 'mountain', cx: -64, cz: 48 },
-  { category: 'mountain', cx: 64, cz: -96 },
-  { category: 'mountain', cx: 128, cz: 128 },
+  { category: 'structure', cx: -37, cz: 92 },
+  ...findMountainCoordinates(),
 ]
 
 const MOUNTAIN_BIOMES: ReadonlySet<string> = new Set([
