@@ -14,6 +14,21 @@ test('stable equal timing passes, the strict threshold passes, and a slowdown fa
   assert.equal(evaluatePairs(stable(200)).ratio, 2)
 })
 
+test('consumer gate catches doubled lighting with unchanged load time', () => {
+  const measurements = Array.from({ length: 5 }, () => ({
+    base: { ...sample(1100), lightElapsedMs: 100 },
+    head: { ...sample(1200), lightElapsedMs: 200 },
+  }))
+  assert.equal(evaluatePairs(measurements).status, 'PASS')
+  const lighting = evaluatePairs(measurements, 'consumer')
+  assert.equal(lighting.metric, 'lightElapsedMs')
+  assert.equal(lighting.status, 'REGRESSED')
+  assert.equal(lighting.ratio, 2)
+  const reports = []
+  assert.equal(measureWithRetries(() => measurements, (r) => reports.push(r), 'consumer'), 'REGRESSED')
+  assert.equal(reports.length, 1)
+})
+
 test('spread spanning the budget is inconclusive even with a passing median', () => {
   const result = evaluatePairs(noisy())
   assert.equal(result.status, 'INCONCLUSIVE')
@@ -81,10 +96,10 @@ test('a version changing output between inconclusive attempts fails', () => {
 })
 
 test('workload validation rejects missing lighting, incorrect chunk counts, and invalid timing', () => {
-  const valid = { ...sample(100), chunks: 36, seed: 7, radiusBlocks: 40, warmupLoads: 0, statefulChunks: 36, workload: 'consumer', lightReads: 2, writes: 1 }
+  const valid = { ...sample(100), lightElapsedMs: 50, chunks: 36, seed: 7, radiusBlocks: 40, warmupLoads: 0, statefulChunks: 36, workload: 'consumer', lightReads: 2, writes: 1 }
   assert.doesNotThrow(() => validateSample(valid, 'consumer'))
-  assert.doesNotThrow(() => validateSample({ ...valid, workload: 'load', lightReads: 0, writes: 0 }, 'load'))
-  for (const invalid of [{ lightReads: 0 }, { writes: 0 }, { chunks: 35 }, { statefulChunks: 0 }, { elapsedMs: NaN }, { elapsedMs: -1 }, { checksum: '' }]) {
+  assert.doesNotThrow(() => validateSample({ ...valid, workload: 'load', lightElapsedMs: 0, lightReads: 0, writes: 0 }, 'load'))
+  for (const invalid of [{ lightReads: 0 }, { writes: 0 }, { chunks: 35 }, { statefulChunks: 0 }, { elapsedMs: NaN }, { elapsedMs: -1 }, { checksum: '' }, { lightElapsedMs: 0 }, { lightElapsedMs: NaN }, { lightElapsedMs: -1 }]) {
     assert.throws(() => validateSample({ ...valid, ...invalid }, 'consumer'), /Invalid consumer/)
   }
 })

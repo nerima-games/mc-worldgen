@@ -8,15 +8,17 @@ export const validateSample = (sample, workload) => {
   if (sample.chunks !== 36 || sample.seed !== 7 || sample.radiusBlocks !== 40 || sample.warmupLoads !== 0 ||
       sample.statefulChunks !== 36 || sample.workload !== workload ||
       sample.lightReads !== (workload === 'consumer' ? 2 : 0) || sample.writes !== (workload === 'consumer' ? 1 : 0) ||
+      (workload === 'consumer' ? !Number.isFinite(sample.lightElapsedMs) || sample.lightElapsedMs <= 0 : sample.lightElapsedMs !== 0) ||
       !Number.isFinite(sample.elapsedMs) || sample.elapsedMs <= 0 || !/^[a-f0-9]{64}$/.test(sample.checksum)) {
     throw new Error(`Invalid ${workload} benchmark sample`)
   }
 }
 
-export const evaluatePairs = (pairs) => {
+export const evaluatePairs = (pairs, workload = 'load') => {
   if (pairs.length !== PAIRS) throw new Error(`Expected ${PAIRS} pairs`)
-  const base = pairs.map((pair) => pair.base.elapsedMs)
-  const head = pairs.map((pair) => pair.head.elapsedMs)
+  const metric = workload === 'consumer' ? 'lightElapsedMs' : 'elapsedMs'
+  const base = pairs.map((pair) => pair.base[metric])
+  const head = pairs.map((pair) => pair.head[metric])
   const checksums = {}
   for (const version of ['base', 'head']) {
     const values = new Set(pairs.map((pair) => pair[version].checksum))
@@ -25,7 +27,7 @@ export const evaluatePairs = (pairs) => {
   }
   const ratio = median(head) / median(base)
   const envelope = [Math.min(...head) / Math.max(...base), Math.max(...head) / Math.min(...base)]
-  const pairRatios = pairs.map((pair) => pair.head.elapsedMs / pair.base.elapsedMs)
+  const pairRatios = pairs.map((pair) => pair.head[metric] / pair.base[metric])
   const highLoad = pairs.some((pair) => [pair.base, pair.head].some((sample) =>
     [sample.loadBefore[0], sample.loadAfter[0]].some((value) => value >= 30)))
   // This is a conservative observed range, not a statistical confidence interval.
@@ -41,14 +43,15 @@ export const evaluatePairs = (pairs) => {
     highLoad,
     checksums,
     outputChanged: checksums.base !== checksums.head,
+    metric,
   }
 }
 
-export const measureWithRetries = (measure, report) => {
+export const measureWithRetries = (measure, report, workload = 'load') => {
   let checksums = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     const pairs = measure(attempt)
-    const result = evaluatePairs(pairs)
+    const result = evaluatePairs(pairs, workload)
     if (checksums && (checksums.base !== result.checksums.base || checksums.head !== result.checksums.head)) {
       throw new Error('Output checksums changed between attempts')
     }

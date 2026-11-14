@@ -77,7 +77,9 @@ const measurement = Effect.gen(function* measureChunkLoads() {
 
   const lightReadings = []
   let writes = 0
+  let lightElapsedMs = 0
   if (workload === 'consumer') {
+    const lightStarted = performance.now()
     const position = blockPosition(blockAxis(0), blockAxis(255), blockAxis(0))
     const before = yield* store.getLight(position)
     if (before['_tag'] !== 'Light') throw new Error('Initial light reading was not resident')
@@ -88,6 +90,7 @@ const measurement = Effect.gen(function* measureChunkLoads() {
     if (write['_tag'] !== 'Written') throw new Error('Consumer workload did not change a block')
     writes += 1
     const after = yield* store.getLight(position)
+    lightElapsedMs = performance.now() - lightStarted
     if (after['_tag'] !== 'Light') throw new Error('Updated light reading was not resident')
     lightReadings.push(after)
   }
@@ -126,6 +129,7 @@ const measurement = Effect.gen(function* measureChunkLoads() {
     checksum: hash.digest('hex'),
     chunks: COORDS.length,
     elapsedMs,
+    lightElapsedMs,
     hasBlockStates: statefulChunks === COORDS.length,
     statefulChunks,
     warmupLoads: 0,
