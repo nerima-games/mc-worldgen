@@ -37,16 +37,21 @@ test('only inconclusive attempts retry and exhaust after three attempts', () => 
   assert.equal(measureWithRetries((attempt) => attempt === 0 ? noisy() : stable(100), (r) => retry.push(r)), 'PASS')
   assert.equal(retry.length, 2)
   let regressedAttempts = 0
-  assert.equal(measureWithRetries(() => { regressedAttempts += 1; return stable(200) }, () => {}), 'REGRESSED')
+  const regressions = []
+  assert.equal(measureWithRetries(() => { regressedAttempts += 1; return stable(200) }, (r) => regressions.push(r)), 'REGRESSED')
   assert.equal(regressedAttempts, 1)
+  assert.equal(regressions.length, 1)
+  assert.equal(regressions[0].status, 'REGRESSED')
 })
 
 test('checksum mismatch and incomplete pairs fail without retry', () => {
   const measurements = stable(100)
   measurements[2].head.checksum = 'b'.repeat(64)
   let calls = 0
-  assert.throws(() => measureWithRetries(() => { calls += 1; return measurements }, () => {}), /checksums differ/)
+  const reports = []
+  assert.throws(() => measureWithRetries(() => { calls += 1; return measurements }, (r) => reports.push(r)), /checksums differ/)
   assert.equal(calls, 1)
+  assert.equal(reports.length, 0)
   assert.throws(() => evaluatePairs(measurements.slice(1)), /Expected 5 pairs/)
 })
 

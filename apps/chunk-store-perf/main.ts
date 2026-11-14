@@ -80,15 +80,15 @@ const measurement = Effect.gen(function* measureChunkLoads() {
   if (workload === 'consumer') {
     const position = blockPosition(blockAxis(0), blockAxis(255), blockAxis(0))
     const before = yield* store.getLight(position)
-    if (before._tag !== 'Light') throw new Error('Initial light reading was not resident')
+    if (before['_tag'] !== 'Light') throw new Error('Initial light reading was not resident')
     lightReadings.push(before)
     const existing = yield* store.getBlock(position)
-    if (existing._tag !== 'Block') throw new Error('Write position was not resident')
+    if (existing['_tag'] !== 'Block') throw new Error('Write position was not resident')
     const write = yield* store.setBlock(position, existing.block === BLOCK.STONE ? BLOCK.AIR : BLOCK.STONE)
-    if (write._tag !== 'Written') throw new Error('Consumer workload did not change a block')
+    if (write['_tag'] !== 'Written') throw new Error('Consumer workload did not change a block')
     writes += 1
     const after = yield* store.getLight(position)
-    if (after._tag !== 'Light') throw new Error('Updated light reading was not resident')
+    if (after['_tag'] !== 'Light') throw new Error('Updated light reading was not resident')
     lightReadings.push(after)
   }
 
