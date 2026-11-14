@@ -1,5 +1,11 @@
 # @nerima-games/mc-worldgen
 
+## 0.9.1
+
+### Patch Changes
+
+- Speed up cave carving and chunk state materialization without changing generated output.
+
 ## 0.9.0
 
 ### Minor Changes
