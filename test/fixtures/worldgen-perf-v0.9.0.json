@@ -1,0 +1,819 @@
+{
+  "coverageBySeed": [
+    {
+      "seed": 1,
+      "chunksWithCaveBandAir": 9,
+      "chunksWithMountainBiomes": 0,
+      "chunksWithNaturalStructureData": 1,
+      "chunksWithWaterFloorCaveBand": 1,
+      "chunksWithWater": 2,
+      "chunksWithSurface": 9
+    },
+    {
+      "seed": 20260726,
+      "chunksWithCaveBandAir": 9,
+      "chunksWithMountainBiomes": 1,
+      "chunksWithNaturalStructureData": 0,
+      "chunksWithWaterFloorCaveBand": 4,
+      "chunksWithWater": 5,
+      "chunksWithSurface": 9
+    },
+    {
+      "seed": 4242,
+      "chunksWithCaveBandAir": 9,
+      "chunksWithMountainBiomes": 0,
+      "chunksWithNaturalStructureData": 0,
+      "chunksWithWaterFloorCaveBand": 5,
+      "chunksWithWater": 6,
+      "chunksWithSurface": 9
+    }
+  ],
+  "coordinates": [
+    {
+      "category": "surface",
+      "cx": 5,
+      "cz": 7
+    },
+    {
+      "category": "cave",
+      "cx": 11,
+      "cz": 3
+    },
+    {
+      "category": "cave",
+      "cx": 5,
+      "cz": -6
+    },
+    {
+      "category": "water-bottom",
+      "cx": 4,
+      "cz": 9
+    },
+    {
+      "category": "water-bottom",
+      "cx": -8,
+      "cz": 8
+    },
+    {
+      "category": "structure",
+      "cx": -37,
+      "cz": 92
+    },
+    {
+      "category": "mountain",
+      "cx": -192,
+      "cz": -256
+    },
+    {
+      "category": "mountain",
+      "cx": 48,
+      "cz": -256
+    },
+    {
+      "category": "mountain",
+      "cx": 88,
+      "cz": -256
+    }
+  ],
+  "entries": [
+    {
+      "category": "surface",
+      "coord": {
+        "cx": 5,
+        "cz": 7
+      },
+      "coverage": {
+        "caveBandAir": 7757,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 76,
+        "surfaceYMin": 54,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "276db7b59056f800cc23593bbf7960f8b701383faffbe03b53400f1ac3383136",
+        "biomesSha256": "d8f880dc45db4c31d2cf0688aa2fd1f0ee6ee3fbea829c66565ce42cebb39314",
+        "chunkFormatV3PayloadSha256": "587258bde702f5774962e335a16f6cc9761647c5ae18f1187961f70b461c9e83",
+        "integrityMetadataSha256": "053b592d8967fd057abf670983c53b8283fe5b06330b748d6bad857001135a9b",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "cave",
+      "coord": {
+        "cx": 11,
+        "cz": 3
+      },
+      "coverage": {
+        "caveBandAir": 2680,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 85,
+        "surfaceYMin": 74,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "858d70344454cdd142781dda6d6c5b515e7484e1785202fb900934305b0e8339",
+        "biomesSha256": "98f2ea8463933debe96f94791bf0494a55c9fc50d768ad7d1a646c136bb25f73",
+        "chunkFormatV3PayloadSha256": "6e05f20c884b3f6bd79b00fef670057f2d33a8b8c5793c1f2bea91bee94773e4",
+        "integrityMetadataSha256": "270403cb4e69ea6aa536c9ade16764a20f8b41fc4706e84d01e2e1ce0dbbd887",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "cave",
+      "coord": {
+        "cx": 5,
+        "cz": -6
+      },
+      "coverage": {
+        "caveBandAir": 2743,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 62,
+        "surfaceYMin": 47,
+        "waterBlocks": 1958,
+        "waterFloorCaveBandColumns": 160
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "b09c2d7645c200df4f54ba6cb2477c6d0e6dfe6c9f913608f33b0a58e1647f07",
+        "biomesSha256": "354cdc7197f3d6b012f3915f5161aa7030e00e2926f686eb1be0257236943b0a",
+        "chunkFormatV3PayloadSha256": "db8c470fcdbe778f83643ed89b05f5aee562723003493e50d140b14e8641a842",
+        "integrityMetadataSha256": "683825660e8a751ac5057510a30a37c706f3a991f6a226214d7c2d6faf6dd13f",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "water-bottom",
+      "coord": {
+        "cx": 4,
+        "cz": 9
+      },
+      "coverage": {
+        "caveBandAir": 371,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 77,
+        "surfaceYMin": 75,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "640e2c2173b9ae53f94fd71aa913c52ad6b5afe3c5477414e19577e71f380868",
+        "biomesSha256": "354cdc7197f3d6b012f3915f5161aa7030e00e2926f686eb1be0257236943b0a",
+        "chunkFormatV3PayloadSha256": "6d645a0225368dbf187c3d6770505530be6b6d6f69c95ec268906dc955e9cffd",
+        "integrityMetadataSha256": "ca9c87a7d3951e6210d163ebdcf6f4d1f1c57e845cbccebb469eed2d465bc4ee",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "water-bottom",
+      "coord": {
+        "cx": -8,
+        "cz": 8
+      },
+      "coverage": {
+        "caveBandAir": 4864,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 80,
+        "surfaceYMin": 75,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "38b116f317108b5941d1e1a2ffcc6f43faec94ddc1fbd5c53453bf9434d456f0",
+        "biomesSha256": "ef832d2a3f2f94f4339ec487e877917cbfcb51e7ac26606e362e0d469c798e62",
+        "chunkFormatV3PayloadSha256": "5f537642274014fc34b34bd918466f2b9c669e1fcab8e000f23bf377b6861d08",
+        "integrityMetadataSha256": "3f82033ab944662495221562471149eb038f211931902ca78e6a1950b2f81bc3",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "structure",
+      "coord": {
+        "cx": -37,
+        "cz": 92
+      },
+      "coverage": {
+        "caveBandAir": 4200,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 1,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 73,
+        "surfaceYMin": 68,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "de0cb83cc63c97096acb8c827b8bf9e3a2369011de3cc884565d9bdbb121716c",
+        "biomesSha256": "254bf3b185c887466a5efe5c39776f2278acf660f5517bfd35274e3737a79755",
+        "chunkFormatV3PayloadSha256": "1249206fdda244bddf483c49355ef2cb32050e2c76221355e41f931468cb4dc9",
+        "integrityMetadataSha256": "1c77c2dda607a1189e92dea17392699ff563a4a6fe2f6b90317cf4145637ca3e",
+        "naturalStructuresSha256": "0ff295e812ba89922b1da54a563324b09d3fac37bd296fa55f5ff238660f3357"
+      },
+      "seed": 1
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": -192,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 5406,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 106,
+        "surfaceYMin": 60,
+        "waterBlocks": 10,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "b11845fbd595053af282b61ff0a0aaeadc992f804987e289767e1c0fc9e31dc1",
+        "biomesSha256": "42f73b11a0cd1d4b4a6ab404756f89a35758246af1332f33e2af92329b66f012",
+        "chunkFormatV3PayloadSha256": "3170f9117ce62fe21bfdc1a80d2dba0fe4928498cc0e9c73fc93fec3e7c0ed63",
+        "integrityMetadataSha256": "065a933cdd66504654b7a8ab569eae0017dd5fcc32deea961ae30248abb33deb",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": 48,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 449,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 89,
+        "surfaceYMin": 73,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "dead4377f4614827cdc6a2601a3f1d6ab15cc1b57284f118324dd54d5e621d03",
+        "biomesSha256": "18b8c7738ef2e9d920efb86faf3ea86e30fb6ad1043b1195642dea6e54a50401",
+        "chunkFormatV3PayloadSha256": "4e1caf3c8f0ab8a731f6305f07ca08a12ac3fa3157118f2dd9ed9e9ded04a5be",
+        "integrityMetadataSha256": "14ea06ace4546639a70d8008126618d3b2850ee28f77dcbd779b5ccbb95d5f41",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": 88,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 6209,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 81,
+        "surfaceYMin": 75,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "657bb4b9cc84a3e6f43904c1673a01e8c347a729c3a333c35811900413eecd5f",
+        "biomesSha256": "ef832d2a3f2f94f4339ec487e877917cbfcb51e7ac26606e362e0d469c798e62",
+        "chunkFormatV3PayloadSha256": "718a9bf68656f9232d2a89cd69434a56d7a1695e67535bd77464453acfa2797c",
+        "integrityMetadataSha256": "77108fa9687bc0ece3503a9ce7d47acc3126c4b0963c6f62c1212c54eeede965",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 1
+    },
+    {
+      "category": "surface",
+      "coord": {
+        "cx": 5,
+        "cz": 7
+      },
+      "coverage": {
+        "caveBandAir": 8195,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 76,
+        "surfaceYMin": 61,
+        "waterBlocks": 4,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "578eb9a9bdef498908788aace1c377331ade2350cf8b4f703df7f249dc8e2536",
+        "biomesSha256": "5e8f3fe659cc868bb96bfb97546a832e7a43955c745e69ca8727e44c47efab91",
+        "chunkFormatV3PayloadSha256": "5b53c7e68dbbf5a6261d2e9bf91d0161fdaf8b5393cf1eb6aaf29c3bdcf77cc8",
+        "integrityMetadataSha256": "957c7046e7342fc135c3dfd65fe411a645579c93772704a0b4e135a82cc9254e",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "cave",
+      "coord": {
+        "cx": 11,
+        "cz": 3
+      },
+      "coverage": {
+        "caveBandAir": 7077,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 86,
+        "surfaceYMin": 82,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "bc0bd5bd17e45a2bc5df64e010b71379e46e388a0327887f2aa520995900f02d",
+        "biomesSha256": "ef832d2a3f2f94f4339ec487e877917cbfcb51e7ac26606e362e0d469c798e62",
+        "chunkFormatV3PayloadSha256": "08b2336909c1ce56264ab1c7e9a5a4a93bb86afba2f7a54e32e84ef908be560c",
+        "integrityMetadataSha256": "2f157e888f7ffda47748066c55876169ef8e77d402ed610603a6127b0022be90",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "cave",
+      "coord": {
+        "cx": 5,
+        "cz": -6
+      },
+      "coverage": {
+        "caveBandAir": 8929,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 85,
+        "surfaceYMin": 67,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "cc3d94b4a8c361d1272e3283900a94a73c597efe9d722a0ae2348cdaa8cf9679",
+        "biomesSha256": "7040fd9dd3dd60b1f6e310bd0ec8f1e48fe65289b426d22034d9d6aa9bc1dd67",
+        "chunkFormatV3PayloadSha256": "0c161329b010ac1274699a261a83a28bd1c8058c21fbc54fcc99ba76abc45ccd",
+        "integrityMetadataSha256": "f5d7b651f1870b1cd112edd1216c22f6324344b5995c35686b86a47cc3fd93f8",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "water-bottom",
+      "coord": {
+        "cx": 4,
+        "cz": 9
+      },
+      "coverage": {
+        "caveBandAir": 4990,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 81,
+        "surfaceYMin": 72,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "71b8705117af9ded7a0d087ebf533055234c94145ace7ec2772527fe4de08fc6",
+        "biomesSha256": "7c0fcb8af8e4e03840f218f9b6cee6004d480057d3a9a82ec2ab8b3240ff9140",
+        "chunkFormatV3PayloadSha256": "05cf05b4ecc48d9dfea4c6bc0728231f42cdb32a326ee7590da4ebdc72d352dd",
+        "integrityMetadataSha256": "2bc26a4d689601656f540702ee13da02ad3abda34aeeb575b7f95134504c3426",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "water-bottom",
+      "coord": {
+        "cx": -8,
+        "cz": 8
+      },
+      "coverage": {
+        "caveBandAir": 3577,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 46,
+        "surfaceYMin": 38,
+        "waterBlocks": 5539,
+        "waterFloorCaveBandColumns": 256
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "058e958c228806c942862ddee007cafadbb469ced6e2986c771fc1d56fd7da78",
+        "biomesSha256": "64e49dfa428238d5e06a67a6c60f819689064327643ceb1194b5b42a3045a879",
+        "chunkFormatV3PayloadSha256": "f46242585cae69b7e565ec085aa3670f137f91e11f65fde4b2dfa7410e369d20",
+        "integrityMetadataSha256": "e63624d767508f0a7ae29900a654ecd2a8506e51b04ac1821e8a64d3095ef20f",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "structure",
+      "coord": {
+        "cx": -37,
+        "cz": 92
+      },
+      "coverage": {
+        "caveBandAir": 4818,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 63,
+        "surfaceYMin": 51,
+        "waterBlocks": 1034,
+        "waterFloorCaveBandColumns": 52
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "b0520803763945da2b483677c70171061011bd175cba9e4002b6d5334448d265",
+        "biomesSha256": "5a2d90af326bb2872247b84bc08ed81bb6b444ef441c68861821d4b51eb29d9d",
+        "chunkFormatV3PayloadSha256": "9416806d76e7b83592b074abfa8d4474715c54486a24227d47d75935666bf9ac",
+        "integrityMetadataSha256": "cb2a79abead42c2acbc1b5a139b5c6578d6a5b9f3cdf603ecbb135b8fde2accc",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": -192,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 5019,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 60,
+        "surfaceYMin": 51,
+        "waterBlocks": 1966,
+        "waterFloorCaveBandColumns": 227
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "cc01595d7056d8362cc3a1ba66cd1910d261708deca48cfcc1aa7cd78d9595ac",
+        "biomesSha256": "3e072c53e11e3a79b3d28fd9ce575bb3c53f4cb9b77aa96a929495b610bc8936",
+        "chunkFormatV3PayloadSha256": "3dfdffd48189dc866556c96261695b9ccdb13226127817fa7eeb8ddcc8112bad",
+        "integrityMetadataSha256": "cce9e8050b4a835ca125cb96a01ac9ed128c45f19aab24bba2aa9f98a39dbd66",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": 48,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 3285,
+        "mountainBiomeColumns": 256,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 84,
+        "surfaceYMin": 73,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "41907a3f3104cef057f5ef935d52e82ce4df02294b870b627823b1a2913b15f3",
+        "biomesSha256": "f00a12eefb2b7b863b1fc229ac4809ec9e96d652c4069f75038f9a45de17014a",
+        "chunkFormatV3PayloadSha256": "a63849c398f537361155b47f82f3a42a6b2f6427039b082d02afb57459386b99",
+        "integrityMetadataSha256": "53bdb4f24ec224c9bf04788abc9157457a28d18dfa61aa6ef784a06a654df38c",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": 88,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 1226,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 45,
+        "surfaceYMin": 35,
+        "waterBlocks": 6089,
+        "waterFloorCaveBandColumns": 256
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "5a3a0ffaa1dc7966c79e3c8c3a46c752759c79bae5e3ce9e30b5418ddcece7f3",
+        "biomesSha256": "354cdc7197f3d6b012f3915f5161aa7030e00e2926f686eb1be0257236943b0a",
+        "chunkFormatV3PayloadSha256": "8671c82bd27a77bd31a6cbea9d28b1173c74358fb0e212bb2d7d99c4b914ec71",
+        "integrityMetadataSha256": "6e855f7a9c61161ddcf43949b9c603358d01e49bc90ceccc1172730a1c94b2c2",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 20260726
+    },
+    {
+      "category": "surface",
+      "coord": {
+        "cx": 5,
+        "cz": 7
+      },
+      "coverage": {
+        "caveBandAir": 1486,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 50,
+        "surfaceYMin": 39,
+        "waterBlocks": 5066,
+        "waterFloorCaveBandColumns": 256
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "98fa6a553c3656d6e2a9d94d28e6912302fee87b60445b4854c215fd9d2582e8",
+        "biomesSha256": "a50e9cbe274a72555dc1a3d801f889a5929cd020d8f02334927f5bd402da3ccc",
+        "chunkFormatV3PayloadSha256": "7e8a3f31dd64098dedb9609a29c649c80357cdd5d0235843912cd8e3353a75bb",
+        "integrityMetadataSha256": "24eee83c05da91ba97df5c0e3257b8b3189d29c1884f4d367d53cb469e04271b",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "cave",
+      "coord": {
+        "cx": 11,
+        "cz": 3
+      },
+      "coverage": {
+        "caveBandAir": 679,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 49,
+        "surfaceYMin": 41,
+        "waterBlocks": 4898,
+        "waterFloorCaveBandColumns": 256
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "1f7d24f4138871299540af4682c007376cb2a3362acae63ac705d7a78bd0d145",
+        "biomesSha256": "b27376fc5a2108a79282f3c7eac74a7a9b56702c7e6b52e0a642355063171c99",
+        "chunkFormatV3PayloadSha256": "780bc4be277176e1d8ff251d56ad803c9d439fe59e58975fd49ba73588866591",
+        "integrityMetadataSha256": "2bedfff4ae067a20c14b9b58ee0881b5319cf94083119e285bb665260e1b876a",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "cave",
+      "coord": {
+        "cx": 5,
+        "cz": -6
+      },
+      "coverage": {
+        "caveBandAir": 3237,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 42,
+        "surfaceYMin": 35,
+        "waterBlocks": 6094,
+        "waterFloorCaveBandColumns": 256
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "830107063ea1c1ce669539abb722ad0a1257ea5b52c16be7bf08dfd1d4e62834",
+        "biomesSha256": "b27376fc5a2108a79282f3c7eac74a7a9b56702c7e6b52e0a642355063171c99",
+        "chunkFormatV3PayloadSha256": "f5923fdf2eab5281cb7d6fc6bca054523e43368ee6f426e386d80b178efeae7c",
+        "integrityMetadataSha256": "3cde7785579fea91f00d5decbe5b6b8b7958139ff276a4095437dc3780855152",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "water-bottom",
+      "coord": {
+        "cx": 4,
+        "cz": 9
+      },
+      "coverage": {
+        "caveBandAir": 2872,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 60,
+        "surfaceYMin": 55,
+        "waterBlocks": 1443,
+        "waterFloorCaveBandColumns": 148
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "c5b91f2aba6b273d52eaafacef38daebc52d428ad2ee0bacd5ffdc1ba4ea9b64",
+        "biomesSha256": "354cdc7197f3d6b012f3915f5161aa7030e00e2926f686eb1be0257236943b0a",
+        "chunkFormatV3PayloadSha256": "e9302592946b0716c8bff4069411e4c9470019148093edebbd00098b501ec1c2",
+        "integrityMetadataSha256": "3340a3e34943c7ea9bfc277151f0238320e0f6fdf6de442506b08eb09edf6e10",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "water-bottom",
+      "coord": {
+        "cx": -8,
+        "cz": 8
+      },
+      "coverage": {
+        "caveBandAir": 3165,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 63,
+        "surfaceYMin": 60,
+        "waterBlocks": 351,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "e614e14f18b9d6e73f166d9d12f0406d15d70f2ccd3cb6da504332382d4695c0",
+        "biomesSha256": "ada0e219116433cfb6e32dc27f2a567c36ca6403a12dadb5d8834e37f0d3634b",
+        "chunkFormatV3PayloadSha256": "fe2ac0c5f31b1d27ae32f04bc6aa8c9c2971b6a5098c5e582f8119ff6e7a2197",
+        "integrityMetadataSha256": "c971d0901dc046c14564973bab7c99f6a45ecd2187deccabdbf36587333d57e3",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "structure",
+      "coord": {
+        "cx": -37,
+        "cz": 92
+      },
+      "coverage": {
+        "caveBandAir": 1736,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 78,
+        "surfaceYMin": 71,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "2385dc3acbc7010220c4bee0b6e2c2f11e5d352ab44fe8b542968970c3083658",
+        "biomesSha256": "c8cdccc2f22bb001a488b45697862e2b8177ce87da772831a333f081b3d90582",
+        "chunkFormatV3PayloadSha256": "97a4991c7088b2bd12fc38fd514e000b5551a8da53895f6c969dc69f1806001b",
+        "integrityMetadataSha256": "ec149582fced59edd52829d2756a2a4398799c5b993a3e9e87ff3ceea885bb5e",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": -192,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 4857,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 89,
+        "surfaceYMin": 84,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "54217b4304f2f42fd84a7c86f42396c75bed68865136f82ab26f3f586cdcfe4c",
+        "biomesSha256": "ef832d2a3f2f94f4339ec487e877917cbfcb51e7ac26606e362e0d469c798e62",
+        "chunkFormatV3PayloadSha256": "4dfa46dfb03b4029986179bab30d4c56dd99b347ef9533ab69fbd3de4dc5dfcb",
+        "integrityMetadataSha256": "0df28a162a89b13dcbd4f7154fa1fdf93884a0cf0906672f025d360915128e59",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": 48,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 89,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 90,
+        "surfaceYMin": 78,
+        "waterBlocks": 0,
+        "waterFloorCaveBandColumns": 0
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "15f08f58367134b3827c714da25b718216119dc50db92b631ecf7f96e43ac696",
+        "biomesSha256": "c60598b3fab0520d4a6d9283c31dbcbcfd8ad5a2c6c888648350a46e63d85462",
+        "chunkFormatV3PayloadSha256": "3d9c5aba4a0a0a00d0d5543870bd7c62ba92fc04754a8d3f9cefd90dfb327dc3",
+        "integrityMetadataSha256": "b058e0f976a6ad754988085e4a578c0fea25f4d50afc446c62c979c2033bc6df",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    },
+    {
+      "category": "mountain",
+      "coord": {
+        "cx": 88,
+        "cz": -256
+      },
+      "coverage": {
+        "caveBandAir": 1837,
+        "mountainBiomeColumns": 0,
+        "naturalStructureIds": 0,
+        "naturalStructureMarkers": 0,
+        "surfaceColumns": 256,
+        "surfaceYMax": 55,
+        "surfaceYMin": 48,
+        "waterBlocks": 2951,
+        "waterFloorCaveBandColumns": 256
+      },
+      "hashes": {
+        "blockStatesSha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "blocksSha256": "d3ee8de23afcea6e48d82e78118e0bdf9016dff2f9d8d9e16c65051518fc4e39",
+        "biomesSha256": "b27376fc5a2108a79282f3c7eac74a7a9b56702c7e6b52e0a642355063171c99",
+        "chunkFormatV3PayloadSha256": "097b8e6c16e47151528f612b771b9a3a12612f883613755f735a7e0f79bef5da",
+        "integrityMetadataSha256": "09414e6e0f43603d6006b50cb3ebebaf92639be0a3d46df0edc4110f5526766b",
+        "naturalStructuresSha256": "e7d1f61c65ad3329e440dc69d8bd9a2b5b527ba789dca0026edf52e65748ad35"
+      },
+      "seed": 4242
+    }
+  ],
+  "hashContract": {
+    "binary": "SHA-256 over chunk-format packed bytes (blocks v2 and block states v3, little-endian)",
+    "json": "SHA-256 over UTF-8 canonical JSON with lexicographically sorted object keys and original array order"
+  },
+  "schemaVersion": 1,
+  "seeds": [
+    1,
+    20260726,
+    4242
+  ]
+}

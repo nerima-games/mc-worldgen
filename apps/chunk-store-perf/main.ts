@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { chunkCoord } from '@nerima-games/mc-kernel'
 import { Effect, Result } from 'effect'
-import { ChunkCapacity, ChunkStore, GeneratedChunkStoreLayer } from '../../src/application/chunk-store.js'
+import { ChunkCapacity, ChunkStore, GeneratedChunkStoreLayer as generatedChunkStoreLayer } from '../../src/application/chunk-store.js'
 import { NoiseSeed } from '@nerima-games/mc-noise'
 import { CHUNK_SIZE_XZ } from '../../src/domain/constants.js'
 import { chunkAxis } from '../../src/domain/coordinate-compatibility.js'
@@ -20,7 +20,7 @@ const COORDS = Array.from({ length: CHUNKS_PER_AXIS * CHUNKS_PER_AXIS }, (_, ind
 })
 
 const capacity = Result.getOrThrow(ChunkCapacity.result(COORDS.length))
-const storeLayer = GeneratedChunkStoreLayer(SEED, capacity)
+const storeLayer = generatedChunkStoreLayer(SEED, capacity)
 
 const measurement = Effect.gen(function* measureChunkLoads() {
   const store = yield* ChunkStore
@@ -67,9 +67,9 @@ const measurement = Effect.gen(function* measureChunkLoads() {
 }).pipe(Effect.provide(storeLayer))
 
 const result = await Effect.runPromise(measurement)
-console.log(JSON.stringify({
+process.stdout.write(`${JSON.stringify({
   ...result,
   seed: 7,
   spawn: { x: SPAWN_BLOCK, z: SPAWN_BLOCK },
   radiusBlocks: SEARCH_RADIUS_BLOCKS,
-}))
+})}\n`)

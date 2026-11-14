@@ -83,9 +83,11 @@ const canonicalJson = (value: unknown): string => {
     return `[${value.map(canonicalJson).join(',')}]`
   }
   if (typeof value === 'object') {
-    const fields = Object.entries(value).sort(([left], [right]) =>
-      left < right ? -1 : left > right ? 1 : 0,
-    )
+    const fields = Object.entries(value).sort(([left], [right]) => {
+      if (left < right) return -1
+      if (left > right) return 1
+      return 0
+    })
     return `{${fields.map(([key, field]) => `${JSON.stringify(key)}:${canonicalJson(field)}`).join(',')}}`
   }
   throw new TypeError('cannot serialize a generated value as canonical JSON')
