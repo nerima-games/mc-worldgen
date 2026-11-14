@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import { blockPosition, chunkCoord } from '@nerima-games/mc-kernel'
 import { Effect, Result } from 'effect'
 import { ChunkCapacity, ChunkStore, GeneratedChunkStoreLayer as generatedChunkStoreLayer } from '../../src/application/chunk-store.js'
 import { NoiseSeed } from '@nerima-games/mc-noise'
 import { CHUNK_SIZE_XZ } from '../../src/domain/constants.js'
-import { chunkAxis } from '../../src/domain/coordinate-compatibility.js'
+import { blockAxis, chunkAxis } from '../../src/domain/coordinate-compatibility.js'
+import { BLOCK } from '../../src/domain/biome.js'
+
+const workload = process.argv[2] ?? 'load'
+if (workload !== 'load' && workload !== 'consumer') throw new Error(`Unknown workload: ${workload}`)
 
 const SPAWN_BLOCK = 0.5
 const SEARCH_RADIUS_BLOCKS = 40
@@ -71,6 +75,26 @@ const measurement = Effect.gen(function* measureChunkLoads() {
     loadedChunks.push(chunk)
   }
 
+  const lightReadings = []
+  let writes = 0
+  let lightElapsedMs = 0
+  if (workload === 'consumer') {
+    const lightStarted = performance.now()
+    const position = blockPosition(blockAxis(0), blockAxis(255), blockAxis(0))
+    const before = yield* store.getLight(position)
+    if (before['_tag'] !== 'Light') throw new Error('Initial light reading was not resident')
+    lightReadings.push(before)
+    const existing = yield* store.getBlock(position)
+    if (existing['_tag'] !== 'Block') throw new Error('Write position was not resident')
+    const write = yield* store.setBlock(position, existing.block === BLOCK.STONE ? BLOCK.AIR : BLOCK.STONE)
+    if (write['_tag'] !== 'Written') throw new Error('Consumer workload did not change a block')
+    writes += 1
+    const after = yield* store.getLight(position)
+    lightElapsedMs = performance.now() - lightStarted
+    if (after['_tag'] !== 'Light') throw new Error('Updated light reading was not resident')
+    lightReadings.push(after)
+  }
+
   const elapsedMs = performance.now() - started
   if (cpuProfiler) {
     const profiler = cpuProfiler
@@ -78,6 +102,7 @@ const measurement = Effect.gen(function* measureChunkLoads() {
   }
 
   const hash = createHash('sha256')
+  hash.update(JSON.stringify(lightReadings))
   let statefulChunks = 0
   for (let index = 0; index < COORDS.length; index += 1) {
     const coord = COORDS[index]
@@ -104,9 +129,13 @@ const measurement = Effect.gen(function* measureChunkLoads() {
     checksum: hash.digest('hex'),
     chunks: COORDS.length,
     elapsedMs,
+    lightElapsedMs,
     hasBlockStates: statefulChunks === COORDS.length,
     statefulChunks,
     warmupLoads: 0,
+    workload,
+    lightReads: lightReadings.length,
+    writes,
   }
 }).pipe(Effect.provide(storeLayer))
 
