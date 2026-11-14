@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
+import { CHUNK_SIZE_XZ } from '../src/domain/constants'
 import { MAX_SURFACE_Y, MIN_SURFACE_Y } from '../src/domain/density-function'
 import {
   createTerrainDensityColumnSampler,
