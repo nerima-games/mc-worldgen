@@ -175,17 +175,6 @@ export const computeWaterFloorYs = (blocks: Uint16Array, margin: number): Int16A
 const isWithinWaterFloorShell = (y: number, waterFloorY: number, margin: number): boolean =>
   waterFloorY !== NO_WATER_FLOOR && y >= waterFloorY - margin && y < waterFloorY
 
-/** Clears one voxel, unless it is one of the blocks a cave must never remove. */
-const carveVoxelIfClearable = (blocks: Uint16Array, index: number): void => {
-  const current = readBlock(blocks, index)
-
-  if (current === BLOCK.AIR || current === BLOCK.WATER || current === BLOCK.BEDROCK) {
-    return
-  }
-
-  blocks[index] = BLOCK.AIR
-}
-
 type CarveContext = {
   readonly blocks: Uint16Array
   readonly margin: number
@@ -228,8 +217,25 @@ const isWithinSurfaceShell = (y: number, surfaceY: number): boolean =>
  * PLAINS basin is submerged and is not an OCEAN.
  * ────────────────────────────────────────────────────────────────
  */
+const carveNoiseVoxel = (
+  context: CarveContext,
+  index: number,
+  y: number,
+  sampleX: number,
+  sampleZ: number,
+): void => {
+  const { blocks, caveNoise } = context
+  const current = readBlock(blocks, index)
+  if (current !== BLOCK.AIR && current !== BLOCK.WATER && current !== BLOCK.BEDROCK) {
+    const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
+    if (density > CAVE_THRESHOLD) {
+      blocks[index] = BLOCK.AIR
+    }
+  }
+}
+
 const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz: number): void => {
-  const { blocks, margin, caveNoise, coord, surfaceYs } = context
+  const { margin, coord, surfaceYs } = context
   const surfaceY = readRequired(surfaceYs, lz * CHUNK_SIZE_XZ + lx)
   const protectsSurface = waterFloorY === NO_WATER_FLOOR
   const sampleX = worldX(coord, lx) * CAVE_NOISE_XZ_FREQUENCY
@@ -242,10 +248,7 @@ const carveColumn = (context: CarveContext, waterFloorY: number, lx: number, lz:
         isWithinWaterFloorShell(y, waterFloorY, margin)
       )
     ) {
-      const density = caveNoise(sampleX, y * CAVE_NOISE_Y_FREQUENCY, sampleZ)
-      if (density > CAVE_THRESHOLD) {
-        carveVoxelIfClearable(blocks, blockIndex(lx, y, lz))
-      }
+      carveNoiseVoxel(context, blockIndex(lx, y, lz), y, sampleX, sampleZ)
     }
   }
 }

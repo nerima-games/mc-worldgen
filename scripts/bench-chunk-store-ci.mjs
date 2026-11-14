@@ -1,0 +1,168 @@
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { renderCpuProfileMarkdown, summarizeCpuProfile } from './chunk-store-cpu-profile.mjs'
+
+const [baseArg, legacyArg] = process.argv.slice(2)
+if (!baseArg || !legacyArg) {
+  process.stderr.write('Usage: node scripts/bench-chunk-store-ci.mjs <v0.9.0-root> <v0.8.0-root>\n')
+  process.exit(2)
+}
+
+const roots = {
+  base: resolve(baseArg),
+  legacy: resolve(legacyArg),
+  head: process.cwd(),
+}
+
+const runSample = (name, profilePath) => {
+  const root = roots[name]
+  const runner = resolve(root, 'node_modules/.bin/tsx')
+  const script = resolve(root, 'apps/chunk-store-perf/main.ts')
+  const env = profilePath === undefined ? process.env : { ...process.env, WORLDGEN_CPU_PROFILE_PATH: profilePath }
+  const options = { cwd: root, encoding: 'utf8', env }
+  if (profilePath !== undefined) options.timeout = 5 * 60 * 1000
+  const child = spawnSync(runner, [script], options)
+
+  if (child.error) throw child.error
+  if (child.status !== 0) {
+    throw new Error(`${name} benchmark exited ${child.status}: ${child.stderr.trim()}`)
+  }
+
+  const output = child.stdout.trim().split('\n').at(-1)
+  const result = JSON.parse(output)
+  if (result.chunks !== 36 || result.seed !== 7 || result.radiusBlocks !== 40 || result.warmupLoads !== 0) {
+    throw new Error(`${name} benchmark returned unexpected workload metadata`)
+  }
+  if (name !== 'legacy' && result.statefulChunks !== 36) {
+    throw new Error(`${name} loaded ${result.statefulChunks} chunks with materialized block states`)
+  }
+  return result
+}
+
+const profileSample = (version, profileDir, expectedChecksum) => {
+  const path = resolve(profileDir, version + '.cpuprofile')
+  const result = runSample(version, path)
+  if (result.checksum !== expectedChecksum) {
+    throw new Error(version + ' profile run checksum differs from timing samples')
+  }
+  if (!existsSync(path) || readFileSync(path).length === 0) {
+    throw new Error(version + ' CPU profile was not written')
+  }
+
+  const profile = JSON.parse(readFileSync(path, 'utf8'))
+  process.stdout.write(version + ' profile checksum matched timing samples (' + result.checksum + ')\n')
+  return {
+    checksum: result.checksum,
+    ...summarizeCpuProfile(profile),
+  }
+}
+
+const samples = { base: [], head: [], legacy: [] }
+for (let pair = 0; pair < 5; pair += 1) {
+  const order = pair % 2 === 0 ? ['base', 'head'] : ['head', 'base']
+  for (const version of order) {
+    const result = runSample(version)
+    samples[version].push(result)
+    process.stdout.write(`${version} sample ${pair + 1}: ${result.elapsedMs.toFixed(2)} ms (${result.checksum})\n`)
+  }
+}
+samples.legacy.push(runSample('legacy'))
+process.stdout.write(`legacy v0.8.0: ${samples.legacy[0].elapsedMs.toFixed(2)} ms (${samples.legacy[0].checksum})\n`)
+
+const median = (values) => {
+  const sorted = [...values].sort((left, right) => left - right)
+  return sorted[Math.floor(sorted.length / 2)]
+}
+const summarize = (values) => ({
+  median: median(values),
+  min: Math.min(...values),
+  max: Math.max(...values),
+})
+const baseTimes = samples.base.map(({ elapsedMs }) => elapsedMs)
+const headTimes = samples.head.map(({ elapsedMs }) => elapsedMs)
+const legacyTimes = samples.legacy.map(({ elapsedMs }) => elapsedMs)
+const baseSummary = summarize(baseTimes)
+const headSummary = summarize(headTimes)
+const legacySummary = summarize(legacyTimes)
+const baseHeadChecksums = new Set([...samples.base, ...samples.head].map(({ checksum }) => checksum))
+if (baseHeadChecksums.size !== 1) {
+  throw new Error('v0.9.0 and head ChunkStore.load checksums differ')
+}
+
+const ratio = headSummary.median / baseSummary.median
+const profileDir = resolve('.perf/chunk-store-cpu-profile')
+const profiles = {}
+let profileError = null
+try {
+  mkdirSync(profileDir, { recursive: true })
+  for (const version of ['base', 'head']) {
+    profiles[version] = profileSample(version, profileDir, samples[version][0].checksum)
+  }
+} catch (error) {
+  profileError = error instanceof Error ? error.name : 'unknown error'
+}
+
+const profileReport = {
+  workload: {
+    seed: 7,
+    spawn: { x: 0.5, z: 0.5 },
+    radiusBlocks: 40,
+    chunks: 36,
+    profiledProcessCount: 2,
+    timingSamplesPerVersion: 5,
+  },
+  profiles: {
+    'v0.9.0': profiles.base,
+    head: profiles.head,
+  },
+}
+const profileSections = []
+for (const [version, label] of [['base', 'v0.9.0'], ['head', 'head']]) {
+  const profile = profiles[version]
+  if (profile !== undefined) {
+    try {
+      profileSections.push(renderCpuProfileMarkdown(label, profile))
+    } catch (error) {
+      profileError = error instanceof Error ? error.name : 'unknown error'
+    }
+  }
+}
+let profileMarkdown = [
+  '## ChunkStore CPU profile',
+  '',
+  'Each profile came from a separate fresh process after the timing samples. Profiling covered only the 36 sequential `ChunkStore.load` calls and did not contribute to the reported medians.',
+  '',
+  ...(profileError === null ? [] : ['Profile collection unavailable (' + profileError + ').']),
+  ...profileSections,
+].join('\n')
+try {
+  writeFileSync(resolve(profileDir, 'profile-report.json'), `${JSON.stringify(profileReport, null, 2)}\n`)
+  writeFileSync(resolve(profileDir, 'profile-report.md'), `${profileMarkdown}\n`)
+} catch (error) {
+  profileError = error instanceof Error ? error.name : 'unknown error'
+  profileMarkdown += '\n\nProfile artifact unavailable (' + profileError + ').'
+}
+
+const markdown = [
+  '## ChunkStore sequential load performance',
+  '',
+  'Workload: seed 7, spawn `(0.5, 0.5)`, radius ±40 blocks, 36 chunks, generated source, sequential cold loads.',
+  'Warmup: 0 loads. Each sample ran in a fresh process; the timer starts after module imports and store setup, then measures the first cold load through the 36th sequential load.',
+  'v0.9.0 and head were alternated for five pairs; v0.8.0 ran once.',
+  '',
+  '| Version | Samples | Median | Range |',
+  '|---|---:|---:|---:|',
+  `| v0.8.0 | 1 | ${legacySummary.median.toFixed(2)} ms | ${legacySummary.min.toFixed(2)}–${legacySummary.max.toFixed(2)} ms |`,
+  `| v0.9.0 | ${baseTimes.length} | ${baseSummary.median.toFixed(2)} ms | ${baseSummary.min.toFixed(2)}–${baseSummary.max.toFixed(2)} ms |`,
+  `| head | ${headTimes.length} | ${headSummary.median.toFixed(2)} ms | ${headSummary.min.toFixed(2)}–${headSummary.max.toFixed(2)} ms |`,
+  '',
+  `Head/v0.9.0 median ratio: **${ratio.toFixed(3)}×** (recorded only; no threshold).`,
+  `v0.9.0/head output checksum: \`${samples.base[0].checksum}\` (all ten matched).`,
+].join('\n')
+
+process.stdout.write(`${markdown}\n`)
+process.stdout.write(`${profileMarkdown}\n`)
+if (process.env.GITHUB_STEP_SUMMARY) {
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n${profileMarkdown}\n`)
+}

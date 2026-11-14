@@ -6,12 +6,10 @@ import {
   createTerrainDensityColumnSampler,
   createTerrainDensityGrid,
   createTerrainDensitySurfaceSampler,
-  TERRAIN_DENSITY_GRID_CELL_XZ,
   TERRAIN_DENSITY_GRID_CELL_Y,
 } from '../src/domain/density-grid'
 import { blockAxis } from './fixtures/validated-inputs'
 
-const xzNodeCount = CHUNK_SIZE_XZ / TERRAIN_DENSITY_GRID_CELL_XZ + 1
 const yNodeCount = Math.ceil(MAX_SURFACE_Y / TERRAIN_DENSITY_GRID_CELL_Y) + 1
 const DENSITY_X_WEIGHT = 3
 const DENSITY_Y_WEIGHT = 2
@@ -20,7 +18,7 @@ const SURFACE_DENSITY_INTERCEPT = 100
 const SURFACE_DENSITY_HORIZONTAL_SCALE = 0.25
 
 describe('terrain density grid', () => {
-  it.effect('trilinearly interpolates a linear density field from the 8×8×8 lattice', () =>
+  it.effect('trilinearly interpolates a linear density field from the 3×28×3 lattice', () =>
     Effect.sync(() => {
       let sampleCalls = 0
       const originX = -16
@@ -45,7 +43,7 @@ describe('terrain density grid', () => {
         }
       }
 
-      expect(sampleCalls).toBe(xzNodeCount * yNodeCount * xzNodeCount)
+      expect(sampleCalls).toBe(252)
     }),
   )
 
