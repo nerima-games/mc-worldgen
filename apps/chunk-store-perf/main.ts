@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
-import { BLOCK, blockPosition, chunkCoord } from '@nerima-games/mc-kernel'
+import { blockPosition, chunkCoord } from '@nerima-games/mc-kernel'
 import { Effect, Result } from 'effect'
 import { ChunkCapacity, ChunkStore, GeneratedChunkStoreLayer as generatedChunkStoreLayer } from '../../src/application/chunk-store.js'
 import { NoiseSeed } from '@nerima-games/mc-noise'
 import { CHUNK_SIZE_XZ } from '../../src/domain/constants.js'
 import { blockAxis, chunkAxis } from '../../src/domain/coordinate-compatibility.js'
+import { BLOCK } from '../../src/domain/biome.js'
 
 const workload = process.argv[2] ?? 'load'
 if (workload !== 'load' && workload !== 'consumer') throw new Error(`Unknown workload: ${workload}`)
@@ -77,7 +78,7 @@ const measurement = Effect.gen(function* measureChunkLoads() {
   const lightReadings = []
   let writes = 0
   if (workload === 'consumer') {
-    const position = blockPosition(blockAxis(0), 255, 0)
+    const position = blockPosition(blockAxis(0), blockAxis(255), blockAxis(0))
     const before = yield* store.getLight(position)
     if (before._tag !== 'Light') throw new Error('Initial light reading was not resident')
     lightReadings.push(before)
