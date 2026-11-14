@@ -9,6 +9,7 @@ import { chunkAxis } from '../../src/domain/coordinate-compatibility.js'
 
 const SPAWN_BLOCK = 0.5
 const SEARCH_RADIUS_BLOCKS = 40
+const CPU_PROFILE_INTERVAL_MICROSECONDS = 1_000
 const MIN_CHUNK_COORD = Math.floor(Math.floor(SPAWN_BLOCK - SEARCH_RADIUS_BLOCKS) / CHUNK_SIZE_XZ)
 const MAX_CHUNK_COORD = Math.floor(Math.floor(SPAWN_BLOCK + SEARCH_RADIUS_BLOCKS) / CHUNK_SIZE_XZ)
 const CHUNKS_PER_AXIS = MAX_CHUNK_COORD - MIN_CHUNK_COORD + 1
@@ -34,6 +35,7 @@ const startCpuProfiler = async (path: string): Promise<CpuProfiler> => {
 
   try {
     await session.post('Profiler.enable')
+    await session.post('Profiler.setSamplingInterval', { interval: CPU_PROFILE_INTERVAL_MICROSECONDS })
     await session.post('Profiler.start')
     return { session, path }
   } catch (error) {
@@ -55,7 +57,7 @@ const stopCpuProfiler = async ({ session, path }: CpuProfiler): Promise<void> =>
 const measurement = Effect.gen(function* measureChunkLoads() {
   const store = yield* ChunkStore
   const loadedChunks: object[] = []
-  const profilePath = process.env.WORLDGEN_CPU_PROFILE_PATH
+  const profilePath = process.env['WORLDGEN_CPU_PROFILE_PATH']
   let cpuProfiler: CpuProfiler | undefined
 
   if (profilePath !== undefined) {

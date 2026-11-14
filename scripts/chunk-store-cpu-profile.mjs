@@ -1,6 +1,9 @@
 const MICROSECONDS_PER_MILLISECOND = 1000
 const PERCENT_FACTOR = 100
 const TOP_FUNCTION_LIMIT = 15
+const MAX_NEGATIVE_DELTA_MICROSECONDS = 1000
+const MAX_NEGATIVE_DELTA_SAMPLE_RATIO = 0.01
+const MAX_NORMALIZED_TIME_RATIO = 0.005
 
 const PROFILE_CATEGORIES = [
   ['density grid', (source) => /\/(?:density-grid|density-function)\./.test(source)],
@@ -70,20 +73,33 @@ const createAggregate = (profile) => ({
   functionsByFrame: new Map(),
   categories: new Map(PROFILE_CATEGORIES.map(([category]) => [category, 0])),
   totalMicros: 0,
+  negativeDeltaCount: 0,
+  normalizedNegativeMicros: 0,
 })
 
 const addSample = (aggregate, nodeId, deltaMicros, index) => {
   const node = aggregate.nodesById.get(nodeId)
-  if (!node || !Number.isFinite(deltaMicros) || deltaMicros < 0) {
-    throw new Error(`CPU profile contains an invalid sample at index ${index}`)
+  if (!node) {
+    throw new Error(`CPU profile sample ${index} references missing node ${nodeId}`)
+  }
+  if (!Number.isInteger(deltaMicros)) {
+    throw new Error(`CPU profile sample ${index} has a non-integer time delta`)
+  }
+  if (deltaMicros < -MAX_NEGATIVE_DELTA_MICROSECONDS) {
+    throw new Error(`CPU profile sample ${index} regresses by more than one sampling interval`)
   }
 
   const details = profileFrame(node)
   const frame = aggregate.functionsByFrame.get(details.key) ?? { ...details, selfMicros: 0 }
-  frame.selfMicros += deltaMicros
+  const selfMicros = Math.max(0, deltaMicros)
+  if (deltaMicros < 0) {
+    aggregate.negativeDeltaCount += 1
+    aggregate.normalizedNegativeMicros -= deltaMicros
+  }
+  frame.selfMicros += selfMicros
   aggregate.functionsByFrame.set(details.key, frame)
-  aggregate.categories.set(details.category, aggregate.categories.get(details.category) + deltaMicros)
-  aggregate.totalMicros += deltaMicros
+  aggregate.categories.set(details.category, aggregate.categories.get(details.category) + selfMicros)
+  aggregate.totalMicros += selfMicros
 }
 
 const aggregateSamples = (profile) => {
@@ -121,15 +137,30 @@ export const summarizeCpuProfile = (profile) => {
   validateProfile(profile)
   const aggregate = aggregateSamples(profile)
   if (aggregate.totalMicros <= 0) throw new Error('CPU profile contains no sampled self time')
+  const negativeDeltaSampleRatio = aggregate.negativeDeltaCount / profile.samples.length
+  const normalizedTimeRatio = aggregate.normalizedNegativeMicros / aggregate.totalMicros
+  if (
+    negativeDeltaSampleRatio > MAX_NEGATIVE_DELTA_SAMPLE_RATIO ||
+    normalizedTimeRatio > MAX_NORMALIZED_TIME_RATIO
+  ) {
+    throw new Error('CPU profile contains too many negative time deltas to summarize')
+  }
   return {
     sampleCount: profile.samples.length,
     selfMs: aggregate.totalMicros / MICROSECONDS_PER_MILLISECOND,
+    timeDeltaNormalization: {
+      negativeDeltaCount: aggregate.negativeDeltaCount,
+      normalizedNegativeMicros: aggregate.normalizedNegativeMicros,
+    },
     categories: summarizeCategories(aggregate),
     functions: summarizeFunctions(aggregate),
   }
 }
 
 export const renderCpuProfileMarkdown = (version, summary) => {
+  const normalizationNote = summary.timeDeltaNormalization.negativeDeltaCount === 0
+    ? 'No negative profiler intervals required normalization.'
+    : `Normalized ${summary.timeDeltaNormalization.negativeDeltaCount} negative profiler interval(s) (${summary.timeDeltaNormalization.normalizedNegativeMicros} µs total) to zero self time.`
   const categoryRows = Object.entries(summary.categories).map(
     ([category, { selfMs, percent }]) => `| ${category} | ${selfMs.toFixed(2)} ms | ${percent.toFixed(2)}% |`,
   )
@@ -142,6 +173,7 @@ export const renderCpuProfileMarkdown = (version, summary) => {
     `### ${version} CPU profile`,
     '',
     `Self-sampled time: ${summary.selfMs.toFixed(2)} ms across ${summary.sampleCount} samples.`,
+    normalizationNote,
     '',
     '| Category | Self time | Share |',
     '| --- | ---: | ---: |',
