@@ -1,6 +1,7 @@
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { renderCpuProfileMarkdown, summarizeCpuProfile } from './chunk-store-cpu-profile.mjs'
 
 const [baseArg, legacyArg] = process.argv.slice(2)
 if (!baseArg || !legacyArg) {
@@ -14,11 +15,12 @@ const roots = {
   head: process.cwd(),
 }
 
-const runSample = (name) => {
+const runSample = (name, profilePath) => {
   const root = roots[name]
   const runner = resolve(root, 'node_modules/.bin/tsx')
   const script = resolve(root, 'apps/chunk-store-perf/main.ts')
-  const child = spawnSync(runner, [script], { cwd: root, encoding: 'utf8' })
+  const env = profilePath === undefined ? process.env : { ...process.env, WORLDGEN_CPU_PROFILE_PATH: profilePath }
+  const child = spawnSync(runner, [script], { cwd: root, encoding: 'utf8', env })
 
   if (child.error) throw child.error
   if (child.status !== 0) {
@@ -69,6 +71,53 @@ if (baseHeadChecksums.size !== 1) {
 }
 
 const ratio = headSummary.median / baseSummary.median
+const profileDir = resolve('.perf/chunk-store-cpu-profile')
+mkdirSync(profileDir, { recursive: true })
+
+const profiles = {}
+for (const version of ['base', 'head']) {
+  const path = resolve(profileDir, `${version}.cpuprofile`)
+  const result = runSample(version, path)
+  if (result.checksum !== samples[version][0].checksum) {
+    throw new Error(`${version} profile run checksum differs from timing samples`)
+  }
+  if (!existsSync(path) || readFileSync(path).length === 0) {
+    throw new Error(`${version} CPU profile was not written`)
+  }
+
+  const profile = JSON.parse(readFileSync(path, 'utf8'))
+  profiles[version] = {
+    checksum: result.checksum,
+    ...summarizeCpuProfile(profile),
+  }
+  process.stdout.write(`${version} profile checksum matched timing samples (${result.checksum})\n`)
+}
+
+const profileReport = {
+  workload: {
+    seed: 7,
+    spawn: { x: 0.5, z: 0.5 },
+    radiusBlocks: 40,
+    chunks: 36,
+    profiledProcessCount: 2,
+    timingSamplesPerVersion: 5,
+  },
+  profiles: {
+    'v0.9.0': profiles.base,
+    head: profiles.head,
+  },
+}
+const profileMarkdown = [
+  '## ChunkStore CPU profile',
+  '',
+  'Each profile came from a separate fresh process after the timing samples. Profiling covered only the 36 sequential `ChunkStore.load` calls and did not contribute to the reported medians.',
+  '',
+  renderCpuProfileMarkdown('v0.9.0', profiles.base),
+  renderCpuProfileMarkdown('head', profiles.head),
+].join('\n')
+writeFileSync(resolve(profileDir, 'profile-report.json'), `${JSON.stringify(profileReport, null, 2)}\n`)
+writeFileSync(resolve(profileDir, 'profile-report.md'), `${profileMarkdown}\n`)
+
 const markdown = [
   '## ChunkStore sequential load performance',
   '',
@@ -87,4 +136,7 @@ const markdown = [
 ].join('\n')
 
 process.stdout.write(`${markdown}\n`)
-if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n`)
+process.stdout.write(`${profileMarkdown}\n`)
+if (process.env.GITHUB_STEP_SUMMARY) {
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n${profileMarkdown}\n`)
+}

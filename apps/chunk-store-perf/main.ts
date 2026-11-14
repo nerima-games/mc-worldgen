@@ -22,9 +22,46 @@ const COORDS = Array.from({ length: CHUNKS_PER_AXIS * CHUNKS_PER_AXIS }, (_, ind
 const capacity = Result.getOrThrow(ChunkCapacity.result(COORDS.length))
 const storeLayer = generatedChunkStoreLayer(SEED, capacity)
 
+type CpuProfiler = {
+  readonly session: import('node:inspector/promises').Session
+  readonly path: string
+}
+
+const startCpuProfiler = async (path: string): Promise<CpuProfiler> => {
+  const { Session } = await import('node:inspector/promises')
+  const session = new Session()
+  session.connect()
+
+  try {
+    await session.post('Profiler.enable')
+    await session.post('Profiler.start')
+    return { session, path }
+  } catch (error) {
+    session.disconnect()
+    throw error
+  }
+}
+
+const stopCpuProfiler = async ({ session, path }: CpuProfiler): Promise<void> => {
+  try {
+    const { profile } = await session.post('Profiler.stop')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(path, JSON.stringify(profile))
+  } finally {
+    session.disconnect()
+  }
+}
+
 const measurement = Effect.gen(function* measureChunkLoads() {
   const store = yield* ChunkStore
   const loadedChunks: object[] = []
+  const profilePath = process.env.WORLDGEN_CPU_PROFILE_PATH
+  let cpuProfiler: CpuProfiler | undefined
+
+  if (profilePath !== undefined) {
+    cpuProfiler = yield* Effect.promise(() => startCpuProfiler(profilePath))
+  }
+
   const started = performance.now()
 
   for (const coord of COORDS) {
@@ -33,6 +70,11 @@ const measurement = Effect.gen(function* measureChunkLoads() {
   }
 
   const elapsedMs = performance.now() - started
+  if (cpuProfiler) {
+    const profiler = cpuProfiler
+    yield* Effect.promise(() => stopCpuProfiler(profiler))
+  }
+
   const hash = createHash('sha256')
   let statefulChunks = 0
   for (let index = 0; index < COORDS.length; index += 1) {
