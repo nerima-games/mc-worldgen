@@ -97,9 +97,6 @@ jobs:
       - name: Install baseline dependencies
         run: pnpm --dir .perf/base install --frozen-lockfile
 
-      - name: Test performance gate decisions
-        run: node --test scripts/chunk-store-perf-gate.test.mjs
-
       - name: Measure A/A noise on head
         id: aa
         run: node scripts/bench-chunk-store-ci.mjs . aa

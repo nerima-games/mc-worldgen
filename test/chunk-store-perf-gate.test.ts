@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { evaluatePairs, measureWithRetries, validateSample } from './chunk-store-perf-gate.mjs'
+import { test } from 'vitest'
+import { evaluatePairs, measureWithRetries, validateSample } from '../scripts/chunk-store-perf-gate.mjs'
+import type { GateAttempt, SamplePair, TimingSample } from '../scripts/chunk-store-perf-gate.mjs'
 
-const sample = (elapsedMs, load = 0) => ({ elapsedMs, checksum: 'a'.repeat(64), loadBefore: [load, 0, 0], loadAfter: [load, 0, 0] })
-const pairs = (times) => times.map(([base, head]) => ({ base: sample(base), head: sample(head) }))
-const stable = (head) => pairs(Array.from({ length: 5 }, () => [100, head]))
+const sample = (elapsedMs: number, load = 0): TimingSample => ({ elapsedMs, lightElapsedMs: 0, checksum: 'a'.repeat(64), loadBefore: [load, 0, 0], loadAfter: [load, 0, 0] })
+const pairs = (times: readonly (readonly [number, number])[]): SamplePair[] => times.map(([base, head]) => ({ base: sample(base), head: sample(head) }))
+const stable = (head: number): SamplePair[] => pairs(Array.from({ length: 5 }, () => [100, head]))
 const noisy = () => pairs([[100, 90], [100, 100], [100, 120], [100, 155], [100, 170]])
 
 test('stable equal timing passes, the strict threshold passes, and a slowdown fails', () => {
@@ -24,7 +25,7 @@ test('consumer gate catches doubled lighting with unchanged load time', () => {
   assert.equal(lighting.metric, 'lightElapsedMs')
   assert.equal(lighting.status, 'REGRESSED')
   assert.equal(lighting.ratio, 2)
-  const reports = []
+  const reports: GateAttempt[] = []
   assert.equal(measureWithRetries(() => measurements, (r) => reports.push(r), 'consumer'), 'REGRESSED')
   assert.equal(reports.length, 1)
 })
@@ -39,23 +40,25 @@ test('spread spanning the budget is inconclusive even with a passing median', ()
 
 test('high 1-minute load makes otherwise stable measurements inconclusive', () => {
   const measurements = stable(100)
+  assert.ok(measurements[0])
   measurements[0].head.loadAfter[0] = 30
   assert.equal(evaluatePairs(measurements).status, 'INCONCLUSIVE')
 })
 
 test('only inconclusive attempts retry and exhaust after three attempts', () => {
-  const reports = []
+  const reports: GateAttempt[] = []
   assert.equal(measureWithRetries(() => noisy(), (r) => reports.push(r)), 'INCONCLUSIVE')
   assert.equal(reports.length, 3)
   assert.deepEqual(reports.map((r) => r.attempt), [1, 2, 3])
-  const retry = []
+  const retry: GateAttempt[] = []
   assert.equal(measureWithRetries((attempt) => attempt === 0 ? noisy() : stable(100), (r) => retry.push(r)), 'PASS')
   assert.equal(retry.length, 2)
   let regressedAttempts = 0
-  const regressions = []
+  const regressions: GateAttempt[] = []
   assert.equal(measureWithRetries(() => { regressedAttempts += 1; return stable(200) }, (r) => regressions.push(r)), 'REGRESSED')
   assert.equal(regressedAttempts, 1)
   assert.equal(regressions.length, 1)
+  assert.ok(regressions[0])
   assert.equal(regressions[0].status, 'REGRESSED')
 })
 
@@ -70,11 +73,12 @@ test('different deterministic base/head outputs do not affect equal timing', () 
 })
 
 test('per-version nondeterminism and incomplete pairs fail without retry', () => {
-  for (const version of ['base', 'head']) {
+  for (const version of ['base', 'head'] as const) {
     const measurements = stable(100)
+    assert.ok(measurements[2])
     measurements[2][version].checksum = 'b'.repeat(64)
     let calls = 0
-    const reports = []
+    const reports: GateAttempt[] = []
     assert.throws(() => measureWithRetries(() => { calls += 1; return measurements }, (r) => reports.push(r)), /checksums differ/)
     assert.equal(calls, 1)
     assert.equal(reports.length, 0)
@@ -84,7 +88,7 @@ test('per-version nondeterminism and incomplete pairs fail without retry', () =>
 
 test('a version changing output between inconclusive attempts fails', () => {
   let calls = 0
-  const reports = []
+  const reports: GateAttempt[] = []
   assert.throws(() => measureWithRetries((attempt) => {
     calls += 1
     const measurements = noisy()
