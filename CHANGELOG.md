@@ -1,5 +1,13 @@
 # @nerima-games/mc-worldgen
 
+## 0.9.2
+
+### Patch Changes
+
+- Recalculate lighting after block-state changes while preserving unchanged writes.
+
+- Gate ChunkStore cold-load and consumer lighting performance against the PR base or preceding release, with alternating samples and bounded retries for inconclusive measurements.
+
 ## 0.9.1
 
 ### Patch Changes
