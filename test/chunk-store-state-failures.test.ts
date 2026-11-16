@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Result } from 'effect'
-import { BlockId, chunkKeyOf } from '@nerima-games/mc-kernel'
+import { Option, Result } from 'effect'
+import { BlockId, blockIdOf, chunkKeyOf } from '@nerima-games/mc-kernel'
 import { encodeBlockState } from '@nerima-games/mc-kernel/domain/block-state'
 import { vi } from 'vitest'
 import { BLOCK } from '../src/domain/biome'
@@ -37,6 +37,7 @@ import {
 } from '../src/domain/chunk-store-state'
 
 const COORD = chunkCoord(0, 0)
+const STONE_SLAB = Option.getOrThrow(blockIdOf('stone_slab'))
 const POSITION = blockPosition(1, blockAxis(10), 1)
 const CHUNK: ChunkWithBlockStates = {
   coord: COORD,
@@ -153,29 +154,68 @@ describe('ChunkStoreState typed light failures', () => {
     expect(state.loaded.get(chunkKeyOf(COORD))?.blockStates).toBe(CHUNK.blockStates)
   })
 
-  it('does not recompute lights for a block-state-only write', () => {
+  it.each(['direct', 'prepared'] as const)('recomputes lights for a slab-state-only %s write', (path) => {
     const index = blockIndex(POSITION.x, POSITION.y, POSITION.z)
     const blocks = emptyBlocks()
-    blocks[index] = BLOCK.LOG
+    blocks[index] = STONE_SLAB
     const blockStates = emptyBlockStates()
-    blockStates[index] = Result.getOrThrow(encodeBlockState(BLOCK.LOG, { axis: 'x' }))
+    blockStates[index] = Result.getOrThrow(encodeBlockState(STONE_SLAB, { type: 'bottom' }))
     const chunk = { ...CHUNK, blocks, blockStates }
     const resident = withChunk(emptyChunkStoreState, chunk)
     const state: ChunkStoreState = {
       ...resident,
       lights: new Map([[chunkKeyOf(COORD), emptyChunkLight()]]),
     }
-    vi.mocked(updateChunkLights).mockClear()
+    const relit = new Map([[chunkKeyOf(COORD), emptyChunkLight()]])
+    vi.mocked(updateChunkLights).mockReset().mockReturnValue(Result.succeed(relit))
 
-    const result = withBlockAt(state, POSITION, BLOCK.LOG, { axis: 'z' })
+    const prepared = prepareBlockWrite(state, POSITION, STONE_SLAB, { type: 'top' })
+    expect(prepared._tag).toBe('Prepared')
+    if (prepared._tag !== 'Prepared') return
+    const result = path === 'direct'
+      ? Result.map(withBlockAt(state, POSITION, STONE_SLAB, { type: 'top' }), ([, next]) => next)
+      : publishPreparedBlockWrite(state, prepared.candidate)
 
     expect(Result.isSuccess(result)).toBe(true)
     if (Result.isSuccess(result)) {
-      expect(result.success[0]).toStrictEqual({ _tag: 'Written', previous: BLOCK.LOG, chunk: COORD })
-      expect(result.success[1].lights).toBe(state.lights)
-      expect(result.success[1].loaded.get(chunkKeyOf(COORD))?.blockStates[index]).toBe(
-        Result.getOrThrow(encodeBlockState(BLOCK.LOG, { axis: 'z' })),
+      expect(result.success.lights === relit).toBe(true)
+      expect(result.success.loaded.get(chunkKeyOf(COORD))?.blockStates[index]).toBe(
+        Result.getOrThrow(encodeBlockState(STONE_SLAB, { type: 'top' })),
       )
+    }
+    expect(updateChunkLights).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Map), state.lights, [{ coord: COORD, x: 1, y: 10, z: 1 }],
+    )
+  })
+
+  it.each(['direct', 'prepared'] as const)('does not relight an identical slab %s write', (path) => {
+    const index = blockIndex(POSITION.x, POSITION.y, POSITION.z)
+    const blocks = emptyBlocks()
+    blocks[index] = STONE_SLAB
+    const blockStates = emptyBlockStates()
+    blockStates[index] = Result.getOrThrow(encodeBlockState(STONE_SLAB, { type: 'top' }))
+    const resident = withChunk(emptyChunkStoreState, { ...CHUNK, blocks, blockStates })
+    const state: ChunkStoreState = {
+      ...resident,
+      lights: new Map([[chunkKeyOf(COORD), emptyChunkLight()]]),
+    }
+    vi.mocked(updateChunkLights).mockClear()
+
+    if (path === 'direct') {
+      const result = withBlockAt(state, POSITION, STONE_SLAB, { type: 'top' })
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) {
+        expect(result.success[0]).toStrictEqual({ _tag: 'Unchanged', previous: STONE_SLAB })
+        expect(result.success[1]).toBe(state)
+      }
+    } else {
+      const prepared = prepareBlockWrite(state, POSITION, STONE_SLAB, { type: 'top' })
+      expect(prepared._tag).toBe('Prepared')
+      if (prepared._tag !== 'Prepared') return
+      expect(prepared.outcome).toStrictEqual({ _tag: 'Unchanged', previous: STONE_SLAB })
+      const result = publishPreparedBlockWrite(state, prepared.candidate)
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) expect(result.success === state).toBe(true)
     }
     expect(updateChunkLights).not.toHaveBeenCalled()
   })

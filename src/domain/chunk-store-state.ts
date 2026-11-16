@@ -886,18 +886,6 @@ const writeBlockAndRelight = (
   return lights
 }
 
-const lightsAfterBlockWrite = (
-  state: ChunkStoreState,
-  target: LoadedChunkTarget,
-  change: BlockWriteValues,
-): Result.Result<ChunkStoreState['lights'], LightQueueUnderflowError> => {
-  if (change.blockChanged) {
-    return writeBlockAndRelight(state, target, change)
-  }
-  target.chunk.blockStates[change.index] = change.nextState
-  return Result.succeed(state.lights)
-}
-
 const completedBlockWrite = (
   state: ChunkStoreState,
   target: LoadedChunkTarget,
@@ -930,7 +918,7 @@ const applyBlockWrite = (
     return Result.succeed([{ _tag: 'Unchanged', previous: change.previous }, state])
   }
 
-  const lights = lightsAfterBlockWrite(state, target, change)
+  const lights = writeBlockAndRelight(state, target, change)
   if (Result.isFailure(lights)) {
     return Result.fail(lights.failure)
   }
@@ -1044,13 +1032,10 @@ const recordChunkWrite = (
   builder: ChunkWriteCandidateBuilder,
   change: ChunkBlockChange,
   target: LoadedChunkTarget,
-  blockChanged: boolean,
 ): void => {
   builder.changes.push(change)
   builder.changedBlocks.push({ coord: target.coord, key: target.key, local: target.local })
-  if (blockChanged) {
-    builder.changedLightBlocks.push({ coord: target.coord, key: target.key, local: target.local })
-  }
+  builder.changedLightBlocks.push({ coord: target.coord, key: target.key, local: target.local })
   builder.changedChunks.set(target.key, { coord: target.coord, key: target.key })
 }
 
@@ -1087,7 +1072,7 @@ const appendChunkWrite = (
     setBlockAt(next.blocks, target.local.lx, target.local.ly, target.local.lz, edit.block)
   }
   next.blockStates[current.index] = encodedState
-  recordChunkWrite(builder, chunkBlockChangeFor(edit, current.previous, nextState), target, current.blockChanged)
+  recordChunkWrite(builder, chunkBlockChangeFor(edit, current.previous, nextState), target)
 }
 
 const preparedCandidateFor = (

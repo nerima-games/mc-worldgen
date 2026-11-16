@@ -229,8 +229,8 @@ export type ChunkStoreApi = {
   /**
    * Write one block. Reuses the prepare/publish transitions in one `Ref.modify`
    * so concurrent compatibility writes stay atomic. A block-state change dirties
-   * the chunk even when its block id is unchanged; light updates run only when
-   * the block id changes. Codec and light failures are returned in the error channel.
+   * the chunk even when its block id is unchanged; either change updates light.
+   * Codec and light failures are returned in the error channel.
    */
   readonly setBlock: (
     position: BlockPosition,
